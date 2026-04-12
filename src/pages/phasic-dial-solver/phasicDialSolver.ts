@@ -1,8 +1,3 @@
-import "@material/web/button/filled-button";
-import "@material/web/icon/icon";
-import "@material/web/iconbutton/icon-button";
-import "@material/web/textfield/outlined-text-field";
-
 import blueDial from "./../../../images/blue-dial.png";
 import cyanDial from "./../../../images/cyan-dial.png";
 import greenDial from "./../../../images/green-dial.png";
@@ -40,10 +35,6 @@ function rebuildTable() {
       )
       .join("");
 
-  // Update footer colspan to span all columns
-  const footerCell = document.getElementById("add-button-cell")!;
-  footerCell.colSpan = activeDials.length + 1;
-
   // Body rows: button label + text fields
   const body = document.getElementById("table-body")!;
   body.innerHTML = "";
@@ -54,17 +45,16 @@ function rebuildTable() {
       activeDials
         .map(
           c =>
-            `<td><md-outlined-text-field type="number" value="0" label="${c}"></md-outlined-text-field></td>`,
+            `<td><md-outlined-text-field type="number" value="0"></md-outlined-text-field></td>`,
         )
         .join("");
     body.appendChild(row);
   }
 }
 
-// Add dial
 document.getElementById("add-dial")!.addEventListener("click", () => {
   if (dialCount >= DIAL_ORDER.length) return;
-  const color = DIAL_ORDER[dialCount];
+  const color = DIAL_ORDER[dialCount]!;
   const dialsRow = document.getElementById("dials-row")!;
   const addBtn = document.getElementById("add-dial")!;
   const img = document.createElement("img");
@@ -81,13 +71,11 @@ document.getElementById("add-dial")!.addEventListener("click", () => {
   rebuildTable();
 });
 
-// Add button row
 document.getElementById("add-button")!.addEventListener("click", () => {
   buttonCount++;
   rebuildTable();
 });
 
-// Calculate
 document.getElementById("calculate")!.addEventListener("click", () => {
   const rows = document.querySelectorAll("#table-body tr");
   const data: Record<string, number[]> = {};
@@ -100,5 +88,4 @@ document.getElementById("calculate")!.addEventListener("click", () => {
   console.log("Calculate turns:", data);
 });
 
-// Initial build
 rebuildTable();
