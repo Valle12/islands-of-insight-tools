@@ -1,0 +1,58 @@
+body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 24px;
+  box-sizing: border-box;
+  font-family: "Roboto", sans-serif;
+  color: var(--md-sys-color-on-surface);
+}
+
+#container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+#dials-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+#turns-table {
+  border-collapse: collapse;
+  margin-bottom: 8px;
+
+  th,
+  td {
+    padding: 8px 12px;
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  th img {
+    vertical-align: middle;
+  }
+
+  td:first-child {
+    text-align: left;
+    font-weight: 500;
+  }
+
+  md-outlined-text-field {
+    --md-outlined-text-field-container-shape: 8px;
+    width: 80px;
+  }
+
+  tfoot td {
+    text-align: center;
+    padding-top: 8px;
+  }
+}
+
+#calculate {
+  margin-top: 24px;
+}

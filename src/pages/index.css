@@ -1,0 +1,13 @@
+#tool-selector {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  gap: 16px;
+
+  h1 {
+    color: var(--md-sys-color-on-surface);
+    font-family: "Roboto", sans-serif;
+  }
+}

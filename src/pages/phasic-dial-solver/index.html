@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Phasic Dial Solver</title>
+    <link rel="stylesheet" href="./../../common/common.css" />
+    <link rel="stylesheet" href="./phasicDialSolver.css" />
+    <script type="module" src="./../../common/common.ts"></script>
+    <script type="module" src="./phasicDialSolver.ts"></script>
+  </head>
+  <body>
+    <div id="container">
+      <div class="row" id="dials-row">
+        <span>Dials</span>
+        <img src="./../../../images/blue-dial.png" width="32" height="32" />
+        <img src="./../../../images/red-dial.png" width="32" height="32" />
+        <md-icon-button id="add-dial">
+          <md-icon>add</md-icon>
+        </md-icon-button>
+      </div>
+
+      <table id="turns-table">
+        <thead>
+          <tr id="table-header"></tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+        <tfoot>
+          <tr>
+            <td id="add-button-cell">
+              <md-icon-button id="add-button">
+                <md-icon>add</md-icon>
+              </md-icon-button>
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <md-filled-button id="calculate">Calculate Turns</md-filled-button>
+    </div>
+  </body>
+</html>
