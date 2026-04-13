@@ -33,6 +33,18 @@ class PhasicDialSolver {
       this.calculate();
     });
 
+    document.getElementById("reset")!.addEventListener("click", () => {
+      this.reset();
+    });
+
+    document.getElementById("help")!.addEventListener("click", () => {
+      (document.getElementById("help-dialog") as HTMLDialogElement).show();
+    });
+
+    document.getElementById("help-close")!.addEventListener("click", () => {
+      (document.getElementById("help-dialog") as HTMLDialogElement).close();
+    });
+
     this.rebuildDialsList();
     this.rebuildTable();
   }
@@ -105,6 +117,14 @@ class PhasicDialSolver {
     this.rebuildTable();
   }
 
+  private reset() {
+    this.dialCount = 2;
+    this.buttonCount = 1;
+    this.rebuildDialsList();
+    this.rebuildTable();
+    document.getElementById("result")!.hidden = true;
+  }
+
   private calculate() {
     const dialRows = document.querySelectorAll(".dial-row");
     const maxValues: number[] = [];
@@ -129,7 +149,20 @@ class PhasicDialSolver {
 
     const solver = new Solver(maxValues, initialValues, buttons);
     const result = solver.calculateTurns();
-    console.log(result);
+
+    const resultEl = document.getElementById("result")!;
+    if (result === null) {
+      resultEl.textContent = "No solution found.";
+    } else if (result.every(v => v === 0)) {
+      resultEl.textContent = "Already solved! No button presses needed.";
+    } else {
+      const lines = result.map(
+        (presses, i) =>
+          `Button ${i + 1}: ${presses} press${presses !== 1 ? "es" : ""}`,
+      );
+      resultEl.innerHTML = lines.join("<br>");
+    }
+    resultEl.hidden = false;
   }
 }
 
