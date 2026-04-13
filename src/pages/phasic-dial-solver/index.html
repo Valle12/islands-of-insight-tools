@@ -11,10 +11,9 @@
   </head>
   <body>
     <div id="container">
-      <div class="row" id="dials-row">
+      <div id="dials-config">
         <h2>Dials</h2>
-        <img src="./../../../images/blue-dial.png" width="32" height="32" />
-        <img src="./../../../images/red-dial.png" width="32" height="32" />
+        <div id="dials-list"></div>
         <md-icon-button id="add-dial">
           <md-icon>add</md-icon>
         </md-icon-button>
@@ -25,16 +24,11 @@
           <tr id="table-header"></tr>
         </thead>
         <tbody id="table-body"></tbody>
-        <tfoot>
-          <tr>
-            <td id="add-button-cell">
-              <md-icon-button id="add-button">
-                <md-icon>add</md-icon>
-              </md-icon-button>
-            </td>
-          </tr>
-        </tfoot>
       </table>
+
+      <md-icon-button id="add-button">
+        <md-icon>add</md-icon>
+      </md-icon-button>
 
       <md-filled-button id="calculate">Calculate Turns</md-filled-button>
     </div>

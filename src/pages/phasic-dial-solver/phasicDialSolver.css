@@ -15,16 +15,37 @@ body {
   align-items: center;
 }
 
-#dials-row {
+#dials-config {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+#dials-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dial-row {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 12px;
+
+  img {
+    vertical-align: middle;
+  }
+
+  md-outlined-text-field {
+    --md-outlined-text-field-container-shape: 8px;
+    width: 80px;
+  }
 }
 
 #turns-table {
   border-collapse: collapse;
-  margin-bottom: 8px;
 
   th,
   td {
@@ -45,11 +66,6 @@ body {
   md-outlined-text-field {
     --md-outlined-text-field-container-shape: 8px;
     width: 80px;
-  }
-
-  tfoot td {
-    text-align: center;
-    padding-top: 8px;
   }
 }
 

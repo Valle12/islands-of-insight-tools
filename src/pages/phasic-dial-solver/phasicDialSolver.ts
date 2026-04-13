@@ -3,89 +3,134 @@ import cyanDial from "./../../../images/cyan-dial.png";
 import greenDial from "./../../../images/green-dial.png";
 import redDial from "./../../../images/red-dial.png";
 import yellowDial from "./../../../images/yellow-dial.png";
+import { Button } from "./button";
+import { Solver } from "./solver";
 
-const DIAL_IMAGES: Record<string, string> = {
-  blue: blueDial,
-  red: redDial,
-  green: greenDial,
-  yellow: yellowDial,
-  cyan: cyanDial,
-};
+class PhasicDialSolver {
+  private dialCount = 2;
+  private buttonCount = 1;
 
-const DIAL_ORDER = ["blue", "red", "green", "yellow", "cyan"] as const;
+  private dialImages: Record<string, string> = {
+    blue: blueDial,
+    red: redDial,
+    green: greenDial,
+    yellow: yellowDial,
+    cyan: cyanDial,
+  };
 
-let dialCount = 2;
-let buttonCount = 1;
+  private dialOrder = ["blue", "red", "green", "yellow", "cyan"] as const;
 
-function getDialImgSrc(color: string): string {
-  return DIAL_IMAGES[color]!;
-}
+  constructor() {
+    document.getElementById("add-dial")!.addEventListener("click", () => {
+      this.addDial();
+    });
 
-function rebuildTable() {
-  const activeDials = DIAL_ORDER.slice(0, dialCount);
+    document.getElementById("add-button")!.addEventListener("click", () => {
+      this.addButton();
+    });
 
-  // Header row: empty cell + dial images
-  const header = document.getElementById("table-header")!;
-  header.innerHTML =
-    "<th></th>" +
-    activeDials
+    document.getElementById("calculate")!.addEventListener("click", () => {
+      this.calculate();
+    });
+
+    this.rebuildDialsList();
+    this.rebuildTable();
+  }
+
+  private getDialImgSrc(color: string): string {
+    return this.dialImages[color]!;
+  }
+
+  private rebuildDialsList() {
+    const activeDials = this.dialOrder.slice(0, this.dialCount);
+    const list = document.getElementById("dials-list")!;
+    list.innerHTML = activeDials
       .map(
         c =>
-          `<th><img src="${getDialImgSrc(c)}" width="32" height="32" /></th>`,
+          `<div class="dial-row" data-color="${c}">
+            <img src="${this.getDialImgSrc(c)}" width="32" height="32" />
+            <md-outlined-text-field label="Max" type="number" value="3" class="dial-max"></md-outlined-text-field>
+            <md-outlined-text-field label="Value" type="number" value="0" class="dial-value"></md-outlined-text-field>
+          </div>`,
       )
       .join("");
 
-  // Body rows: button label + text fields
-  const body = document.getElementById("table-body")!;
-  body.innerHTML = "";
-  for (let i = 1; i <= buttonCount; i++) {
-    const row = document.createElement("tr");
-    row.innerHTML =
-      `<td>Button ${i}</td>` +
+    const addBtn = document.getElementById("add-dial")!;
+    addBtn.style.display =
+      this.dialCount >= this.dialOrder.length ? "none" : "";
+  }
+
+  private rebuildTable() {
+    const activeDials = this.dialOrder.slice(0, this.dialCount);
+
+    // Header row: empty cell + dial images
+    const header = document.getElementById("table-header")!;
+    header.innerHTML =
+      "<th></th>" +
       activeDials
         .map(
           c =>
-            `<td><md-outlined-text-field type="number" value="0"></md-outlined-text-field></td>`,
+            `<th><img src="${this.getDialImgSrc(c)}" width="32" height="32" /></th>`,
         )
         .join("");
-    body.appendChild(row);
+
+    // Body rows
+    const body = document.getElementById("table-body")!;
+    body.innerHTML = "";
+
+    // Button rows
+    for (let i = 1; i <= this.buttonCount; i++) {
+      const row = document.createElement("tr");
+      row.innerHTML =
+        `<td>Button ${i}</td>` +
+        activeDials
+          .map(
+            () =>
+              `<td><md-outlined-text-field type="number" value="0"></md-outlined-text-field></td>`,
+          )
+          .join("");
+      body.appendChild(row);
+    }
+  }
+
+  private addDial() {
+    if (this.dialCount >= this.dialOrder.length) return;
+    this.dialCount++;
+    this.rebuildDialsList();
+    this.rebuildTable();
+  }
+
+  private addButton() {
+    this.buttonCount++;
+    this.rebuildTable();
+  }
+
+  private calculate() {
+    const dialRows = document.querySelectorAll(".dial-row");
+    const maxValues: number[] = [];
+    const initialValues: number[] = [];
+    dialRows.forEach(row => {
+      maxValues.push(
+        Number(row.querySelector<HTMLInputElement>(".dial-max")!.value),
+      );
+      initialValues.push(
+        Number(row.querySelector<HTMLInputElement>(".dial-value")!.value),
+      );
+    });
+
+    const rows = document.querySelectorAll("#table-body tr");
+    const buttons: Button[] = [];
+    rows.forEach((row, i) => {
+      const fields = row.querySelectorAll("md-outlined-text-field");
+      const values: number[] = [];
+      fields.forEach(f => values.push(Number(f.value)));
+      buttons.push(new Button(values));
+    });
+
+    const solver = new Solver(maxValues, initialValues, buttons);
+    const result = solver.calculateTurns();
+    console.log(result);
   }
 }
 
-document.getElementById("add-dial")!.addEventListener("click", () => {
-  if (dialCount >= DIAL_ORDER.length) return;
-  const color = DIAL_ORDER[dialCount]!;
-  const dialsRow = document.getElementById("dials-row")!;
-  const addBtn = document.getElementById("add-dial")!;
-  const img = document.createElement("img");
-  img.src = getDialImgSrc(color);
-  img.width = 32;
-  img.height = 32;
-  dialsRow.insertBefore(img, addBtn);
-  dialCount++;
-
-  if (dialCount >= DIAL_ORDER.length) {
-    addBtn.style.display = "none";
-  }
-
-  rebuildTable();
-});
-
-document.getElementById("add-button")!.addEventListener("click", () => {
-  buttonCount++;
-  rebuildTable();
-});
-
-document.getElementById("calculate")!.addEventListener("click", () => {
-  const rows = document.querySelectorAll("#table-body tr");
-  const data: Record<string, number[]> = {};
-  rows.forEach((row, i) => {
-    const fields = row.querySelectorAll("md-outlined-text-field");
-    const values: number[] = [];
-    fields.forEach(f => values.push(Number((f as any).value) || 0));
-    data[`Button ${i + 1}`] = values;
-  });
-  console.log("Calculate turns:", data);
-});
-
-rebuildTable();
+new PhasicDialSolver();
