@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Phasic Dial Solver</title>
+    <link rel="stylesheet" href="./../../common/common.css" />
+    <link rel="stylesheet" href="./phasicDialSolver.css" />
+    <script type="module" src="./../../common/common.ts"></script>
+    <script type="module" src="./phasicDialSolver.ts"></script>
+  </head>
+  <body>
+    <div id="container">
+      <div id="dials-config">
+        <div id="dials-header">
+          <md-icon-button id="reset">
+            <md-icon>cancel</md-icon>
+          </md-icon-button>
+          <h2>Dials</h2>
+          <md-icon-button id="help">
+            <md-icon>question_mark</md-icon>
+          </md-icon-button>
+        </div>
+        <div id="dials-list"></div>
+        <md-icon-button id="add-dial">
+          <md-icon>add</md-icon>
+        </md-icon-button>
+      </div>
+
+      <md-dialog id="help-dialog">
+        <div slot="headline">How to use</div>
+        <div slot="content">
+          <ol>
+            <li>
+              Add dials first so the table has the right number of columns.
+            </li>
+            <li>
+              Set <strong>Max</strong> to the number of sides of the dial minus
+              1 (e.g. a square dial has 4 sides, so Max = 3). The
+              <strong>Value</strong> is 0 when pointing at the center, then
+              count clockwise by the number of lit-up dots.
+            </li>
+            <li>
+              For each button, enter how many turns it applies to each dial. For
+              example, if you see two blue icons on a button, enter
+              <strong>2</strong> in that button's blue column.
+            </li>
+          </ol>
+        </div>
+        <div slot="actions">
+          <md-text-button id="help-close">Close</md-text-button>
+        </div>
+      </md-dialog>
+
+      <table id="turns-table">
+        <thead>
+          <tr id="table-header"></tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+      </table>
+
+      <md-icon-button id="add-button">
+        <md-icon>add</md-icon>
+      </md-icon-button>
+
+      <md-filled-button id="calculate">Calculate Turns</md-filled-button>
+
+      <div id="result" hidden></div>
+    </div>
+  </body>
+</html>
