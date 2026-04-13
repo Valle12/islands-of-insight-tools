@@ -2,7 +2,7 @@ B: 1/3, R: 1/4, G: 2/5
 B1: B
 B2: R
 B3: G
--> B13 B23 B34
+-> B13 B24 B34
 
 B: 1/3, R: 2/4, G: 3/5
 B1: B
@@ -15,7 +15,7 @@ B1: B
 B2: RG
 -> B14 B211
 
-B: 2/4, R: 2/3, G: 2/5, Y: 3/5
+B: 2/4, R: 2/3, G: 2/4, Y: 3/5
 B1: BBBB
 B2: BBBRRR
 B3: BBGG
@@ -49,7 +49,11 @@ B2: RRRG
 -> 2,9
 
 Need to look initial state up myself! Going up the first staircase directly on the right
--> Video Solution: 0,0,3
+B: 1/3, R: 2/3
+B1: BR
+B2: BBRR
+B3: BRR
+-> My Solution: 0,0,3; Video Solution: 0,0,3
 
 B: 3/3, R: 0/5
 B1: BB
