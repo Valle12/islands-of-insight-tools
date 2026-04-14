@@ -1,3 +1,7 @@
+md-dialog:not(:defined) {
+  display: none;
+}
+
 body {
   display: flex;
   justify-content: center;
