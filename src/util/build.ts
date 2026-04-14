@@ -1,4 +1,4 @@
-import { sassCompiler } from "./plugins";
+import { pngDataUrl, sassCompiler } from "./plugins";
 
 await Bun.build({
   entrypoints: [
@@ -6,8 +6,8 @@ await Bun.build({
     "./src/pages/phasic-dial-solver/index.html",
   ],
   outdir: "./dist",
-  plugins: [sassCompiler()],
+  plugins: [sassCompiler(), pngDataUrl()],
   target: "browser",
-  compile: true,
   minify: true,
+  compile: true,
 });
