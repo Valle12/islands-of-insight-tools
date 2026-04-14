@@ -6,7 +6,8 @@ await Bun.build({
     "./src/pages/phasic-dial-solver/index.html",
   ],
   outdir: "./dist",
-  publicPath: "/islands-of-insight-tools/",
   plugins: [sassCompiler()],
   target: "browser",
+  compile: true,
+  minify: true,
 });
