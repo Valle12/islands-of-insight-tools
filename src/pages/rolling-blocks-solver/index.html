@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Google tag (gtag.js) -->
+    <script
+      async
+      src="https://www.googletagmanager.com/gtag/js?id=G-BT8XWLG2XF"
+    ></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag() {
+        dataLayer.push(arguments);
+      }
+      gtag("js", new Date());
+
+      gtag("config", "G-BT8XWLG2XF");
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/images/favicon.png" />
+    <title>Rolling Blocks Solver</title>
+    <link rel="stylesheet" href="./../../common/common.css" />
+    <link rel="stylesheet" href="./rollingBlocksSolver.css" />
+    <script type="module" src="./../../common/common.ts"></script>
+    <script type="module" src="./rollingBlocksSolver.ts"></script>
+  </head>
+  <body>
+    <a href="./.." id="home-button" title="Home">
+      <md-icon-button>
+        <md-icon>home</md-icon>
+      </md-icon-button>
+    </a>
+
+    <div id="container">
+      <div id="editor-card">
+        <h1>Rolling Blocks Setup</h1>
+        <p id="subtitle">
+          Build the board layout and block definitions. Solver logic comes
+          later.
+        </p>
+
+        <div id="size-controls">
+          <md-outlined-text-field
+            id="grid-width"
+            type="number"
+            label="Grid Width"
+            value="5"
+          ></md-outlined-text-field>
+          <md-outlined-text-field
+            id="grid-height"
+            type="number"
+            label="Grid Height"
+            value="5"
+          ></md-outlined-text-field>
+        </div>
+
+        <div id="grid-shell">
+          <div id="grid" aria-label="Rolling blocks grid editor"></div>
+        </div>
+
+        <div id="tool-status">Selected tool: Regular</div>
+
+        <div id="tool-row" aria-label="Editor tools">
+          <button class="tool-button" data-tool="regular" type="button">
+            Regular
+          </button>
+          <button class="tool-button" data-tool="mustTouch" type="button">
+            Must-Touch
+          </button>
+          <button class="tool-button" data-tool="goal" type="button">
+            Goal
+          </button>
+          <button class="tool-button" data-tool="unplayable" type="button">
+            Unplayable
+          </button>
+          <button class="tool-button" data-tool="block" type="button">
+            Block Footprint
+          </button>
+          <button class="tool-button" data-tool="erase" type="button">
+            Erase
+          </button>
+        </div>
+
+        <div id="blocks-panel">
+          <div id="blocks-panel-header">
+            <h2>Blocks</h2>
+            <p>
+              Drag once on the grid with Block Footprint to create a cuboid.
+            </p>
+          </div>
+          <div id="blocks-list"></div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

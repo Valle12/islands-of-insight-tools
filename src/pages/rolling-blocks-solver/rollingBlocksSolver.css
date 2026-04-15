@@ -1,0 +1,238 @@
+body {
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  box-sizing: border-box;
+  font-family: "Roboto", sans-serif;
+  color: var(--md-sys-color-on-surface);
+}
+
+#home-button {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+}
+
+#container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin-block: auto;
+}
+
+#editor-card {
+  width: min(100%, 960px);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 18px;
+  background:
+    linear-gradient(
+      140deg,
+      color-mix(
+        in srgb,
+        var(--md-sys-color-primary-container) 48%,
+        transparent
+      ),
+      transparent 55%
+    ),
+    var(--md-sys-color-surface-container-low);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.09);
+}
+
+h1,
+h2 {
+  margin: 0;
+}
+
+#subtitle {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+#size-controls {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+
+  md-outlined-text-field {
+    --md-outlined-text-field-container-shape: 10px;
+    width: 160px;
+  }
+}
+
+#grid-shell {
+  display: flex;
+  justify-content: center;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--md-sys-color-surface-container);
+  border: 1px solid var(--md-sys-color-outline-variant);
+}
+
+#grid {
+  display: grid;
+  gap: 6px;
+  user-select: none;
+  touch-action: none;
+}
+
+.grid-cell {
+  width: 42px;
+  height: 42px;
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 60%, white);
+  border-radius: 8px;
+  background: #4f87d9;
+  cursor: pointer;
+  transition:
+    transform 80ms ease,
+    box-shadow 120ms ease,
+    background-color 120ms ease,
+    opacity 120ms ease;
+}
+
+.grid-cell:hover {
+  transform: translateY(-1px);
+}
+
+.grid-cell[data-kind="must-touch"] {
+  background: #66a6ff;
+}
+
+.grid-cell[data-kind="goal"] {
+  background: #f5c84a;
+}
+
+.grid-cell[data-kind="unplayable"] {
+  background: transparent;
+  border-style: dashed;
+  border-color: color-mix(
+    in srgb,
+    var(--md-sys-color-on-surface) 32%,
+    transparent
+  );
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--md-sys-color-on-surface) 26%, transparent);
+}
+
+.grid-cell[data-kind="block"] {
+  background: #8465c8;
+}
+
+.grid-cell.preview {
+  box-shadow: inset 0 0 0 2px #d8b4fe;
+}
+
+#tool-status {
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+#tool-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tool-button {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tool-button.selected {
+  border-color: var(--md-sys-color-primary);
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+
+#blocks-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container);
+}
+
+#blocks-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+
+  p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--md-sys-color-on-surface-variant);
+  }
+}
+
+#blocks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.block-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.block-chip {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: #8465c8;
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.block-footprint {
+  font-size: 13px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.block-row md-outlined-text-field {
+  --md-outlined-text-field-container-shape: 8px;
+  width: 110px;
+}
+
+.empty-state {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  body {
+    padding: 14px;
+  }
+
+  #editor-card {
+    padding: 14px;
+  }
+
+  #blocks-panel-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .grid-cell {
+    width: 34px;
+    height: 34px;
+  }
+}
