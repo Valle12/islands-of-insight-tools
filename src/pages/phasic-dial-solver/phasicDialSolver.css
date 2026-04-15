@@ -12,6 +12,12 @@ body {
   color: var(--md-sys-color-on-surface);
 }
 
+#home-button {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+}
+
 #container {
   display: flex;
   flex-direction: column;
