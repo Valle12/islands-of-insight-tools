@@ -20,7 +20,7 @@ export const sassCompiler = (): BunPlugin => ({
 export const pngDataUrl = (): BunPlugin => ({
   name: "pngDataUrl",
   setup(build) {
-    build.onLoad({ filter: /\.png$/ }, args => {
+    build.onLoad({ filter: /(?<!favicon)\.png$/ }, args => {
       const data = readFileSync(args.path).toString("base64");
       return {
         contents: `export default "data:image/png;base64,${data}";`,
