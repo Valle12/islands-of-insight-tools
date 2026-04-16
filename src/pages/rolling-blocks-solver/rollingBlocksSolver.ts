@@ -4,7 +4,9 @@ type PaintTool =
   | "goal"
   | "unplayable"
   | "block"
-  | "erase";
+  | "fillRegular"
+  | "fillMustTouch"
+  | "clearAll";
 
 type CellKind = "regular" | "must-touch" | "goal" | "unplayable";
 
@@ -63,9 +65,50 @@ class RollingBlocksSolverEditor {
       button.addEventListener("click", () => {
         const tool = button.dataset.tool as PaintTool | undefined;
         if (!tool) return;
+
+        if (tool === "fillRegular") {
+          this.fillAllCells("regular");
+          this.render();
+          return;
+        }
+
+        if (tool === "fillMustTouch") {
+          this.fillAllCells("must-touch");
+          this.render();
+          return;
+        }
+
+        if (tool === "clearAll") {
+          (
+            document.getElementById("clear-all-dialog") as HTMLDialogElement
+          ).show();
+          return;
+        }
+
         this.selectedTool = tool;
         this.renderToolButtons();
       });
+    });
+
+    const clearAllCancelBtn = document.getElementById("clear-all-cancel");
+    const clearAllConfirmBtn = document.getElementById("clear-all-confirm");
+    const clearAllDialog = document.getElementById(
+      "clear-all-dialog",
+    ) as HTMLDialogElement;
+
+    clearAllCancelBtn?.addEventListener("click", () => {
+      clearAllDialog.close();
+    });
+
+    clearAllConfirmBtn?.addEventListener("click", () => {
+      this.resetBoardData();
+      this.render();
+      clearAllDialog.close();
+    });
+
+    const calculateMovesBtn = document.getElementById("calculate-moves");
+    calculateMovesBtn?.addEventListener("click", () => {
+      console.log("Calculate Moves clicked - functionality to be implemented");
     });
 
     const handleSizeUpdate = () => {
@@ -147,7 +190,7 @@ class RollingBlocksSolverEditor {
 
     this.blocksListEl.addEventListener("click", event => {
       const target = event.target as HTMLElement;
-      const button = target.closest("md-text-button") as
+      const button = target.closest("md-icon-button") as
         | (HTMLElement & { dataset: DOMStringMap })
         | null;
       if (!button) return;
@@ -156,6 +199,7 @@ class RollingBlocksSolverEditor {
       if (!Number.isFinite(id)) return;
 
       this.deleteBlockById(id);
+      this.renumberBlocks();
       this.render();
     });
   }
@@ -265,11 +309,9 @@ class RollingBlocksSolverEditor {
           ? "Unplayable"
           : this.selectedTool === "block"
             ? "Block Footprint"
-            : this.selectedTool === "erase"
-              ? "Erase"
-              : this.selectedTool === "goal"
-                ? "Goal"
-                : "Regular";
+            : this.selectedTool === "goal"
+              ? "Goal"
+              : "Regular";
 
     this.statusEl.textContent = `Selected tool: ${label}`;
   }
@@ -293,7 +335,9 @@ class RollingBlocksSolverEditor {
               value="${block.height}"
               data-block-id="${block.id}"
             ></md-outlined-text-field>
-            <md-text-button data-block-delete-id="${block.id}">Delete</md-text-button>
+            <md-icon-button data-block-delete-id="${block.id}" title="Delete block">
+              <md-icon>delete</md-icon>
+            </md-icon-button>
           </div>
         `,
       )
@@ -324,6 +368,7 @@ class RollingBlocksSolverEditor {
     const blockId = this.blockMap[position.y]?.[position.x] ?? null;
     if (blockId !== null) {
       this.deleteBlockById(blockId);
+      this.renumberBlocks();
     }
 
     const row = this.cells[position.y];
@@ -342,9 +387,6 @@ class RollingBlocksSolverEditor {
       case "unplayable":
         row[position.x] = "unplayable";
         return;
-      case "erase":
-        row[position.x] = "regular";
-        return;
       case "block":
         return;
       default:
@@ -358,12 +400,10 @@ class RollingBlocksSolverEditor {
     const minY = Math.min(start.y, end.y);
     const maxY = Math.max(start.y, end.y);
 
+    // Check if any cell already has a block
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
         if (this.blockMap[y]?.[x] !== null) {
-          return;
-        }
-        if (this.cells[y]?.[x] === "unplayable") {
           return;
         }
       }
@@ -379,12 +419,18 @@ class RollingBlocksSolverEditor {
       height: 1,
     };
 
+    // Place the block and add must-touch cells underneath unplayable cells
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
         if (!this.blockMap[y]) continue;
         this.blockMap[y][x] = id;
-        if (!this.cells[y]) continue;
-        this.cells[y][x] = "regular";
+
+        // If the cell underneath is unplayable, put must-touch there
+        if (this.cells[y]?.[x] === "unplayable") {
+          this.cells[y][x] = "must-touch";
+        } else if (this.cells[y]?.[x] !== "goal") {
+          this.cells[y][x] = "regular";
+        }
       }
     }
 
@@ -398,6 +444,55 @@ class RollingBlocksSolverEditor {
       for (let x = 0; x < this.gridWidth; x++) {
         if (this.blockMap[y]?.[x] === id && this.blockMap[y]) {
           this.blockMap[y][x] = null;
+        }
+      }
+    }
+  }
+
+  private renumberBlocks() {
+    if (this.blocks.length === 0) {
+      this.nextBlockId = 1;
+      return;
+    }
+
+    // Rebuild the blockMap with new sequential IDs
+    const newBlockMap: (number | null)[][] = Array.from(
+      { length: this.gridHeight },
+      () => Array.from({ length: this.gridWidth }, () => null),
+    );
+
+    let newId = 1;
+    const idMap = new Map<number, number>();
+
+    for (const block of this.blocks) {
+      idMap.set(block.id, newId);
+      block.id = newId;
+      newId++;
+    }
+
+    for (let y = 0; y < this.gridHeight; y++) {
+      for (let x = 0; x < this.gridWidth; x++) {
+        const oldId = this.blockMap[y]?.[x];
+        if (oldId !== null && oldId !== undefined) {
+          const mappedId = idMap.get(oldId);
+          if (mappedId !== undefined) {
+            newBlockMap[y][x] = mappedId;
+          }
+        }
+      }
+    }
+
+    this.blockMap = newBlockMap;
+    this.nextBlockId = newId;
+  }
+
+  private fillAllCells(kind: CellKind) {
+    for (let y = 0; y < this.gridHeight; y++) {
+      for (let x = 0; x < this.gridWidth; x++) {
+        // Don't fill cells that have blocks
+        if (this.blockMap[y]?.[x] === null) {
+          if (!this.cells[y]) continue;
+          this.cells[y][x] = kind;
         }
       }
     }

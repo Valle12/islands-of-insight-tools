@@ -100,7 +100,20 @@ h2 {
 }
 
 .grid-cell[data-kind="must-touch"] {
-  background: #66a6ff;
+  background: #4f87d9;
+  position: relative;
+}
+
+.grid-cell[data-kind="must-touch"]::after {
+  content: "★";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #fff;
+  font-size: 18px;
+  font-weight: bold;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 .grid-cell[data-kind="goal"] {
@@ -152,6 +165,12 @@ h2 {
   border-color: var(--md-sys-color-primary);
   background: var(--md-sys-color-primary-container);
   color: var(--md-sys-color-on-primary-container);
+}
+
+#action-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 #blocks-panel {
@@ -209,6 +228,16 @@ h2 {
 .block-row md-outlined-text-field {
   --md-outlined-text-field-container-shape: 8px;
   width: 110px;
+}
+
+.block-delete-btn {
+  padding: 0;
+  min-width: auto;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .empty-state {

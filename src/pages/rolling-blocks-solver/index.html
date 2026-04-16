@@ -76,10 +76,36 @@
           <button class="tool-button" data-tool="block" type="button">
             Block Footprint
           </button>
-          <button class="tool-button" data-tool="erase" type="button">
-            Erase
+          <button class="tool-button" data-tool="fillRegular" type="button">
+            Fill Regular
+          </button>
+          <button class="tool-button" data-tool="fillMustTouch" type="button">
+            Fill Must-Touch
+          </button>
+          <button class="tool-button" data-tool="clearAll" type="button">
+            Clear All
           </button>
         </div>
+
+        <div id="action-buttons">
+          <md-filled-button id="calculate-moves"
+            >Calculate Moves</md-filled-button
+          >
+        </div>
+
+        <md-dialog id="clear-all-dialog">
+          <div slot="headline">Clear All Cells?</div>
+          <div slot="content">
+            This will reset all cells to the default layout and remove all
+            blocks.
+          </div>
+          <div slot="actions">
+            <md-text-button id="clear-all-cancel">Cancel</md-text-button>
+            <md-filled-button id="clear-all-confirm"
+              >Clear All</md-filled-button
+            >
+          </div>
+        </md-dialog>
 
         <div id="blocks-panel">
           <div id="blocks-panel-header">
