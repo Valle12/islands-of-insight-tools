@@ -87,6 +87,7 @@ h2 {
   border: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 60%, white);
   border-radius: 8px;
   background: #4f87d9;
+  position: relative;
   cursor: pointer;
   transition:
     transform 80ms ease,
@@ -136,8 +137,61 @@ h2 {
   background: #8465c8;
 }
 
+.grid-cell[data-block-id] {
+  border: 1px solid rgba(0, 0, 0, 0.18);
+}
+
+.grid-cell[data-kind="block"]::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  pointer-events: none;
+  border-style: solid;
+  border-color: transparent;
+  border-width: 0;
+  border-radius: 10px;
+  z-index: 1;
+}
+
+.grid-cell.block-edge-top::before {
+  border-top-width: 7px;
+  border-top-color: #1a0f37;
+}
+
+.grid-cell.block-edge-right::before {
+  border-right-width: 7px;
+  border-right-color: #1a0f37;
+}
+
+.grid-cell.block-edge-bottom::before {
+  border-bottom-width: 7px;
+  border-bottom-color: #1a0f37;
+}
+
+.grid-cell.block-edge-left::before {
+  border-left-width: 7px;
+  border-left-color: #1a0f37;
+}
+
+.grid-cell.block-hovered {
+  filter: brightness(1.14);
+}
+
+.grid-cell.block-hovered::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  pointer-events: none;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.9);
+}
+
 .grid-cell.preview {
   box-shadow: inset 0 0 0 2px #d8b4fe;
+}
+
+.grid-cell.goal-preview {
+  box-shadow: inset 0 0 0 2px #f5c84a;
 }
 
 #tool-status {
@@ -209,6 +263,16 @@ h2 {
   padding: 10px;
   border-radius: 10px;
   background: var(--md-sys-color-surface-container-high);
+  transition: background-color 120ms ease;
+}
+
+.block-row:hover,
+.block-row.row-hovered {
+  background: color-mix(
+    in srgb,
+    var(--md-sys-color-primary-container) 45%,
+    var(--md-sys-color-surface-container-high)
+  );
 }
 
 .block-chip {

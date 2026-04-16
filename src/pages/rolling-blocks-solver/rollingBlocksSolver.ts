@@ -6,7 +6,7 @@ type PaintTool =
   | "block"
   | "fillRegular"
   | "fillMustTouch"
-  | "clearAll";
+  | "reset";
 
 type CellKind = "regular" | "must-touch" | "goal" | "unplayable";
 
@@ -25,6 +25,9 @@ type BlockDefinition = {
 };
 
 class RollingBlocksSolverEditor {
+  private static readonly DEFAULT_GRID_WIDTH = 5;
+  private static readonly DEFAULT_GRID_HEIGHT = 5;
+
   private readonly gridEl = document.getElementById("grid") as HTMLDivElement;
   private readonly blocksListEl = document.getElementById(
     "blocks-list",
@@ -39,20 +42,22 @@ class RollingBlocksSolverEditor {
     "tool-status",
   ) as HTMLDivElement;
 
-  private gridWidth = 5;
-  private gridHeight = 5;
+  private gridWidth = RollingBlocksSolverEditor.DEFAULT_GRID_WIDTH;
+  private gridHeight = RollingBlocksSolverEditor.DEFAULT_GRID_HEIGHT;
   private selectedTool: PaintTool = "regular";
 
   private cells: CellKind[][] = [];
   private blockMap: (number | null)[][] = [];
   private blocks: BlockDefinition[] = [];
   private nextBlockId = 1;
+  private hoveredBlockId: number | null = null;
 
   private isPainting = false;
   private dragStart: CellPosition | null = null;
   private dragCurrent: CellPosition | null = null;
 
   constructor() {
+    this.applyDefaultGridSize();
     this.resetBoardData();
     this.bindEvents();
     this.render();
@@ -78,10 +83,8 @@ class RollingBlocksSolverEditor {
           return;
         }
 
-        if (tool === "clearAll") {
-          (
-            document.getElementById("clear-all-dialog") as HTMLDialogElement
-          ).show();
+        if (tool === "reset") {
+          (document.getElementById("reset-dialog") as HTMLDialogElement).show();
           return;
         }
 
@@ -90,20 +93,20 @@ class RollingBlocksSolverEditor {
       });
     });
 
-    const clearAllCancelBtn = document.getElementById("clear-all-cancel");
-    const clearAllConfirmBtn = document.getElementById("clear-all-confirm");
-    const clearAllDialog = document.getElementById(
-      "clear-all-dialog",
+    const resetCancelBtn = document.getElementById("reset-cancel");
+    const resetConfirmBtn = document.getElementById("reset-confirm");
+    const resetDialog = document.getElementById(
+      "reset-dialog",
     ) as HTMLDialogElement;
 
-    clearAllCancelBtn?.addEventListener("click", () => {
-      clearAllDialog.close();
+    resetCancelBtn?.addEventListener("click", () => {
+      resetDialog.close();
     });
 
-    clearAllConfirmBtn?.addEventListener("click", () => {
-      this.resetBoardData();
+    resetConfirmBtn?.addEventListener("click", () => {
+      this.resetToDefaults();
       this.render();
-      clearAllDialog.close();
+      resetDialog.close();
     });
 
     const calculateMovesBtn = document.getElementById("calculate-moves");
@@ -129,7 +132,7 @@ class RollingBlocksSolverEditor {
       if (!position) return;
       this.isPainting = true;
 
-      if (this.selectedTool === "block") {
+      if (this.selectedTool === "block" || this.selectedTool === "goal") {
         this.dragStart = position;
         this.dragCurrent = position;
         this.renderGrid();
@@ -145,7 +148,7 @@ class RollingBlocksSolverEditor {
       const position = this.extractCellPosition(event.target);
       if (!position) return;
 
-      if (this.selectedTool === "block") {
+      if (this.selectedTool === "block" || this.selectedTool === "goal") {
         this.dragCurrent = position;
         this.renderGrid();
         return;
@@ -162,6 +165,10 @@ class RollingBlocksSolverEditor {
 
       if (this.selectedTool === "block" && this.dragStart && this.dragCurrent) {
         this.commitBlockRectangle(this.dragStart, this.dragCurrent);
+      }
+
+      if (this.selectedTool === "goal" && this.dragStart && this.dragCurrent) {
+        this.commitGoalRectangle(this.dragStart, this.dragCurrent);
       }
 
       this.dragStart = null;
@@ -202,6 +209,47 @@ class RollingBlocksSolverEditor {
       this.renumberBlocks();
       this.render();
     });
+
+    this.blocksListEl.addEventListener("mouseover", event => {
+      const target = event.target as HTMLElement;
+      const row = target.closest(".block-row") as HTMLElement | null;
+      if (!row) return;
+
+      const id = Number(row.dataset.blockId);
+      if (!Number.isFinite(id)) return;
+      this.setHoveredBlockId(id);
+    });
+
+    this.blocksListEl.addEventListener("mouseleave", () => {
+      this.setHoveredBlockId(null);
+    });
+
+    this.blocksListEl.addEventListener("focusin", event => {
+      const target = event.target as HTMLElement;
+      const row = target.closest(".block-row") as HTMLElement | null;
+      if (!row) return;
+
+      const id = Number(row.dataset.blockId);
+      if (!Number.isFinite(id)) return;
+      this.setHoveredBlockId(id);
+    });
+
+    this.blocksListEl.addEventListener("focusout", event => {
+      const nextTarget = event.relatedTarget as HTMLElement | null;
+      if (nextTarget && this.blocksListEl.contains(nextTarget)) {
+        return;
+      }
+      this.setHoveredBlockId(null);
+    });
+  }
+
+  private setHoveredBlockId(id: number | null) {
+    if (this.hoveredBlockId === id) {
+      return;
+    }
+    this.hoveredBlockId = id;
+    this.renderGrid();
+    this.renderBlocksList();
   }
 
   private parsePositiveInt(value: string): number | null {
@@ -210,6 +258,18 @@ class RollingBlocksSolverEditor {
       return null;
     }
     return parsed;
+  }
+
+  private applyDefaultGridSize() {
+    this.gridWidth = RollingBlocksSolverEditor.DEFAULT_GRID_WIDTH;
+    this.gridHeight = RollingBlocksSolverEditor.DEFAULT_GRID_HEIGHT;
+    this.widthField.value = String(this.gridWidth);
+    this.heightField.value = String(this.gridHeight);
+  }
+
+  private resetToDefaults() {
+    this.applyDefaultGridSize();
+    this.resetBoardData();
   }
 
   private resetBoardData() {
@@ -226,9 +286,24 @@ class RollingBlocksSolverEditor {
   }
 
   private render() {
+    if (
+      this.hoveredBlockId !== null &&
+      !this.blocks.some(block => block.id === this.hoveredBlockId)
+    ) {
+      this.hoveredBlockId = null;
+    }
+
     this.renderGrid();
     this.renderToolButtons();
     this.renderBlocksList();
+  }
+
+  private hasBlockAt(x: number, y: number, blockId: number): boolean {
+    if (x < 0 || y < 0 || x >= this.gridWidth || y >= this.gridHeight) {
+      return false;
+    }
+
+    return this.blockMap[y]?.[x] === blockId;
   }
 
   private renderGrid() {
@@ -246,12 +321,32 @@ class RollingBlocksSolverEditor {
         const blockId = this.blockMap[y]?.[x] ?? null;
         if (blockId !== null) {
           cell.dataset.kind = "block";
+          cell.dataset.blockId = String(blockId);
+
+          if (!this.hasBlockAt(x, y - 1, blockId)) {
+            cell.classList.add("block-edge-top");
+          }
+          if (!this.hasBlockAt(x + 1, y, blockId)) {
+            cell.classList.add("block-edge-right");
+          }
+          if (!this.hasBlockAt(x, y + 1, blockId)) {
+            cell.classList.add("block-edge-bottom");
+          }
+          if (!this.hasBlockAt(x - 1, y, blockId)) {
+            cell.classList.add("block-edge-left");
+          }
+
+          if (this.hoveredBlockId === blockId) {
+            cell.classList.add("block-hovered");
+          }
         } else {
           cell.dataset.kind = this.cells[y]?.[x] ?? "regular";
         }
 
         if (this.shouldPreviewCell(x, y)) {
-          cell.classList.add("preview");
+          cell.classList.add(
+            this.selectedTool === "goal" ? "goal-preview" : "preview",
+          );
         }
 
         const label = this.describeCell(x, y, blockId);
@@ -282,7 +377,11 @@ class RollingBlocksSolverEditor {
   }
 
   private shouldPreviewCell(x: number, y: number): boolean {
-    if (!this.dragStart || !this.dragCurrent || this.selectedTool !== "block") {
+    if (!this.dragStart || !this.dragCurrent) {
+      return false;
+    }
+
+    if (this.selectedTool !== "block" && this.selectedTool !== "goal") {
       return false;
     }
 
@@ -326,7 +425,7 @@ class RollingBlocksSolverEditor {
     this.blocksListEl.innerHTML = this.blocks
       .map(
         block => `
-          <div class="block-row">
+          <div class="block-row${this.hoveredBlockId === block.id ? " row-hovered" : ""}" data-block-id="${block.id}">
             <span class="block-chip">Block ${block.id}</span>
             <span class="block-footprint">Footprint ${block.width}x${block.depth}</span>
             <md-outlined-text-field
@@ -365,12 +464,6 @@ class RollingBlocksSolverEditor {
   }
 
   private paintCell(position: CellPosition) {
-    const blockId = this.blockMap[position.y]?.[position.x] ?? null;
-    if (blockId !== null) {
-      this.deleteBlockById(blockId);
-      this.renumberBlocks();
-    }
-
     const row = this.cells[position.y];
     if (!row) return;
 
@@ -400,16 +493,20 @@ class RollingBlocksSolverEditor {
     const minY = Math.min(start.y, end.y);
     const maxY = Math.max(start.y, end.y);
 
-    // Check if any cell already has a block
+    // Check if any cell already has a block or is unplayable
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
         if (this.blockMap[y]?.[x] !== null) {
+          return;
+        }
+        if (this.cells[y]?.[x] === "unplayable") {
           return;
         }
       }
     }
 
     const id = this.nextBlockId++;
+
     const newBlock: BlockDefinition = {
       id,
       x: minX,
@@ -419,22 +516,31 @@ class RollingBlocksSolverEditor {
       height: 1,
     };
 
-    // Place the block and add must-touch cells underneath unplayable cells
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
-        if (!this.blockMap[y]) continue;
-        this.blockMap[y][x] = id;
-
-        // If the cell underneath is unplayable, put must-touch there
-        if (this.cells[y]?.[x] === "unplayable") {
-          this.cells[y][x] = "must-touch";
-        } else if (this.cells[y]?.[x] !== "goal") {
-          this.cells[y][x] = "regular";
-        }
+        const blockRow = this.blockMap[y];
+        if (!blockRow) continue;
+        blockRow[x] = id;
       }
     }
 
     this.blocks.push(newBlock);
+  }
+
+  private commitGoalRectangle(start: CellPosition, end: CellPosition) {
+    const minX = Math.min(start.x, end.x);
+    const maxX = Math.max(start.x, end.x);
+    const minY = Math.min(start.y, end.y);
+    const maxY = Math.max(start.y, end.y);
+
+    // Paint all cells in the rectangle as goal cells
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        const cellRow = this.cells[y];
+        if (!cellRow) continue;
+        cellRow[x] = "goal";
+      }
+    }
   }
 
   private deleteBlockById(id: number) {
@@ -442,8 +548,9 @@ class RollingBlocksSolverEditor {
 
     for (let y = 0; y < this.gridHeight; y++) {
       for (let x = 0; x < this.gridWidth; x++) {
-        if (this.blockMap[y]?.[x] === id && this.blockMap[y]) {
-          this.blockMap[y][x] = null;
+        const blockRow = this.blockMap[y];
+        if (blockRow?.[x] === id) {
+          blockRow[x] = null;
         }
       }
     }
@@ -476,7 +583,9 @@ class RollingBlocksSolverEditor {
         if (oldId !== null && oldId !== undefined) {
           const mappedId = idMap.get(oldId);
           if (mappedId !== undefined) {
-            newBlockMap[y][x] = mappedId;
+            const newBlockRow = newBlockMap[y];
+            if (!newBlockRow) continue;
+            newBlockRow[x] = mappedId;
           }
         }
       }
@@ -489,11 +598,9 @@ class RollingBlocksSolverEditor {
   private fillAllCells(kind: CellKind) {
     for (let y = 0; y < this.gridHeight; y++) {
       for (let x = 0; x < this.gridWidth; x++) {
-        // Don't fill cells that have blocks
-        if (this.blockMap[y]?.[x] === null) {
-          if (!this.cells[y]) continue;
-          this.cells[y][x] = kind;
-        }
+        const cellRow = this.cells[y];
+        if (!cellRow) continue;
+        cellRow[x] = kind;
       }
     }
   }

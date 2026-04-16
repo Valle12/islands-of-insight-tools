@@ -64,8 +64,14 @@
           <button class="tool-button" data-tool="regular" type="button">
             Regular
           </button>
+          <button class="tool-button" data-tool="fillRegular" type="button">
+            Fill Regular
+          </button>
           <button class="tool-button" data-tool="mustTouch" type="button">
             Must-Touch
+          </button>
+          <button class="tool-button" data-tool="fillMustTouch" type="button">
+            Fill Must-Touch
           </button>
           <button class="tool-button" data-tool="goal" type="button">
             Goal
@@ -76,14 +82,8 @@
           <button class="tool-button" data-tool="block" type="button">
             Block Footprint
           </button>
-          <button class="tool-button" data-tool="fillRegular" type="button">
-            Fill Regular
-          </button>
-          <button class="tool-button" data-tool="fillMustTouch" type="button">
-            Fill Must-Touch
-          </button>
-          <button class="tool-button" data-tool="clearAll" type="button">
-            Clear All
+          <button class="tool-button" data-tool="reset" type="button">
+            Reset
           </button>
         </div>
 
@@ -93,17 +93,15 @@
           >
         </div>
 
-        <md-dialog id="clear-all-dialog">
-          <div slot="headline">Clear All Cells?</div>
+        <md-dialog id="reset-dialog">
+          <div slot="headline">Reset Board?</div>
           <div slot="content">
-            This will reset all cells to the default layout and remove all
+            This will reset the board to the default grid size and remove all
             blocks.
           </div>
           <div slot="actions">
-            <md-text-button id="clear-all-cancel">Cancel</md-text-button>
-            <md-filled-button id="clear-all-confirm"
-              >Clear All</md-filled-button
-            >
+            <md-text-button id="reset-cancel">Cancel</md-text-button>
+            <md-filled-button id="reset-confirm">Reset</md-filled-button>
           </div>
         </md-dialog>
 
