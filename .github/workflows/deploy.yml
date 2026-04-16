@@ -29,7 +29,7 @@ jobs:
         run: bun ci
 
       - name: Build
-        run: bun src/util/build.ts
+        run: bun run build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5

@@ -1,3 +1,4 @@
 [test]
 coverage = true
 coverageSkipTestFiles = true
+root = "test"
