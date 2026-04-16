@@ -21,3 +21,9 @@ jobs:
 
       - name: Run tests
         run: bun test
+
+      - name: Install Playwright browsers
+        run: bunx playwright install --with-deps
+
+      - name: Run e2e tests
+        run: bun run e2e
