@@ -873,7 +873,7 @@ test.describe("Rolling Blocks Solver", () => {
     - button "Column 3, Row 5, Regular"
     - button "Column 4, Row 5, Regular"
     - button "Column 5, Row 5, Regular"
-    - text: "Selected tool: Must-Touch"
+    - text: "Selected tool: Regular"
     - button "Regular"
     - button "Fill Regular"
     - button "Must-Touch"

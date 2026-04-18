@@ -16,3 +16,29 @@ export type CartesianProductTest = {
   limits: number[];
   result: number[][];
 };
+
+export type Tile = "regular" | "mustTouch" | "goal" | "unplayable";
+
+export type PaintTool =
+  | "regular"
+  | "mustTouch"
+  | "goal"
+  | "unplayable"
+  | "block"
+  | "fillRegular"
+  | "fillMustTouch"
+  | "reset";
+
+export type Position = {
+  x: number;
+  y: number;
+};
+
+export type BlockDefinition = {
+  id: number;
+  x: number;
+  y: number;
+  width: number;
+  depth: number;
+  height: number;
+};

@@ -1,64 +1,37 @@
-type PaintTool =
-  | "regular"
-  | "mustTouch"
-  | "goal"
-  | "unplayable"
-  | "block"
-  | "fillRegular"
-  | "fillMustTouch"
-  | "reset";
+import type { PaintTool } from "./../../util/types";
+import { Board } from "./board";
 
-type CellKind = "regular" | "must-touch" | "goal" | "unplayable";
-
-type CellPosition = {
-  x: number;
-  y: number;
-};
-
-type BlockDefinition = {
-  id: number;
-  x: number;
-  y: number;
-  width: number;
-  depth: number;
-  height: number;
-};
-
-class RollingBlocksSolverEditor {
+// TODO split this up, maybe at least a grid/cell class with some of the methods
+export class RollingBlocksSolverEditor {
   private static readonly DEFAULT_GRID_WIDTH = 5;
   private static readonly DEFAULT_GRID_HEIGHT = 5;
 
-  private readonly gridEl = document.getElementById("grid") as HTMLDivElement;
-  private readonly blocksListEl = document.getElementById(
-    "blocks-list",
-  ) as HTMLDivElement;
-  private readonly widthField = document.getElementById(
-    "grid-width",
-  ) as HTMLInputElement;
-  private readonly heightField = document.getElementById(
-    "grid-height",
-  ) as HTMLInputElement;
-  private readonly statusEl = document.getElementById(
-    "tool-status",
-  ) as HTMLDivElement;
+  private blocksListEl: HTMLDivElement;
+  private widthField: HTMLInputElement;
+  private heightField: HTMLInputElement;
+  private statusEl: HTMLDivElement;
 
   private gridWidth = RollingBlocksSolverEditor.DEFAULT_GRID_WIDTH;
   private gridHeight = RollingBlocksSolverEditor.DEFAULT_GRID_HEIGHT;
   private selectedTool: PaintTool = "regular";
-
-  private cells: CellKind[][] = [];
-  private blockMap: (number | null)[][] = [];
-  private blocks: BlockDefinition[] = [];
-  private nextBlockId = 1;
-  private hoveredBlockId: number | null = null;
-
-  private isPainting = false;
-  private dragStart: CellPosition | null = null;
-  private dragCurrent: CellPosition | null = null;
+  private board: Board;
 
   constructor() {
-    this.applyDefaultGridSize();
-    this.resetBoardData();
+    this.blocksListEl = document.getElementById(
+      "blocks-list",
+    ) as HTMLDivElement;
+    this.widthField = document.getElementById("grid-width") as HTMLInputElement;
+    this.heightField = document.getElementById(
+      "grid-height",
+    ) as HTMLInputElement;
+    this.statusEl = document.getElementById("tool-status") as HTMLDivElement;
+
+    this.board = new Board(
+      this,
+      this.gridWidth,
+      this.gridHeight,
+      this.selectedTool,
+    );
     this.bindEvents();
     this.render();
   }
@@ -68,17 +41,16 @@ class RollingBlocksSolverEditor {
       document.querySelectorAll<HTMLButtonElement>(".tool-button");
     toolButtons.forEach(button => {
       button.addEventListener("click", () => {
-        const tool = button.dataset.tool as PaintTool | undefined;
-        if (!tool) return;
+        const tool = button.dataset.tool as PaintTool;
 
         if (tool === "fillRegular") {
-          this.fillAllCells("regular");
+          this.board.fillAllCells("regular");
           this.render();
           return;
         }
 
         if (tool === "fillMustTouch") {
-          this.fillAllCells("must-touch");
+          this.board.fillAllCells("mustTouch");
           this.render();
           return;
         }
@@ -88,8 +60,11 @@ class RollingBlocksSolverEditor {
           return;
         }
 
+        // For mustTouch, goal, unplayable, block, set the tool and re-render
         this.selectedTool = tool;
+        this.board.setSelectedTool(tool);
         this.renderToolButtons();
+        this.render();
       });
     });
 
@@ -114,68 +89,28 @@ class RollingBlocksSolverEditor {
       console.log("Calculate Moves clicked - functionality to be implemented");
     });
 
+    // TODO make that an extra method
     const handleSizeUpdate = () => {
+      // TODO potentially normal input validation
       const parsedWidth = this.parsePositiveInt(this.widthField.value);
       const parsedHeight = this.parsePositiveInt(this.heightField.value);
       if (!parsedWidth || !parsedHeight) return;
       this.gridWidth = parsedWidth;
       this.gridHeight = parsedHeight;
-      this.resetBoardData();
+      // Recreate the board with new size
+      this.board = new Board(
+        this,
+        this.gridWidth,
+        this.gridHeight,
+        this.selectedTool,
+      );
       this.render();
     };
 
     this.widthField.addEventListener("input", handleSizeUpdate);
     this.heightField.addEventListener("input", handleSizeUpdate);
 
-    this.gridEl.addEventListener("pointerdown", event => {
-      const position = this.extractCellPosition(event.target);
-      if (!position) return;
-      this.isPainting = true;
-
-      if (this.selectedTool === "block" || this.selectedTool === "goal") {
-        this.dragStart = position;
-        this.dragCurrent = position;
-        this.renderGrid();
-        return;
-      }
-
-      this.paintCell(position);
-      this.render();
-    });
-
-    this.gridEl.addEventListener("pointermove", event => {
-      if (!this.isPainting) return;
-      const position = this.extractCellPosition(event.target);
-      if (!position) return;
-
-      if (this.selectedTool === "block" || this.selectedTool === "goal") {
-        this.dragCurrent = position;
-        this.renderGrid();
-        return;
-      }
-
-      this.paintCell(position);
-      this.renderGrid();
-      this.renderBlocksList();
-    });
-
-    document.addEventListener("pointerup", () => {
-      if (!this.isPainting) return;
-      this.isPainting = false;
-
-      if (this.selectedTool === "block" && this.dragStart && this.dragCurrent) {
-        this.commitBlockRectangle(this.dragStart, this.dragCurrent);
-      }
-
-      if (this.selectedTool === "goal" && this.dragStart && this.dragCurrent) {
-        this.commitGoalRectangle(this.dragStart, this.dragCurrent);
-      }
-
-      this.dragStart = null;
-      this.dragCurrent = null;
-      this.render();
-    });
-
+    // TODO might profit from simplification
     this.blocksListEl.addEventListener("input", event => {
       const target = event.target as HTMLElement;
       const textField = target.closest("md-outlined-text-field") as
@@ -186,7 +121,8 @@ class RollingBlocksSolverEditor {
       const id = Number(textField.dataset.blockId);
       if (!Number.isFinite(id)) return;
 
-      const block = this.blocks.find(candidate => candidate.id === id);
+      const blocks = this.board.getBlocks();
+      const block = blocks.get(id);
       if (!block) return;
 
       const parsed = this.parsePositiveInt(textField.value);
@@ -205,8 +141,10 @@ class RollingBlocksSolverEditor {
       const id = Number(button.dataset.blockDeleteId);
       if (!Number.isFinite(id)) return;
 
-      this.deleteBlockById(id);
-      this.renumberBlocks();
+      // TODO delete also needs to happen inside board.ts, so maybe just provide getter for blocks
+      this.board.deleteBlockById(id);
+      // TODO OLD this.deleteBlockById(id);
+      this.board.renumberBlocks();
       this.render();
     });
 
@@ -217,39 +155,12 @@ class RollingBlocksSolverEditor {
 
       const id = Number(row.dataset.blockId);
       if (!Number.isFinite(id)) return;
-      this.setHoveredBlockId(id);
+      this.board.setHoveredBlockId(id);
     });
 
     this.blocksListEl.addEventListener("mouseleave", () => {
-      this.setHoveredBlockId(null);
+      this.board.setHoveredBlockId(0);
     });
-
-    this.blocksListEl.addEventListener("focusin", event => {
-      const target = event.target as HTMLElement;
-      const row = target.closest(".block-row") as HTMLElement | null;
-      if (!row) return;
-
-      const id = Number(row.dataset.blockId);
-      if (!Number.isFinite(id)) return;
-      this.setHoveredBlockId(id);
-    });
-
-    this.blocksListEl.addEventListener("focusout", event => {
-      const nextTarget = event.relatedTarget as HTMLElement | null;
-      if (nextTarget && this.blocksListEl.contains(nextTarget)) {
-        return;
-      }
-      this.setHoveredBlockId(null);
-    });
-  }
-
-  private setHoveredBlockId(id: number | null) {
-    if (this.hoveredBlockId === id) {
-      return;
-    }
-    this.hoveredBlockId = id;
-    this.renderGrid();
-    this.renderBlocksList();
   }
 
   private parsePositiveInt(value: string): number | null {
@@ -260,6 +171,7 @@ class RollingBlocksSolverEditor {
     return parsed;
   }
 
+  // TODO REMOVE
   private applyDefaultGridSize() {
     this.gridWidth = RollingBlocksSolverEditor.DEFAULT_GRID_WIDTH;
     this.gridHeight = RollingBlocksSolverEditor.DEFAULT_GRID_HEIGHT;
@@ -269,128 +181,26 @@ class RollingBlocksSolverEditor {
 
   private resetToDefaults() {
     this.applyDefaultGridSize();
-    this.resetBoardData();
+    this.selectedTool = "regular";
+    this.board = new Board(
+      this,
+      this.gridWidth,
+      this.gridHeight,
+      this.selectedTool,
+    );
   }
 
-  private resetBoardData() {
-    this.cells = Array.from({ length: this.gridHeight }, () =>
-      Array.from({ length: this.gridWidth }, () => "regular" as const),
-    );
-
-    this.blockMap = Array.from({ length: this.gridHeight }, () =>
-      Array.from({ length: this.gridWidth }, () => null),
-    );
-
-    this.blocks = [];
-    this.nextBlockId = 1;
-  }
-
-  private render() {
-    if (
+  render() {
+    /* TODO check if (
       this.hoveredBlockId !== null &&
       !this.blocks.some(block => block.id === this.hoveredBlockId)
     ) {
       this.hoveredBlockId = null;
-    }
+    }*/
 
-    this.renderGrid();
+    this.board.renderGrid();
     this.renderToolButtons();
     this.renderBlocksList();
-  }
-
-  private hasBlockAt(x: number, y: number, blockId: number): boolean {
-    if (x < 0 || y < 0 || x >= this.gridWidth || y >= this.gridHeight) {
-      return false;
-    }
-
-    return this.blockMap[y]?.[x] === blockId;
-  }
-
-  private renderGrid() {
-    this.gridEl.style.gridTemplateColumns = `repeat(${this.gridWidth}, minmax(0, 1fr))`;
-    this.gridEl.innerHTML = "";
-
-    for (let y = 0; y < this.gridHeight; y++) {
-      for (let x = 0; x < this.gridWidth; x++) {
-        const cell = document.createElement("button");
-        cell.type = "button";
-        cell.className = "grid-cell";
-        cell.dataset.x = String(x);
-        cell.dataset.y = String(y);
-
-        const blockId = this.blockMap[y]?.[x] ?? null;
-        if (blockId !== null) {
-          cell.dataset.kind = "block";
-          cell.dataset.blockId = String(blockId);
-
-          if (!this.hasBlockAt(x, y - 1, blockId)) {
-            cell.classList.add("block-edge-top");
-          }
-          if (!this.hasBlockAt(x + 1, y, blockId)) {
-            cell.classList.add("block-edge-right");
-          }
-          if (!this.hasBlockAt(x, y + 1, blockId)) {
-            cell.classList.add("block-edge-bottom");
-          }
-          if (!this.hasBlockAt(x - 1, y, blockId)) {
-            cell.classList.add("block-edge-left");
-          }
-
-          if (this.hoveredBlockId === blockId) {
-            cell.classList.add("block-hovered");
-          }
-        } else {
-          cell.dataset.kind = this.cells[y]?.[x] ?? "regular";
-        }
-
-        if (this.shouldPreviewCell(x, y)) {
-          cell.classList.add(
-            this.selectedTool === "goal" ? "goal-preview" : "preview",
-          );
-        }
-
-        const label = this.describeCell(x, y, blockId);
-        cell.setAttribute("aria-label", label);
-        cell.title = label;
-
-        this.gridEl.appendChild(cell);
-      }
-    }
-  }
-
-  private describeCell(x: number, y: number, blockId: number | null): string {
-    const position = `Column ${x + 1}, Row ${y + 1}`;
-    if (blockId !== null) {
-      return `${position}, Block ${blockId}`;
-    }
-
-    const kind = this.cells[y]?.[x] ?? "regular";
-    const kindLabel =
-      kind === "must-touch"
-        ? "Must-touch"
-        : kind === "goal"
-          ? "Goal"
-          : kind === "unplayable"
-            ? "Unplayable"
-            : "Regular";
-    return `${position}, ${kindLabel}`;
-  }
-
-  private shouldPreviewCell(x: number, y: number): boolean {
-    if (!this.dragStart || !this.dragCurrent) {
-      return false;
-    }
-
-    if (this.selectedTool !== "block" && this.selectedTool !== "goal") {
-      return false;
-    }
-
-    const minX = Math.min(this.dragStart.x, this.dragCurrent.x);
-    const maxX = Math.max(this.dragStart.x, this.dragCurrent.x);
-    const minY = Math.min(this.dragStart.y, this.dragCurrent.y);
-    const maxY = Math.max(this.dragStart.y, this.dragCurrent.y);
-
-    return x >= minX && x <= maxX && y >= minY && y <= maxY;
   }
 
   private renderToolButtons() {
@@ -401,6 +211,7 @@ class RollingBlocksSolverEditor {
       button.classList.toggle("selected", tool === this.selectedTool);
     });
 
+    // TODO this is janky
     const label =
       this.selectedTool === "mustTouch"
         ? "Must-Touch"
@@ -416,16 +227,18 @@ class RollingBlocksSolverEditor {
   }
 
   private renderBlocksList() {
-    if (this.blocks.length === 0) {
+    const blocks = this.board.getBlocks();
+    if (blocks.size === 0) {
       this.blocksListEl.innerHTML =
         '<p class="empty-state">No blocks defined yet. Use Block Footprint and drag on the grid.</p>';
       return;
     }
 
-    this.blocksListEl.innerHTML = this.blocks
+    // TODO the idea could maybe just be getting the id within map and not save for each button
+    this.blocksListEl.innerHTML = Array.from(blocks.values())
       .map(
         block => `
-          <div class="block-row${this.hoveredBlockId === block.id ? " row-hovered" : ""}" data-block-id="${block.id}">
+          <div class="block-row${this.board.getHoveredBlockId() === block.id ? " row-hovered" : ""}" data-block-id="${block.id}">
             <span class="block-chip">Block ${block.id}</span>
             <span class="block-footprint">Footprint ${block.width}x${block.depth}</span>
             <md-outlined-text-field
@@ -442,168 +255,8 @@ class RollingBlocksSolverEditor {
       )
       .join("");
   }
-
-  private extractCellPosition(target: EventTarget | null): CellPosition | null {
-    if (!(target instanceof HTMLElement)) {
-      return null;
-    }
-
-    const cell = target.closest(".grid-cell") as HTMLElement | null;
-    if (!cell) {
-      return null;
-    }
-
-    const x = Number(cell.dataset.x);
-    const y = Number(cell.dataset.y);
-
-    if (!Number.isInteger(x) || !Number.isInteger(y)) {
-      return null;
-    }
-
-    return { x, y };
-  }
-
-  private paintCell(position: CellPosition) {
-    const row = this.cells[position.y];
-    if (!row) return;
-
-    switch (this.selectedTool) {
-      case "regular":
-        row[position.x] = "regular";
-        return;
-      case "mustTouch":
-        row[position.x] = "must-touch";
-        return;
-      case "goal":
-        row[position.x] = "goal";
-        return;
-      case "unplayable":
-        row[position.x] = "unplayable";
-        return;
-      case "block":
-        return;
-      default:
-        return;
-    }
-  }
-
-  private commitBlockRectangle(start: CellPosition, end: CellPosition) {
-    const minX = Math.min(start.x, end.x);
-    const maxX = Math.max(start.x, end.x);
-    const minY = Math.min(start.y, end.y);
-    const maxY = Math.max(start.y, end.y);
-
-    // Check if any cell already has a block or is unplayable
-    for (let y = minY; y <= maxY; y++) {
-      for (let x = minX; x <= maxX; x++) {
-        if (this.blockMap[y]?.[x] !== null) {
-          return;
-        }
-        if (this.cells[y]?.[x] === "unplayable") {
-          return;
-        }
-      }
-    }
-
-    const id = this.nextBlockId++;
-
-    const newBlock: BlockDefinition = {
-      id,
-      x: minX,
-      y: minY,
-      width: maxX - minX + 1,
-      depth: maxY - minY + 1,
-      height: 1,
-    };
-
-    for (let y = minY; y <= maxY; y++) {
-      for (let x = minX; x <= maxX; x++) {
-        const blockRow = this.blockMap[y];
-        if (!blockRow) continue;
-        blockRow[x] = id;
-      }
-    }
-
-    this.blocks.push(newBlock);
-  }
-
-  private commitGoalRectangle(start: CellPosition, end: CellPosition) {
-    const minX = Math.min(start.x, end.x);
-    const maxX = Math.max(start.x, end.x);
-    const minY = Math.min(start.y, end.y);
-    const maxY = Math.max(start.y, end.y);
-
-    // Paint all cells in the rectangle as goal cells
-    for (let y = minY; y <= maxY; y++) {
-      for (let x = minX; x <= maxX; x++) {
-        const cellRow = this.cells[y];
-        if (!cellRow) continue;
-        cellRow[x] = "goal";
-      }
-    }
-  }
-
-  private deleteBlockById(id: number) {
-    this.blocks = this.blocks.filter(block => block.id !== id);
-
-    for (let y = 0; y < this.gridHeight; y++) {
-      for (let x = 0; x < this.gridWidth; x++) {
-        const blockRow = this.blockMap[y];
-        if (blockRow?.[x] === id) {
-          blockRow[x] = null;
-        }
-      }
-    }
-  }
-
-  private renumberBlocks() {
-    if (this.blocks.length === 0) {
-      this.nextBlockId = 1;
-      return;
-    }
-
-    // Rebuild the blockMap with new sequential IDs
-    const newBlockMap: (number | null)[][] = Array.from(
-      { length: this.gridHeight },
-      () => Array.from({ length: this.gridWidth }, () => null),
-    );
-
-    let newId = 1;
-    const idMap = new Map<number, number>();
-
-    for (const block of this.blocks) {
-      idMap.set(block.id, newId);
-      block.id = newId;
-      newId++;
-    }
-
-    for (let y = 0; y < this.gridHeight; y++) {
-      for (let x = 0; x < this.gridWidth; x++) {
-        const oldId = this.blockMap[y]?.[x];
-        if (oldId !== null && oldId !== undefined) {
-          const mappedId = idMap.get(oldId);
-          if (mappedId !== undefined) {
-            const newBlockRow = newBlockMap[y];
-            if (!newBlockRow) continue;
-            newBlockRow[x] = mappedId;
-          }
-        }
-      }
-    }
-
-    this.blockMap = newBlockMap;
-    this.nextBlockId = newId;
-  }
-
-  private fillAllCells(kind: CellKind) {
-    for (let y = 0; y < this.gridHeight; y++) {
-      for (let x = 0; x < this.gridWidth; x++) {
-        const cellRow = this.cells[y];
-        if (!cellRow) continue;
-        cellRow[x] = kind;
-      }
-    }
-  }
 }
 
-new RollingBlocksSolverEditor();
+window.addEventListener("DOMContentLoaded", () => {
+  new RollingBlocksSolverEditor();
+});
