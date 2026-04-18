@@ -35,7 +35,6 @@ export class Board {
     this.addListeners();
   }
 
-  // Set the selected tool for the board
   setSelectedTool(tool: PaintTool) {
     this.selectedTool = tool;
   }
@@ -71,12 +70,15 @@ export class Board {
           if (!this.hasBlockAt(x, y - 1, blockId)) {
             cell.classList.add("block-edge-top");
           }
+
           if (!this.hasBlockAt(x + 1, y, blockId)) {
             cell.classList.add("block-edge-right");
           }
+
           if (!this.hasBlockAt(x, y + 1, blockId)) {
             cell.classList.add("block-edge-bottom");
           }
+
           if (!this.hasBlockAt(x - 1, y, blockId)) {
             cell.classList.add("block-edge-left");
           }
@@ -144,16 +146,22 @@ export class Board {
       return `${position}, Block ${blockId}`;
     }
 
-    // TODO what kind of crap is this function
-    const kind = this.cells[y]?.[x] ?? "regular";
-    const kindLabel =
-      kind === "mustTouch"
-        ? "Must-touch"
-        : kind === "goal"
-          ? "Goal"
-          : kind === "unplayable"
-            ? "Unplayable"
-            : "Regular";
+    const kind = this.cells[y]?.[x];
+    let kindLabel = "";
+    switch (kind) {
+      case "mustTouch":
+        kindLabel = "Must-touch";
+        break;
+      case "goal":
+        kindLabel = "Goal";
+        break;
+      case "unplayable":
+        kindLabel = "Unplayable";
+        break;
+      default:
+        kindLabel = "Regular";
+    }
+
     return `${position}, ${kindLabel}`;
   }
 
@@ -215,7 +223,7 @@ export class Board {
 
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
-        if (this.blockAssignments[y]?.[x] !== 0) return; // TODO check
+        if (this.blockAssignments[y]?.[x] !== 0) return;
         if (this.cells[y]?.[x] === "unplayable") return;
       }
     }
@@ -241,44 +249,33 @@ export class Board {
     this.blocks.set(blockId, block);
   }
 
-  // TODO simplify and check
-  renumberBlocks() {
+  renumberBlocks(deletedId: number) {
+    if (deletedId === this.blocks.size + 1) {
+      this.nextBlockId--;
+      return;
+    }
+
     if (this.blocks.size === 0) {
       this.nextBlockId = 1;
       return;
     }
 
-    // Rebuild the blockMap with new sequential IDs
-    const newBlockMap: number[][] = Array.from(
-      { length: this.gridHeight },
-      () => Array.from({ length: this.gridWidth }, () => 0),
-    );
-
-    let newId = 1;
-    const idMap = new Map<number, number>();
-
-    for (const block of this.blocks) {
-      idMap.set(block[1].id, newId);
-      block[1].id = newId;
-      newId++;
-    }
+    this.nextBlockId--;
+    const block = this.blocks.get(this.nextBlockId);
+    if (!block) return;
+    block.id = deletedId;
+    this.blocks.set(deletedId, block);
+    this.blocks.delete(this.nextBlockId);
 
     for (let y = 0; y < this.gridHeight; y++) {
       for (let x = 0; x < this.gridWidth; x++) {
-        const oldId = this.blockAssignments[y]?.[x];
-        if (oldId !== null && oldId !== undefined) {
-          const mappedId = idMap.get(oldId);
-          if (mappedId !== undefined) {
-            const newBlockRow = newBlockMap[y];
-            if (!newBlockRow) continue;
-            newBlockRow[x] = mappedId;
-          }
+        if (this.blockAssignments[y]?.[x] === this.nextBlockId) {
+          const row = this.blockAssignments[y];
+          if (!row) continue;
+          row[x] = deletedId;
         }
       }
     }
-
-    this.blockAssignments = newBlockMap;
-    this.nextBlockId = newId;
   }
 
   private commitGoalRectangle(start: Position, end: Position) {
@@ -322,10 +319,8 @@ export class Board {
       return null;
     }
 
-    const cell = target.closest(".grid-cell") as HTMLElement | null;
-    if (!cell) {
-      return null;
-    }
+    const cell = target.closest(".grid-cell") as HTMLElement;
+    if (!cell) return null;
 
     const x = Number(cell.dataset.x);
     const y = Number(cell.dataset.y);

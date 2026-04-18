@@ -778,27 +778,27 @@ test.describe("Rolling Blocks Solver", () => {
     - button "Column 1, Row 1, Goal"
     - button "Column 2, Row 1, Goal"
     - button "Column 3, Row 1, Goal"
-    - button "Column 4, Row 1, Block 2"
-    - button "Column 5, Row 1, Block 2"
-    - button "Column 6, Row 1, Block 2"
+    - button "Column 4, Row 1, Block 1"
+    - button "Column 5, Row 1, Block 1"
+    - button "Column 6, Row 1, Block 1"
     - button "Column 1, Row 2, Goal"
     - button "Column 2, Row 2, Goal"
     - button "Column 3, Row 2, Goal"
-    - button "Column 4, Row 2, Block 2"
-    - button "Column 5, Row 2, Block 2"
-    - button "Column 6, Row 2, Block 2"
+    - button "Column 4, Row 2, Block 1"
+    - button "Column 5, Row 2, Block 1"
+    - button "Column 6, Row 2, Block 1"
     - button "Column 1, Row 3, Goal"
     - button "Column 2, Row 3, Goal"
     - button "Column 3, Row 3, Goal"
-    - button "Column 4, Row 3, Block 2"
-    - button "Column 5, Row 3, Block 2"
-    - button "Column 6, Row 3, Block 2"
+    - button "Column 4, Row 3, Block 1"
+    - button "Column 5, Row 3, Block 1"
+    - button "Column 6, Row 3, Block 1"
     - button "Column 1, Row 4, Regular"
     - button "Column 2, Row 4, Regular"
     - button "Column 3, Row 4, Regular"
-    - button "Column 4, Row 4, Block 2"
-    - button "Column 5, Row 4, Block 2"
-    - button "Column 6, Row 4, Block 2"
+    - button "Column 4, Row 4, Block 1"
+    - button "Column 5, Row 4, Block 1"
+    - button "Column 6, Row 4, Block 1"
     - button "Column 1, Row 5, Regular"
     - button "Column 2, Row 5, Regular"
     - button "Column 3, Row 5, Regular"
@@ -807,8 +807,8 @@ test.describe("Rolling Blocks Solver", () => {
     - button "Column 6, Row 5, Regular"
     - button "Column 1, Row 6, Regular"
     - button "Column 2, Row 6, Regular"
-    - button "Column 3, Row 6, Block 1"
-    - button "Column 4, Row 6, Block 1"
+    - button "Column 3, Row 6, Block 2"
+    - button "Column 4, Row 6, Block 2"
     - button "Column 5, Row 6, Regular"
     - button "Column 6, Row 6, Must-touch"
     - button "Column 1, Row 7, Unplayable"
@@ -829,10 +829,10 @@ test.describe("Rolling Blocks Solver", () => {
     - button "Calculate Moves"
     - heading "Blocks" [level=2]
     - paragraph: Drag once on the grid with Block Footprint to create a cuboid.
-    - text: Block 1 Footprint 2x1 Height
+    - text: Block 1 Footprint 3x4 Height
     - spinbutton "Height"
     - button
-    - text: Block 2 Footprint 3x4 Height
+    - text: Block 2 Footprint 2x1 Height
     - spinbutton "Height"
     - button
     `);
