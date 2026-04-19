@@ -1,7 +1,6 @@
 import type { PaintTool } from "./../../util/types";
 import { Board } from "./board";
 
-// TODO split this up, maybe at least a grid/cell class with some of the methods
 export class RollingBlocksSolverEditor {
   private static readonly DEFAULT_GRID_WIDTH = 5;
   private static readonly DEFAULT_GRID_HEIGHT = 5;

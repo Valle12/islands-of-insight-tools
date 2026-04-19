@@ -4,7 +4,7 @@ import greenDial from "./../../../images/green-dial.png";
 import redDial from "./../../../images/red-dial.png";
 import yellowDial from "./../../../images/yellow-dial.png";
 import { Button } from "./button";
-import { Solver } from "./solver";
+import { TurnSolver } from "./turnSolver";
 
 class PhasicDialSolver {
   private dialCount = 2;
@@ -147,7 +147,7 @@ class PhasicDialSolver {
       buttons.push(new Button(values));
     });
 
-    const solver = new Solver(maxValues, initialValues, buttons);
+    const solver = new TurnSolver(maxValues, initialValues, buttons);
     const result = solver.calculateTurns();
 
     const resultEl = document.getElementById("result")!;

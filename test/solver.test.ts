@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { Button } from "../src/pages/phasic-dial-solver/button";
-import { Solver } from "../src/pages/phasic-dial-solver/solver";
+import { TurnSolver } from "../src/pages/phasic-dial-solver/turnSolver";
 import type { SolverTest } from "../src/util/types";
 
-describe("Solver", () => {
+describe("TurnSolver", () => {
   const cases: SolverTest[] = [
     {
       maxValues: [3, 4, 5],
@@ -171,7 +171,7 @@ describe("Solver", () => {
     const initialValues = input.initialValues;
     const buttons = input.buttons;
     const result = input.result;
-    const solver = new Solver(maxValues, initialValues, buttons);
+    const solver = new TurnSolver(maxValues, initialValues, buttons);
     const turns = solver.calculateTurns();
     expect(turns).toEqual(result);
   });
