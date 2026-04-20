@@ -6,7 +6,7 @@ import yellowDial from "./../../../images/yellow-dial.png";
 import { Button } from "./button";
 import { TurnSolver } from "./turnSolver";
 
-class PhasicDialSolver {
+export class PhasicDialSolver {
   private dialCount = 2;
   private buttonCount = 1;
 
@@ -140,7 +140,7 @@ class PhasicDialSolver {
 
     const rows = document.querySelectorAll("#table-body tr");
     const buttons: Button[] = [];
-    rows.forEach((row, i) => {
+    rows.forEach(row => {
       const fields = row.querySelectorAll("md-outlined-text-field");
       const values: number[] = [];
       fields.forEach(f => values.push(Number(f.value)));
@@ -169,4 +169,6 @@ class PhasicDialSolver {
   }
 }
 
-new PhasicDialSolver();
+if (process.env.NODE_ENV !== "test") {
+  new PhasicDialSolver();
+}

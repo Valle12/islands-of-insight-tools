@@ -33,12 +33,3 @@ export type Position = {
   x: number;
   y: number;
 };
-
-export type BlockDefinition = {
-  id: number;
-  x: number;
-  y: number;
-  width: number;
-  depth: number;
-  height: number;
-};

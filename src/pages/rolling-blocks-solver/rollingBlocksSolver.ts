@@ -82,6 +82,7 @@ export class RollingBlocksSolverEditor {
     const calculateMovesBtn = document.getElementById("calculate-moves");
     calculateMovesBtn?.addEventListener("click", () => {
       console.log("Calculate Moves clicked - functionality to be implemented");
+      console.log(this.board.getBlocks());
     });
 
     this.widthField.addEventListener("input", () => this.handleSizeUpdate());
@@ -230,4 +231,6 @@ export class RollingBlocksSolverEditor {
   }
 }
 
-new RollingBlocksSolverEditor();
+if (process.env.NODE_ENV !== "test") {
+  new RollingBlocksSolverEditor();
+}

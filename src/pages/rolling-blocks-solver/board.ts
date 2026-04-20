@@ -1,9 +1,5 @@
-import type {
-  BlockDefinition,
-  PaintTool,
-  Position,
-  Tile,
-} from "../../util/types";
+import type { PaintTool, Position, Tile } from "../../util/types";
+import { Block } from "./block";
 import type { RollingBlocksSolverEditor } from "./rollingBlocksSolver";
 
 export class Board {
@@ -18,7 +14,7 @@ export class Board {
   private solver: RollingBlocksSolverEditor;
   private cells: Tile[][] = [];
   private blockAssignments: number[][] = [];
-  private blocks: Map<number, BlockDefinition> = new Map();
+  private blocks: Map<number, Block> = new Map();
   private grid = document.getElementById("grid") as HTMLDivElement;
 
   constructor(
@@ -229,14 +225,14 @@ export class Board {
     }
 
     const blockId = this.nextBlockId++;
-    const block: BlockDefinition = {
-      id: blockId,
-      x: minX,
-      y: minY,
-      width: maxX - minX + 1,
-      depth: maxY - minY + 1,
-      height: 1,
-    };
+    const block = new Block(
+      blockId,
+      minX,
+      minY,
+      maxX - minX + 1,
+      maxY - minY + 1,
+      1,
+    );
 
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
