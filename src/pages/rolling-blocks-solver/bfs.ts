@@ -45,6 +45,7 @@ export class BFS {
         }
       }
 
+      console.log(visitedSet.size);
       currentQueue = nextQueue;
     }
   }
@@ -146,9 +147,19 @@ export class BFS {
     return (
       node.blocks
         .slice()
-        .sort((a, b) => a.id - b.id)
-        .map(block => `${block.x},${block.y},${block.width},${block.depth}`)
-        .join(";") + `|${node.mustTouchCellsSatisfied}`
+        .sort(
+          (a, b) =>
+            a.x - b.x || a.y - b.y || a.width - b.width || a.depth - b.depth,
+        )
+        .map(block => {
+          const packedInt =
+            (block.x << 24) |
+            (block.y << 16) |
+            (block.width << 8) |
+            block.depth;
+          return (packedInt >>> 0).toString(36);
+        })
+        .join("-") + `|${node.mustTouchCellsSatisfied.toString(36)}`
     );
   }
 }
