@@ -1,0 +1,219 @@
+{
+  "gridWidth": 7,
+  "gridHeight": 9,
+  "cells": [
+    [
+      "goal",
+      "goal",
+      "goal",
+      "regular",
+      "unplayable",
+      "regular",
+      "regular",
+      "regular",
+      "goal"
+    ],
+    [
+      "unplayable",
+      "unplayable",
+      "regular",
+      "regular",
+      "mustTouch",
+      "regular",
+      "regular",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "unplayable",
+      "unplayable",
+      "regular",
+      "regular",
+      "mustTouch",
+      "regular",
+      "regular",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "unplayable",
+      "unplayable",
+      "regular",
+      "regular",
+      "mustTouch",
+      "regular",
+      "regular",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "unplayable",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "unplayable",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "unplayable",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ]
+  ],
+  "blocks": [
+    {
+      "id": 1,
+      "x": 2,
+      "y": 2,
+      "width": 1,
+      "depth": 1,
+      "height": 1
+    },
+    {
+      "id": 2,
+      "x": 1,
+      "y": 6,
+      "width": 3,
+      "depth": 1,
+      "height": 1
+    }
+  ],
+  "turns": [
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 2,
+      "direction": "UP"
+    },
+    {
+      "blockId": 2,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 2,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 2,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 2,
+      "direction": "UP"
+    },
+    {
+      "blockId": 2,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 2,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 2,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 2,
+      "direction": "UP"
+    },
+    {
+      "blockId": 2,
+      "direction": "UP"
+    },
+    {
+      "blockId": 2,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 2,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 2,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 2,
+      "direction": "UP"
+    },
+    {
+      "blockId": 2,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 2,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 2,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 2,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 2,
+      "direction": "UP"
+    }
+  ]
+}

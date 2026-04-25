@@ -16,29 +16,42 @@ export class BFS {
   }
 
   search(root: Node) {
-    const visitedSet: Set<Node> = new Set();
-    const queue: Node[] = [root];
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      if (visitedSet.has(current)) continue;
-      visitedSet.add(current);
-      let goal = this.calculateNextStates(current, visitedSet, queue);
-      if (goal) {
-        const turns: Turn[] = [];
-        while (goal.parent !== null) {
-          turns.unshift(goal.turn!);
-          goal = goal.parent;
-        }
+    for (const block of root.blocks) {
+      root.mustTouchCellsSatisfied = block.updateMustTouchCells(
+        this.gridWidth,
+        this.cells,
+        root.mustTouchCellsSatisfied,
+      );
+    }
 
-        console.log("Visited nodes:", visitedSet.size);
-        return turns;
+    const visitedSet: Set<string> = new Set();
+    let currentQueue: Node[] = [root];
+    while (currentQueue.length > 0) {
+      const nextQueue: Node[] = [];
+
+      for (const current of currentQueue) {
+        const signature = this.nodeSignature(current);
+        if (visitedSet.has(signature)) continue;
+        visitedSet.add(signature);
+        let goal = this.calculateNextStates(current, visitedSet, nextQueue);
+        if (goal) {
+          const turns: Turn[] = [];
+          while (goal.parent !== null) {
+            turns.unshift(goal.turn!);
+            goal = goal.parent;
+          }
+
+          return turns;
+        }
       }
+
+      currentQueue = nextQueue;
     }
   }
 
   private calculateNextStates(
     node: Node,
-    visitedSet: Set<Node>,
+    visitedSet: Set<string>,
     queue: Node[],
   ) {
     for (const block of node.blocks) {
@@ -64,42 +77,78 @@ export class BFS {
           node,
           { blockId: newBlock.id, direction: direction as Direction },
         );
-        if (visitedSet.has(newNode)) continue;
+        const signature = this.nodeSignature(newNode);
+        if (visitedSet.has(signature)) continue;
         if (this.isGoalState(newNode)) return newNode;
         queue.push(newNode);
       }
     }
   }
 
+  // Determine whether the node is a goal state.
+  // Rules:
+  // - All `mustTouch` cells (if any) must be touched (tracked in the node bitmask).
+  // - If there are any `goal` cells, all goal cells must be covered by blocks
+  //   that are entirely placed on goal tiles (verifies correct orientation).
+  // - If there are no `goal` cells, then satisfying all `mustTouch` is sufficient.
   private isGoalState(node: Node) {
-    const goalPositions: Map<bigint, boolean> = new Map();
+    const goalIndices: Set<bigint> = new Set();
 
+    // Collect goals and verify mustTouch cells are satisfied.
     for (let x = 0; x < this.gridWidth; x++) {
       for (let y = 0; y < this.gridHeight; y++) {
-        if (this.cells[x]![y] === "goal") {
-          const index = positionToIndex(x, y, this.gridWidth);
-          goalPositions.set(index, false);
+        const cell = this.cells[x]![y];
+        const index = positionToIndex(x, y, this.gridWidth);
+
+        if (cell === "goal") {
+          goalIndices.add(index);
           continue;
         }
 
-        if (this.cells[x]![y] !== "mustTouch") continue;
-        const index = positionToIndex(x, y, this.gridWidth);
+        if (cell !== "mustTouch") continue;
         const bit = extractBit(node.mustTouchCellsSatisfied, index);
         if (bit === 0n) return false;
       }
     }
 
+    // If there are no goals, having all mustTouch cells satisfied is enough.
+    if (goalIndices.size === 0) return true;
+
+    // For each block that lies entirely on goal tiles, mark those goal cells as satisfied.
+    const satisfiedGoalIndices: Set<bigint> = new Set();
     for (const block of node.blocks) {
+      let blockFullyOnGoals = true;
       for (let x = block.x; x < block.x + block.width; x++) {
         for (let y = block.y; y < block.y + block.depth; y++) {
-          if (this.cells[x]![y] !== "goal") return false;
-          const index = positionToIndex(x, y, this.gridWidth);
-          goalPositions.set(index, true);
+          if (this.cells[x]![y] !== "goal") {
+            blockFullyOnGoals = false;
+            break;
+          }
+        }
+        if (!blockFullyOnGoals) break;
+      }
+
+      if (!blockFullyOnGoals) continue;
+
+      for (let x = block.x; x < block.x + block.width; x++) {
+        for (let y = block.y; y < block.y + block.depth; y++) {
+          const idx = positionToIndex(x, y, this.gridWidth);
+          if (goalIndices.has(idx)) satisfiedGoalIndices.add(idx);
         }
       }
     }
 
-    if (!goalPositions.values().every(satisfied => satisfied)) return false;
-    return true;
+    // All goal cells must be covered by blocks that are entirely on goal tiles.
+    return satisfiedGoalIndices.size === goalIndices.size;
+  }
+
+  private nodeSignature(node: Node) {
+    return (
+      node.blocks
+        .slice()
+        .sort((a, b) => a.id - b.id)
+        .map(block => `${block.x},${block.y},${block.width},${block.depth}`)
+        .join(";") + `|${node.mustTouchCellsSatisfied}`
+    );
   }
 }

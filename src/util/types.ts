@@ -1,5 +1,6 @@
 import type { Button } from "../pages/phasic-dial-solver/button";
 import type { Block } from "../pages/rolling-blocks-solver/block";
+import type { Turn } from "../pages/rolling-blocks-solver/turn";
 
 export type SolverTest = {
   maxValues: number[];
@@ -35,6 +36,20 @@ export type PositionToIndexTest = {
   y: number;
   gridWidth: number;
   result: bigint;
+};
+
+export type IndexToPositionTest = {
+  index: bigint;
+  gridWidth: number;
+  result: Position;
+};
+
+export type BFSTest = {
+  gridWidth: number;
+  gridHeight: number;
+  cells: Tile[][];
+  blocks: Block[];
+  turns: Turn[] | undefined;
 };
 
 export type Tile = "regular" | "mustTouch" | "goal" | "unplayable";

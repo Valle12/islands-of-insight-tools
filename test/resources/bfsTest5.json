@@ -1,0 +1,86 @@
+{
+  "gridWidth": 7,
+  "gridHeight": 2,
+  "cells": [
+    [
+      "unplayable",
+      "goal"
+    ],
+    [
+      "unplayable",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular"
+    ],
+    [
+      "unplayable",
+      "goal"
+    ],
+    [
+      "unplayable",
+      "regular"
+    ],
+    [
+      "unplayable",
+      "regular"
+    ]
+  ],
+  "blocks": [
+    {
+      "id": 1,
+      "x": 3,
+      "y": 1,
+      "width": 1,
+      "depth": 1,
+      "height": 2
+    },
+    {
+      "id": 2,
+      "x": 1,
+      "y": 1,
+      "width": 1,
+      "depth": 1,
+      "height": 2
+    }
+  ],
+  "turns": [
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 2,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 2,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 2,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 2,
+      "direction": "RIGHT"
+    }
+  ]
+}
