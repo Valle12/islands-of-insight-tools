@@ -36,11 +36,11 @@ export class Board {
   }
 
   resetBoardData() {
-    this.cells = Array.from({ length: this.gridHeight }, () =>
-      Array.from({ length: this.gridWidth }, () => "regular"),
+    this.cells = Array.from({ length: this.gridWidth }, () =>
+      Array.from({ length: this.gridHeight }, () => "regular"),
     );
-    this.blockAssignments = Array.from({ length: this.gridHeight }, () =>
-      Array.from({ length: this.gridWidth }, () => 0),
+    this.blockAssignments = Array.from({ length: this.gridWidth }, () =>
+      Array.from({ length: this.gridHeight }, () => 0),
     );
     this.blocks.clear();
     this.nextBlockId = 1;
@@ -58,7 +58,7 @@ export class Board {
         cell.dataset.x = String(x);
         cell.dataset.y = String(y);
 
-        const blockId = this.blockAssignments[y]?.[x] ?? 0;
+        const blockId = this.blockAssignments[x]?.[y] ?? 0;
         if (blockId !== 0) {
           cell.dataset.kind = "block";
           cell.dataset.blockId = String(blockId);
@@ -83,7 +83,7 @@ export class Board {
             cell.classList.add("block-hovered");
           }
         } else {
-          cell.dataset.kind = this.cells[y]?.[x] ?? "regular";
+          cell.dataset.kind = this.cells[x]?.[y] ?? "regular";
         }
 
         if (this.shouldPreviewCell(x, y)) {
@@ -120,8 +120,8 @@ export class Board {
 
     for (let y = 0; y < this.gridHeight; y++) {
       for (let x = 0; x < this.gridWidth; x++) {
-        const row = this.blockAssignments[y];
-        if (row?.[x] === blockId) row[x] = 0;
+        const col = this.blockAssignments[x];
+        if (col?.[y] === blockId) col[y] = 0;
       }
     }
   }
@@ -129,9 +129,9 @@ export class Board {
   fillAllCells(kind: Tile) {
     for (let y = 0; y < this.gridHeight; y++) {
       for (let x = 0; x < this.gridWidth; x++) {
-        const row = this.cells[y];
-        if (!row) continue;
-        row[x] = kind;
+        const col = this.cells[x];
+        if (!col) continue;
+        col[y] = kind;
       }
     }
   }
@@ -142,7 +142,7 @@ export class Board {
       return `${position}, Block ${blockId}`;
     }
 
-    const kind = this.cells[y]?.[x];
+    const kind = this.cells[x]?.[y];
     let kindLabel = "";
     switch (kind) {
       case "mustTouch":
@@ -219,8 +219,8 @@ export class Board {
 
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
-        if (this.blockAssignments[y]?.[x] !== 0) return;
-        if (this.cells[y]?.[x] === "unplayable") return;
+        if (this.blockAssignments[x]?.[y] !== 0) return;
+        if (this.cells[x]?.[y] === "unplayable") return;
       }
     }
 
@@ -236,9 +236,9 @@ export class Board {
 
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
-        const row = this.blockAssignments[y];
-        if (!row) continue;
-        row[x] = blockId;
+        const col = this.blockAssignments[x];
+        if (!col) continue;
+        col[y] = blockId;
       }
     }
 
@@ -265,13 +265,17 @@ export class Board {
 
     for (let y = 0; y < this.gridHeight; y++) {
       for (let x = 0; x < this.gridWidth; x++) {
-        if (this.blockAssignments[y]?.[x] === this.nextBlockId) {
-          const row = this.blockAssignments[y];
-          if (!row) continue;
-          row[x] = deletedId;
+        if (this.blockAssignments[x]?.[y] === this.nextBlockId) {
+          const col = this.blockAssignments[x];
+          if (!col) continue;
+          col[y] = deletedId;
         }
       }
     }
+  }
+
+  getCells() {
+    return this.cells;
   }
 
   private commitGoalRectangle(start: Position, end: Position) {
@@ -282,15 +286,15 @@ export class Board {
 
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
-        const row = this.cells[y];
-        if (!row) continue;
-        row[x] = "goal";
+        const col = this.cells[x];
+        if (!col) continue;
+        col[y] = "goal";
       }
     }
   }
 
   private hasBlockAt(x: number, y: number, blockId: number) {
-    return this.blockAssignments[y]?.[x] === blockId;
+    return this.blockAssignments[x]?.[y] === blockId;
   }
 
   private shouldPreviewCell(x: number, y: number): boolean {
@@ -329,8 +333,8 @@ export class Board {
   }
 
   private paintCell(position: Position) {
-    const row = this.cells[position.y];
-    if (!row) return;
+    const col = this.cells[position.x];
+    if (!col) return;
 
     const tool = this.selectedTool;
     if (
@@ -339,7 +343,7 @@ export class Board {
       tool === "goal" ||
       tool === "unplayable"
     ) {
-      row[position.x] = tool;
+      col[position.y] = tool;
     }
   }
 }

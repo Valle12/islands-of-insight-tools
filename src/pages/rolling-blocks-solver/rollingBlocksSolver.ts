@@ -1,5 +1,7 @@
 import type { PaintTool } from "./../../util/types";
+import { BFS } from "./bfs";
 import { Board } from "./board";
+import { Node } from "./node";
 
 export class RollingBlocksSolverEditor {
   private static readonly DEFAULT_GRID_WIDTH = 5;
@@ -81,8 +83,15 @@ export class RollingBlocksSolverEditor {
 
     const calculateMovesBtn = document.getElementById("calculate-moves");
     calculateMovesBtn?.addEventListener("click", () => {
-      console.log("Calculate Moves clicked - functionality to be implemented");
-      console.log(this.board.getBlocks());
+      const bfs = new BFS(
+        this.gridWidth,
+        this.gridHeight,
+        this.board.getCells(),
+      );
+      const turns = bfs.search(
+        new Node(this.board.getBlocks().values().toArray()),
+      );
+      console.log("Turns:", turns);
     });
 
     this.widthField.addEventListener("input", () => this.handleSizeUpdate());

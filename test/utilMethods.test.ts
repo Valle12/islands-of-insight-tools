@@ -1,6 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import type { CartesianProductTest, LcmTest } from "../src/util/types";
-import { cartesianProduct, gcd, lcm } from "../src/util/utilMethods";
+import type {
+  CartesianProductTest,
+  LcmTest,
+  PositionToIndexTest,
+} from "../src/util/types";
+import {
+  cartesianProduct,
+  extractBit,
+  gcd,
+  indexToBitmask,
+  lcm,
+  positionToIndex,
+} from "../src/util/utilMethods";
 
 describe("Gcd", () => {
   const cases = [
@@ -154,4 +165,81 @@ describe("CartesianProduct", () => {
       expect(generated).toEqual(result);
     },
   );
+});
+
+describe("PositionToIndex", () => {
+  const cases: PositionToIndexTest[] = [
+    { x: 0, y: 0, gridWidth: 5, result: 0n },
+    { x: 1, y: 0, gridWidth: 5, result: 1n },
+    { x: 0, y: 1, gridWidth: 5, result: 5n },
+    { x: 2, y: 3, gridWidth: 5, result: 17n },
+    { x: 4, y: 4, gridWidth: 5, result: 24n },
+  ];
+
+  test.each(cases)(
+    "index for position (%d, %d) with grid width %d",
+    ({ x, y, gridWidth, result }) => {
+      expect(positionToIndex(x, y, gridWidth)).toBe(result);
+    },
+  );
+});
+
+describe("IndexToBitmask", () => {
+  const cases = [
+    [0n, 1n],
+    [1n, 2n],
+    [2n, 4n],
+    [5n, 32n],
+    [10n, 1024n],
+  ];
+
+  test.each(cases)("bitmask for index %d", (index: bigint, result: bigint) => {
+    expect(indexToBitmask(index)).toBe(result);
+  });
+
+  test("calculating complex bitmask", () => {
+    let bitmask = 0n;
+    let oldSingleBit = 1n;
+    let singleBit = 1n;
+
+    for (let i = 0n; i < 40n; i++) {
+      singleBit = indexToBitmask(i);
+      if (i > 0n) expect(singleBit).toBe(oldSingleBit * 2n);
+      oldSingleBit = singleBit;
+      bitmask |= singleBit;
+    }
+
+    expect(bitmask).toBe((1n << 40n) - 1n);
+  });
+});
+
+describe("ExtractBit", () => {
+  test("extracting bits from alterating bitmask", () => {
+    let bitmask = 2730n;
+
+    for (let i = 0n; i < 12n; i++) {
+      expect(extractBit(bitmask, i)).toBe(0n);
+      i++;
+      expect(extractBit(bitmask, i)).toBe(1n);
+    }
+  });
+
+  test("extracting bits from bitmask with all bits set", () => {
+    const bitmask = (1n << 20n) - 1n;
+
+    for (let i = 0n; i < 20n; i++) {
+      expect(extractBit(bitmask, i)).toBe(1n);
+    }
+  });
+
+  test("extracting specific bits from bitmask", () => {
+    let bitmask = 32n;
+    expect(extractBit(bitmask, 5n)).toBe(1n);
+    expect(extractBit(bitmask, 6n)).toBe(0n);
+
+    bitmask = 1025n;
+    expect(extractBit(bitmask, 0n)).toBe(1n);
+    expect(extractBit(bitmask, 10n)).toBe(1n);
+    expect(extractBit(bitmask, 5n)).toBe(0n);
+  });
 });

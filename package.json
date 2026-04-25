@@ -5,6 +5,7 @@
   "module": "index.ts",
   "scripts": {
     "build": "bun run src/util/build.ts",
+    "dev": "bun run src/util/serve.ts",
     "e2e": "bunx playwright test"
   },
   "devDependencies": {

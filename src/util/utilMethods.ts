@@ -31,3 +31,15 @@ export function* cartesianProduct(limits: number[]): Generator<number[]> {
     if (carry) break;
   }
 }
+
+export function positionToIndex(x: number, y: number, gridWidth: number) {
+  return BigInt(x + y * gridWidth);
+}
+
+export function indexToBitmask(index: bigint) {
+  return 1n << index;
+}
+
+export function extractBit(bitmask: bigint, index: bigint) {
+  return (bitmask >> index) & 1n;
+}
