@@ -91,6 +91,22 @@ export class RollingBlocksSolverEditor {
       const turns = bfs.search(
         new Node(this.board.getBlocks().values().toArray()),
       );
+      /*const aStar = new AStar(
+        this.gridWidth,
+        this.gridHeight,
+        this.board.getCells(),
+      );
+      const turns = aStar.search(
+        new Node(this.board.getBlocks().values().toArray()),
+      );*/
+      /*const idaStar = new IDAStar(
+        this.gridWidth,
+        this.gridHeight,
+        this.board.getCells(),
+      );
+      const turns = idaStar.search(
+        new Node(this.board.getBlocks().values().toArray()),
+      );*/
       console.log("Turns:", turns);
     });
 

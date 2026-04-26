@@ -5,7 +5,7 @@ import { Node } from "../../src/pages/rolling-blocks-solver/node";
 import type { BFSTest } from "../../src/util/types";
 
 describe("BFS", () => {
-  // FIXME puzzle 13, 19 and 21 (website) do currently produce no result at all
+  // FIXME puzzle 19 (website) does currently produce no result at all
   // FIXME puzzle 30 (website) (bfsTest26.json), might be translated wrong, look at game itself
   const solvableCases = [
     ["bfsTest.json"],
@@ -38,6 +38,8 @@ describe("BFS", () => {
     ["bfsTest27.json"],
     ["bfsTest28.json"],
     ["bfsTest29.json"],
+    ["bfsTest30.json"],
+    ["bfsTest31.json"],
   ];
 
   describe("Search", () => {

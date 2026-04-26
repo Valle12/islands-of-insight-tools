@@ -1,21 +1,20 @@
 import type { Block } from "./block";
-import type { Turn } from "./turn";
 
 export class Node {
   blocks: Block[];
   mustTouchCellsSatisfied: bigint;
-  parent: Node | null = null;
-  turn: Turn | null;
+  currentCost: number;
+  cost: number;
 
   constructor(
     blocks: Block[],
     mustTouchCellsSatisfied = 0n,
-    parent: Node | null = null,
-    turn: Turn | null = null,
+    currentCost = 0,
+    cost = 0,
   ) {
     this.blocks = blocks;
     this.mustTouchCellsSatisfied = mustTouchCellsSatisfied;
-    this.parent = parent;
-    this.turn = turn;
+    this.currentCost = currentCost;
+    this.cost = cost;
   }
 }
