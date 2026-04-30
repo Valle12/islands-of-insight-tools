@@ -1,3 +1,5 @@
+import type { Position } from "./types";
+
 export function mod(a: number, m: number): number {
   return ((a % m) + m) % m;
 }
@@ -30,4 +32,22 @@ export function* cartesianProduct(limits: number[]): Generator<number[]> {
 
     if (carry) break;
   }
+}
+
+export function positionToIndex(x: number, y: number, gridWidth: number) {
+  return BigInt(x + y * gridWidth);
+}
+
+export function indexToPosition(index: bigint, gridWidth: number): Position {
+  const x = Number(index % BigInt(gridWidth));
+  const y = Number(index / BigInt(gridWidth));
+  return { x, y };
+}
+
+export function indexToBitmask(index: bigint) {
+  return 1n << index;
+}
+
+export function extractBit(bitmask: bigint, index: bigint) {
+  return (bitmask >> index) & 1n;
 }

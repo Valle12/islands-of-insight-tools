@@ -100,12 +100,12 @@ h2 {
   transform: translateY(-1px);
 }
 
-.grid-cell[data-kind="must-touch"] {
+.grid-cell[data-kind="mustTouch"] {
   background: #4f87d9;
   position: relative;
 }
 
-.grid-cell[data-kind="must-touch"]::after {
+.grid-cell[data-kind="mustTouch"]::after {
   content: "★";
   position: absolute;
   top: 50%;

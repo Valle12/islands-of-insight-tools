@@ -1,7 +1,7 @@
 import { cartesianProduct, gcd, lcm, mod } from "../../util/utilMethods";
 import type { Button } from "./button";
 
-export class Solver {
+export class TurnSolver {
   private maxValues: number[];
   private initialValues: number[];
   private buttons: Button[];

@@ -1,0 +1,110 @@
+{
+  "gridWidth": 6,
+  "gridHeight": 6,
+  "cells": [
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "goal",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "goal",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ]
+  ],
+  "blocks": [
+    {
+      "id": 1,
+      "x": 5,
+      "y": 0,
+      "width": 1,
+      "depth": 1,
+      "height": 2
+    },
+    {
+      "id": 2,
+      "x": 0,
+      "y": 5,
+      "width": 1,
+      "depth": 1,
+      "height": 2
+    }
+  ],
+  "turns": [
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 2,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 2,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 2,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 2,
+      "direction": "UP"
+    }
+  ]
+}

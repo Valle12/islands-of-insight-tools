@@ -1,0 +1,174 @@
+{
+  "gridWidth": 10,
+  "gridHeight": 6,
+  "cells": [
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "goal",
+      "goal",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "goal",
+      "goal",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "unplayable",
+      "unplayable",
+      "mustTouch",
+      "mustTouch",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "mustTouch",
+      "mustTouch",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ]
+  ],
+  "blocks": [
+    {
+      "id": 1,
+      "x": 4,
+      "y": 2,
+      "width": 2,
+      "depth": 2,
+      "height": 1
+    }
+  ],
+  "turns": [
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    }
+  ]
+}
