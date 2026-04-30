@@ -1,53 +1,54 @@
 {
-  "gridWidth": 6,
-  "gridHeight": 6,
+  "gridWidth": 7,
+  "gridHeight": 5,
   "cells": [
     [
       "unplayable",
       "unplayable",
       "mustTouch",
       "mustTouch",
+      "mustTouch"
+    ],
+    [
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "unplayable",
+      "mustTouch"
+    ],
+    [
+      "mustTouch",
+      "unplayable",
+      "unplayable",
+      "mustTouch",
+      "mustTouch"
+    ],
+    [
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch"
+    ],
+    [
+      "unplayable",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch"
+    ],
+    [
+      "mustTouch",
+      "mustTouch",
+      "unplayable",
       "mustTouch",
       "unplayable"
     ],
     [
-      "mustTouch",
-      "mustTouch",
-      "mustTouch",
-      "unplayable",
-      "mustTouch",
-      "unplayable"
-    ],
-    [
-      "mustTouch",
       "unplayable",
       "mustTouch",
       "mustTouch",
       "mustTouch",
-      "mustTouch"
-    ],
-    [
-      "mustTouch",
-      "mustTouch",
-      "mustTouch",
-      "mustTouch",
-      "unplayable",
-      "mustTouch"
-    ],
-    [
-      "unplayable",
-      "mustTouch",
-      "unplayable",
-      "mustTouch",
-      "mustTouch",
-      "mustTouch"
-    ],
-    [
-      "unplayable",
-      "mustTouch",
-      "mustTouch",
-      "mustTouch",
-      "unplayable",
       "unplayable"
     ]
   ],
@@ -64,6 +65,34 @@
   "turns": [
     {
       "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
       "direction": "DOWN"
     },
     {
@@ -72,15 +101,35 @@
     },
     {
       "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
       "direction": "UP"
     },
     {
       "blockId": 1,
-      "direction": "LEFT"
+      "direction": "RIGHT"
     },
     {
       "blockId": 1,
-      "direction": "UP"
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
     },
     {
       "blockId": 1,
@@ -96,43 +145,7 @@
     },
     {
       "blockId": 1,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 1,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 1,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
+      "direction": "UP"
     },
     {
       "blockId": 1,
@@ -141,14 +154,6 @@
     {
       "blockId": 1,
       "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "UP"
     },
     {
       "blockId": 1,

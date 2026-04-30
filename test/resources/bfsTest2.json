@@ -80,19 +80,19 @@
     },
     {
       "blockId": 1,
-      "direction": "UP"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
       "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "UP"
     },
     {
       "blockId": 1,

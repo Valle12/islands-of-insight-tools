@@ -68,3 +68,14 @@ export type Position = {
   x: number;
   y: number;
 };
+
+export type DfsReturn = {
+  found: boolean;
+  threshold: number;
+};
+
+declare module "bun" {
+  interface Env {
+    ROLLING_BLOCKS_TEST: string;
+  }
+}

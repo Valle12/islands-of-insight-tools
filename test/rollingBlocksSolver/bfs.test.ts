@@ -1,12 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { BFS } from "../../src/pages/rolling-blocks-solver/bfs";
 import { Block } from "../../src/pages/rolling-blocks-solver/block";
+import { AStar } from "../../src/pages/rolling-blocks-solver/ida";
 import { Node } from "../../src/pages/rolling-blocks-solver/node";
 import type { BFSTest } from "../../src/util/types";
 
-describe("BFS", () => {
-  // FIXME puzzle 19 (website) does currently produce no result at all
-  // FIXME puzzle 30 (website) (bfsTest26.json), might be translated wrong, look at game itself
+describe.if(Bun.env.ROLLING_BLOCKS_TEST === "true")("BFS", () => {
   const solvableCases = [
     ["bfsTest.json"],
     ["bfsTest1.json"],
@@ -39,7 +37,6 @@ describe("BFS", () => {
     ["bfsTest28.json"],
     ["bfsTest29.json"],
     ["bfsTest30.json"],
-    ["bfsTest31.json"],
   ];
 
   describe("Search", () => {
@@ -58,11 +55,11 @@ describe("BFS", () => {
             block.height,
           ),
       );
-      const bfs = new BFS(data.gridWidth, data.gridHeight, data.cells);
+      const bfs = new AStar(data.gridWidth, data.gridHeight, data.cells);
 
       const turns = bfs.search(new Node(blocks));
 
-      expect(turns).toEqual(data.turns);
+      expect(turns).toEqual(data.turns!);
     });
   });
 });

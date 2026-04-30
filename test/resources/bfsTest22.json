@@ -1,10 +1,63 @@
 {
-  "gridWidth": 5,
-  "gridHeight": 11,
+  "gridWidth": 13,
+  "gridHeight": 9,
   "cells": [
     [
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
       "regular",
       "regular",
+      "regular"
+    ],
+    [
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "regular"
+    ],
+    [
       "regular",
       "unplayable",
       "regular",
@@ -16,13 +69,22 @@
       "regular"
     ],
     [
+      "regular",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "regular"
+    ],
+    [
+      "regular",
+      "unplayable",
       "regular",
       "goal",
-      "regular",
-      "unplayable",
-      "mustTouch",
-      "regular",
-      "mustTouch",
+      "goal",
       "unplayable",
       "regular",
       "regular",
@@ -33,12 +95,10 @@
       "regular",
       "regular",
       "unplayable",
-      "mustTouch",
-      "regular",
-      "mustTouch",
       "unplayable",
-      "regular",
-      "regular",
+      "unplayable",
+      "unplayable",
+      "unplayable",
       "regular"
     ],
     [
@@ -46,22 +106,40 @@
       "regular",
       "regular",
       "unplayable",
-      "mustTouch",
-      "regular",
-      "mustTouch",
       "unplayable",
-      "regular",
-      "mustTouch",
+      "unplayable",
+      "unplayable",
+      "unplayable",
       "regular"
     ],
     [
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "regular"
+    ],
+    [
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
       "regular",
       "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
+      "regular"
+    ],
+    [
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
       "unplayable",
       "regular",
       "regular",
@@ -71,16 +149,32 @@
   "blocks": [
     {
       "id": 1,
-      "x": 4,
-      "y": 2,
+      "x": 7,
+      "y": 6,
       "width": 1,
-      "depth": 1,
-      "height": 2
+      "depth": 2,
+      "height": 1
     }
   ],
   "turns": [
     {
       "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
       "direction": "LEFT"
     },
     {
@@ -89,47 +183,7 @@
     },
     {
       "blockId": 1,
-      "direction": "UP"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 1,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 1,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 1,
       "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 1,
-      "direction": "DOWN"
     },
     {
       "blockId": 1,
@@ -145,27 +199,11 @@
     },
     {
       "blockId": 1,
-      "direction": "LEFT"
+      "direction": "RIGHT"
     },
     {
       "blockId": 1,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "UP"
-    },
-    {
-      "blockId": 1,
-      "direction": "UP"
-    },
-    {
-      "blockId": 1,
-      "direction": "UP"
+      "direction": "RIGHT"
     },
     {
       "blockId": 1,
@@ -189,6 +227,38 @@
     },
     {
       "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
       "direction": "UP"
     },
     {
@@ -201,7 +271,91 @@
     },
     {
       "blockId": 1,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
       "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
     }
   ]
 }

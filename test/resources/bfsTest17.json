@@ -1,46 +1,61 @@
 {
-  "gridWidth": 5,
-  "gridHeight": 3,
+  "gridWidth": 6,
+  "gridHeight": 6,
   "cells": [
     [
-      "goal",
-      "goal",
+      "unplayable",
+      "unplayable",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "unplayable"
+    ],
+    [
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "unplayable",
+      "mustTouch",
+      "unplayable"
+    ],
+    [
+      "mustTouch",
+      "unplayable",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
       "mustTouch"
     ],
     [
       "mustTouch",
       "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "unplayable",
       "mustTouch"
     ],
     [
+      "unplayable",
+      "mustTouch",
+      "unplayable",
       "mustTouch",
       "mustTouch",
       "mustTouch"
     ],
     [
+      "unplayable",
       "mustTouch",
       "mustTouch",
-      "mustTouch"
-    ],
-    [
       "mustTouch",
-      "mustTouch",
-      "mustTouch"
+      "unplayable",
+      "unplayable"
     ]
   ],
   "blocks": [
     {
       "id": 1,
-      "x": 4,
-      "y": 1,
-      "width": 1,
-      "depth": 1,
-      "height": 1
-    },
-    {
-      "id": 2,
-      "x": 4,
-      "y": 0,
+      "x": 3,
+      "y": 2,
       "width": 1,
       "depth": 1,
       "height": 1
@@ -49,7 +64,35 @@
   "turns": [
     {
       "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
       "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
     },
     {
       "blockId": 1,
@@ -65,18 +108,6 @@
     },
     {
       "blockId": 1,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "UP"
-    },
-    {
-      "blockId": 1,
       "direction": "LEFT"
     },
     {
@@ -85,23 +116,43 @@
     },
     {
       "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
       "direction": "UP"
-    },
-    {
-      "blockId": 2,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 2,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 2,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 2,
-      "direction": "LEFT"
     }
   ]
 }

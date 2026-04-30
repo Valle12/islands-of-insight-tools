@@ -1,158 +1,48 @@
 {
-  "gridWidth": 13,
-  "gridHeight": 9,
+  "gridWidth": 5,
+  "gridHeight": 3,
   "cells": [
     [
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "regular",
-      "regular",
-      "regular"
-    ],
-    [
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "regular",
-      "regular",
-      "regular"
-    ],
-    [
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "regular"
-    ],
-    [
-      "regular",
-      "regular",
-      "regular",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "regular"
-    ],
-    [
-      "regular",
-      "regular",
-      "regular",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "regular"
-    ],
-    [
-      "regular",
-      "unplayable",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular"
-    ],
-    [
-      "regular",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "regular"
-    ],
-    [
-      "regular",
-      "unplayable",
-      "regular",
       "goal",
       "goal",
-      "unplayable",
-      "regular",
-      "regular",
-      "regular"
+      "mustTouch"
     ],
     [
-      "regular",
-      "regular",
-      "regular",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "regular"
+      "mustTouch",
+      "mustTouch",
+      "mustTouch"
     ],
     [
-      "regular",
-      "regular",
-      "regular",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "regular"
+      "mustTouch",
+      "mustTouch",
+      "mustTouch"
     ],
     [
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "regular"
+      "mustTouch",
+      "mustTouch",
+      "mustTouch"
     ],
     [
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "regular",
-      "regular",
-      "regular"
-    ],
-    [
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "regular",
-      "regular",
-      "regular"
+      "mustTouch",
+      "mustTouch",
+      "mustTouch"
     ]
   ],
   "blocks": [
     {
       "id": 1,
-      "x": 7,
-      "y": 6,
+      "x": 4,
+      "y": 1,
       "width": 1,
-      "depth": 2,
+      "depth": 1,
+      "height": 1
+    },
+    {
+      "id": 2,
+      "x": 4,
+      "y": 0,
+      "width": 1,
+      "depth": 1,
       "height": 1
     }
   ],
@@ -167,66 +57,18 @@
     },
     {
       "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
       "direction": "UP"
     },
     {
-      "blockId": 1,
+      "blockId": 2,
       "direction": "LEFT"
     },
     {
       "blockId": 1,
-      "direction": "DOWN"
+      "direction": "LEFT"
     },
     {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "UP"
-    },
-    {
-      "blockId": 1,
+      "blockId": 2,
       "direction": "LEFT"
     },
     {
@@ -242,120 +84,24 @@
       "direction": "LEFT"
     },
     {
-      "blockId": 1,
+      "blockId": 2,
       "direction": "LEFT"
     },
     {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "UP"
-    },
-    {
-      "blockId": 1,
-      "direction": "UP"
-    },
-    {
-      "blockId": 1,
-      "direction": "UP"
-    },
-    {
-      "blockId": 1,
-      "direction": "UP"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "UP"
-    },
-    {
-      "blockId": 1,
-      "direction": "UP"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
+      "blockId": 2,
       "direction": "DOWN"
     },
     {
       "blockId": 1,
-      "direction": "RIGHT"
+      "direction": "UP"
     },
     {
       "blockId": 1,
       "direction": "UP"
     },
     {
-      "blockId": 1,
+      "blockId": 2,
       "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "UP"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 1,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "DOWN"
     }
   ]
 }

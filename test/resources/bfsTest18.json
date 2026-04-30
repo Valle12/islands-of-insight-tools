@@ -1,160 +1,100 @@
 {
-  "gridWidth": 13,
+  "gridWidth": 8,
   "gridHeight": 10,
   "cells": [
     [
       "unplayable",
       "unplayable",
       "unplayable",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "goal",
+      "unplayable"
+    ],
+    [
       "unplayable",
+      "unplayable",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch"
+    ],
+    [
+      "unplayable",
+      "unplayable",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch"
+    ],
+    [
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch"
+    ],
+    [
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "unplayable"
+    ],
+    [
+      "mustTouch",
       "unplayable",
       "goal",
       "goal",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "unplayable",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "unplayable",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "unplayable",
       "goal",
-      "unplayable",
-      "unplayable"
-    ],
-    [
-      "regular",
-      "regular",
-      "regular",
-      "unplayable",
-      "unplayable",
       "goal",
-      "goal",
-      "goal",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
       "unplayable",
-      "unplayable"
-    ],
-    [
-      "regular",
-      "regular",
-      "regular",
-      "unplayable",
-      "unplayable",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular"
-    ],
-    [
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "unplayable",
-      "regular",
-      "regular",
-      "regular"
-    ],
-    [
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "regular",
-      "regular",
-      "regular",
-      "unplayable",
-      "regular",
-      "regular",
-      "regular"
-    ],
-    [
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "regular",
-      "regular",
-      "regular",
-      "unplayable",
-      "regular",
-      "regular",
-      "regular"
-    ],
-    [
-      "unplayable",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "unplayable",
-      "regular",
-      "unplayable",
-      "unplayable"
-    ],
-    [
-      "unplayable",
-      "regular",
-      "regular",
-      "regular",
-      "unplayable",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "unplayable"
-    ],
-    [
-      "unplayable",
-      "regular",
-      "regular",
-      "regular",
-      "unplayable",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "unplayable"
-    ],
-    [
-      "unplayable",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "unplayable"
-    ],
-    [
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "regular",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "regular",
-      "unplayable",
-      "unplayable"
-    ],
-    [
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "unplayable",
-      "unplayable"
-    ],
-    [
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
       "unplayable",
       "unplayable"
     ]
@@ -162,37 +102,77 @@
   "blocks": [
     {
       "id": 1,
+      "x": 3,
+      "y": 9,
+      "width": 1,
+      "depth": 1,
+      "height": 2
+    },
+    {
+      "id": 2,
       "x": 1,
-      "y": 0,
-      "width": 2,
-      "depth": 3,
+      "y": 9,
+      "width": 1,
+      "depth": 1,
+      "height": 2
+    },
+    {
+      "id": 3,
+      "x": 2,
+      "y": 9,
+      "width": 1,
+      "depth": 1,
       "height": 1
     }
   ],
   "turns": [
     {
       "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "DOWN"
+      "direction": "UP"
     },
     {
       "blockId": 1,
       "direction": "RIGHT"
     },
     {
-      "blockId": 1,
+      "blockId": 2,
+      "direction": "UP"
+    },
+    {
+      "blockId": 2,
+      "direction": "UP"
+    },
+    {
+      "blockId": 2,
+      "direction": "UP"
+    },
+    {
+      "blockId": 2,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 2,
+      "direction": "UP"
+    },
+    {
+      "blockId": 2,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 2,
       "direction": "DOWN"
+    },
+    {
+      "blockId": 3,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
+      "direction": "UP"
     },
     {
       "blockId": 1,
       "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "DOWN"
     },
     {
       "blockId": 1,
@@ -203,76 +183,132 @@
       "direction": "UP"
     },
     {
-      "blockId": 1,
+      "blockId": 2,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 2,
       "direction": "UP"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
     },
     {
       "blockId": 1,
       "direction": "UP"
     },
     {
-      "blockId": 1,
+      "blockId": 3,
+      "direction": "UP"
+    },
+    {
+      "blockId": 3,
+      "direction": "UP"
+    },
+    {
+      "blockId": 3,
       "direction": "RIGHT"
     },
     {
-      "blockId": 1,
+      "blockId": 3,
+      "direction": "UP"
+    },
+    {
+      "blockId": 3,
       "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 1,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 1,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 1,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
     },
     {
       "blockId": 1,
       "direction": "UP"
     },
     {
-      "blockId": 1,
+      "blockId": 3,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 3,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 3,
+      "direction": "UP"
+    },
+    {
+      "blockId": 3,
+      "direction": "UP"
+    },
+    {
+      "blockId": 3,
+      "direction": "UP"
+    },
+    {
+      "blockId": 3,
+      "direction": "UP"
+    },
+    {
+      "blockId": 3,
+      "direction": "UP"
+    },
+    {
+      "blockId": 3,
       "direction": "LEFT"
+    },
+    {
+      "blockId": 3,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 3,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 3,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 3,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 3,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 3,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 3,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 3,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 3,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 3,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 3,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 3,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 3,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 3,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 3,
+      "direction": "DOWN"
     }
   ]
 }

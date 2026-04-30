@@ -72,7 +72,15 @@
   "turns": [
     {
       "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
       "direction": "DOWN"
+    },
+    {
+      "blockId": 2,
+      "direction": "RIGHT"
     },
     {
       "blockId": 1,
@@ -81,10 +89,6 @@
     {
       "blockId": 1,
       "direction": "DOWN"
-    },
-    {
-      "blockId": 1,
-      "direction": "LEFT"
     },
     {
       "blockId": 2,
@@ -97,10 +101,6 @@
     {
       "blockId": 2,
       "direction": "UP"
-    },
-    {
-      "blockId": 2,
-      "direction": "RIGHT"
     }
   ]
 }

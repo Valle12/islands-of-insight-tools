@@ -1,10 +1,77 @@
 {
-  "gridWidth": 9,
-  "gridHeight": 9,
+  "gridWidth": 10,
+  "gridHeight": 11,
   "cells": [
     [
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "unplayable",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "unplayable",
+      "unplayable",
+      "unplayable",
       "regular",
       "regular",
+      "regular",
+      "mustTouch",
+      "mustTouch",
+      "unplayable",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "unplayable",
+      "unplayable",
+      "mustTouch",
+      "regular",
+      "mustTouch",
+      "regular",
+      "mustTouch",
+      "regular",
+      "mustTouch",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "mustTouch",
+      "mustTouch",
+      "regular",
+      "regular",
+      "regular",
+      "unplayable",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "unplayable",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "mustTouch",
       "regular",
       "regular",
       "regular",
@@ -18,7 +85,35 @@
       "regular",
       "regular",
       "regular",
+      "mustTouch",
       "regular",
+      "regular",
+      "mustTouch",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "mustTouch",
+      "regular",
+      "regular",
+      "regular",
+      "mustTouch",
+      "regular",
+      "mustTouch",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "mustTouch",
+      "regular",
+      "regular",
+      "mustTouch",
       "regular",
       "regular",
       "regular",
@@ -32,71 +127,7 @@
       "regular",
       "regular",
       "regular",
-      "regular",
-      "regular"
-    ],
-    [
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular"
-    ],
-    [
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "goal",
-      "regular",
-      "regular",
-      "regular",
-      "regular"
-    ],
-    [
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular"
-    ],
-    [
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular"
-    ],
-    [
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular"
-    ],
-    [
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
-      "regular",
+      "mustTouch",
       "regular",
       "regular",
       "regular"
@@ -105,17 +136,73 @@
   "blocks": [
     {
       "id": 1,
-      "x": 2,
-      "y": 6,
+      "x": 7,
+      "y": 1,
       "width": 1,
       "depth": 1,
       "height": 2
+    },
+    {
+      "id": 2,
+      "x": 0,
+      "y": 3,
+      "width": 5,
+      "depth": 5,
+      "height": 5
+    },
+    {
+      "id": 3,
+      "x": 2,
+      "y": 8,
+      "width": 1,
+      "depth": 1,
+      "height": 1
     }
   ],
   "turns": [
     {
       "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
       "direction": "UP"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
     },
     {
       "blockId": 1,
@@ -131,7 +218,83 @@
     },
     {
       "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
       "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 2,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 3,
+      "direction": "UP"
+    },
+    {
+      "blockId": 3,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 3,
+      "direction": "UP"
+    },
+    {
+      "blockId": 3,
+      "direction": "UP"
+    },
+    {
+      "blockId": 3,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 3,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 3,
+      "direction": "UP"
+    },
+    {
+      "blockId": 3,
+      "direction": "UP"
+    },
+    {
+      "blockId": 3,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 3,
+      "direction": "UP"
     },
     {
       "blockId": 1,

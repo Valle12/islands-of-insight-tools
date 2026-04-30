@@ -20,7 +20,7 @@ jobs:
         run: bun ci
 
       - name: Run tests
-        run: bun test
+        run: ROLLING_BLOCKS_TEST=true bun test
 
       - name: Install Playwright browsers
         run: bunx playwright install --with-deps

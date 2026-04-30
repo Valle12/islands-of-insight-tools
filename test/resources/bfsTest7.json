@@ -160,6 +160,30 @@
   "turns": [
     {
       "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 2,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 2,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 2,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 2,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 3,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 3,
       "direction": "DOWN"
     },
     {
@@ -167,39 +191,23 @@
       "direction": "LEFT"
     },
     {
+      "blockId": 2,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 4,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 2,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 4,
+      "direction": "DOWN"
+    },
+    {
       "blockId": 1,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 4,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 4,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 2,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 2,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 2,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 2,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 2,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 2,
       "direction": "DOWN"
     },
     {
@@ -209,18 +217,6 @@
     {
       "blockId": 3,
       "direction": "DOWN"
-    },
-    {
-      "blockId": 3,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 3,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 3,
-      "direction": "LEFT"
     },
     {
       "blockId": 3,
@@ -233,6 +229,10 @@
     {
       "blockId": 4,
       "direction": "DOWN"
+    },
+    {
+      "blockId": 3,
+      "direction": "LEFT"
     },
     {
       "blockId": 4,

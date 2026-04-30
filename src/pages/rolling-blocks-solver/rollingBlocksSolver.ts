@@ -1,5 +1,4 @@
 import type { PaintTool } from "./../../util/types";
-import { BFS } from "./bfs";
 import { Board } from "./board";
 import { Node } from "./node";
 
@@ -83,14 +82,14 @@ export class RollingBlocksSolverEditor {
 
     const calculateMovesBtn = document.getElementById("calculate-moves");
     calculateMovesBtn?.addEventListener("click", () => {
-      const bfs = new BFS(
+      /*const bfs = new BFS(
         this.gridWidth,
         this.gridHeight,
         this.board.getCells(),
       );
       const turns = bfs.search(
         new Node(this.board.getBlocks().values().toArray()),
-      );
+      );*/
       /*const aStar = new AStar(
         this.gridWidth,
         this.gridHeight,
@@ -99,15 +98,35 @@ export class RollingBlocksSolverEditor {
       const turns = aStar.search(
         new Node(this.board.getBlocks().values().toArray()),
       );*/
-      /*const idaStar = new IDAStar(
-        this.gridWidth,
-        this.gridHeight,
-        this.board.getCells(),
-      );
-      const turns = idaStar.search(
-        new Node(this.board.getBlocks().values().toArray()),
-      );*/
-      console.log("Turns:", turns);
+
+      // TODO worker still does not really work
+      const worker = new Worker("/solver.worker.js", {
+        type: "module",
+      });
+      worker.onmessage = (event: MessageEvent) => {
+        if (event.data.type === "download") {
+          const blob = event.data.blob;
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "bfsTest.json";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        } else if (event.data.type === "progress") {
+          console.log("Nodes expanded: ", event.data.progress);
+        } else if (event.data.type === "done") {
+          console.log("Solution: ", event.data.path);
+          worker.terminate();
+        }
+      };
+      worker.postMessage({
+        gridWidth: this.gridWidth,
+        gridHeight: this.gridHeight,
+        cells: this.board.getCells(),
+        root: new Node(this.board.getBlocks().values().toArray()),
+      });
     });
 
     this.widthField.addEventListener("input", () => this.handleSizeUpdate());

@@ -21,7 +21,7 @@
     [
       "regular",
       "regular",
-      "regular",
+      "unplayable",
       "regular",
       "regular",
       "regular"
@@ -64,6 +64,26 @@
   "turns": [
     {
       "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
+      "direction": "UP"
+    },
+    {
+      "blockId": 1,
       "direction": "LEFT"
     },
     {
@@ -76,15 +96,15 @@
     },
     {
       "blockId": 1,
-      "direction": "UP"
-    },
-    {
-      "blockId": 1,
-      "direction": "RIGHT"
+      "direction": "DOWN"
     },
     {
       "blockId": 1,
       "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
     }
   ]
 }

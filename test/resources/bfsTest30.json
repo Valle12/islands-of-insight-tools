@@ -1,93 +1,90 @@
 {
-  "gridWidth": 8,
-  "gridHeight": 8,
+  "gridWidth": 7,
+  "gridHeight": 9,
   "cells": [
     [
+      "goal",
+      "goal",
+      "goal",
+      "regular",
+      "unplayable",
+      "regular",
+      "regular",
+      "regular",
+      "goal"
+    ],
+    [
       "unplayable",
       "unplayable",
-      "unplayable",
+      "regular",
+      "regular",
       "mustTouch",
-      "mustTouch",
-      "unplayable",
+      "regular",
+      "regular",
       "unplayable",
       "unplayable"
     ],
     [
       "unplayable",
       "unplayable",
+      "regular",
+      "regular",
       "mustTouch",
-      "mustTouch",
-      "mustTouch",
-      "unplayable",
-      "unplayable",
-      "unplayable"
-    ],
-    [
-      "mustTouch",
-      "mustTouch",
-      "unplayable",
-      "mustTouch",
-      "mustTouch",
-      "unplayable",
-      "unplayable",
-      "mustTouch"
-    ],
-    [
-      "mustTouch",
-      "mustTouch",
-      "mustTouch",
-      "mustTouch",
-      "mustTouch",
-      "mustTouch",
-      "mustTouch",
-      "mustTouch"
-    ],
-    [
-      "mustTouch",
-      "mustTouch",
-      "mustTouch",
-      "mustTouch",
-      "mustTouch",
-      "mustTouch",
-      "mustTouch",
-      "mustTouch"
-    ],
-    [
-      "unplayable",
-      "mustTouch",
-      "unplayable",
-      "mustTouch",
-      "mustTouch",
-      "unplayable",
-      "mustTouch",
-      "mustTouch"
-    ],
-    [
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "unplayable",
-      "mustTouch",
-      "mustTouch",
+      "regular",
+      "regular",
       "unplayable",
       "unplayable"
     ],
     [
       "unplayable",
       "unplayable",
-      "unplayable",
-      "unplayable",
+      "regular",
+      "regular",
       "mustTouch",
-      "mustTouch",
+      "regular",
+      "regular",
       "unplayable",
       "unplayable"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "unplayable",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "unplayable",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "unplayable",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
     ]
   ],
   "blocks": [
     {
       "id": 1,
-      "x": 7,
-      "y": 5,
+      "x": 2,
+      "y": 2,
       "width": 1,
       "depth": 1,
       "height": 1
@@ -95,24 +92,8 @@
     {
       "id": 2,
       "x": 1,
-      "y": 4,
-      "width": 1,
-      "depth": 1,
-      "height": 1
-    },
-    {
-      "id": 3,
-      "x": 5,
       "y": 6,
-      "width": 1,
-      "depth": 1,
-      "height": 1
-    },
-    {
-      "id": 4,
-      "x": 2,
-      "y": 0,
-      "width": 1,
+      "width": 3,
       "depth": 1,
       "height": 1
     }
@@ -120,18 +101,74 @@
   "turns": [
     {
       "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 2,
       "direction": "UP"
+    },
+    {
+      "blockId": 1,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
     },
     {
       "blockId": 1,
       "direction": "LEFT"
     },
     {
+      "blockId": 2,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 2,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 1,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 2,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 1,
+      "direction": "DOWN"
+    },
+    {
       "blockId": 1,
       "direction": "DOWN"
     },
     {
       "blockId": 2,
+      "direction": "UP"
+    },
+    {
+      "blockId": 2,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 2,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 2,
       "direction": "LEFT"
     },
     {
@@ -140,6 +177,18 @@
     },
     {
       "blockId": 2,
+      "direction": "UP"
+    },
+    {
+      "blockId": 2,
+      "direction": "RIGHT"
+    },
+    {
+      "blockId": 2,
+      "direction": "DOWN"
+    },
+    {
+      "blockId": 2,
       "direction": "RIGHT"
     },
     {
@@ -147,100 +196,24 @@
       "direction": "UP"
     },
     {
-      "blockId": 3,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 3,
+      "blockId": 2,
       "direction": "LEFT"
     },
     {
-      "blockId": 3,
-      "direction": "UP"
+      "blockId": 2,
+      "direction": "DOWN"
     },
     {
-      "blockId": 3,
-      "direction": "UP"
-    },
-    {
-      "blockId": 3,
-      "direction": "UP"
-    },
-    {
-      "blockId": 3,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 3,
-      "direction": "UP"
-    },
-    {
-      "blockId": 3,
+      "blockId": 2,
       "direction": "LEFT"
     },
     {
-      "blockId": 3,
+      "blockId": 2,
+      "direction": "LEFT"
+    },
+    {
+      "blockId": 2,
       "direction": "UP"
-    },
-    {
-      "blockId": 3,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 3,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 3,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 3,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 3,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 3,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 3,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 3,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 3,
-      "direction": "LEFT"
-    },
-    {
-      "blockId": 4,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 4,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 4,
-      "direction": "UP"
-    },
-    {
-      "blockId": 4,
-      "direction": "RIGHT"
-    },
-    {
-      "blockId": 4,
-      "direction": "DOWN"
-    },
-    {
-      "blockId": 4,
-      "direction": "RIGHT"
     }
   ]
 }
