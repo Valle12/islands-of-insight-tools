@@ -1,6 +1,6 @@
 import type { PaintTool } from "./../../util/types";
 import { Board } from "./board";
-import { Node } from "./node";
+import { searchWasm } from "./wasmBridge";
 
 export class RollingBlocksSolverEditor {
   private static readonly DEFAULT_GRID_WIDTH = 5;
@@ -100,33 +100,23 @@ export class RollingBlocksSolverEditor {
       );*/
 
       // TODO worker still does not really work
-      const worker = new Worker("/solver.worker.js", {
-        type: "module",
-      });
-      worker.onmessage = (event: MessageEvent) => {
-        if (event.data.type === "download") {
-          const blob = event.data.blob;
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = "bfsTest.json";
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          URL.revokeObjectURL(url);
-        } else if (event.data.type === "progress") {
-          console.log("Nodes expanded: ", event.data.progress);
-        } else if (event.data.type === "done") {
-          console.log("Solution: ", event.data.path);
-          worker.terminate();
-        }
-      };
-      worker.postMessage({
-        gridWidth: this.gridWidth,
-        gridHeight: this.gridHeight,
-        cells: this.board.getCells(),
-        root: new Node(this.board.getBlocks().values().toArray()),
-      });
+      searchWasm(
+        this.gridWidth,
+        this.gridHeight,
+        this.board.getCells(),
+        this.board.getBlocks().values().toArray(),
+        {
+          onProgress: nodesExpanded => {
+            console.log("Nodes expanded: ", nodesExpanded);
+          },
+          onDone: path => {
+            console.log("Solution: ", path);
+          },
+          onError: err => {
+            console.error("WASM search failed:", err);
+          },
+        },
+      );
     });
 
     this.widthField.addEventListener("input", () => this.handleSizeUpdate());
