@@ -1,3 +1,5 @@
+#ifdef __EMSCRIPTEN__
+
 #include "AStar.h"
 
 #include <emscripten/bind.h>
@@ -56,3 +58,6 @@ val search(unsigned int gridWidth, unsigned int gridHeight, val cellsJs,
 }
 
 EMSCRIPTEN_BINDINGS(astar_module) { function("search", &search); }
+
+#endif // __EMSCRIPTEN__
+

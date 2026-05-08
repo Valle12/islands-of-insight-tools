@@ -8,7 +8,8 @@
     "build:wasm": "pwsh ./build-wasm.ps1",
     "dev": "bun run src/util/serve.ts",
     "e2e": "bunx playwright test",
-    "rolling-blocks-test": "ROLLING_BLOCKS_TEST=true bun test test/rollingBlocksSolver/bfs.test.ts"
+    "rolling-blocks-test": "ROLLING_BLOCKS_TEST=true bun test test/rollingBlocksSolver/bfs.test.ts",
+    "test": "bun run build:wasm && ROLLING_BLOCKS_TEST=true bun test"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^20.9.0",

@@ -10,7 +10,9 @@ struct NodeKey {
   uint32_t *heapData = nullptr;
   uint8_t len = 0;
 
-  uint32_t *data() { return len <= InlineCapacity ? inlineData.data() : heapData; }
+  uint32_t *data() {
+    return len <= InlineCapacity ? inlineData.data() : heapData;
+  }
   [[nodiscard]] const uint32_t *data() const {
     return len <= InlineCapacity ? inlineData.data() : heapData;
   }
@@ -29,7 +31,8 @@ struct NodeKey {
       heapData = new uint32_t[len];
       std::memcpy(heapData, o.heapData, len * sizeof(uint32_t));
     } else {
-      std::memcpy(inlineData.data(), o.inlineData.data(), len * sizeof(uint32_t));
+      std::memcpy(inlineData.data(), o.inlineData.data(),
+                  len * sizeof(uint32_t));
     }
   }
 
@@ -44,7 +47,8 @@ struct NodeKey {
       heapData = new uint32_t[len];
       std::memcpy(heapData, o.heapData, len * sizeof(uint32_t));
     } else {
-      std::memcpy(inlineData.data(), o.inlineData.data(), len * sizeof(uint32_t));
+      std::memcpy(inlineData.data(), o.inlineData.data(),
+                  len * sizeof(uint32_t));
     }
     return *this;
   }
@@ -75,14 +79,27 @@ struct NodeKey {
   }
 };
 
+namespace detail {
+template <size_t N> struct FnvParams;
+template <> struct FnvParams<8> {
+  static constexpr uint64_t offset = 14695981039346656037ULL;
+  static constexpr uint64_t prime = 1099511628211ULL;
+};
+template <> struct FnvParams<4> {
+  static constexpr uint32_t offset = 2166136261U;
+  static constexpr uint32_t prime = 16777619U;
+};
+} // namespace detail
+
 struct NodeKeyHash {
   size_t operator()(const NodeKey &k) const noexcept {
-    size_t h = 14695981039346656037ULL;
+    using Fnv = detail::FnvParams<sizeof(size_t)>;
+    size_t h = Fnv::offset;
     const auto *p = reinterpret_cast<const uint8_t *>(k.data());
     const size_t bytes = k.len * sizeof(uint32_t);
     for (size_t i = 0; i < bytes; i++) {
       h ^= p[i];
-      h *= 1099511628211ULL;
+      h *= Fnv::prime;
     }
     return h;
   }
