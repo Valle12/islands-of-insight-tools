@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 #include "Block.h"
+#include <boost/dynamic_bitset.hpp>
 #include "Types.h"
 #include <vector>
-#include <boost/dynamic_bitset.hpp>
 
 // =========================================================================
 // Roll tests

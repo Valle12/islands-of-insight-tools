@@ -1,8 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <vector>
-#include <boost/dynamic_bitset.hpp>
 
 enum class Tile : uint8_t {
     Regular,

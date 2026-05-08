@@ -1,0 +1,156 @@
+{
+  "gridWidth": 10,
+  "gridHeight": 8,
+  "cells": [
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "unplayable",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "regular",
+      "unplayable",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "regular",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "regular",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "regular",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "regular",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "mustTouch",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable"
+    ]
+  ],
+  "blocks": [
+    {
+      "id": 1,
+      "x": 2,
+      "y": 7,
+      "width": 1,
+      "depth": 1,
+      "height": 6
+    },
+    {
+      "id": 2,
+      "x": 2,
+      "y": 4,
+      "width": 2,
+      "depth": 2,
+      "height": 2
+    },
+    {
+      "id": 3,
+      "x": 0,
+      "y": 4,
+      "width": 2,
+      "depth": 2,
+      "height": 2
+    },
+    {
+      "id": 4,
+      "x": 2,
+      "y": 2,
+      "width": 2,
+      "depth": 2,
+      "height": 2
+    },
+    {
+      "id": 5,
+      "x": 0,
+      "y": 3,
+      "width": 2,
+      "depth": 1,
+      "height": 2
+    },
+    {
+      "id": 6,
+      "x": 0,
+      "y": 2,
+      "width": 2,
+      "depth": 1,
+      "height": 2
+    }
+  ]
+}

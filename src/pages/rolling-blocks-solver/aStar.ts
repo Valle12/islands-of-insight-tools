@@ -126,6 +126,26 @@ export class AStar {
       );
     }
 
+    const bfsTest: BFSTest = {
+      gridWidth: this.gridWidth,
+      gridHeight: this.gridHeight,
+      cells: this.cells,
+      blocks: root.blocks,
+      turns: undefined,
+    };
+
+    // Serialize and download bfsTest as a pretty-printed JSON file in the browser.
+    try {
+      const json = JSON.stringify(bfsTest, null, 2);
+      const blob = new Blob([json], { type: "application/json" });
+      this.onDownload?.(blob);
+    } catch (e) {
+      // If serialization or download fails, log the error but continue the search.
+      // e may be e.g. circular structure or unsupported types.
+      // eslint-disable-next-line no-console
+      console.error("Failed to download bfsTest:", e);
+    }
+
     this.blockGoalAssignment = this.assignBlocksToGoals(root.blocks);
 
     const rootSignature = this.nodeSignature(root);
@@ -169,25 +189,6 @@ export class AStar {
           `A* (w=${this.weight}) found solution in ${g} moves, expanded ${nodesExpanded} nodes`,
         );
         const turns = this.reconstructPath(cameFrom, signature);
-        const bfsTest: BFSTest = {
-          gridWidth: this.gridWidth,
-          gridHeight: this.gridHeight,
-          cells: this.cells,
-          blocks: root.blocks,
-          turns: turns,
-        };
-
-        // Serialize and download bfsTest as a pretty-printed JSON file in the browser.
-        try {
-          const json = JSON.stringify(bfsTest, null, 2);
-          const blob = new Blob([json], { type: "application/json" });
-          this.onDownload?.(blob);
-        } catch (e) {
-          // If serialization or download fails, log the error but continue the search.
-          // e may be e.g. circular structure or unsupported types.
-          // eslint-disable-next-line no-console
-          console.error("Failed to download bfsTest:", e);
-        }
         return turns;
       }
 

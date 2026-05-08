@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "AStar.h"
 #include "Block.h"
+#include <boost/dynamic_bitset.hpp>
 #include "Node.h"
 #include "Types.h"
 
@@ -76,7 +77,7 @@ static BFSTestData loadTestData(const std::string& filename) {
 static bool validateSolution(const BFSTestData& data, const std::vector<Turn>& turns) {
     std::vector<Block> blocks = data.blocks;
     size_t totalCells = static_cast<size_t>(data.gridWidth) * data.gridHeight;
-    boost::dynamic_bitset<> mustTouchSatisfied(totalCells);
+    boost::dynamic_bitset<> mustTouchSatisfied(static_cast<uint16_t>(totalCells));
 
     // Initial mustTouch update
     for (const auto& block : blocks) {
@@ -151,7 +152,7 @@ class BFSSearchTest : public ::testing::TestWithParam<std::string> {};
 static std::vector<std::string> allTestFiles() {
     std::vector<std::string> files;
     files.push_back("bfsTest.json");
-    for (int i = 1; i <= 30; i++) {
+    for (int i = 1; i <= 39; i++) {
         files.push_back("bfsTest" + std::to_string(i) + ".json");
     }
     return files;
