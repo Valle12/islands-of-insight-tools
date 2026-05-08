@@ -6,7 +6,8 @@
   "scripts": {
     "build": "bun run src/util/build.ts",
     "dev": "bun run src/util/serve.ts",
-    "e2e": "bunx playwright test"
+    "e2e": "bunx playwright test",
+    "rolling-blocks-test": "ROLLING_BLOCKS_TEST=true bun test test/rollingBlocksSolver/bfs.test.ts"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^20.9.0",

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { AStar } from "../../src/pages/rolling-blocks-solver/aStar";
 import { Block } from "../../src/pages/rolling-blocks-solver/block";
-import { AStar } from "../../src/pages/rolling-blocks-solver/ida";
 import { Node } from "../../src/pages/rolling-blocks-solver/node";
 import type { BFSTest } from "../../src/util/types";
 

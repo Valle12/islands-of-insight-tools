@@ -413,7 +413,6 @@ describe("Block", () => {
       expect(result).toBeTrue();
     });
 
-    // TODO check non overlapping blocks
     test.each(blockOverlapCases)(
       "blocks should overlap ($blockType)",
       ({ block1, block2, blockType }) => {
