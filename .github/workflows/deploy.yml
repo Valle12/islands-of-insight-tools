@@ -26,7 +26,12 @@ jobs:
         uses: emscripten-core/setup-emsdk@v16
 
       - name: Install Boost
-        run: sudo apt-get update && sudo apt-get install -y libboost-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libboost-dev
+          mkdir -p "$HOME/boost-include"
+          ln -s /usr/include/boost "$HOME/boost-include/boost"
+          echo "BOOST_INCLUDE=$HOME/boost-include" >> "$GITHUB_ENV"
 
       - name: Setup pages
         uses: actions/configure-pages@v6
@@ -36,8 +41,6 @@ jobs:
 
       - name: Build
         run: bun run build
-        env:
-          BOOST_INCLUDE: /usr/include
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
