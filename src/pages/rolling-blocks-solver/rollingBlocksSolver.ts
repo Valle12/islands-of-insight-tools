@@ -1,6 +1,7 @@
 import type { PaintTool } from "./../../util/types";
 import { Board } from "./board";
-import { Node } from "./node";
+import type { Turn } from "./turn";
+import { searchWasm } from "./wasmBridge";
 
 export class RollingBlocksSolverEditor {
   private static readonly DEFAULT_GRID_WIDTH = 5;
@@ -17,10 +18,30 @@ export class RollingBlocksSolverEditor {
   ) as HTMLInputElement;
   private statusEl = document.getElementById("tool-status") as HTMLDivElement;
 
+  private solutionPanel = document.getElementById(
+    "solution-panel",
+  ) as HTMLDivElement;
+  private solutionSpinner = document.getElementById(
+    "solution-spinner",
+  ) as HTMLDivElement;
+  private solutionError = document.getElementById(
+    "solution-error",
+  ) as HTMLDivElement;
+  private solutionMoves = document.getElementById(
+    "solution-moves",
+  ) as HTMLOListElement;
+  private solutionStatus = document.getElementById(
+    "solution-status",
+  ) as HTMLSpanElement;
+  private solutionProgressText = document.getElementById(
+    "solution-progress-text",
+  ) as HTMLSpanElement;
+
   private gridWidth = RollingBlocksSolverEditor.DEFAULT_GRID_WIDTH;
   private gridHeight = RollingBlocksSolverEditor.DEFAULT_GRID_HEIGHT;
   private selectedTool: PaintTool = "regular";
   private board: Board;
+  private currentWorker: Worker | null = null;
 
   constructor() {
     this.board = new Board(
@@ -42,12 +63,14 @@ export class RollingBlocksSolverEditor {
 
         if (tool === "fillRegular") {
           this.board.fillAllCells("regular");
+          this.hideSolution();
           this.render();
           return;
         }
 
         if (tool === "fillMustTouch") {
           this.board.fillAllCells("mustTouch");
+          this.hideSolution();
           this.render();
           return;
         }
@@ -76,57 +99,35 @@ export class RollingBlocksSolverEditor {
 
     resetConfirmBtn?.addEventListener("click", () => {
       this.resetToDefaults();
+      this.hideSolution();
       this.render();
       resetDialog.close();
     });
 
     const calculateMovesBtn = document.getElementById("calculate-moves");
     calculateMovesBtn?.addEventListener("click", () => {
-      /*const bfs = new BFS(
-        this.gridWidth,
-        this.gridHeight,
-        this.board.getCells(),
-      );
-      const turns = bfs.search(
-        new Node(this.board.getBlocks().values().toArray()),
-      );*/
-      /*const aStar = new AStar(
-        this.gridWidth,
-        this.gridHeight,
-        this.board.getCells(),
-      );
-      const turns = aStar.search(
-        new Node(this.board.getBlocks().values().toArray()),
-      );*/
+      this.stopCurrentWorker();
+      this.showSolving();
 
-      // TODO worker still does not really work
-      const worker = new Worker("/solver.worker.js", {
-        type: "module",
-      });
-      worker.onmessage = (event: MessageEvent) => {
-        if (event.data.type === "download") {
-          const blob = event.data.blob;
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = "bfsTest.json";
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          URL.revokeObjectURL(url);
-        } else if (event.data.type === "progress") {
-          console.log("Nodes expanded: ", event.data.progress);
-        } else if (event.data.type === "done") {
-          console.log("Solution: ", event.data.path);
-          worker.terminate();
-        }
-      };
-      worker.postMessage({
-        gridWidth: this.gridWidth,
-        gridHeight: this.gridHeight,
-        cells: this.board.getCells(),
-        root: new Node(this.board.getBlocks().values().toArray()),
-      });
+      this.currentWorker = searchWasm(
+        this.gridWidth,
+        this.gridHeight,
+        this.board.getCells(),
+        this.board.getBlocks().values().toArray(),
+        {
+          onProgress: nodesExpanded => {
+            this.solutionProgressText.textContent = `Searching... (${nodesExpanded.toLocaleString()} nodes expanded)`;
+          },
+          onDone: path => {
+            this.currentWorker = null;
+            this.showSolution(path);
+          },
+          onError: err => {
+            this.currentWorker = null;
+            this.showError(err);
+          },
+        },
+      );
     });
 
     this.widthField.addEventListener("input", () => this.handleSizeUpdate());
@@ -143,6 +144,7 @@ export class RollingBlocksSolverEditor {
       const parsed = this.parsePositiveInt(textField.value);
       if (!parsed) return;
       block.height = parsed;
+      this.hideSolution();
     });
 
     this.blocksListEl.addEventListener("click", event => {
@@ -152,6 +154,7 @@ export class RollingBlocksSolverEditor {
       const id = Number(button.dataset.blockDeleteId);
       this.board.deleteBlockById(id);
       this.board.renumberBlocks(id);
+      this.hideSolution();
       this.render();
     });
 
@@ -180,6 +183,7 @@ export class RollingBlocksSolverEditor {
       this.gridHeight,
       this.selectedTool,
     );
+    this.hideSolution();
     this.render();
   }
 
@@ -272,6 +276,57 @@ export class RollingBlocksSolverEditor {
         `,
       )
       .join("");
+  }
+  private stopCurrentWorker() {
+    if (this.currentWorker) {
+      this.currentWorker.terminate();
+      this.currentWorker = null;
+    }
+  }
+
+  private showSolving() {
+    this.solutionPanel.classList.remove("hidden");
+    this.solutionSpinner.classList.remove("hidden");
+    this.solutionError.classList.add("hidden");
+    this.solutionMoves.classList.add("hidden");
+    this.solutionStatus.textContent = "";
+    this.solutionProgressText.textContent = "Searching...";
+  }
+
+  private showSolution(path: Turn[]) {
+    this.solutionSpinner.classList.add("hidden");
+    this.solutionError.classList.add("hidden");
+
+    if (path.length === 0) {
+      this.solutionStatus.textContent = "No solution found";
+      this.solutionMoves.classList.add("hidden");
+      return;
+    }
+
+    this.solutionStatus.textContent = `${path.length} move${path.length !== 1 ? "s" : ""}`;
+    this.solutionMoves.classList.remove("hidden");
+    this.solutionMoves.innerHTML = path
+      .map(
+        turn =>
+          `<li><span class="move-block">Block ${turn.blockId}</span> <span class="move-direction">${turn.direction.toLowerCase()}</span></li>`,
+      )
+      .join("");
+  }
+
+  private showError(error: string) {
+    this.solutionSpinner.classList.add("hidden");
+    this.solutionMoves.classList.add("hidden");
+    this.solutionError.classList.remove("hidden");
+    this.solutionError.textContent = `Error: ${error}`;
+    this.solutionStatus.textContent = "Failed";
+  }
+
+  hideSolution() {
+    this.stopCurrentWorker();
+    this.solutionPanel.classList.add("hidden");
+    this.solutionSpinner.classList.add("hidden");
+    this.solutionError.classList.add("hidden");
+    this.solutionMoves.classList.add("hidden");
   }
 }
 

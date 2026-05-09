@@ -3,3 +3,4 @@ coverage = true
 coverageSkipTestFiles = true
 root = "test"
 preload = ["./src/util/preload.ts"]
+coveragePathIgnorePatterns = ["**/astar.mjs"]

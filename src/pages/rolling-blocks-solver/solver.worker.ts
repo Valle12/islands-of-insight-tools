@@ -1,5 +1,5 @@
+import { AStar } from "./aStar";
 import { Block } from "./block";
-import { AStar } from "./ida";
 import { Node } from "./node";
 
 self.onmessage = (event: MessageEvent) => {

@@ -13,6 +13,45 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Install C++ dependencies
+        run: sudo apt-get update && sudo apt-get install -y libboost-dev nlohmann-json3-dev libgtest-dev cmake
+
+      - name: Build C++ tests
+        working-directory: src/pages/rolling-blocks-solver/a-star
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON && cmake --build build
+
+      - name: Run C++ tests
+        working-directory: src/pages/rolling-blocks-solver/a-star
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Setup Emscripten
+        uses: emscripten-core/setup-emsdk@v16
+
+      - name: Build WASM
+        run: |
+          ASTAR_DIR=src/pages/rolling-blocks-solver/a-star
+          OUT_DIR=src/pages/rolling-blocks-solver/wasm
+          BOOST_DIR=/tmp/boost-headers
+          mkdir -p "$OUT_DIR" "$BOOST_DIR"
+          cp -r /usr/include/boost "$BOOST_DIR/"
+          em++ \
+            "$ASTAR_DIR/wasm_bindings.cpp" \
+            "$ASTAR_DIR/AStar.cpp" \
+            "$ASTAR_DIR/Block.cpp" \
+            -o "$OUT_DIR/astar.mjs" \
+            -I "$BOOST_DIR" \
+            -std=c++23 \
+            -O3 \
+            -sWASM=1 \
+            -sMODULARIZE=1 \
+            -sEXPORT_NAME=createAStarModule \
+            -sENVIRONMENT=web,worker \
+            -sALLOW_MEMORY_GROWTH=1 \
+            -sINITIAL_MEMORY=16777216 \
+            --bind \
+            -flto \
+            -fno-exceptions
+
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
 

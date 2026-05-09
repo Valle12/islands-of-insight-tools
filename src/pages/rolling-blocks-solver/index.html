@@ -95,6 +95,19 @@
           >
         </div>
 
+        <div id="solution-panel" class="hidden">
+          <div id="solution-header">
+            <h2>Solution</h2>
+            <span id="solution-status"></span>
+          </div>
+          <div id="solution-spinner" class="hidden">
+            <md-circular-progress indeterminate></md-circular-progress>
+            <span id="solution-progress-text">Searching...</span>
+          </div>
+          <div id="solution-error" class="hidden"></div>
+          <ol id="solution-moves" class="hidden"></ol>
+        </div>
+
         <md-dialog id="reset-dialog">
           <div slot="headline">Reset Board?</div>
           <div slot="content">

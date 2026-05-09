@@ -1,0 +1,171 @@
+{
+  "gridWidth": 9,
+  "gridHeight": 9,
+  "cells": [
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "unplayable",
+      "unplayable",
+      "regular",
+      "unplayable",
+      "regular",
+      "unplayable",
+      "regular",
+      "unplayable",
+      "regular"
+    ],
+    [
+      "unplayable",
+      "unplayable",
+      "goal",
+      "regular",
+      "regular",
+      "regular",
+      "goal",
+      "regular",
+      "regular"
+    ],
+    [
+      "unplayable",
+      "unplayable",
+      "regular",
+      "unplayable",
+      "regular",
+      "unplayable",
+      "regular",
+      "unplayable",
+      "regular"
+    ],
+    [
+      "unplayable",
+      "unplayable",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular"
+    ],
+    [
+      "unplayable",
+      "unplayable",
+      "regular",
+      "unplayable",
+      "regular",
+      "unplayable",
+      "regular",
+      "unplayable",
+      "regular"
+    ],
+    [
+      "goal",
+      "regular",
+      "goal",
+      "regular",
+      "goal",
+      "regular",
+      "goal",
+      "regular",
+      "goal"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "unplayable",
+      "regular",
+      "unplayable",
+      "regular",
+      "unplayable",
+      "regular"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "regular",
+      "goal"
+    ]
+  ],
+  "blocks": [
+    {
+      "id": 1,
+      "x": 6,
+      "y": 2,
+      "width": 1,
+      "depth": 1,
+      "height": 3
+    },
+    {
+      "id": 2,
+      "x": 6,
+      "y": 6,
+      "width": 1,
+      "depth": 1,
+      "height": 3
+    },
+    {
+      "id": 3,
+      "x": 2,
+      "y": 6,
+      "width": 1,
+      "depth": 1,
+      "height": 3
+    },
+    {
+      "id": 4,
+      "x": 2,
+      "y": 2,
+      "width": 1,
+      "depth": 1,
+      "height": 3
+    },
+    {
+      "id": 5,
+      "x": 0,
+      "y": 6,
+      "width": 1,
+      "depth": 1,
+      "height": 5
+    },
+    {
+      "id": 6,
+      "x": 0,
+      "y": 4,
+      "width": 1,
+      "depth": 1,
+      "height": 5
+    },
+    {
+      "id": 7,
+      "x": 0,
+      "y": 2,
+      "width": 1,
+      "depth": 1,
+      "height": 5
+    },
+    {
+      "id": 8,
+      "x": 0,
+      "y": 0,
+      "width": 1,
+      "depth": 1,
+      "height": 3
+    }
+  ]
+}
