@@ -5,7 +5,7 @@
   "module": "index.ts",
   "scripts": {
     "build": "bun run src/util/build.ts",
-    "build:wasm": "pwsh ./build-wasm.ps1",
+    "build:wasm": "bun run src/util/buildWasm.ts",
     "dev": "bun run src/util/serve.ts",
     "e2e": "bunx playwright test",
     "rolling-blocks-test": "ROLLING_BLOCKS_TEST=true bun test test/rollingBlocksSolver/bfs.test.ts",

@@ -5,10 +5,10 @@ let modulePromise = null;
 function getModule() {
   if (!modulePromise) {
     modulePromise = (async () => {
-      const url = new URL("/astar.mjs", self.location.origin).href;
+      const url = new URL("./astar.mjs", self.location.href).href;
       const createModule = (await import(url)).default;
       return createModule({
-        locateFile: path => `/${path}`,
+        locateFile: path => new URL(`./${path}`, self.location.href).href,
       });
     })();
   }

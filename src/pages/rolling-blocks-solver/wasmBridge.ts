@@ -47,7 +47,7 @@ export function searchWasm(
     height: b.height,
   }));
 
-  const worker = new Worker("/astar.worker.js", { type: "module" });
+  const worker = new Worker("../astar.worker.js", { type: "module" });
 
   worker.onmessage = (event: MessageEvent) => {
     const { type } = event.data;
