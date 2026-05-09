@@ -310,6 +310,84 @@ h2 {
   font-size: 13px;
 }
 
+.hidden {
+  display: none !important;
+}
+
+#solution-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container);
+}
+
+#solution-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+#solution-status {
+  font-size: 13px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+#solution-spinner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+#solution-spinner md-circular-progress {
+  --md-circular-progress-size: 28px;
+}
+
+#solution-progress-text {
+  font-size: 13px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+#solution-error {
+  font-size: 14px;
+  color: var(--md-sys-color-error);
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--md-sys-color-error) 10%, transparent);
+}
+
+#solution-moves {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding-left: 24px;
+}
+
+#solution-moves li {
+  font-size: 14px;
+  color: var(--md-sys-color-on-surface);
+  padding: 4px 0;
+}
+
+.move-direction {
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.move-block {
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: #8465c8;
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-right: 4px;
+}
+
 @media (max-width: 720px) {
   body {
     padding: 14px;

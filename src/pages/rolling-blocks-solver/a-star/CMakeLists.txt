@@ -14,8 +14,8 @@ endif()
 
 add_executable(a_star main.cpp Block.cpp AStar.cpp)
 
-find_package(boost_dynamic_bitset CONFIG REQUIRED)
-target_link_libraries(a_star PRIVATE Boost::dynamic_bitset)
+find_package(Boost CONFIG REQUIRED)
+target_link_libraries(a_star PRIVATE Boost::boost)
 
 find_package(nlohmann_json CONFIG REQUIRED)
 

@@ -5,6 +5,12 @@
 #include "Block.h"
 #include "Types.h"
 #include <boost/dynamic_bitset.hpp>
+#if defined(__GNUC__) && !defined(__clang__)
+namespace boost {
+template <typename T>
+dynamic_bitset(T) -> dynamic_bitset<>;
+}
+#endif
 #include <gtest/gtest.h>
 #include <vector>
 

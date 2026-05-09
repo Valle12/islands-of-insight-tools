@@ -175,6 +175,7 @@ export class Board {
       }
 
       this.paintCell(position);
+      this.solver.hideSolution();
       this.solver.render();
     });
 
@@ -190,6 +191,7 @@ export class Board {
       }
 
       this.paintCell(position);
+      this.solver.hideSolution();
       this.solver.render();
     });
 
@@ -199,10 +201,12 @@ export class Board {
 
       if (this.selectedTool === "block" && this.dragStart && this.dragCurrent) {
         this.commitBlockRectangle(this.dragStart, this.dragCurrent);
+        this.solver.hideSolution();
       }
 
       if (this.selectedTool === "goal" && this.dragStart && this.dragCurrent) {
         this.commitGoalRectangle(this.dragStart, this.dragCurrent);
+        this.solver.hideSolution();
       }
 
       this.dragStart = null;

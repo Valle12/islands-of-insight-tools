@@ -8,7 +8,7 @@ add_executable(a_star_tests
 target_link_libraries(a_star_tests PRIVATE
     GTest::gtest
     GTest::gtest_main
-    Boost::dynamic_bitset
+    Boost::boost
     nlohmann_json::nlohmann_json
 )
 
