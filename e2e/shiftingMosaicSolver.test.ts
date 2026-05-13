@@ -347,7 +347,8 @@ test.describe("Shifting Mosaic Solver", () => {
     ]);
     await expect(page.locator(".block-row")).toHaveCount(1);
 
-    // Drag through cells (0,1) → (1,1, occupied) → (3,1)
+    // Drag through cells (0,1) → (1,1, occupied) → (3,1). The skipped occupied
+    // cell breaks contiguity, and the warning identifies the cause as overlap.
     await paintShape(page, [
       { x: 0, y: 1 },
       { x: 1, y: 1 },
@@ -357,7 +358,6 @@ test.describe("Shifting Mosaic Solver", () => {
     await expect(page.locator(".block-row")).toHaveCount(1);
     await expect(page.locator("#warning-banner")).toBeVisible();
     await expect(page.locator("#warning-banner")).toContainText("overlaps");
-    // The would-be new cells are still empty
     await expect(cellAt(page, 0, 1)).not.toHaveAttribute(
       "data-block-id",
       /.*/,
@@ -366,6 +366,29 @@ test.describe("Shifting Mosaic Solver", () => {
       "data-block-id",
       /.*/,
     );
+  });
+
+  test("commits a contiguous block even when the drag ended on an existing block", async ({
+    page,
+  }) => {
+    await page.goto(SHIFTING_MOSAIC_URL);
+    await paintShape(page, [{ x: 2, y: 1 }]);
+    await expect(page.locator(".block-row")).toHaveCount(1);
+
+    // Drag (0,1) → (1,1) → (2,1, occupied). The drawn cells (0,1)(1,1) are
+    // contiguous and don't overlap, so the new block should be committed and
+    // no warning should appear.
+    await paintShape(page, [
+      { x: 0, y: 1 },
+      { x: 1, y: 1 },
+      { x: 2, y: 1 },
+    ]);
+
+    await expect(page.locator(".block-row")).toHaveCount(2);
+    await expect(page.locator("#warning-banner")).toBeHidden();
+    await expect(cellAt(page, 0, 1)).toHaveAttribute("data-block-id", "2");
+    await expect(cellAt(page, 1, 1)).toHaveAttribute("data-block-id", "2");
+    await expect(cellAt(page, 2, 1)).toHaveAttribute("data-block-id", "1");
   });
 
   test("rejects a non-contiguous block from a fast drag", async ({ page }) => {

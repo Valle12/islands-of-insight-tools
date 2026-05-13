@@ -58,9 +58,7 @@ export class ShiftingMosaicSolverEditor {
         const tool = button.dataset.tool as ShiftingMosaicTool;
 
         if (tool === "reset") {
-          (
-            document.getElementById("reset-dialog") as HTMLDialogElement
-          ).show();
+          (document.getElementById("reset-dialog") as HTMLDialogElement).show();
           return;
         }
 
@@ -281,6 +279,21 @@ export class ShiftingMosaicSolverEditor {
     this.solutionStatus.textContent = "Pending";
     this.solutionMessage.textContent =
       "Solver implementation is coming in a follow-up. For now this page only handles puzzle setup.";
+    // TODO move this to a real method
+    const blocks = this.board
+      .getBlocks()
+      .values()
+      .toArray()
+      .sort((a, b) => a.id - b.id);
+    if (!blocks.some(block => block.type === "goal")) {
+      this.showWarning(
+        "No goal block defined! Please add a goal block to calculate a solution.",
+      );
+      return;
+    }
+
+    /*const aStar = new AStar(blocks, this.board.getGoalZoneCells());
+    aStar.search();*/
   }
 
   hideSolution() {

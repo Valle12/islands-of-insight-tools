@@ -1,8 +1,4 @@
-import type {
-  BlockType,
-  Position,
-  ShiftingMosaicTool,
-} from "../../util/types";
+import type { BlockType, Position, ShiftingMosaicTool } from "../../util/types";
 import { Block } from "./block";
 import type { ShiftingMosaicSolverEditor } from "./shiftingMosaicSolver";
 
@@ -140,9 +136,7 @@ export class Board {
     const hologramCells = this.computeHologramCells();
     const hologramValid = this.isHologramValid(hologramCells);
     const hologramSet = new Set(hologramCells.map(c => `${c.x},${c.y}`));
-    const goalZoneSet = new Set(
-      this.goalZoneCells.map(c => `${c.x},${c.y}`),
-    );
+    const goalZoneSet = new Set(this.goalZoneCells.map(c => `${c.x},${c.y}`));
 
     for (let y = 0; y < this.gridHeight; y++) {
       for (let x = 0; x < this.gridWidth; x++) {
@@ -199,9 +193,7 @@ export class Board {
         }
 
         if (hologramSet.has(`${x},${y}`)) {
-          cell.classList.add(
-            hologramValid ? "hologram" : "hologram-invalid",
-          );
+          cell.classList.add(hologramValid ? "hologram" : "hologram-invalid");
         }
 
         const label = this.describeCell(x, y, blockId);
@@ -300,14 +292,14 @@ export class Board {
     }
     if (this.selectedTool === "goal" && this.hasGoalBlock()) return;
 
-    if (this.attemptedOverlap) {
-      this.editor.showWarning(
-        "Cannot create a block that overlaps with an existing block.",
-      );
+    if (this.inProgressCells.size === 0) {
+      if (this.attemptedOverlap) {
+        this.editor.showWarning(
+          "Cannot create a block that overlaps with an existing block.",
+        );
+      }
       return;
     }
-
-    if (this.inProgressCells.size === 0) return;
 
     const cells: Position[] = Array.from(this.inProgressCells).map(key => {
       const [x, y] = key.split(",").map(Number) as [number, number];
@@ -315,9 +307,15 @@ export class Board {
     });
 
     if (!this.isContiguous(cells)) {
-      this.editor.showWarning(
-        "Block must be a single connected area — try drawing more slowly.",
-      );
+      if (this.attemptedOverlap) {
+        this.editor.showWarning(
+          "Cannot create a block that overlaps with an existing block.",
+        );
+      } else {
+        this.editor.showWarning(
+          "Block must be a single connected area — try drawing more slowly.",
+        );
+      }
       return;
     }
 
@@ -372,7 +370,7 @@ export class Board {
   private computeHologramCellsAt(cursor: Position): Position[] {
     const goalBlock = this.findGoalBlock();
     if (!goalBlock) return [];
-    const shape = goalBlock.getRelativeShape();
+    const shape = goalBlock.getRelativePositions();
     return shape.map(offset => ({
       x: cursor.x + offset.x,
       y: cursor.y + offset.y,
