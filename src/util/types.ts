@@ -64,6 +64,10 @@ export type PaintTool =
   | "fillMustTouch"
   | "reset";
 
+export type BlockType = "obstruction" | "goal";
+
+export type ShiftingMosaicTool = "obstruction" | "goal" | "reset";
+
 export type Position = {
   x: number;
   y: number;

@@ -12,8 +12,8 @@ import {
   spyOn,
   test,
 } from "bun:test";
-import { PhasicDialSolver } from "../src/pages/phasic-dial-solver/phasicDialSolver";
-import { TurnSolver } from "../src/pages/phasic-dial-solver/turnSolver";
+import { PhasicDialSolver } from "../../src/pages/phasic-dial-solver/phasicDialSolver";
+import { TurnSolver } from "../../src/pages/phasic-dial-solver/turnSolver";
 
 describe("PhasicDialSolver", () => {
   let addDial: MdIconButton;

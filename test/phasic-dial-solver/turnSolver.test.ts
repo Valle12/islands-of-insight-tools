@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { Button } from "../src/pages/phasic-dial-solver/button";
-import { TurnSolver } from "../src/pages/phasic-dial-solver/turnSolver";
-import type { SolverTest } from "../src/util/types";
+import { Button } from "../../src/pages/phasic-dial-solver/button";
+import { TurnSolver } from "../../src/pages/phasic-dial-solver/turnSolver";
+import type { SolverTest } from "../../src/util/types";
 
 describe("TurnSolver", () => {
   const cases: SolverTest[] = [

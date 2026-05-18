@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Google tag (gtag.js) -->
+    <script
+      async
+      src="https://www.googletagmanager.com/gtag/js?id=G-BT8XWLG2XF"
+    ></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag() {
+        dataLayer.push(arguments);
+      }
+      gtag("js", new Date());
+
+      gtag("config", "G-BT8XWLG2XF");
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/images/favicon.png" />
+    <title>Shifting Mosaic Solver</title>
+    <link rel="stylesheet" href="./../../common/common.css" />
+    <link rel="stylesheet" href="./shiftingMosaicSolver.css" />
+    <script type="module" src="./../../common/common.ts"></script>
+    <script type="module" src="./shiftingMosaicSolver.ts"></script>
+  </head>
+  <body>
+    <a href="./.." id="home-button" title="Home">
+      <md-icon-button>
+        <md-icon>home</md-icon>
+      </md-icon-button>
+    </a>
+
+    <div id="container">
+      <div id="editor-card">
+        <h1>Shifting Mosaic Setup</h1>
+        <p id="subtitle">
+          Define the grid, draw obstruction blocks, then draw a single goal
+          block and place its goal zone hologram.
+        </p>
+
+        <div id="size-controls">
+          <md-outlined-text-field
+            id="grid-width"
+            type="number"
+            label="Grid Width"
+            value="6"
+            min="1"
+          ></md-outlined-text-field>
+          <md-outlined-text-field
+            id="grid-height"
+            type="number"
+            label="Grid Height"
+            value="6"
+            min="1"
+          ></md-outlined-text-field>
+        </div>
+
+        <div id="grid-shell">
+          <div id="grid" aria-label="Shifting mosaic grid editor"></div>
+        </div>
+
+        <div id="placement-banner" class="hidden">
+          Place the goal zone — move your mouse over the grid and click to drop
+          the hologram.
+        </div>
+
+        <div id="warning-banner" class="hidden"></div>
+
+        <div id="tool-status">Selected tool: Obstruction</div>
+
+        <div id="tool-row" aria-label="Editor tools">
+          <button class="tool-button" data-tool="obstruction" type="button">
+            Obstruction
+          </button>
+          <button class="tool-button" data-tool="goal" type="button">
+            Goal Block
+          </button>
+          <button class="tool-button" data-tool="reset" type="button">
+            Reset
+          </button>
+        </div>
+
+        <div id="action-buttons">
+          <md-filled-button id="calculate-solution"
+            >Calculate Solution</md-filled-button
+          >
+        </div>
+
+        <div id="solution-panel" class="hidden">
+          <div id="solution-header">
+            <h2>Solution</h2>
+            <span id="solution-status"></span>
+          </div>
+          <div id="solution-message"></div>
+        </div>
+
+        <md-dialog id="reset-dialog">
+          <div slot="headline">Reset Board?</div>
+          <div slot="content">
+            This will reset the board to the default grid size and remove all
+            blocks.
+          </div>
+          <div slot="actions">
+            <md-text-button id="reset-cancel">Cancel</md-text-button>
+            <md-filled-button id="reset-confirm">Reset</md-filled-button>
+          </div>
+        </md-dialog>
+
+        <div id="blocks-panel">
+          <div id="blocks-panel-header">
+            <h2>Blocks</h2>
+            <p>
+              Drag freeform on the grid to draw a shape. Hover a row to
+              highlight its block.
+            </p>
+          </div>
+          <div id="blocks-list"></div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

@@ -13,6 +13,13 @@ test.describe("Index", () => {
       page.getByRole("button", { name: "Calculate Moves" }),
     ).toBeVisible();
     await page.getByRole("link", { name: "Home" }).locator("#button").click();
+    await page
+      .getByRole("button", { name: "Shifting Mosaic Solver" })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Calculate Solution" }),
+    ).toBeVisible();
+    await page.getByRole("link", { name: "Home" }).locator("#button").click();
     await expect(page.getByRole("heading")).toContainText(
       "Islands of Insight Tools",
     );
