@@ -3,15 +3,11 @@ import { AStar } from "../../src/pages/shifting-mosaic-solver/aStar";
 import { Direction } from "../../src/pages/shifting-mosaic-solver/directions";
 import { Node } from "../../src/pages/shifting-mosaic-solver/node";
 import type { Turn } from "../../src/pages/shifting-mosaic-solver/turn";
-import type { Position, ShiftingMosaicTest } from "../../src/util/types";
+import type { Position } from "../../src/util/types";
 
-const PER_PUZZLE_BUDGET_MS = Number(
-  Bun.env.SHIFTING_MOSAIC_BUDGET_MS ?? 10_000,
-);
-const PER_PUZZLE_TIMEOUT_MS = PER_PUZZLE_BUDGET_MS + 5_000;
-const PER_PUZZLE_WEIGHT = Number(Bun.env.SHIFTING_MOSAIC_WEIGHT ?? 1);
-const PER_PUZZLE_DEADLOCK_PRUNING =
-  Bun.env.SHIFTING_MOSAIC_DEADLOCK_PRUNING !== "0";
+// NOTE: these tests cover the TypeScript reference AStar (used for unit-level
+// checks of the individual primitives). The full 31-fixture solving suite
+// runs against the production WASM solver in wasm.test.ts.
 
 function makeAStar(
   gridWidth: number,
@@ -562,43 +558,6 @@ describe("AStar (shifting-mosaic)", () => {
     });
   });
 
-  describe("Search (JSON puzzles)", () => {
-    const cases: [string][] = [];
-    cases.push(["shiftingMosaicTest.json"]);
-    for (let i = 1; i <= 30; i++) {
-      cases.push([`shiftingMosaicTest${i}.json`]);
-    }
-
-    test.each(cases)(
-      "should solve %s",
-      async filename => {
-        const data: ShiftingMosaicTest = await Bun.file(
-          `${import.meta.dir}/../resources/${filename}`,
-        ).json();
-
-        const aStar = new AStar(
-          data.gridWidth,
-          data.gridHeight,
-          data.shapes,
-          data.initialAnchors,
-          data.goalIndex,
-          data.goalAnchor,
-          PER_PUZZLE_WEIGHT,
-          PER_PUZZLE_DEADLOCK_PRUNING,
-        );
-        const turns = aStar.search(PER_PUZZLE_BUDGET_MS);
-        console.log(`${filename}: ${turns.length} moves`, turns);
-
-        expect(turns.length).toBeGreaterThan(0);
-
-        const final = applyTurns(data.initialAnchors, turns);
-        const goalFinal = final[data.goalIndex]!;
-        expect(goalFinal.x).toBe(data.goalAnchor.x);
-        expect(goalFinal.y).toBe(data.goalAnchor.y);
-      },
-      PER_PUZZLE_TIMEOUT_MS,
-    );
-  });
 });
 
 function applyTurns(initialAnchors: Position[], turns: Turn[]): Position[] {
