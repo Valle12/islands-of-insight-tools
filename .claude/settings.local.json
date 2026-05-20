@@ -69,7 +69,19 @@
       "Bash(SHIFTING_MOSAIC_BUDGET_MS=240000 SHIFTING_MOSAIC_WEIGHT=3 SHIFTING_MOSAIC_LP_WEIGHT=3 SHIFTING_MOSAIC_MAX_NODES=14000000 ./shifting_mosaic_a_star_tests.exe --gtest_filter=\"ShiftingMosaic*shiftingMosaicTest21*:ShiftingMosaic*shiftingMosaicTest30*\")",
       "Bash(SHIFTING_MOSAIC_BUDGET_MS=240000 SHIFTING_MOSAIC_WEIGHT=5 SHIFTING_MOSAIC_LP_WEIGHT=2 SHIFTING_MOSAIC_AXIS_WEIGHT=2 SHIFTING_MOSAIC_MACROS=1 SHIFTING_MOSAIC_MAX_NODES=12000000 ./shifting_mosaic_a_star_tests.exe --gtest_filter=\"ShiftingMosaic*shiftingMosaicTest21*:ShiftingMosaic*shiftingMosaicTest30*\")",
       "Bash(SHIFTING_MOSAIC_BUDGET_MS=600000 SHIFTING_MOSAIC_WEIGHT=4 SHIFTING_MOSAIC_LP_WEIGHT=1 SHIFTING_MOSAIC_MAX_NODES=22000000 ./shifting_mosaic_a_star_tests.exe --gtest_filter=\"ShiftingMosaic*shiftingMosaicTest21*\")",
-      "Bash(SHIFTING_MOSAIC_BUDGET_MS=120000 SHIFTING_MOSAIC_WEIGHT=3 SHIFTING_MOSAIC_LP_WEIGHT=1 SHIFTING_MOSAIC_MAX_NODES=12000000 ./shifting_mosaic_a_star_tests.exe --gtest_filter=\"ShiftingMosaic*\")"
+      "Bash(SHIFTING_MOSAIC_BUDGET_MS=120000 SHIFTING_MOSAIC_WEIGHT=3 SHIFTING_MOSAIC_LP_WEIGHT=1 SHIFTING_MOSAIC_MAX_NODES=12000000 ./shifting_mosaic_a_star_tests.exe --gtest_filter=\"ShiftingMosaic*\")",
+      "Bash(grep --line-buffered -E \"=== PUZZLE|moves$|working:|found solution|No solution|ALL DONE|FAILED\")",
+      "PowerShell(Get-Process shifting_mosaic_a_star_tests -ErrorAction SilentlyContinue | Select-Object Id, @{n='RAM_GB';e={[math]::Round\\($_.WorkingSet64/1GB,2\\)}}, CPU)",
+      "Bash(SHIFTING_MOSAIC_WEIGHT=3 SHIFTING_MOSAIC_LP_WEIGHT=1 SHIFTING_MOSAIC_AXIS_WEIGHT=1 SHIFTING_MOSAIC_PATH_BLOCKER_WEIGHT=1 SHIFTING_MOSAIC_BOUNDARY_WEIGHT=1 SHIFTING_MOSAIC_BUDGET_MS=0 SHIFTING_MOSAIC_MAX_NODES=0 ./shifting_mosaic_a_star_tests.exe --gtest_filter=\"*shiftingMosaicTest21\")",
+      "Bash(echo \"P21 DONE $\\(date +%H:%M:%S\\)\")",
+      "Bash(SHIFTING_MOSAIC_WEIGHT=3 SHIFTING_MOSAIC_LP_WEIGHT=1 SHIFTING_MOSAIC_AXIS_WEIGHT=1 SHIFTING_MOSAIC_PATH_BLOCKER_WEIGHT=1 SHIFTING_MOSAIC_BOUNDARY_WEIGHT=1 SHIFTING_MOSAIC_IDASTAR=1 SHIFTING_MOSAIC_BUDGET_MS=0 SHIFTING_MOSAIC_MAX_NODES=0 ./shifting_mosaic_a_star_tests.exe --gtest_filter=\"*shiftingMosaicTest21\")",
+      "Bash(echo \"P21 IDA DONE $\\(date +%H:%M:%S\\)\")",
+      "Bash(grep -cE \"IDA\\\\* working\" /tmp/sm_p21_ida.log; echo \"--- elapsed ---\"; head -3 /tmp/sm_p21_ida.log; stat -c '%y' /tmp/sm_p21_ida.log 2>/dev/null | cut -d. -f1)",
+      "Read(//e/projects/VS Code/islands-of-insight-tools/**)",
+      "Bash(grep -E \"RUN|move stride|found solution|timed out|node cap|moves$|PASSED|FAILED\")",
+      "Bash(grep -E \"RUN|move stride|found solution|fallback|timed out|moves$|PASSED|FAILED\")",
+      "Bash(SHIFTING_MOSAIC_BUDGET_MS=120000 SHIFTING_MOSAIC_MAX_NODES=20000000 ./shifting_mosaic_a_star_tests.exe --gtest_filter=\"ShiftingMosaic*\")",
+      "Bash(grep -E \"\\\\.json: [0-9]+ moves|move stride=[23]|fallback|FAILED.*shiftingMosaic|[0-9]+ tests?\\\\.$\")"
     ]
   }
 }

@@ -6,7 +6,9 @@
 #include <cmath>
 #include <deque>
 #include <iostream>
+#include <numeric>
 #include <queue>
+#include <unordered_map>
 #include <utility>
 
 namespace {
@@ -88,11 +90,43 @@ AStar::AStar(const uint8_t gridWidth, const uint8_t gridHeight,
   computeGoalAnchorBfs();
   computeBlockReachability();
 
+  moveStride_ = cfg_.strideOverride != 0 ? cfg_.strideOverride : detectStride();
+
   std::cout << "AStar: " << movableBlockIndices_.size() << " of "
-            << shapes_.size() << " blocks movable from start"
+            << shapes_.size() << " blocks movable from start, move stride="
+            << static_cast<int>(moveStride_)
             << (unsolvableAtStart_ ? " (UNSOLVABLE — locked block at goal)"
                                     : "")
             << "\n";
+}
+
+// Auto-detect a move stride G > 1: the period at which the puzzle's
+// structure repeats. A move of G cells then keeps every block on its own
+// mod-G sublattice. We take the GCD of:
+//   * the grid dimensions (walls must stay G-compatible),
+//   * the goal block's displacement (so its target stays reachable on the
+//     sublattice — note we use the *delta*, not the absolute anchor, since
+//     the goal block may itself sit on an offset sublattice),
+//   * the bounding-box dimensions of every structured (non-1×1) block — the
+//     larger blocks' footprints set the period; 1×1 blocks are points and
+//     don't constrain anything.
+// Restricting moves to multiples of G is sound (every emitted macro move is
+// still a sequence of validated 1-cell hops) and, for genuinely G-periodic
+// puzzles like the wrapped "parking lot" layouts, complete.
+uint8_t AStar::detectStride() const {
+  int g = std::gcd(static_cast<int>(gridWidth_),
+                   static_cast<int>(gridHeight_));
+  const auto gi = initialAnchors_[goalIndex_];
+  g = std::gcd(g, std::abs(static_cast<int>(goalAnchor_.x) - gi.x));
+  g = std::gcd(g, std::abs(static_cast<int>(goalAnchor_.y) - gi.y));
+  for (size_t i = 0; i < shapes_.size(); i++) {
+    if (shapes_[i].size() <= 1) continue; // points don't constrain the stride
+    if (shapeBoxWidth_[i] > 1)
+      g = std::gcd(g, static_cast<int>(shapeBoxWidth_[i]));
+    if (shapeBoxHeight_[i] > 1)
+      g = std::gcd(g, static_cast<int>(shapeBoxHeight_[i]));
+  }
+  return g <= 1 ? 1 : static_cast<uint8_t>(g);
 }
 
 // For each block, mark every (x, y) anchor where the block's shape doesn't
@@ -825,10 +859,33 @@ std::vector<Turn> AStar::reconstructPath(const StateMap &states,
   return turns;
 }
 
+// Public entry: runs A* at the detected/forced move stride, and — when the
+// stride was auto-detected (strideOverride==0) — falls back to stride-1 if
+// the quantized search genuinely exhausts without a solution. Stride
+// quantization is sound but not provably complete for every layout, so the
+// fallback guarantees we never lose a puzzle that stride-1 could solve.
 std::vector<Turn> AStar::search(const uint32_t maxMs, const uint32_t maxNodes) {
+  std::vector<Turn> result = runAStar(maxMs, maxNodes);
+  if (result.empty() && searchExhausted_ && moveStride_ > 1 &&
+      cfg_.strideOverride == 0) {
+    std::cout << "A*: stride-" << static_cast<int>(moveStride_)
+              << " search exhausted with no solution — falling back to "
+                 "stride-1\n";
+    const uint8_t saved = moveStride_;
+    moveStride_ = 1;
+    result = runAStar(maxMs, maxNodes);
+    moveStride_ = saved;
+  }
+  return result;
+}
+
+std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
+                                  const uint32_t maxNodes) {
+  searchExhausted_ = false;
   if (unsolvableAtStart_) {
     std::cout << "A* short-circuit: a permanently-locked block sits on the "
                  "goal block's final footprint — puzzle is unsolvable\n";
+    searchExhausted_ = true;
     return {};
   }
 
@@ -888,6 +945,12 @@ std::vector<Turn> AStar::search(const uint32_t maxMs, const uint32_t maxNodes) {
     nodesExpanded++;
     if (onProgress && nodesExpanded % 10000 == 0)
       onProgress(nodesExpanded);
+    if (nodesExpanded % 2000000 == 0) {
+      std::cout << "  ... A* working: " << nodesExpanded << " nodes, heap="
+                << openHeap.size() << ", states=" << states.size() << ", g="
+                << current.g << "\n";
+      std::cout.flush();
+    }
 
     if (cfg_.deadlockPruning && isDeadlocked(node.anchors))
       continue;
@@ -908,6 +971,9 @@ std::vector<Turn> AStar::search(const uint32_t maxMs, const uint32_t maxNodes) {
           if (collidesWithOthers(static_cast<uint8_t>(i), next, newAnchors))
             break;
           cursor = next;
+          // Only stride-aligned cells are real search states; the cells in
+          // between are valid 1-cell hops but never branched on.
+          if (k % moveStride_ != 0) continue;
 
           Node newNode(newAnchors);
           NodeKey newSig = signatureFromAnchors(newAnchors);
@@ -932,6 +998,7 @@ std::vector<Turn> AStar::search(const uint32_t maxMs, const uint32_t maxNodes) {
   }
 
   std::cout << "A* found no solution, expanded " << nodesExpanded << " nodes\n";
+  searchExhausted_ = true;
   return {};
 }
 
@@ -971,6 +1038,11 @@ AStar::idaStarDFS(std::vector<Position> &anchors, const uint32_t g,
   }
 
   nodesExpanded++;
+  if (nodesExpanded % 2000000 == 0) {
+    std::cout << "  ... IDA* working: " << nodesExpanded
+              << " nodes, threshold=" << threshold << ", depth=" << g << "\n";
+    std::cout.flush();
+  }
 
   if (cfg_.deadlockPruning && isDeadlocked(anchors)) {
     return {false, UINT32_MAX, false};
@@ -992,6 +1064,8 @@ AStar::idaStarDFS(std::vector<Position> &anchors, const uint32_t g,
           break;
         }
         cursor = next;
+        // Skip non-stride-aligned stopping points (see A* search).
+        if (k % moveStride_ != 0) continue;
 
         NodeKey sig = signatureFromAnchors(anchors);
         auto [it, inserted] = pathSet.insert(sig);

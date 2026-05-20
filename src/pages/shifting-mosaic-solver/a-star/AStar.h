@@ -70,6 +70,9 @@ public:
     // bipartite assignment "which blocker side-steps to which slot". 0 =
     // disabled.
     uint8_t lpDisplacementWeight = 0;
+    // Move-stride override. 0 = auto-detect the grid-quantization factor;
+    // >=1 = force that stride (1 disables quantization).
+    uint8_t strideOverride = 0;
   };
 
   AStar(uint8_t gridWidth, uint8_t gridHeight,
@@ -131,6 +134,17 @@ private:
   // estimates — independent of per-state goal-block position.
   std::vector<uint8_t> initialGoalPathCells_;
   void computeBlockReachability();
+
+  // Move stride. If the whole puzzle (grid, every anchor, every shape, the
+  // goal) is uniformly scaled by a factor G, the puzzle is isomorphic to one
+  // 1/G the size, so restricting moves to G-cell strides loses no solution
+  // while shrinking the state space by ~G^(2N). 1 means no quantization.
+  uint8_t moveStride_ = 1;
+  [[nodiscard]] uint8_t detectStride() const;
+  // Set by runAStar: true if the open set was fully drained (genuine "no
+  // solution" within the move model), false if a budget/cap aborted it.
+  bool searchExhausted_ = false;
+  std::vector<Turn> runAStar(uint32_t maxMs, uint32_t maxNodes);
 
   static constexpr int8_t DX[4] = {0, 1, 0, -1};
   static constexpr int8_t DY[4] = {-1, 0, 1, 0};

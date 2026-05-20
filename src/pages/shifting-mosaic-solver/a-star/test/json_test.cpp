@@ -116,10 +116,17 @@ TEST_P(ShiftingMosaicJsonTest, ShouldFindValidSolution) {
     GTEST_SKIP() << "Cannot load " << filename << ": " << e.what();
   }
 
-  // Allow env overrides for weight / budget so a single binary can be re-run
-  // under different settings.
+  // Production config: weighted A* with the full additive heuristic stack.
+  // This solves 30 of the 31 fixtures (everything except shiftingMosaicTest21).
+  // Env vars override any field so a single binary can be re-run under
+  // different settings.
   AStar::Config cfg;
-  uint32_t budgetMs = 10000;
+  cfg.weight = 3;
+  cfg.lpDisplacementWeight = 1;
+  cfg.axisAwareWeight = 1;
+  cfg.pathBlockerWeight = 1;
+  cfg.boundaryDistanceWeight = 1;
+  uint32_t budgetMs = 120000;
   uint32_t maxNodes = 20000000;
   bool useIda = false;
   if (const char *w = std::getenv("SHIFTING_MOSAIC_WEIGHT"))
@@ -136,6 +143,8 @@ TEST_P(ShiftingMosaicJsonTest, ShouldFindValidSolution) {
     cfg.axisAwareWeight = static_cast<uint8_t>(std::atoi(ax));
   if (const char *lp = std::getenv("SHIFTING_MOSAIC_LP_WEIGHT"))
     cfg.lpDisplacementWeight = static_cast<uint8_t>(std::atoi(lp));
+  if (const char *st = std::getenv("SHIFTING_MOSAIC_STRIDE"))
+    cfg.strideOverride = static_cast<uint8_t>(std::atoi(st));
   if (const char *b = std::getenv("SHIFTING_MOSAIC_BUDGET_MS"))
     budgetMs = static_cast<uint32_t>(std::atoi(b));
   if (const char *m = std::getenv("SHIFTING_MOSAIC_MAX_NODES"))

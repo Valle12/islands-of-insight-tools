@@ -14,7 +14,8 @@ val search(unsigned int gridWidth, unsigned int gridHeight, val shapesJs,
            unsigned int pathBlockerWeight, unsigned int boundaryWeight,
            bool allWallsBfsBase, bool macroMoves,
            unsigned int axisAwareWeight,
-           unsigned int lpDisplacementWeight) {
+           unsigned int lpDisplacementWeight,
+           unsigned int strideOverride) {
   const auto numShapes = shapesJs["length"].as<unsigned>();
   std::vector<std::vector<Position>> shapes(numShapes);
   for (unsigned i = 0; i < numShapes; i++) {
@@ -49,6 +50,7 @@ val search(unsigned int gridWidth, unsigned int gridHeight, val shapesJs,
   cfg.macroMoves = macroMoves;
   cfg.axisAwareWeight = static_cast<uint8_t>(axisAwareWeight);
   cfg.lpDisplacementWeight = static_cast<uint8_t>(lpDisplacementWeight);
+  cfg.strideOverride = static_cast<uint8_t>(strideOverride);
 
   AStar aStar(static_cast<uint8_t>(gridWidth), static_cast<uint8_t>(gridHeight),
               std::move(shapes), std::move(initialAnchors),
