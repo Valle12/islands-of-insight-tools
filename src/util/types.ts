@@ -52,6 +52,15 @@ export type BFSTest = {
   turns: Turn[] | undefined;
 };
 
+export type ShiftingMosaicTest = {
+  gridWidth: number;
+  gridHeight: number;
+  shapes: Position[][];
+  initialAnchors: Position[];
+  goalIndex: number;
+  goalAnchor: Position;
+};
+
 export type Tile = "regular" | "mustTouch" | "goal" | "unplayable";
 
 export type PaintTool =

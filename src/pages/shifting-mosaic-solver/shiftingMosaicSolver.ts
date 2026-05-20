@@ -1,4 +1,9 @@
-import type { ShiftingMosaicTool } from "../../util/types";
+import type {
+  Position,
+  ShiftingMosaicTest,
+  ShiftingMosaicTool,
+} from "../../util/types";
+import { AStar } from "./aStar";
 import { Board } from "./board";
 
 export class ShiftingMosaicSolverEditor {
@@ -275,25 +280,84 @@ export class ShiftingMosaicSolverEditor {
   }
 
   private showSolverPlaceholder() {
-    this.solutionPanel.classList.remove("hidden");
-    this.solutionStatus.textContent = "Pending";
-    this.solutionMessage.textContent =
-      "Solver implementation is coming in a follow-up. For now this page only handles puzzle setup.";
-    // TODO move this to a real method
     const blocks = this.board
       .getBlocks()
       .values()
       .toArray()
       .sort((a, b) => a.id - b.id);
-    if (!blocks.some(block => block.type === "goal")) {
+
+    const goalIndex = blocks.findIndex(block => block.type === "goal");
+    if (goalIndex === -1) {
       this.showWarning(
         "No goal block defined! Please add a goal block to calculate a solution.",
       );
       return;
     }
 
-    /*const aStar = new AStar(blocks, this.board.getGoalZoneCells());
-    aStar.search();*/
+    const goalZoneCells = this.board.getGoalZoneCells();
+    if (goalZoneCells.length === 0) {
+      this.showWarning(
+        "Goal zone has not been placed yet — drop the hologram first.",
+      );
+      return;
+    }
+
+    const shapes: Position[][] = blocks.map(block =>
+      block.getRelativePositions(),
+    );
+    const initialAnchors: Position[] = blocks.map(block => ({
+      x: block.anchor.x,
+      y: block.anchor.y,
+    }));
+    const goalAnchor = this.computeGoalAnchor(goalZoneCells);
+
+    const config: ShiftingMosaicTest = {
+      gridWidth: this.gridWidth,
+      gridHeight: this.gridHeight,
+      shapes,
+      initialAnchors,
+      goalIndex,
+      goalAnchor,
+    };
+
+    new AStar(
+      this.gridWidth,
+      this.gridHeight,
+      shapes,
+      initialAnchors,
+      goalIndex,
+      goalAnchor,
+    );
+
+    this.downloadConfig(config);
+
+    this.solutionPanel.classList.remove("hidden");
+    this.solutionStatus.textContent = "Saved";
+    this.solutionMessage.textContent =
+      "Puzzle configuration downloaded. Use it as a test fixture for the solver.";
+  }
+
+  private computeGoalAnchor(cells: Position[]): Position {
+    let minX = cells[0]!.x;
+    let minY = cells[0]!.y;
+    for (const cell of cells) {
+      if (cell.x < minX) minX = cell.x;
+      if (cell.y < minY) minY = cell.y;
+    }
+    return { x: minX, y: minY };
+  }
+
+  private downloadConfig(config: ShiftingMosaicTest) {
+    const json = JSON.stringify(config, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `shiftingMosaicTest.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 
   hideSolution() {

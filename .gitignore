@@ -38,3 +38,4 @@ test-results
 playwright-report
 astar.wasm
 astar.mjs
+build-*
