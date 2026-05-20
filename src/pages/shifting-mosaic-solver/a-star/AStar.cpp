@@ -100,19 +100,64 @@ AStar::AStar(const uint8_t gridWidth, const uint8_t gridHeight,
             << "\n";
 }
 
+namespace {
+// True iff `shape` is a clean G-magnification: every G×G super-cell it
+// touches is completely filled. (A full rectangle with G-multiple sides is
+// the common case.)
+bool shapeScaledBy(const std::vector<Position> &shape, const int g) {
+  std::unordered_map<int, int> superCellCount;
+  for (const auto &c : shape) {
+    superCellCount[(c.x / g) * 4096 + (c.y / g)]++;
+  }
+  for (const auto &[key, count] : superCellCount) {
+    if (count != g * g) return false;
+  }
+  return true;
+}
+
+// True iff `shape` is exactly the perimeter of its bounding box — a hollow
+// rectangular ring with a non-empty interior. Reports the bbox in w/h.
+bool isPerimeterRing(const std::vector<Position> &shape, int &w, int &h) {
+  int mx = 0;
+  int my = 0;
+  for (const auto &c : shape) {
+    mx = std::max(mx, static_cast<int>(c.x));
+    my = std::max(my, static_cast<int>(c.y));
+  }
+  w = mx + 1;
+  h = my + 1;
+  if (w < 3 || h < 3) return false; // needs a non-empty interior
+  std::vector<uint8_t> grid(static_cast<size_t>(w) * h, 0);
+  for (const auto &c : shape) grid[c.x * h + c.y] = 1;
+  for (int x = 0; x < w; x++) {
+    for (int y = 0; y < h; y++) {
+      const bool onBorder = x == 0 || x == w - 1 || y == 0 || y == h - 1;
+      if ((grid[x * h + y] != 0) != onBorder) return false;
+    }
+  }
+  return true;
+}
+} // namespace
+
 // Auto-detect a move stride G > 1: the period at which the puzzle's
 // structure repeats. A move of G cells then keeps every block on its own
-// mod-G sublattice. We take the GCD of:
-//   * the grid dimensions (walls must stay G-compatible),
-//   * the goal block's displacement (so its target stays reachable on the
-//     sublattice — note we use the *delta*, not the absolute anchor, since
-//     the goal block may itself sit on an offset sublattice),
-//   * the bounding-box dimensions of every structured (non-1×1) block — the
-//     larger blocks' footprints set the period; 1×1 blocks are points and
-//     don't constrain anything.
-// Restricting moves to multiples of G is sound (every emitted macro move is
-// still a sequence of validated 1-cell hops) and, for genuinely G-periodic
-// puzzles like the wrapped "parking lot" layouts, complete.
+// mod-G sublattice.
+//
+// Step 1 — candidate G: GCD of the grid dimensions, the goal block's
+// *displacement* (delta, not absolute anchor — the goal block may sit on an
+// offset sublattice), and the bbox dimensions of every structured (non-1×1)
+// block.
+//
+// Step 2 — shape verification: a candidate G is only trustworthy if EVERY
+// block is a kind that genuinely has no sub-G structure — a 1×1 point, a
+// G-scaled block, or a perimeter ring with a G-multiple bbox. Without this
+// check the bare GCD produces false positives: e.g. an L-tromino in a 2×2
+// box has even bbox dimensions but no period-2 structure whatsoever, so
+// stride-2 would (silently, via the fallback) waste a search pass.
+//
+// Restricting moves to multiples of a verified G is sound (every emitted
+// macro move is still a sequence of validated 1-cell hops). The stride-1
+// fallback in search() remains as a final safety net.
 uint8_t AStar::detectStride() const {
   int g = std::gcd(static_cast<int>(gridWidth_),
                    static_cast<int>(gridHeight_));
@@ -126,7 +171,25 @@ uint8_t AStar::detectStride() const {
     if (shapeBoxHeight_[i] > 1)
       g = std::gcd(g, static_cast<int>(shapeBoxHeight_[i]));
   }
-  return g <= 1 ? 1 : static_cast<uint8_t>(g);
+  if (g <= 1) return 1;
+
+  // Largest divisor of g for which every shape is stride-safe.
+  for (int cand = g; cand >= 2; cand--) {
+    if (g % cand != 0) continue;
+    bool allSafe = true;
+    for (const auto &shape : shapes_) {
+      if (shape.size() == 1) continue; // point
+      if (shapeScaledBy(shape, cand)) continue;
+      int w = 0;
+      int h = 0;
+      if (isPerimeterRing(shape, w, h) && w % cand == 0 && h % cand == 0)
+        continue;
+      allSafe = false;
+      break;
+    }
+    if (allSafe) return static_cast<uint8_t>(cand);
+  }
+  return 1;
 }
 
 // For each block, mark every (x, y) anchor where the block's shape doesn't
