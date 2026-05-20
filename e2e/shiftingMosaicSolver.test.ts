@@ -1,6 +1,26 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "fs";
 
 const SHIFTING_MOSAIC_URL = "/shifting-mosaic-solver";
+
+// A small, structurally valid config in the editor's download format.
+const SAMPLE_CONFIG = {
+  gridWidth: 4,
+  gridHeight: 3,
+  shapes: [
+    [{ x: 0, y: 0 }],
+    [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+    ],
+  ],
+  initialAnchors: [
+    { x: 0, y: 0 },
+    { x: 1, y: 1 },
+  ],
+  goalIndex: 0,
+  goalAnchor: { x: 3, y: 0 },
+};
 
 type Cell = { x: number; y: number };
 
@@ -42,7 +62,7 @@ test.describe("Shifting Mosaic Solver", () => {
     await page.goto(SHIFTING_MOSAIC_URL);
 
     await expect(
-      page.getByRole("heading", { name: "Shifting Mosaic Setup" }),
+      page.getByRole("heading", { name: "Shifting Mosaic Solver" }),
     ).toBeVisible();
     await expect(page.locator("#tool-status")).toHaveText(
       "Selected tool: Obstruction",
@@ -61,6 +81,8 @@ test.describe("Shifting Mosaic Solver", () => {
     await expect(
       page.getByRole("button", { name: "Calculate Solution" }),
     ).toBeVisible();
+    await expect(page.locator("#upload-config")).toBeVisible();
+    await expect(page.locator("#download-config")).toBeVisible();
     await expect(page.locator("#placement-banner")).toBeHidden();
     await expect(page.locator("#warning-banner")).toBeHidden();
     await expect(page.locator("#solution-panel")).toBeHidden();
@@ -328,15 +350,50 @@ test.describe("Shifting Mosaic Solver", () => {
     ).toHaveValue("6");
   });
 
-  test("Calculate Solution shows the placeholder message", async ({ page }) => {
+  test("Calculate Solution warns when no goal block is defined", async ({
+    page,
+  }) => {
     await page.goto(SHIFTING_MOSAIC_URL);
-    await expect(page.locator("#solution-panel")).toBeHidden();
     await page.getByRole("button", { name: "Calculate Solution" }).click();
-    await expect(page.locator("#solution-panel")).toBeVisible();
-    await expect(page.locator("#solution-status")).toContainText("Pending");
-    await expect(page.locator("#solution-message")).toContainText(
-      "Solver implementation",
+    await expect(page.locator("#warning-banner")).toBeVisible();
+    await expect(page.locator("#warning-banner")).toContainText(
+      "No goal block",
     );
+    await expect(page.locator("#solution-view")).toBeHidden();
+  });
+
+  test("solves a trivial puzzle and shows the step-by-step solution view", async ({
+    page,
+  }) => {
+    await page.goto(SHIFTING_MOSAIC_URL);
+
+    // A single 1x1 goal block at (0,0) with its goal zone two cells right.
+    await page.getByRole("button", { name: "Goal Block", exact: true }).click();
+    await cellAt(page, 0, 0).click();
+    await cellAt(page, 2, 0).click();
+    await expect(cellAt(page, 2, 0)).toHaveClass(/goal-zone/);
+
+    await page.getByRole("button", { name: "Calculate Solution" }).click();
+
+    // The WASM worker loads + searches; allow generous time.
+    await expect(page.locator("#solution-view")).toBeVisible({
+      timeout: 30000,
+    });
+    await expect(page.locator("#editor-section")).toBeHidden();
+    await expect(page.locator("#solution-grid .grid-cell")).toHaveCount(36);
+    await expect(page.locator("#solution-step-text")).toContainText("right");
+    await expect(page.locator("#solution-step-counter")).toContainText(
+      "Step 1",
+    );
+
+    // Step through to the end, then return to the editor.
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect(page.locator("#solution-step-counter")).toContainText(
+      "Solved",
+    );
+    await page.getByRole("button", { name: "Back to editor" }).click();
+    await expect(page.locator("#editor-section")).toBeVisible();
+    await expect(page.locator("#solution-view")).toBeHidden();
   });
 
   test("rejects a block that overlaps an existing block", async ({ page }) => {
@@ -424,5 +481,161 @@ test.describe("Shifting Mosaic Solver", () => {
     await expect(page.locator(".block-row")).toHaveCount(1);
     await expect(page.locator("#warning-banner")).toBeVisible();
     await expect(page.locator("#warning-banner")).toContainText("overlaps");
+  });
+
+  test("does not falsely report overlap after a grid resize", async ({
+    page,
+  }) => {
+    await page.goto(SHIFTING_MOSAIC_URL);
+    await cellAt(page, 0, 0).click();
+    await expect(page.locator(".block-row")).toHaveCount(1);
+
+    // Resizing must reuse the board instance — a leaked listener from a stale
+    // board would still see (0,0) as occupied and trip a false overlap.
+    await page.getByRole("spinbutton", { name: "Grid Width" }).fill("4");
+    await page.getByRole("spinbutton", { name: "Grid Width" }).press("Tab");
+    await expect(page.locator(".block-row")).toHaveCount(0);
+
+    await cellAt(page, 0, 0).click();
+    await expect(page.locator(".block-row")).toHaveCount(1);
+    await expect(page.locator("#warning-banner")).toBeHidden();
+
+    // Resize once more, then paint several blocks — none should warn.
+    await page.getByRole("spinbutton", { name: "Grid Height" }).fill("3");
+    await page.getByRole("spinbutton", { name: "Grid Height" }).press("Tab");
+    await cellAt(page, 0, 0).click();
+    await cellAt(page, 1, 0).click();
+    await cellAt(page, 2, 0).click();
+    await expect(page.locator(".block-row")).toHaveCount(3);
+    await expect(page.locator("#warning-banner")).toBeHidden();
+  });
+
+  test("uploads a config file and populates the editor", async ({ page }) => {
+    await page.goto(SHIFTING_MOSAIC_URL);
+
+    await page.locator("#config-file-input").setInputFiles({
+      name: "puzzle.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(JSON.stringify(SAMPLE_CONFIG)),
+    });
+
+    await expect(page.locator(".grid-cell")).toHaveCount(12);
+    await expect(page.locator(".block-row")).toHaveCount(2);
+    await expect(page.locator(".grid-cell.goal-zone")).toHaveCount(1);
+    await expect(
+      page.getByRole("spinbutton", { name: "Grid Width" }),
+    ).toHaveValue("4");
+    await expect(
+      page.getByRole("spinbutton", { name: "Grid Height" }),
+    ).toHaveValue("3");
+    await expect(cellAt(page, 0, 0)).toHaveAttribute(
+      "data-block-type",
+      "goal",
+    );
+    await expect(cellAt(page, 1, 1)).toHaveAttribute(
+      "data-block-type",
+      "obstruction",
+    );
+    await expect(cellAt(page, 3, 0)).toHaveClass(/goal-zone/);
+    await expect(page.locator("#warning-banner")).toBeHidden();
+  });
+
+  test("loads a config dropped onto the page", async ({ page }) => {
+    await page.goto(SHIFTING_MOSAIC_URL);
+
+    const dataTransfer = await page.evaluateHandle(json => {
+      const dt = new DataTransfer();
+      dt.items.add(
+        new File([json], "puzzle.json", { type: "application/json" }),
+      );
+      return dt;
+    }, JSON.stringify(SAMPLE_CONFIG));
+
+    await page.dispatchEvent("body", "drop", { dataTransfer });
+
+    await expect(page.locator(".grid-cell")).toHaveCount(12);
+    await expect(page.locator(".block-row")).toHaveCount(2);
+    await expect(page.locator(".grid-cell.goal-zone")).toHaveCount(1);
+    await expect(page.locator("#drop-overlay")).toBeHidden();
+  });
+
+  test("rejects an invalid dropped file", async ({ page }) => {
+    await page.goto(SHIFTING_MOSAIC_URL);
+
+    const dataTransfer = await page.evaluateHandle(() => {
+      const dt = new DataTransfer();
+      dt.items.add(
+        new File(["this is not json"], "bad.json", {
+          type: "application/json",
+        }),
+      );
+      return dt;
+    });
+
+    await page.dispatchEvent("body", "drop", { dataTransfer });
+
+    await expect(page.locator("#warning-banner")).toBeVisible();
+    await expect(page.locator(".block-row")).toHaveCount(0);
+  });
+
+  test("downloads the current configuration as JSON", async ({ page }) => {
+    await page.goto(SHIFTING_MOSAIC_URL);
+
+    // A single goal block plus its goal zone — the minimum for a download.
+    await page.getByRole("button", { name: "Goal Block", exact: true }).click();
+    await cellAt(page, 0, 0).click();
+    await cellAt(page, 2, 0).click();
+    await expect(cellAt(page, 2, 0)).toHaveClass(/goal-zone/);
+
+    const downloadPromise = page.waitForEvent("download");
+    await page.locator("#download-config").click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe("shiftingMosaicTest.json");
+
+    const path = await download.path();
+    const config = JSON.parse(readFileSync(path, "utf8"));
+    expect(config.gridWidth).toBe(6);
+    expect(config.gridHeight).toBe(6);
+    expect(config.goalIndex).toBe(0);
+    expect(config.goalAnchor).toEqual({ x: 2, y: 0 });
+    expect(config.shapes).toEqual([[{ x: 0, y: 0 }]]);
+  });
+
+  test("round-trips a downloaded config back through upload", async ({
+    page,
+  }) => {
+    await page.goto(SHIFTING_MOSAIC_URL);
+
+    await page.getByRole("button", { name: "Goal Block", exact: true }).click();
+    await cellAt(page, 0, 0).click();
+    await cellAt(page, 2, 0).click();
+
+    const downloadPromise = page.waitForEvent("download");
+    await page.locator("#download-config").click();
+    const download = await downloadPromise;
+    const path = await download.path();
+    const json = readFileSync(path, "utf8");
+
+    // Reset, then re-upload the downloaded file.
+    await page.getByRole("button", { name: "Reset" }).click();
+    await page
+      .locator("#reset-confirm")
+      .getByRole("button", { name: "Reset" })
+      .click();
+    await expect(page.locator(".block-row")).toHaveCount(0);
+
+    await page.locator("#config-file-input").setInputFiles({
+      name: "roundtrip.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(json),
+    });
+
+    await expect(page.locator(".block-row")).toHaveCount(1);
+    await expect(cellAt(page, 0, 0)).toHaveAttribute(
+      "data-block-type",
+      "goal",
+    );
+    await expect(cellAt(page, 2, 0)).toHaveClass(/goal-zone/);
+    await expect(page.locator("#warning-banner")).toBeHidden();
   });
 });

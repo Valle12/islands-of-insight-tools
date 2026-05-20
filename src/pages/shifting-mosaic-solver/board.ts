@@ -1,4 +1,9 @@
-import type { BlockType, Position, ShiftingMosaicTool } from "../../util/types";
+import type {
+  BlockType,
+  Position,
+  ShiftingMosaicTest,
+  ShiftingMosaicTool,
+} from "../../util/types";
 import { Block } from "./block";
 import type { ShiftingMosaicSolverEditor } from "./shiftingMosaicSolver";
 
@@ -49,6 +54,49 @@ export class Board {
     this.attemptedOverlap = false;
     this.isPlacingGoalZone = false;
     this.placementCursor = null;
+  }
+
+  /**
+   * Resizes the board in place. Reuses this instance — and therefore its
+   * already-registered event listeners — so resizing never leaks stale
+   * listeners onto #grid / document.
+   */
+  reconfigure(gridWidth: number, gridHeight: number) {
+    this.gridWidth = gridWidth;
+    this.gridHeight = gridHeight;
+    this.resetBoardData();
+  }
+
+  /**
+   * Replaces the entire board with a saved configuration (the download
+   * format): grid size, every block, and the goal zone.
+   */
+  loadConfig(config: ShiftingMosaicTest) {
+    this.gridWidth = config.gridWidth;
+    this.gridHeight = config.gridHeight;
+    this.resetBoardData();
+
+    for (let i = 0; i < config.shapes.length; i++) {
+      const id = i + 1;
+      const anchor = config.initialAnchors[i]!;
+      const cells: Position[] = config.shapes[i]!.map(offset => ({
+        x: anchor.x + offset.x,
+        y: anchor.y + offset.y,
+      }));
+      const type: BlockType =
+        i === config.goalIndex ? "goal" : "obstruction";
+      this.blocks.set(id, new Block(id, type, cells));
+      for (const cell of cells) {
+        const col = this.blockAssignments[cell.x];
+        if (col) col[cell.y] = id;
+      }
+    }
+    this.nextBlockId = config.shapes.length + 1;
+
+    this.goalZoneCells = config.shapes[config.goalIndex]!.map(offset => ({
+      x: config.goalAnchor.x + offset.x,
+      y: config.goalAnchor.y + offset.y,
+    }));
   }
 
   hasGoalBlock(): boolean {

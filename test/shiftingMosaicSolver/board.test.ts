@@ -262,6 +262,81 @@ describe("Board (shifting-mosaic)", () => {
     });
   });
 
+  describe("Reconfigure", () => {
+    test("resizes the blockAssignments grid and clears all state", () => {
+      internal.blocks.set(
+        1,
+        new Block(1, "obstruction", [{ x: 0, y: 0 }]),
+      );
+      internal.blockAssignments[0][0] = 1;
+      internal.nextBlockId = 2;
+
+      board.reconfigure(7, 3);
+
+      expect(internal.gridWidth).toBe(7);
+      expect(internal.gridHeight).toBe(3);
+      expect(internal.blockAssignments.length).toBe(7);
+      expect(internal.blockAssignments[0].length).toBe(3);
+      expect(board.getBlocks().size).toBe(0);
+      expect(internal.nextBlockId).toBe(1);
+    });
+  });
+
+  describe("LoadConfig", () => {
+    const config = {
+      gridWidth: 4,
+      gridHeight: 3,
+      shapes: [
+        [{ x: 0, y: 0 }],
+        [
+          { x: 0, y: 0 },
+          { x: 1, y: 0 },
+        ],
+      ],
+      initialAnchors: [
+        { x: 0, y: 0 },
+        { x: 1, y: 1 },
+      ],
+      goalIndex: 0,
+      goalAnchor: { x: 3, y: 0 },
+    };
+
+    test("rebuilds the grid, blocks, and goal zone from a config", () => {
+      board.loadConfig(config);
+
+      expect(internal.gridWidth).toBe(4);
+      expect(internal.gridHeight).toBe(3);
+      expect(board.getBlocks().size).toBe(2);
+      expect(internal.nextBlockId).toBe(3);
+
+      const goal = board.getBlocks().get(1)!;
+      expect(goal.type).toBe("goal");
+      expect(internal.blockAssignments[0][0]).toBe(1);
+
+      const obstruction = board.getBlocks().get(2)!;
+      expect(obstruction.type).toBe("obstruction");
+      expect(internal.blockAssignments[1][1]).toBe(2);
+      expect(internal.blockAssignments[2][1]).toBe(2);
+
+      expect(board.getGoalZoneCells()).toEqual([{ x: 3, y: 0 }]);
+      expect(board.hasGoalBlock()).toBe(true);
+    });
+
+    test("replaces any pre-existing blocks", () => {
+      internal.blocks.set(
+        1,
+        new Block(1, "obstruction", [{ x: 4, y: 4 }]),
+      );
+      internal.blockAssignments[4][4] = 1;
+
+      board.loadConfig(config);
+
+      expect(board.getBlocks().size).toBe(2);
+      // The old grid was discarded — block 2 sits where the config places it.
+      expect(internal.blockAssignments[1][1]).toBe(2);
+    });
+  });
+
   describe("IsContiguous (private)", () => {
     test("empty array is trivially contiguous", () => {
       expect(internal.isContiguous([])).toBe(true);

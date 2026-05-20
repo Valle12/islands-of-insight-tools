@@ -8,6 +8,10 @@ const wasmDir = resolve(
   import.meta.dir,
   "./../pages/rolling-blocks-solver/wasm",
 );
+const shiftingMosaicWasmDir = resolve(
+  import.meta.dir,
+  "./../pages/shifting-mosaic-solver/wasm",
+);
 
 const server = Bun.serve({
   routes: {
@@ -32,6 +36,24 @@ const server = Bun.serve({
     }
     if (url.pathname === "/astar.worker.js") {
       const file = Bun.file(resolve(wasmDir, "astar.worker.js"));
+      return new Response(file, {
+        headers: { "Content-Type": "application/javascript" },
+      });
+    }
+    if (url.pathname === "/sm-wasm/astar.mjs") {
+      const file = Bun.file(resolve(shiftingMosaicWasmDir, "astar.mjs"));
+      return new Response(file, {
+        headers: { "Content-Type": "application/javascript" },
+      });
+    }
+    if (url.pathname === "/sm-wasm/astar.wasm") {
+      const file = Bun.file(resolve(shiftingMosaicWasmDir, "astar.wasm"));
+      return new Response(file, {
+        headers: { "Content-Type": "application/wasm" },
+      });
+    }
+    if (url.pathname === "/sm-wasm/astar.worker.js") {
+      const file = Bun.file(resolve(shiftingMosaicWasmDir, "astar.worker.js"));
       return new Response(file, {
         headers: { "Content-Type": "application/javascript" },
       });

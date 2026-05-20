@@ -83,7 +83,16 @@
       "Bash(SHIFTING_MOSAIC_BUDGET_MS=120000 SHIFTING_MOSAIC_MAX_NODES=20000000 ./shifting_mosaic_a_star_tests.exe --gtest_filter=\"ShiftingMosaic*\")",
       "Bash(grep -E \"\\\\.json: [0-9]+ moves|move stride=[23]|fallback|FAILED.*shiftingMosaic|[0-9]+ tests?\\\\.$\")",
       "Bash(cd \"/e/projects/VS Code/islands-of-insight-tools\" && grep -n \"JSON puzzles\\\\|describe\\\\|test.each\\\\|allTestFiles\\\\|ShouldFind\" test/shiftingMosaicSolver/aStar.test.ts | head -20)",
-      "Read(//e/e/projects/VS Code/islands-of-insight-tools/test/shiftingMosaicSolver/**)"
+      "Read(//e/e/projects/VS Code/islands-of-insight-tools/test/shiftingMosaicSolver/**)",
+      "Bash(cd \"/e/projects/VS Code/islands-of-insight-tools\" && cat playwright.config.* 2>/dev/null | head -40; echo \"---rolling wasmBridge---\"; cat src/pages/rolling-blocks-solver/wasmBridge.ts | head -55)",
+      "Read(//e/e/projects/VS Code/**)",
+      "Bash(ROLLING_BLOCKS_TEST=true bun test test/shiftingMosaicSolver/config.test.ts test/shiftingMosaicSolver/board.test.ts)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_take_screenshot",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_evaluate",
+      "Bash(ROLLING_BLOCKS_TEST=true bun test)",
+      "PowerShell(Test-Path *)"
     ]
   }
 }

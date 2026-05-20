@@ -54,6 +54,12 @@ h2 {
   color: var(--md-sys-color-on-surface-variant);
 }
 
+#editor-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 #size-controls {
   display: flex;
   gap: 12px;
@@ -305,8 +311,15 @@ h2 {
 
 #action-buttons {
   display: flex;
+  align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+#config-io {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 #blocks-panel {
@@ -399,6 +412,38 @@ h2 {
   display: none !important;
 }
 
+#drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Purely visual — let drag events pass through to the window listeners. */
+  pointer-events: none;
+  background: color-mix(in srgb, #000 45%, transparent);
+  animation: warning-fade-in 120ms ease-out;
+}
+
+#drop-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px 48px;
+  border-radius: 18px;
+  border: 3px dashed var(--md-sys-color-primary);
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  font-size: 16px;
+  font-weight: 500;
+
+  md-icon {
+    --md-icon-size: 48px;
+    color: var(--md-sys-color-primary);
+  }
+}
+
 #solution-panel {
   display: flex;
   flex-direction: column;
@@ -423,6 +468,133 @@ h2 {
 #solution-message {
   font-size: 14px;
   color: var(--md-sys-color-on-surface-variant);
+}
+
+#solution-spinner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  color: var(--md-sys-color-on-surface-variant);
+
+  md-circular-progress {
+    --md-circular-progress-size: 24px;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Step-by-step solution view                                          */
+/* ------------------------------------------------------------------ */
+
+#solution-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+}
+
+#solution-view-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+}
+
+#solution-step-counter {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--md-sys-color-primary);
+}
+
+#solution-grid-shell {
+  display: flex;
+  justify-content: center;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--md-sys-color-surface-container);
+  border: 1px solid var(--md-sys-color-outline-variant);
+}
+
+#solution-grid {
+  display: grid;
+  gap: 6px;
+  user-select: none;
+}
+
+#solution-grid .grid-cell {
+  cursor: default;
+}
+
+#solution-grid .grid-cell:hover {
+  transform: none;
+}
+
+#solution-step-text {
+  font-size: 15px;
+  text-align: center;
+  color: var(--md-sys-color-on-surface);
+  max-width: 480px;
+}
+
+.sm-moving-label {
+  color: #c84ad8;
+}
+
+.sm-dest-label {
+  color: #1f9d57;
+}
+
+#solution-view-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* The block to move this turn — bright magenta glow on top of its color. */
+.grid-cell.sm-moving {
+  box-shadow:
+    inset 0 0 0 3px #ffffff,
+    0 0 10px 3px #c84ad8;
+  z-index: 4;
+}
+
+/* Destination zone — where that block should end up this turn. */
+.grid-cell.sm-dest::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  pointer-events: none;
+  border-radius: 6px;
+  background: color-mix(in srgb, #1f9d57 32%, transparent);
+  z-index: 2;
+}
+
+.grid-cell.sm-dest-edge-top {
+  border-top: 3px dashed #1f9d57;
+}
+.grid-cell.sm-dest-edge-right {
+  border-right: 3px dashed #1f9d57;
+}
+.grid-cell.sm-dest-edge-bottom {
+  border-bottom: 3px dashed #1f9d57;
+}
+.grid-cell.sm-dest-edge-left {
+  border-left: 3px dashed #1f9d57;
+}
+
+/* Goal zone — faint context outline of the puzzle's final target. */
+.grid-cell.sm-goal-edge-top {
+  border-top: 2px dashed #b88600;
+}
+.grid-cell.sm-goal-edge-right {
+  border-right: 2px dashed #b88600;
+}
+.grid-cell.sm-goal-edge-bottom {
+  border-bottom: 2px dashed #b88600;
+}
+.grid-cell.sm-goal-edge-left {
+  border-left: 2px dashed #b88600;
 }
 
 @media (max-width: 720px) {

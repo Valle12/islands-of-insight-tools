@@ -33,66 +33,127 @@
 
     <div id="container">
       <div id="editor-card">
-        <h1>Shifting Mosaic Setup</h1>
+        <h1>Shifting Mosaic Solver</h1>
         <p id="subtitle">
           Define the grid, draw obstruction blocks, then draw a single goal
           block and place its goal zone hologram.
         </p>
 
-        <div id="size-controls">
-          <md-outlined-text-field
-            id="grid-width"
-            type="number"
-            label="Grid Width"
-            value="6"
-            min="1"
-          ></md-outlined-text-field>
-          <md-outlined-text-field
-            id="grid-height"
-            type="number"
-            label="Grid Height"
-            value="6"
-            min="1"
-          ></md-outlined-text-field>
-        </div>
-
-        <div id="grid-shell">
-          <div id="grid" aria-label="Shifting mosaic grid editor"></div>
-        </div>
-
-        <div id="placement-banner" class="hidden">
-          Place the goal zone — move your mouse over the grid and click to drop
-          the hologram.
-        </div>
-
-        <div id="warning-banner" class="hidden"></div>
-
-        <div id="tool-status">Selected tool: Obstruction</div>
-
-        <div id="tool-row" aria-label="Editor tools">
-          <button class="tool-button" data-tool="obstruction" type="button">
-            Obstruction
-          </button>
-          <button class="tool-button" data-tool="goal" type="button">
-            Goal Block
-          </button>
-          <button class="tool-button" data-tool="reset" type="button">
-            Reset
-          </button>
-        </div>
-
-        <div id="action-buttons">
-          <md-filled-button id="calculate-solution"
-            >Calculate Solution</md-filled-button
-          >
-        </div>
-
-        <div id="solution-panel" class="hidden">
-          <div id="solution-header">
-            <h2>Solution</h2>
-            <span id="solution-status"></span>
+        <div id="editor-section">
+          <div id="size-controls">
+            <md-outlined-text-field
+              id="grid-width"
+              type="number"
+              label="Grid Width"
+              value="6"
+              min="1"
+            ></md-outlined-text-field>
+            <md-outlined-text-field
+              id="grid-height"
+              type="number"
+              label="Grid Height"
+              value="6"
+              min="1"
+            ></md-outlined-text-field>
           </div>
-          <div id="solution-message"></div>
+
+          <div id="grid-shell">
+            <div id="grid" aria-label="Shifting mosaic grid editor"></div>
+          </div>
+
+          <div id="placement-banner" class="hidden">
+            Place the goal zone — move your mouse over the grid and click to
+            drop the hologram.
+          </div>
+
+          <div id="warning-banner" class="hidden"></div>
+
+          <div id="tool-status">Selected tool: Obstruction</div>
+
+          <div id="tool-row" aria-label="Editor tools">
+            <button class="tool-button" data-tool="obstruction" type="button">
+              Obstruction
+            </button>
+            <button class="tool-button" data-tool="goal" type="button">
+              Goal Block
+            </button>
+            <button class="tool-button" data-tool="reset" type="button">
+              Reset
+            </button>
+          </div>
+
+          <div id="action-buttons">
+            <md-filled-button id="calculate-solution"
+              >Calculate Solution</md-filled-button
+            >
+            <span id="config-io">
+              <md-icon-button
+                id="upload-config"
+                title="Load config from disk"
+                aria-label="Load config from disk"
+              >
+                <md-icon>upload</md-icon>
+              </md-icon-button>
+              <md-icon-button
+                id="download-config"
+                title="Download config"
+                aria-label="Download config"
+              >
+                <md-icon>download</md-icon>
+              </md-icon-button>
+            </span>
+            <input
+              id="config-file-input"
+              type="file"
+              accept="application/json,.json"
+              hidden
+            />
+          </div>
+
+          <div id="solution-panel" class="hidden">
+            <div id="solution-header">
+              <h2>Solver</h2>
+              <span id="solution-status"></span>
+            </div>
+            <div id="solution-spinner" class="hidden">
+              <md-circular-progress indeterminate></md-circular-progress>
+              <span id="solution-progress-text">Searching…</span>
+            </div>
+            <div id="solution-message"></div>
+          </div>
+
+          <div id="blocks-panel">
+            <div id="blocks-panel-header">
+              <h2>Blocks</h2>
+              <p>
+                Drag freeform on the grid to draw a shape. Hover a row to
+                highlight its block.
+              </p>
+            </div>
+            <div id="blocks-list"></div>
+          </div>
+        </div>
+
+        <div id="solution-view" class="hidden">
+          <div id="solution-view-header">
+            <h2>Solution</h2>
+            <span id="solution-step-counter"></span>
+          </div>
+
+          <div id="solution-grid-shell">
+            <div id="solution-grid" aria-label="Shifting mosaic solution"></div>
+          </div>
+
+          <div id="solution-step-text"></div>
+
+          <div id="solution-view-controls">
+            <md-text-button id="solution-prev">Previous</md-text-button>
+            <md-filled-button id="solution-next">Next</md-filled-button>
+          </div>
+
+          <md-text-button id="solution-exit"
+            >Back to editor</md-text-button
+          >
         </div>
 
         <md-dialog id="reset-dialog">
@@ -106,17 +167,13 @@
             <md-filled-button id="reset-confirm">Reset</md-filled-button>
           </div>
         </md-dialog>
+      </div>
+    </div>
 
-        <div id="blocks-panel">
-          <div id="blocks-panel-header">
-            <h2>Blocks</h2>
-            <p>
-              Drag freeform on the grid to draw a shape. Hover a row to
-              highlight its block.
-            </p>
-          </div>
-          <div id="blocks-list"></div>
-        </div>
+    <div id="drop-overlay" class="hidden">
+      <div id="drop-overlay-content">
+        <md-icon>upload_file</md-icon>
+        <span>Drop a config JSON to load it</span>
       </div>
     </div>
   </body>

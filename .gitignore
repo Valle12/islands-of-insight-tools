@@ -39,3 +39,4 @@ playwright-report
 astar.wasm
 astar.mjs
 build-*
+.playwright-mcp
