@@ -5,6 +5,7 @@ import type {
 } from "../../util/types";
 import { Board } from "./board";
 import { validateConfig } from "./config";
+import { cardWidthPx } from "./layout";
 import { SolutionView } from "./solutionView";
 import type { Turn } from "./turn";
 import {
@@ -34,6 +35,9 @@ export class ShiftingMosaicSolverEditor {
   ) as HTMLDivElement;
   private warningTimeoutId: number | null = null;
 
+  private editorCard = document.getElementById(
+    "editor-card",
+  ) as HTMLDivElement;
   private editorSection = document.getElementById(
     "editor-section",
   ) as HTMLDivElement;
@@ -71,6 +75,7 @@ export class ShiftingMosaicSolverEditor {
   private selectedTool: ShiftingMosaicTool = "obstruction";
   private board: Board;
   private currentWorker: Worker | null = null;
+  private solutionView: SolutionView | null = null;
 
   constructor() {
     this.board = new Board(
@@ -236,10 +241,19 @@ export class ShiftingMosaicSolverEditor {
   }
 
   render() {
+    this.updateLayoutWidth();
     this.board.renderGrid();
     this.renderToolButtons();
     this.renderBlocksList();
     this.renderPlacementBanner();
+  }
+
+  /**
+   * Widens the editor card so a wide grid renders at full cell size, capped
+   * to the viewport. Small grids keep the default width.
+   */
+  private updateLayoutWidth() {
+    this.editorCard.style.width = `min(100%, ${cardWidthPx(this.gridWidth)}px)`;
   }
 
   private renderPlacementBanner() {
@@ -409,7 +423,8 @@ export class ShiftingMosaicSolverEditor {
   private enterSolutionView(puzzle: ShiftingMosaicPuzzle, turns: Turn[]) {
     this.editorSection.classList.add("hidden");
     this.solutionViewEl.classList.remove("hidden");
-    new SolutionView({
+    this.solutionView?.dispose();
+    this.solutionView = new SolutionView({
       gridWidth: puzzle.gridWidth,
       gridHeight: puzzle.gridHeight,
       shapes: puzzle.shapes,
@@ -421,6 +436,8 @@ export class ShiftingMosaicSolverEditor {
   }
 
   private exitSolutionView() {
+    this.solutionView?.dispose();
+    this.solutionView = null;
     this.solutionViewEl.classList.add("hidden");
     this.editorSection.classList.remove("hidden");
     this.solutionPanel.classList.add("hidden");

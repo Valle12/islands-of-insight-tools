@@ -94,7 +94,9 @@
       "Bash(ROLLING_BLOCKS_TEST=true bun test)",
       "PowerShell(Test-Path *)",
       "PowerShell(cmake *)",
-      "Bash(ROLLING_BLOCKS_TEST=true bun test test/shiftingMosaicSolver/wasm.test.ts)"
+      "Bash(ROLLING_BLOCKS_TEST=true bun test test/shiftingMosaicSolver/wasm.test.ts)",
+      "mcp__playwright__browser_resize",
+      "Bash(ROLLING_BLOCKS_TEST=true bun test test/shiftingMosaicSolver/board.test.ts test/shiftingMosaicSolver/config.test.ts)"
     ]
   }
 }

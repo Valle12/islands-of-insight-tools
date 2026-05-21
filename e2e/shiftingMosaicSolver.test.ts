@@ -94,6 +94,55 @@ test.describe("Shifting Mosaic Solver", () => {
     await expect(page.locator(".grid-cell")).toHaveCount(32);
   });
 
+  test("renders a large grid without overlapping cells", async ({ page }) => {
+    await page.goto(SHIFTING_MOSAIC_URL);
+
+    await page.getByRole("spinbutton", { name: "Grid Width" }).fill("43");
+    await page.getByRole("spinbutton", { name: "Grid Width" }).press("Tab");
+    await page.getByRole("spinbutton", { name: "Grid Height" }).fill("16");
+    await page.getByRole("spinbutton", { name: "Grid Height" }).press("Tab");
+    await expect(page.locator(".grid-cell")).toHaveCount(43 * 16);
+
+    const box = async (x: number, y: number) => {
+      const b = await cellAt(page, x, y).boundingBox();
+      if (!b) throw new Error(`cell (${x}, ${y}) is not visible`);
+      return b;
+    };
+    const c00 = await box(0, 0);
+    const c10 = await box(1, 0);
+    const c01 = await box(0, 1);
+    const cFar = await box(42, 15);
+
+    // Neighbouring cells never overlap — each starts at/after the previous
+    // one ends (this is exactly what broke with fixed-width cells).
+    expect(c10.x).toBeGreaterThanOrEqual(c00.x + c00.width - 0.5);
+    expect(c01.y).toBeGreaterThanOrEqual(c00.y + c00.height - 0.5);
+
+    // Cells stay square and large enough to interact with.
+    expect(c00.width).toBeGreaterThan(8);
+    expect(Math.abs(c00.width - c00.height)).toBeLessThan(2);
+
+    // The whole grid is laid out — the far corner is past the start cell.
+    expect(cFar.x).toBeGreaterThan(c00.x);
+    expect(cFar.y).toBeGreaterThan(c00.y);
+
+    // The card widened past the default 960px to use more screen space.
+    const card = await page.locator("#editor-card").boundingBox();
+    expect(card!.width).toBeGreaterThan(960);
+
+    // The grid scales to fit — no horizontal page overflow.
+    const noHorizontalScroll = await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth + 1,
+    );
+    expect(noHorizontalScroll).toBe(true);
+
+    // Still interactive at this size.
+    await cellAt(page, 5, 5).click();
+    await expect(page.locator(".block-row")).toHaveCount(1);
+  });
+
   test("switches between Obstruction and Goal Block tools", async ({
     page,
   }) => {
@@ -394,6 +443,43 @@ test.describe("Shifting Mosaic Solver", () => {
     await page.getByRole("button", { name: "Back to editor" }).click();
     await expect(page.locator("#editor-section")).toBeVisible();
     await expect(page.locator("#solution-view")).toBeHidden();
+  });
+
+  test("groups a multi-direction block move into one path step", async ({
+    page,
+  }) => {
+    await page.goto(SHIFTING_MOSAIC_URL);
+
+    // A single goal block at (0,2) whose goal zone sits up-and-right at (2,0).
+    // The only solution slides it right then up — all consecutive moves of one
+    // block, so the viewer must present it as a single path step.
+    await page.getByRole("button", { name: "Goal Block", exact: true }).click();
+    await cellAt(page, 0, 2).click();
+    await cellAt(page, 2, 0).click();
+    await expect(cellAt(page, 2, 0)).toHaveClass(/goal-zone/);
+
+    await page.getByRole("button", { name: "Calculate Solution" }).click();
+    await expect(page.locator("#solution-view")).toBeVisible({
+      timeout: 30000,
+    });
+
+    await expect(page.locator("#solution-step-counter")).toHaveText(
+      "Step 1 of 1",
+    );
+    // One step, but the path text names both legs of the route.
+    await expect(page.locator("#solution-step-text")).toContainText("right");
+    await expect(page.locator("#solution-step-text")).toContainText("up");
+
+    // The drag path is drawn as an SVG overlay on the grid.
+    await expect(page.locator(".sm-path-overlay")).toHaveCount(1);
+    await expect(page.locator(".sm-path-line")).toHaveCount(1);
+
+    // Reaching the end clears the path overlay.
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect(page.locator("#solution-step-counter")).toContainText(
+      "Solved",
+    );
+    await expect(page.locator(".sm-path-overlay")).toHaveCount(0);
   });
 
   test("rejects a block that overlaps an existing block", async ({ page }) => {

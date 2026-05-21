@@ -1,5 +1,6 @@
 import type { Position } from "../../util/types";
 import { Direction } from "./directions";
+import { gridMaxWidthPx } from "./layout";
 import type { Turn } from "./turn";
 
 const DX: Record<Direction, number> = {
@@ -21,10 +22,22 @@ const DIR_LABEL: Record<Direction, string> = {
   [Direction.LEFT]: "left",
 };
 
-interface Step {
-  blockId: number;
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** One leg of a step — a straight slide of `distance` cells. */
+interface PathSegment {
   direction: Direction;
   distance: number;
+}
+
+/**
+ * One player step: a maximal run of consecutive turns of a single block. The
+ * block may change direction mid-step, so the step carries the whole route as
+ * an ordered list of segments — the player performs it as one path drag.
+ */
+interface Step {
+  blockId: number;
+  segments: PathSegment[];
 }
 
 export interface SolutionViewData {
@@ -38,10 +51,11 @@ export interface SolutionViewData {
 }
 
 /**
- * Step-by-step viewer for a shifting-mosaic solution. Consecutive single-cell
- * turns of the same block in the same direction are merged into one "step"
- * (the way a player would do the move in-game: one drag of N cells). Each
- * step highlights the block to move and shows a destination zone.
+ * Step-by-step viewer for a shifting-mosaic solution. All consecutive turns of
+ * the same block — across any number of direction changes — are grouped into a
+ * single step. Each step highlights the block to move, draws the full drag
+ * path it travels along, and shows the destination zone, so the player makes
+ * one trip per step instead of one per direction.
  */
 export class SolutionView {
   private readonly data: SolutionViewData;
@@ -67,6 +81,9 @@ export class SolutionView {
     "solution-next",
   ) as HTMLButtonElement;
 
+  // The path overlay is measured in pixels, so it must be redrawn on resize.
+  private readonly onResize = () => this.drawPath();
+
   constructor(data: SolutionViewData) {
     this.data = data;
     this.steps = SolutionView.buildSteps(data.turns);
@@ -85,26 +102,34 @@ export class SolutionView {
       }
     };
 
+    window.addEventListener("resize", this.onResize);
     this.render();
   }
 
-  /** Merge consecutive same-block, same-direction turns into player moves. */
+  /** Detaches listeners — call before discarding the view. */
+  dispose() {
+    window.removeEventListener("resize", this.onResize);
+    this.prevBtn.onclick = null;
+    this.nextBtn.onclick = null;
+  }
+
+  /**
+   * Groups consecutive turns of the same block into one step, and within each
+   * step folds consecutive same-direction turns into one path segment.
+   */
   private static buildSteps(turns: Turn[]): Step[] {
     const steps: Step[] = [];
     for (const turn of turns) {
-      const last = steps[steps.length - 1];
-      if (
-        last &&
-        last.blockId === turn.blockId &&
-        last.direction === turn.direction
-      ) {
-        last.distance++;
+      let step = steps[steps.length - 1];
+      if (!step || step.blockId !== turn.blockId) {
+        step = { blockId: turn.blockId, segments: [] };
+        steps.push(step);
+      }
+      const seg = step.segments[step.segments.length - 1];
+      if (seg && seg.direction === turn.direction) {
+        seg.distance++;
       } else {
-        steps.push({
-          blockId: turn.blockId,
-          direction: turn.direction,
-          distance: 1,
-        });
+        step.segments.push({ direction: turn.direction, distance: 1 });
       }
     }
     return steps;
@@ -118,8 +143,10 @@ export class SolutionView {
     for (const step of this.steps) {
       anchors = anchors.map(a => ({ x: a.x, y: a.y }));
       const moving = anchors[step.blockId]!;
-      moving.x += DX[step.direction] * step.distance;
-      moving.y += DY[step.direction] * step.distance;
+      for (const seg of step.segments) {
+        moving.x += DX[seg.direction] * seg.distance;
+        moving.y += DY[seg.direction] * seg.distance;
+      }
       snapshots.push(anchors.map(a => ({ x: a.x, y: a.y })));
     }
     return snapshots;
@@ -131,6 +158,20 @@ export class SolutionView {
       x: anchor.x + c.x,
       y: anchor.y + c.y,
     }));
+  }
+
+  /** Anchor positions at each corner of a step's path: start → … → end. */
+  private stepAnchorWaypoints(step: Step, start: Position): Position[] {
+    const points: Position[] = [{ x: start.x, y: start.y }];
+    let cur = { x: start.x, y: start.y };
+    for (const seg of step.segments) {
+      cur = {
+        x: cur.x + DX[seg.direction] * seg.distance,
+        y: cur.y + DY[seg.direction] * seg.distance,
+      };
+      points.push({ x: cur.x, y: cur.y });
+    }
+    return points;
   }
 
   render() {
@@ -172,6 +213,7 @@ export class SolutionView {
     }
 
     this.grid.style.gridTemplateColumns = `repeat(${gridWidth}, minmax(0, 1fr))`;
+    this.grid.style.maxWidth = `${gridMaxWidthPx(gridWidth)}px`;
     this.grid.innerHTML = "";
 
     for (let y = 0; y < gridHeight; y++) {
@@ -224,21 +266,132 @@ export class SolutionView {
       }
     }
 
+    this.drawPath();
     this.renderControls(step);
+  }
+
+  /** Draws the current step's drag path as an SVG overlay on the grid. */
+  private drawPath() {
+    this.grid.querySelector(".sm-path-overlay")?.remove();
+    if (this.viewIndex >= this.steps.length) return;
+
+    const step = this.steps[this.viewIndex]!;
+    const startAnchor = this.snapshots[this.viewIndex]![step.blockId]!;
+    const anchorPoints = this.stepAnchorWaypoints(step, startAnchor);
+
+    const { gridWidth, gridHeight } = this.data;
+    const cells = this.grid.querySelectorAll<HTMLElement>(".grid-cell");
+    if (cells.length < gridWidth * gridHeight) return;
+
+    // Route the line through the block's footprint centroid. The grid pitch
+    // is NOT uniform — goal and destination cells carry thicker borders, so
+    // their rows are taller — so map each (fractional) cell coordinate to
+    // pixels by interpolating measured cell centres, never a constant pitch.
+    const shape = this.data.shapes[step.blockId]!;
+    let cox = 0;
+    let coy = 0;
+    for (const c of shape) {
+      cox += c.x;
+      coy += c.y;
+    }
+    cox /= shape.length;
+    coy /= shape.length;
+
+    const colCenterX = (ix: number) => {
+      const el = cells[ix]!; // row 0, column ix
+      return el.offsetLeft + el.offsetWidth / 2;
+    };
+    const rowCenterY = (iy: number) => {
+      const el = cells[iy * gridWidth]!; // column 0, row iy
+      return el.offsetTop + el.offsetHeight / 2;
+    };
+    const toPixel = (fx: number, fy: number) => {
+      const ix0 = Math.floor(fx);
+      const ix1 = Math.min(ix0 + 1, gridWidth - 1);
+      const iy0 = Math.floor(fy);
+      const iy1 = Math.min(iy0 + 1, gridHeight - 1);
+      const x0 = colCenterX(ix0);
+      const y0 = rowCenterY(iy0);
+      return {
+        x: x0 + (colCenterX(ix1) - x0) * (fx - ix0),
+        y: y0 + (rowCenterY(iy1) - y0) * (fy - iy0),
+      };
+    };
+
+    const pts = anchorPoints.map(p => toPixel(p.x + cox, p.y + coy));
+    const pointsAttr = pts
+      .map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
+      .join(" ");
+
+    const w = this.grid.offsetWidth;
+    const h = this.grid.offsetHeight;
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("class", "sm-path-overlay");
+    svg.setAttribute("width", String(w));
+    svg.setAttribute("height", String(h));
+    svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+
+    const defs = document.createElementNS(SVG_NS, "defs");
+    const marker = document.createElementNS(SVG_NS, "marker");
+    marker.setAttribute("id", "sm-path-arrow");
+    marker.setAttribute("viewBox", "0 0 10 10");
+    marker.setAttribute("refX", "8");
+    marker.setAttribute("refY", "5");
+    marker.setAttribute("markerWidth", "9");
+    marker.setAttribute("markerHeight", "9");
+    marker.setAttribute("markerUnits", "userSpaceOnUse");
+    marker.setAttribute("orient", "auto");
+    const head = document.createElementNS(SVG_NS, "path");
+    head.setAttribute("d", "M1,1 L9,5 L1,9 Z");
+    head.setAttribute("class", "sm-path-arrowhead");
+    marker.appendChild(head);
+    defs.appendChild(marker);
+    svg.appendChild(defs);
+
+    const casing = document.createElementNS(SVG_NS, "polyline");
+    casing.setAttribute("points", pointsAttr);
+    casing.setAttribute("class", "sm-path-casing");
+    svg.appendChild(casing);
+
+    const line = document.createElementNS(SVG_NS, "polyline");
+    line.setAttribute("points", pointsAttr);
+    line.setAttribute("class", "sm-path-line");
+    line.setAttribute("marker-end", "url(#sm-path-arrow)");
+    svg.appendChild(line);
+
+    const start = document.createElementNS(SVG_NS, "circle");
+    start.setAttribute("cx", pts[0]!.x.toFixed(1));
+    start.setAttribute("cy", pts[0]!.y.toFixed(1));
+    start.setAttribute("r", "5.5");
+    start.setAttribute("class", "sm-path-start");
+    svg.appendChild(start);
+
+    this.grid.appendChild(svg);
   }
 
   private renderControls(step: Step | null) {
     if (step) {
       this.stepCounter.textContent = `Step ${this.viewIndex + 1} of ${this.steps.length}`;
-      const cells = step.distance === 1 ? "1 cell" : `${step.distance} cells`;
-      this.stepText.innerHTML =
-        `Move the <strong class="sm-moving-label">highlighted block</strong> ` +
-        `<strong>${DIR_LABEL[step.direction]}</strong> by ${cells}, ` +
-        `into the <strong class="sm-dest-label">green zone</strong>.`;
+      if (step.segments.length === 1) {
+        const seg = step.segments[0]!;
+        this.stepText.innerHTML =
+          `Move the <strong class="sm-moving-label">highlighted block</strong> ` +
+          `<strong>${DIR_LABEL[seg.direction]} ${seg.distance}</strong> into the ` +
+          `<strong class="sm-dest-label">green zone</strong>.`;
+      } else {
+        const path = step.segments
+          .map(seg => `${DIR_LABEL[seg.direction]} ${seg.distance}`)
+          .join(" → ");
+        this.stepText.innerHTML =
+          `Drag the <strong class="sm-moving-label">highlighted block</strong> ` +
+          `along the path — <strong>${path}</strong> — into the ` +
+          `<strong class="sm-dest-label">green zone</strong>.`;
+      }
     } else {
-      this.stepCounter.textContent = `Solved in ${this.steps.length} move${this.steps.length === 1 ? "" : "s"}`;
+      const n = this.steps.length;
+      this.stepCounter.textContent = `Solved in ${n} step${n === 1 ? "" : "s"}`;
       this.stepText.innerHTML =
-        "All moves done — the goal block is in the goal zone. 🎉";
+        "All steps done — the goal block is in the goal zone. 🎉";
     }
 
     this.prevBtn.toggleAttribute("disabled", this.viewIndex === 0);

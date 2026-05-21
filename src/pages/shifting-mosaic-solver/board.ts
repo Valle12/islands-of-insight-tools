@@ -5,6 +5,7 @@ import type {
   ShiftingMosaicTool,
 } from "../../util/types";
 import { Block } from "./block";
+import { gridMaxWidthPx } from "./layout";
 import type { ShiftingMosaicSolverEditor } from "./shiftingMosaicSolver";
 
 export class Board {
@@ -179,6 +180,7 @@ export class Board {
 
   renderGrid() {
     this.grid.style.gridTemplateColumns = `repeat(${this.gridWidth}, minmax(0, 1fr))`;
+    this.grid.style.maxWidth = `${gridMaxWidthPx(this.gridWidth)}px`;
     this.grid.innerHTML = "";
 
     const hologramCells = this.computeHologramCells();
