@@ -92,7 +92,9 @@
       "mcp__playwright__browser_click",
       "mcp__playwright__browser_evaluate",
       "Bash(ROLLING_BLOCKS_TEST=true bun test)",
-      "PowerShell(Test-Path *)"
+      "PowerShell(Test-Path *)",
+      "PowerShell(cmake *)",
+      "Bash(ROLLING_BLOCKS_TEST=true bun test test/shiftingMosaicSolver/wasm.test.ts)"
     ]
   }
 }

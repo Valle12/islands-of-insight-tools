@@ -88,6 +88,19 @@ bool validateSolution(const ShiftingMosaicTestData &data,
   return g.x == data.goalAnchor.x && g.y == data.goalAnchor.y;
 }
 
+// Player "steps" = maximal runs of same-block, same-direction turns (one drag
+// each). The post-processor must never increase this either.
+size_t countSteps(const std::vector<Turn> &turns) {
+  size_t steps = 0;
+  for (size_t i = 0; i < turns.size(); i++) {
+    if (i == 0 || turns[i].blockId != turns[i - 1].blockId ||
+        turns[i].direction != turns[i - 1].direction) {
+      steps++;
+    }
+  }
+  return steps;
+}
+
 class ShiftingMosaicJsonTest : public testing::TestWithParam<std::string> {};
 
 std::vector<std::string> allTestFiles() {
@@ -126,6 +139,9 @@ TEST_P(ShiftingMosaicJsonTest, ShouldFindValidSolution) {
   cfg.axisAwareWeight = 1;
   cfg.pathBlockerWeight = 1;
   cfg.boundaryDistanceWeight = 1;
+  // Get the raw search output here; the post-processor is exercised explicitly
+  // below so the baseline and optimized turn counts can be compared.
+  cfg.postProcess = false;
   uint32_t budgetMs = 120000;
   uint32_t maxNodes = 20000000;
   bool useIda = false;
@@ -156,11 +172,27 @@ TEST_P(ShiftingMosaicJsonTest, ShouldFindValidSolution) {
                data.goalIndex, data.goalAnchor, cfg);
   auto turns = useIda ? solver.searchIDAStar(budgetMs, maxNodes)
                       : solver.search(budgetMs, maxNodes);
-  std::cout << filename << ": " << turns.size() << " moves\n";
 
   ASSERT_FALSE(turns.empty()) << "No solution found for " << filename;
   EXPECT_TRUE(validateSolution(data, turns))
-      << "Invalid solution for " << filename;
+      << "Invalid raw solution for " << filename;
+
+  // Post-process and compare against the raw solution as a baseline.
+  const size_t baseMoves = turns.size();
+  const size_t baseSteps = countSteps(turns);
+  const auto optimized = solver.optimizeSolution(turns);
+  const size_t optMoves = optimized.size();
+  const size_t optSteps = countSteps(optimized);
+
+  std::cout << filename << ": " << baseMoves << " -> " << optMoves
+            << " moves, " << baseSteps << " -> " << optSteps << " steps\n";
+
+  EXPECT_TRUE(validateSolution(data, optimized))
+      << "Invalid optimized solution for " << filename;
+  EXPECT_LE(optMoves, baseMoves)
+      << "Post-processing increased the move count for " << filename;
+  EXPECT_LE(optSteps, baseSteps)
+      << "Post-processing increased the step count for " << filename;
 }
 
 } // namespace

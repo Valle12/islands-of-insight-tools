@@ -22,6 +22,8 @@ interface WasmTurn {
   direction: number;
 }
 
+type WasmTurnList = { length: number; [index: number]: WasmTurn };
+
 interface WasmModule {
   search(
     gridWidth: number,
@@ -42,7 +44,38 @@ interface WasmModule {
     axisAwareWeight: number,
     lpDisplacementWeight: number,
     strideOverride: number,
-  ): { length: number; [index: number]: WasmTurn };
+    postProcess: boolean,
+  ): WasmTurnList;
+  optimize(
+    gridWidth: number,
+    gridHeight: number,
+    shapes: Position[][],
+    initialAnchors: Position[],
+    goalIndex: number,
+    goalAnchor: Position,
+    turns: WasmTurn[],
+  ): WasmTurnList;
+}
+
+// Player "steps" = maximal runs of same-block, same-direction turns.
+function countSteps(turns: WasmTurn[]): number {
+  let steps = 0;
+  for (let i = 0; i < turns.length; i++) {
+    const prev = turns[i - 1];
+    const cur = turns[i]!;
+    if (!prev || prev.blockId !== cur.blockId || prev.direction !== cur.direction) {
+      steps++;
+    }
+  }
+  return steps;
+}
+
+function toTurnArray(result: WasmTurnList): WasmTurn[] {
+  const turns: WasmTurn[] = [];
+  for (let i = 0; i < result.length; i++) {
+    turns.push({ blockId: result[i]!.blockId, direction: result[i]!.direction });
+  }
+  return turns;
 }
 
 async function loadWasmModule(): Promise<WasmModule> {
@@ -135,8 +168,9 @@ describe("WASM solver (shifting-mosaic)", () => {
       ).json();
 
       // Production config: weighted A* (w=3) + the full additive heuristic
-      // stack, stride auto-detection on (strideOverride = 0).
-      const result = module.search(
+      // stack, stride auto-detection on (strideOverride = 0). postProcess is
+      // off here so the raw solution can serve as the optimization baseline.
+      const rawResult = module.search(
         data.gridWidth,
         data.gridHeight,
         data.shapes,
@@ -155,20 +189,38 @@ describe("WASM solver (shifting-mosaic)", () => {
         /* axisAwareWeight */ 1,
         /* lpDisplacementWeight */ 1,
         /* strideOverride */ 0,
+        /* postProcess */ false,
+      );
+      const raw = toTurnArray(rawResult);
+
+      // Post-process the raw solution and compare.
+      const optimized = toTurnArray(
+        module.optimize(
+          data.gridWidth,
+          data.gridHeight,
+          data.shapes,
+          data.initialAnchors,
+          data.goalIndex,
+          data.goalAnchor,
+          raw,
+        ),
       );
 
-      const turns: WasmTurn[] = [];
-      for (let i = 0; i < result.length; i++) {
-        turns.push({
-          blockId: result[i]!.blockId,
-          direction: result[i]!.direction,
-        });
-      }
-      console.log(`${filename}: ${turns.length} moves`);
+      console.log(
+        `${filename}: ${raw.length} -> ${optimized.length} moves, ` +
+          `${countSteps(raw)} -> ${countSteps(optimized)} steps`,
+      );
 
-      expect(turns.length).toBeGreaterThan(0);
-      const { valid, reason } = validateSolution(data, turns);
+      // The raw solution must be valid, and the optimized one must still be
+      // valid while never being longer in moves or in player steps.
+      expect(raw.length).toBeGreaterThan(0);
+      expect(validateSolution(data, raw).valid).toBe(true);
+
+      expect(optimized.length).toBeGreaterThan(0);
+      const { valid, reason } = validateSolution(data, optimized);
       expect(valid, reason).toBe(true);
+      expect(optimized.length).toBeLessThanOrEqual(raw.length);
+      expect(countSteps(optimized)).toBeLessThanOrEqual(countSteps(raw));
     },
     PER_PUZZLE_TIMEOUT_MS,
   );

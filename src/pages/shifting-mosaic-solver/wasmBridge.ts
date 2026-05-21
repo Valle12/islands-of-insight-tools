@@ -41,6 +41,8 @@ const SOLVER_CONFIG = {
   axisAwareWeight: 1,
   lpDisplacementWeight: 1,
   strideOverride: 0,
+  // Shorten the found solution before handing it to the UI.
+  postProcess: true,
 };
 
 /**

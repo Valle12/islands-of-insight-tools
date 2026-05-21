@@ -1,6 +1,7 @@
 add_executable(shifting_mosaic_a_star_tests
     astar_unit_test.cpp
     json_test.cpp
+    optimizer_test.cpp
     ${CMAKE_SOURCE_DIR}/AStar.cpp
 )
 

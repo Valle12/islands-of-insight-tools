@@ -73,6 +73,9 @@ public:
     // Move-stride override. 0 = auto-detect the grid-quantization factor;
     // >=1 = force that stride (1 disables quantization).
     uint8_t strideOverride = 0;
+    // If true, search() / searchIDAStar() run optimizeSolution() on the found
+    // path before returning. Turn it off to measure the raw search output.
+    bool postProcess = true;
   };
 
   AStar(uint8_t gridWidth, uint8_t gridHeight,
@@ -94,6 +97,15 @@ public:
   // IDA* alternative. O(depth) memory; same heuristic / config knobs.
   std::vector<Turn> searchIDAStar(uint32_t maxMs = 0,
                                   uint32_t maxNodes = 0);
+
+  // Post-processes a solved turn list with validity-preserving local rewrites
+  // (trailing-move truncation, redundant out-and-back cancellation,
+  // pointless-excursion removal, segment reorder/merge). The result is always
+  // a valid solution and never longer (in turns or in player steps) than the
+  // input. Pure — does not touch search state — so it is safe to run after a
+  // solution has been found.
+  [[nodiscard]] std::vector<Turn>
+  optimizeSolution(const std::vector<Turn> &turns) const;
 
 private:
   uint8_t gridWidth_;
@@ -191,6 +203,31 @@ private:
 
   static std::vector<Turn> reconstructPath(const StateMap &states,
                                            const NodeKey &goalSignature);
+
+  // --- Solution post-processing -------------------------------------------
+  // A run is a maximal stretch of consecutive turns of the same block in the
+  // same direction — i.e. one player "drag" / step.
+  struct MoveRun {
+    size_t start;
+    size_t len;
+    uint8_t blockId;
+    Direction dir;
+  };
+  static std::vector<MoveRun> computeRuns(const std::vector<Turn> &turns);
+  static size_t countSteps(const std::vector<Turn> &turns);
+  // Replays the turns from the initial state: true iff every move is a valid
+  // 1-cell move and the goal block ends exactly on goalAnchor.
+  [[nodiscard]] bool replaySolves(const std::vector<Turn> &turns) const;
+  // Length of the shortest prefix that already lands the goal block on
+  // goalAnchor — anything past it is dead weight.
+  [[nodiscard]] size_t
+  firstSolvingPrefixLen(const std::vector<Turn> &turns) const;
+  // Each rewrites `turns` in place and returns true when it found a strictly
+  // improving, still-valid candidate; false (turns untouched) otherwise.
+  [[nodiscard]] bool tryRunPairCancellation(std::vector<Turn> &turns) const;
+  [[nodiscard]] bool tryRunRemoval(std::vector<Turn> &turns) const;
+  [[nodiscard]] bool trySingleRemoval(std::vector<Turn> &turns) const;
+  [[nodiscard]] bool tryReorderMerge(std::vector<Turn> &turns) const;
 
   // IDA* DFS helper. Returns +1 when the search ran but no goal was found.
   // Mutates `path` and `pathSet` as it descends.

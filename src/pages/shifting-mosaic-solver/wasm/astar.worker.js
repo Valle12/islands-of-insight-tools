@@ -37,6 +37,7 @@ self.onmessage = async event => {
     axisAwareWeight,
     lpDisplacementWeight,
     strideOverride,
+    postProcess,
   } = event.data;
 
   try {
@@ -60,6 +61,7 @@ self.onmessage = async event => {
       axisAwareWeight,
       lpDisplacementWeight,
       strideOverride,
+      postProcess,
     );
 
     const path = [];
