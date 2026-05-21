@@ -96,7 +96,12 @@
       "PowerShell(cmake *)",
       "Bash(ROLLING_BLOCKS_TEST=true bun test test/shiftingMosaicSolver/wasm.test.ts)",
       "mcp__playwright__browser_resize",
-      "Bash(ROLLING_BLOCKS_TEST=true bun test test/shiftingMosaicSolver/board.test.ts test/shiftingMosaicSolver/config.test.ts)"
+      "Bash(ROLLING_BLOCKS_TEST=true bun test test/shiftingMosaicSolver/board.test.ts test/shiftingMosaicSolver/config.test.ts)",
+      "Bash(bun -e 'const d=require\\('\\\\''./__TRACKED_VAR__'\\\\''\\); console.log\\('\\\\''grid'\\\\'', d.gridWidth+'\\\\''x'\\\\''+d.gridHeight, '\\\\''| blocks'\\\\'', d.shapes.length, '\\\\''| goalIndex'\\\\'', d.goalIndex, '\\\\''| cells'\\\\'', d.shapes.map\\(s=>s.length\\).reduce\\(\\(a,b\\)=>a+b,0\\)\\);')",
+      "Bash(grep -E \"moves,|\\\\\\(pass\\\\\\)|\\\\\\(fail\\\\\\)| pass$| fail$\")",
+      "Bash(grep -E \"moves,|\\\\\\(fail\\\\\\)| pass$| fail$|reason\")",
+      "Bash(grep -E \"\\\\\\(fail\\\\\\)| pass$| fail$|Test35|Test36|Test39\")",
+      "Bash(grep -E \" pass$| fail$|\\\\\\(fail\\\\\\)\")"
     ]
   }
 }

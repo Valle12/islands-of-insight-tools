@@ -106,7 +106,7 @@ class ShiftingMosaicJsonTest : public testing::TestWithParam<std::string> {};
 std::vector<std::string> allTestFiles() {
   std::vector<std::string> files;
   files.emplace_back("shiftingMosaicTest.json");
-  for (int i = 1; i <= 30; i++)
+  for (int i = 1; i <= 43; i++)
     files.push_back(std::format("shiftingMosaicTest{}.json", i));
   return files;
 }
@@ -142,7 +142,9 @@ TEST_P(ShiftingMosaicJsonTest, ShouldFindValidSolution) {
   // Get the raw search output here; the post-processor is exercised explicitly
   // below so the baseline and optimized turn counts can be compared.
   cfg.postProcess = false;
-  uint32_t budgetMs = 120000;
+  // Per search pass. A failed guided pass is followed by a BFS pass, so a
+  // hard puzzle can take up to 2x this.
+  uint32_t budgetMs = 60000;
   uint32_t maxNodes = 20000000;
   bool useIda = false;
   if (const char *w = std::getenv("SHIFTING_MOSAIC_WEIGHT"))

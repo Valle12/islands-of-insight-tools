@@ -8,6 +8,7 @@
 #include <iostream>
 #include <numeric>
 #include <queue>
+#include <string>
 #include <unordered_map>
 #include <utility>
 
@@ -24,7 +25,12 @@ struct HeapEntry {
   uint32_t f;
   uint32_t g;
   NodeKey signature;
-  auto operator<=>(const HeapEntry &o) const { return f <=> o.f; }
+  // Order by f; on ties, prefer the deeper node (larger g) so the search
+  // dives toward goals instead of fanning out across an f-plateau.
+  auto operator<=>(const HeapEntry &o) const {
+    if (const auto c = f <=> o.f; c != 0) return c;
+    return o.g <=> g;
+  }
   bool operator==(const HeapEntry &o) const = default;
 };
 
@@ -59,6 +65,43 @@ AStar::AStar(const uint8_t gridWidth, const uint8_t gridHeight,
     }
     shapeCellSets_.push_back(std::move(set));
   }
+
+  // Group non-goal blocks by identical shape. Blocks within a group are
+  // physically interchangeable, so signatureFromAnchors canonicalises their
+  // anchors — collapsing permutation-equivalent states. For puzzles with many
+  // same-shape blocks this shrinks the search space by orders of magnitude.
+  {
+    std::unordered_map<std::string, std::vector<uint8_t>> byShape;
+    for (uint8_t i = 0; i < shapes_.size(); i++) {
+      if (i == goalIndex_) continue;
+      std::vector<Position> cells = shapes_[i];
+      int8_t minX = cells[0].x;
+      int8_t minY = cells[0].y;
+      for (const auto &c : cells) {
+        minX = std::min(minX, c.x);
+        minY = std::min(minY, c.y);
+      }
+      for (auto &c : cells) {
+        c.x = static_cast<int8_t>(c.x - minX);
+        c.y = static_cast<int8_t>(c.y - minY);
+      }
+      std::sort(cells.begin(), cells.end(),
+                [](const Position &a, const Position &b) {
+                  return a.x != b.x ? a.x < b.x : a.y < b.y;
+                });
+      std::string shapeKey;
+      shapeKey.reserve(cells.size() * 2);
+      for (const auto &c : cells) {
+        shapeKey.push_back(static_cast<char>(c.x));
+        shapeKey.push_back(static_cast<char>(c.y));
+      }
+      byShape[shapeKey].push_back(i);
+    }
+    for (auto &[key, group] : byShape) {
+      if (group.size() >= 2) symmetryGroups_.push_back(std::move(group));
+    }
+  }
+
   const auto &goalShape = shapes_[goalIndex_];
   for (const auto &cell : goalShape) {
     const auto ax = static_cast<int16_t>(goalAnchor_.x + cell.x);
@@ -261,6 +304,52 @@ void AStar::computeBlockReachability() {
       }
     }
   }
+
+  // 4. Per-block safe-anchor distance field. A "safe" anchor is a valid
+  //    anchor whose footprint clears the corridor. The set of safe anchors is
+  //    fixed (precomputed data only), so a one-shot multi-source BFS gives,
+  //    for every cell, the Manhattan distance to the nearest safe anchor —
+  //    exactly what lpDisplacementCost needs, in O(1) per lookup.
+  blockSafeAnchorDist_.assign(shapes_.size(),
+                              std::vector<uint16_t>(total, UINT16_MAX));
+  for (uint8_t i = 0; i < shapes_.size(); i++) {
+    if (i == goalIndex_) continue;
+    const int aw = shapeBoxWidth_[i];
+    const int ah = shapeBoxHeight_[i];
+    auto &dist = blockSafeAnchorDist_[i];
+    std::deque<std::pair<int, int>> queue;
+    for (int x = 0; x + aw <= gridWidth_; x++) {
+      for (int y = 0; y + ah <= gridHeight_; y++) {
+        if (!blockValidAnchorMask_[i][x * gridHeight_ + y]) continue;
+        bool inside = false;
+        for (const auto &cell : shapes_[i]) {
+          if (initialGoalPathCells_[(x + cell.x) * gridHeight_ +
+                                     (y + cell.y)]) {
+            inside = true;
+            break;
+          }
+        }
+        if (inside) continue;
+        dist[x * gridHeight_ + y] = 0;
+        queue.emplace_back(x, y);
+      }
+    }
+    while (!queue.empty()) {
+      auto [x, y] = queue.front();
+      queue.pop_front();
+      const uint16_t d = dist[x * gridHeight_ + y];
+      for (int dir = 0; dir < 4; dir++) {
+        const int nx = x + DX[dir];
+        const int ny = y + DY[dir];
+        if (nx < 0 || ny < 0 || nx >= gridWidth_ || ny >= gridHeight_)
+          continue;
+        uint16_t &cell = dist[nx * gridHeight_ + ny];
+        if (cell != UINT16_MAX) continue;
+        cell = d + 1;
+        queue.emplace_back(nx, ny);
+      }
+    }
+  }
 }
 
 // For each movable non-goal block whose current footprint overlaps the
@@ -288,36 +377,11 @@ AStar::lpDisplacementCost(const std::vector<Position> &anchors) const {
     }
     if (!inCorridor) continue;
 
-    // Find min Manhattan distance from `a` to any valid-anchor of block i
-    // whose shape doesn't overlap the corridor.
-    uint32_t best = UINT32_MAX;
-    const auto &mask = blockValidAnchorMask_[i];
-    const int aw = shapeBoxWidth_[i];
-    const int ah = shapeBoxHeight_[i];
-    for (int x = 0; x + aw <= gridWidth_; x++) {
-      for (int y = 0; y + ah <= gridHeight_; y++) {
-        if (!mask[x * gridHeight_ + y]) continue;
-        bool inside = false;
-        for (const auto &cell : shapes_[i]) {
-          if (initialGoalPathCells_[(x + cell.x) * gridHeight_ +
-                                     (y + cell.y)]) {
-            inside = true;
-            break;
-          }
-        }
-        if (inside) continue;
-        const uint32_t d = static_cast<uint32_t>(std::abs(x - a.x) +
-                                                  std::abs(y - a.y));
-        if (d < best) best = d;
-      }
-    }
-    if (best == UINT32_MAX) {
-      // No safe anchor exists — this blocker is permanently in the corridor;
-      // treat as +1 (the corridor must route around it during search).
-      total += 1;
-    } else {
-      total += best;
-    }
+    // Min Manhattan distance from `a` to a safe anchor — a precomputed O(1)
+    // field lookup. UINT16_MAX means no safe anchor exists, so the blocker is
+    // permanently in the corridor; treat as +1 (search must route around it).
+    const uint16_t d = blockSafeAnchorDist_[i][a.x * gridHeight_ + a.y];
+    total += (d == UINT16_MAX) ? 1u : static_cast<uint32_t>(d);
   }
   return total;
 }
@@ -881,19 +945,32 @@ bool AStar::isDeadlocked(const std::vector<Position> &anchors) const {
   return false;
 }
 
-NodeKey AStar::signatureFromAnchors(const std::vector<Position> &anchors) {
+NodeKey AStar::signatureFromAnchors(
+    const std::vector<Position> &anchors) const {
   const auto n = static_cast<uint8_t>(anchors.size());
   NodeKey key(n);
-  uint32_t *d = key.data();
+  uint16_t *d = key.data();
   for (uint8_t i = 0; i < n; i++) {
     const auto &a = anchors[i];
-    d[i] = (static_cast<uint32_t>(static_cast<uint8_t>(a.x)) << 16) |
-           static_cast<uint32_t>(static_cast<uint8_t>(a.y));
+    d[i] = static_cast<uint16_t>(
+        (static_cast<uint16_t>(static_cast<uint8_t>(a.x)) << 8) |
+        static_cast<uint8_t>(a.y));
+  }
+  // Canonicalise interchangeable blocks: within each same-shape group, sort
+  // the packed anchors so states that differ only by permuting identical
+  // blocks collapse to a single signature.
+  for (const auto &group : symmetryGroups_) {
+    const size_t m = group.size();
+    if (m > 64) continue; // absurdly large group — skip (still correct)
+    uint16_t vals[64];
+    for (size_t k = 0; k < m; k++) vals[k] = d[group[k]];
+    std::sort(vals, vals + m);
+    for (size_t k = 0; k < m; k++) d[group[k]] = vals[k];
   }
   return key;
 }
 
-NodeKey AStar::nodeSignature(const Node &node) {
+NodeKey AStar::nodeSignature(const Node &node) const {
   return signatureFromAnchors(node.anchors);
 }
 
@@ -938,6 +1015,20 @@ std::vector<Turn> AStar::search(const uint32_t maxMs, const uint32_t maxNodes) {
     moveStride_ = 1;
     result = runAStar(maxMs, maxNodes);
     moveStride_ = saved;
+  }
+  // Last resort: if the guided search came up empty, retry as pure BFS
+  // (weight 0, stride 1). BFS can't be led astray by a weak heuristic, so it
+  // cracks dense puzzles where weighted A* just wanders. This only ever runs
+  // when A* already failed, so it cannot regress a puzzle A* can solve.
+  if (result.empty() && cfg_.bfsFallback && cfg_.weight != 0) {
+    std::cout << "A*: guided search found nothing — retrying as pure BFS\n";
+    const uint8_t savedWeight = cfg_.weight;
+    const uint8_t savedStride = moveStride_;
+    cfg_.weight = 0;
+    moveStride_ = 1;
+    result = runAStar(maxMs, maxNodes);
+    cfg_.weight = savedWeight;
+    moveStride_ = savedStride;
   }
   if (cfg_.postProcess && !result.empty()) {
     const size_t beforeMoves = result.size();

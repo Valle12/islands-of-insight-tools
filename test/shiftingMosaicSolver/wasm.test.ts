@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,7 +15,9 @@ const DX = [0, 1, 0, -1];
 const DY = [-1, 0, 1, 0];
 
 const PER_PUZZLE_BUDGET_MS = 60_000;
-const PER_PUZZLE_TIMEOUT_MS = PER_PUZZLE_BUDGET_MS + 10_000;
+// A failed guided pass is followed by a BFS pass, so the solver can run for
+// up to 2x the budget before giving up.
+const PER_PUZZLE_TIMEOUT_MS = PER_PUZZLE_BUDGET_MS * 2 + 15_000;
 
 interface WasmTurn {
   blockId: number;
@@ -149,20 +151,18 @@ function validateSolution(
 }
 
 describe("WASM solver (shifting-mosaic)", () => {
-  let module: WasmModule;
-
-  beforeAll(async () => {
-    module = await loadWasmModule();
-  });
-
   const cases: [string][] = [["shiftingMosaicTest.json"]];
-  for (let i = 1; i <= 30; i++) {
+  for (let i = 1; i <= 43; i++) {
     cases.push([`shiftingMosaicTest${i}.json`]);
   }
 
   test.each(cases)(
     "solves %s",
     async filename => {
+      // A fresh module per puzzle: a hard puzzle that exhausts the wasm32
+      // address space aborts only its own instance — it never poisons the
+      // tests that run after it.
+      const module = await loadWasmModule();
       const data: ShiftingMosaicTest = await Bun.file(
         `${import.meta.dir}/../resources/${filename}`,
       ).json();

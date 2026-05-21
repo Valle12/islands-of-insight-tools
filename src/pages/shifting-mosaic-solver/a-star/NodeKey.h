@@ -5,19 +5,23 @@
 #include <cstring>
 
 // Inline-buffer NodeKey for anchor-tuple signatures.
-// Each block's anchor is packed into a single uint32_t (x in upper 16 bits,
-// y in lower 16 bits). Up to InlineCapacity blocks live in the inline array;
-// past that we spill onto the heap.
+// Each block's anchor is packed into a single uint16_t (x in the upper byte,
+// y in the lower byte) — valid for grids up to 255x255. Up to InlineCapacity
+// blocks live in the inline array; past that we spill onto the heap.
+//
+// The compact 2-bytes-per-anchor encoding (vs a naive 4) keeps the search's
+// hash-map keys small, which matters because every explored state stores
+// several NodeKeys — it is the dominant memory cost of the search.
 struct NodeKey {
-  static constexpr size_t InlineCapacity = 32;
-  std::array<uint32_t, InlineCapacity> inlineData{};
-  uint32_t *heapData = nullptr;
+  static constexpr size_t InlineCapacity = 16;
+  std::array<uint16_t, InlineCapacity> inlineData{};
+  uint16_t *heapData = nullptr;
   uint8_t len = 0;
 
-  uint32_t *data() {
+  uint16_t *data() {
     return len <= InlineCapacity ? inlineData.data() : heapData;
   }
-  [[nodiscard]] const uint32_t *data() const {
+  [[nodiscard]] const uint16_t *data() const {
     return len <= InlineCapacity ? inlineData.data() : heapData;
   }
 
@@ -25,18 +29,18 @@ struct NodeKey {
 
   explicit NodeKey(const uint8_t n) : len(n) {
     if (n > InlineCapacity)
-      heapData = new uint32_t[n]();
+      heapData = new uint16_t[n]();
   }
 
   ~NodeKey() { delete[] heapData; }
 
   NodeKey(const NodeKey &o) : len(o.len) {
     if (len > InlineCapacity) {
-      heapData = new uint32_t[len];
-      std::memcpy(heapData, o.heapData, len * sizeof(uint32_t));
+      heapData = new uint16_t[len];
+      std::memcpy(heapData, o.heapData, len * sizeof(uint16_t));
     } else {
       std::memcpy(inlineData.data(), o.inlineData.data(),
-                  len * sizeof(uint32_t));
+                  len * sizeof(uint16_t));
     }
   }
 
@@ -47,11 +51,11 @@ struct NodeKey {
     heapData = nullptr;
     len = o.len;
     if (len > InlineCapacity) {
-      heapData = new uint32_t[len];
-      std::memcpy(heapData, o.heapData, len * sizeof(uint32_t));
+      heapData = new uint16_t[len];
+      std::memcpy(heapData, o.heapData, len * sizeof(uint16_t));
     } else {
       std::memcpy(inlineData.data(), o.inlineData.data(),
-                  len * sizeof(uint32_t));
+                  len * sizeof(uint16_t));
     }
     return *this;
   }
@@ -77,7 +81,7 @@ struct NodeKey {
   bool operator==(const NodeKey &o) const {
     if (len != o.len)
       return false;
-    return std::memcmp(data(), o.data(), len * sizeof(uint32_t)) == 0;
+    return std::memcmp(data(), o.data(), len * sizeof(uint16_t)) == 0;
   }
 };
 
@@ -98,7 +102,7 @@ struct NodeKeyHash {
     using Fnv = detail::FnvParams<sizeof(size_t)>;
     size_t h = Fnv::offset;
     const auto *p = reinterpret_cast<const uint8_t *>(k.data());
-    const size_t bytes = k.len * sizeof(uint32_t);
+    const size_t bytes = k.len * sizeof(uint16_t);
     for (size_t i = 0; i < bytes; i++) {
       h ^= p[i];
       h *= Fnv::prime;

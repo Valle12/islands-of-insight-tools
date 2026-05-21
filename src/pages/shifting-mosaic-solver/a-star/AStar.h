@@ -76,6 +76,11 @@ public:
     // If true, search() / searchIDAStar() run optimizeSolution() on the found
     // path before returning. Turn it off to measure the raw search output.
     bool postProcess = true;
+    // If true, when guided (weighted) A* finds nothing, search() retries once
+    // as pure breadth-first search (weight 0). BFS cannot be misled by a weak
+    // heuristic, so it cracks dense puzzles whose heuristic gives no usable
+    // gradient — at the cost of a second search pass.
+    bool bfsFallback = true;
   };
 
   AStar(uint8_t gridWidth, uint8_t gridHeight,
@@ -121,6 +126,13 @@ private:
   std::vector<std::unordered_set<uint16_t>> shapeCellSets_;
   std::unordered_set<uint16_t> goalBlockFinalCells_;
 
+  // Groups (size >= 2) of non-goal block indices that share an identical
+  // shape. Such blocks are physically interchangeable; signatureFromAnchors
+  // sorts each group's anchors so permutation-equivalent states collapse to
+  // one signature — a large state-space reduction for same-shape-heavy
+  // puzzles.
+  std::vector<std::vector<uint8_t>> symmetryGroups_;
+
   // Blocks proven permanently immovable from the initial state's fixpoint.
   // They stay in `anchors` (so collision checks still respect them as walls),
   // but we skip them when generating successor moves and use them to detect
@@ -145,6 +157,12 @@ private:
   // locked walls). Used as a fixed "path" reference for displacement
   // estimates — independent of per-state goal-block position.
   std::vector<uint8_t> initialGoalPathCells_;
+  // Per-block Manhattan-distance field: blockSafeAnchorDist_[i][cell] is the
+  // min Manhattan distance from anchor `cell` to a "safe" anchor of block i
+  // (valid + shape clears the goal corridor). UINT16_MAX = no safe anchor
+  // exists. Precomputed so lpDisplacementCost runs in O(blocks) per call
+  // instead of O(blocks * gridCells * shapeCells).
+  std::vector<std::vector<uint16_t>> blockSafeAnchorDist_;
   void computeBlockReachability();
 
   // Move stride. If the whole puzzle (grid, every anchor, every shape, the
@@ -196,8 +214,11 @@ private:
   computeMovableSet(const std::vector<Position> &anchors) const;
   [[nodiscard]] bool
   isDeadlocked(const std::vector<Position> &anchors) const;
-  static NodeKey nodeSignature(const Node &node);
-  static NodeKey signatureFromAnchors(const std::vector<Position> &anchors);
+  // Canonical state signatures. Not static: they consult symmetryGroups_ to
+  // canonicalise interchangeable same-shape blocks.
+  [[nodiscard]] NodeKey nodeSignature(const Node &node) const;
+  [[nodiscard]] NodeKey
+  signatureFromAnchors(const std::vector<Position> &anchors) const;
 
   using StateMap = std::unordered_map<NodeKey, StateInfo, NodeKeyHash>;
 
