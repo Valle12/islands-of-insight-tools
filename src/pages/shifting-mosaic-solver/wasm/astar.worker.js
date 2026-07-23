@@ -1,68 +1,38 @@
-// Worker that loads the Shifting Mosaic A* WASM module and runs the search
-// off the main thread. The WASM itself posts {type:"progress"} messages via
-// its onProgress callback; this worker posts {type:"done"|"error"}.
+// Worker that loads the Shifting Mosaic solver WASM module and runs ONE
+// solver arm off the main thread. Message in: { puzzle, config } — see
+// wasm_bindings.cpp::solve for the config schema (engine: unit | drag |
+// hier | cascade; every field optional). The WASM itself posts
+// {type:"progress"} messages via its onProgress callback; this worker posts
+// {type:"done"|"error"}. The bridge identifies arms by Worker instance, so
+// no message ids are needed.
 
-let modulePromise = null;
+const modulePromises = new Map();
 
-function getModule() {
-  if (!modulePromise) {
-    modulePromise = (async () => {
-      const url = new URL("./astar.mjs", self.location.href).href;
-      const createModule = (await import(url)).default;
-      return createModule({
-        locateFile: path => new URL(`./${path}`, self.location.href).href,
-      });
-    })();
+function getModule(name) {
+  if (!modulePromises.has(name)) {
+    modulePromises.set(
+      name,
+      (async () => {
+        const url = new URL(`./${name}`, self.location.href).href;
+        const createModule = (await import(url)).default;
+        return createModule({
+          locateFile: path => new URL(`./${path}`, self.location.href).href,
+        });
+      })(),
+    );
   }
-  return modulePromise;
+  return modulePromises.get(name);
 }
 
 self.onmessage = async event => {
-  const {
-    gridWidth,
-    gridHeight,
-    shapes,
-    initialAnchors,
-    goalIndex,
-    goalAnchor,
-    weight,
-    deadlockPruning,
-    maxMs,
-    maxNodes,
-    useIda,
-    pathBlockerWeight,
-    boundaryWeight,
-    allWallsBfsBase,
-    macroMoves,
-    axisAwareWeight,
-    lpDisplacementWeight,
-    strideOverride,
-    postProcess,
-  } = event.data;
-
+  // `variant: "threads"` selects the pthreads build (requires the page to be
+  // cross-origin isolated — the bridge only asks for it then).
+  const { puzzle, config, variant } = event.data;
   try {
-    const module = await getModule();
-    const result = module.search(
-      gridWidth,
-      gridHeight,
-      shapes,
-      initialAnchors,
-      goalIndex,
-      goalAnchor,
-      weight,
-      deadlockPruning,
-      maxMs,
-      maxNodes,
-      useIda,
-      pathBlockerWeight,
-      boundaryWeight,
-      allWallsBfsBase,
-      macroMoves,
-      axisAwareWeight,
-      lpDisplacementWeight,
-      strideOverride,
-      postProcess,
+    const module = await getModule(
+      variant === "threads" ? "astar.threads.mjs" : "astar.mjs",
     );
+    const result = module.solve(puzzle, config ?? {});
 
     const path = [];
     for (let i = 0; i < result.length; i++) {

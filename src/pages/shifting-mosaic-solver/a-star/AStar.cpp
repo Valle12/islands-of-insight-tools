@@ -19,6 +19,14 @@ uint64_t nowMs() {
       duration_cast<milliseconds>(steady_clock::now().time_since_epoch())
           .count());
 }
+
+// Runs a callback on scope exit — used to accumulate SearchStats on every
+// return path of a search pass.
+template <typename F> struct ScopeExit {
+  F fn;
+  ~ScopeExit() { fn(); }
+};
+template <typename F> ScopeExit(F) -> ScopeExit<F>;
 } // namespace
 
 struct HeapEntry {
@@ -539,16 +547,11 @@ uint32_t AStar::countFinalPositionBlockers(
 uint32_t AStar::heuristic(const Node &node) const {
   const auto &goal = node.anchors[goalIndex_];
   if (goal.x == goalAnchor_.x && goal.y == goalAnchor_.y) return 0;
-  uint32_t base;
-  if (cfg_.allWallsBfsBase) {
-    base = allWallsBfsDistance(node.anchors, goal);
-  } else {
-    const uint16_t bfs = goalAnchorAt(goal.x, goal.y);
-    base = bfs == UINT16_MAX
-               ? static_cast<uint32_t>(std::abs(goal.x - goalAnchor_.x) +
-                                       std::abs(goal.y - goalAnchor_.y))
-               : static_cast<uint32_t>(bfs);
-  }
+  const uint16_t bfs = goalAnchorAt(goal.x, goal.y);
+  const auto base = bfs == UINT16_MAX
+                        ? static_cast<uint32_t>(std::abs(goal.x - goalAnchor_.x) +
+                                                std::abs(goal.y - goalAnchor_.y))
+                        : static_cast<uint32_t>(bfs);
   uint32_t h = base + countFinalPositionBlockers(node.anchors);
   if (cfg_.pathBlockerWeight != 0) {
     h += cfg_.pathBlockerWeight * countPathBlockers(node.anchors, goal);
@@ -754,69 +757,6 @@ AStar::boundaryDistanceSum(const std::vector<Position> &anchors) const {
   return total;
 }
 
-// Admissible: BFS the goal block through all current non-goal blocks treated
-// as walls. The distance is the minimum number of goal-block moves needed if
-// no movable blocks are displaced. Slow if computed per-state but tighter
-// than the locked-walls precomputation. UINT16_MAX → unreachable; fall back
-// to Manhattan + 1.
-uint32_t
-AStar::allWallsBfsDistance(const std::vector<Position> &anchors,
-                            const Position currentGoal) const {
-  const size_t total =
-      static_cast<size_t>(gridWidth_) * static_cast<size_t>(gridHeight_);
-  std::vector<uint8_t> wall(total, 0);
-  for (size_t i = 0; i < anchors.size(); i++) {
-    if (i == goalIndex_) continue;
-    const auto &a = anchors[i];
-    for (const auto &cell : shapes_[i]) {
-      wall[(a.x + cell.x) * gridHeight_ + (a.y + cell.y)] = 1;
-    }
-  }
-
-  const auto &gShape = shapes_[goalIndex_];
-  const int gw = shapeBoxWidth_[goalIndex_];
-  const int gh = shapeBoxHeight_[goalIndex_];
-  auto anchorOk = [&](int8_t x, int8_t y) -> bool {
-    if (x < 0 || y < 0) return false;
-    if (x + gw > gridWidth_ || y + gh > gridHeight_) return false;
-    for (const auto &cell : gShape) {
-      if (wall[(x + cell.x) * gridHeight_ + (y + cell.y)]) return false;
-    }
-    return true;
-  };
-
-  if (!anchorOk(goalAnchor_.x, goalAnchor_.y)) {
-    return static_cast<uint32_t>(std::abs(currentGoal.x - goalAnchor_.x) +
-                                  std::abs(currentGoal.y - goalAnchor_.y)) +
-           1;
-  }
-
-  std::vector<uint16_t> dist(total, UINT16_MAX);
-  dist[currentGoal.x * gridHeight_ + currentGoal.y] = 0;
-  std::deque<std::pair<int8_t, int8_t>> q;
-  q.emplace_back(currentGoal.x, currentGoal.y);
-  while (!q.empty()) {
-    auto [x, y] = q.front();
-    q.pop_front();
-    if (x == goalAnchor_.x && y == goalAnchor_.y) {
-      return dist[x * gridHeight_ + y];
-    }
-    const uint16_t d = dist[x * gridHeight_ + y];
-    for (int dir = 0; dir < 4; dir++) {
-      const int8_t nx = x + DX[dir];
-      const int8_t ny = y + DY[dir];
-      if (!anchorOk(nx, ny)) continue;
-      uint16_t &cell = dist[nx * gridHeight_ + ny];
-      if (cell != UINT16_MAX) continue;
-      cell = d + 1;
-      q.emplace_back(nx, ny);
-    }
-  }
-  return static_cast<uint32_t>(std::abs(currentGoal.x - goalAnchor_.x) +
-                                std::abs(currentGoal.y - goalAnchor_.y)) +
-         1;
-}
-
 uint32_t
 AStar::countSweepRectangleBlockers(const std::vector<Position> &anchors,
                                    const Position goal) const {
@@ -1005,6 +945,7 @@ std::vector<Turn> AStar::reconstructPath(const StateMap &states,
 // quantization is sound but not provably complete for every layout, so the
 // fallback guarantees we never lose a puzzle that stride-1 could solve.
 std::vector<Turn> AStar::search(const uint32_t maxMs, const uint32_t maxNodes) {
+  stats_ = {};
   std::vector<Turn> result = runAStar(maxMs, maxNodes);
   if (result.empty() && searchExhausted_ && moveStride_ > 1 &&
       cfg_.strideOverride == 0) {
@@ -1069,8 +1010,18 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
   openHeap.emplace(cfg_.weight * heuristic(root), 0, rootSig);
 
   uint32_t nodesExpanded = 0;
+  const ScopeExit statsGuard{[&] {
+    stats_.passes++;
+    stats_.nodesExpanded += nodesExpanded;
+    stats_.statesStored += states.size();
+  }};
 
   while (!openHeap.empty()) {
+    if (cfg_.cancel && (nodesExpanded & 0xFF) == 0 &&
+        cfg_.cancel->load(std::memory_order_relaxed)) {
+      std::cout << "A* cancelled after " << nodesExpanded << " nodes\n";
+      return {};
+    }
     if (deadline != 0 && (nodesExpanded & 0xFFF) == 0 && nowMs() > deadline) {
       std::cout << "A* timed out after " << nodesExpanded
                 << " nodes (budget " << maxMs << "ms)\n";
@@ -1119,9 +1070,9 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
 
     for (const uint8_t i : movableBlockIndices_) {
       for (int d = 0; d < 4; d++) {
-        // Slide block i in direction d one cell at a time. With macroMoves
-        // enabled we emit a separate successor for each reachable slide
-        // distance (1..until-collision); without it we stop after k=1.
+        // Slide block i in direction d until the first stride-aligned cell,
+        // which is the only real search state in that direction; the cells
+        // skipped on the way are valid 1-cell hops but never branched on.
         Position cursor = node.anchors[i];
         std::vector<Position> newAnchors = node.anchors;
         for (uint8_t k = 1; ; k++) {
@@ -1153,7 +1104,7 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
                 newG, newSig);
           }
 
-          if (!cfg_.macroMoves) break;
+          break;
         }
       }
     }
@@ -1162,169 +1113,6 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
   std::cout << "A* found no solution, expanded " << nodesExpanded << " nodes\n";
   searchExhausted_ = true;
   return {};
-}
-
-// ---------------------------------------------------------------------------
-// IDA*  (iterative deepening A*)
-//
-// O(depth) memory.  Repeats DFS with progressively raised f-thresholds until
-// a solution is found or all f-values exceed UINT32_MAX. Cycle detection via
-// a per-path set keyed on node signatures — keeps memory bounded by depth.
-// ---------------------------------------------------------------------------
-
-AStar::IDAResult
-AStar::idaStarDFS(std::vector<Position> &anchors, const uint32_t g,
-                  const uint32_t threshold,
-                  std::vector<InternalMove> &path,
-                  std::unordered_set<NodeKey, NodeKeyHash> &pathSet,
-                  const uint64_t deadline, const uint32_t maxNodes,
-                  uint32_t &nodesExpanded) {
-  Node temp(anchors);
-  const uint32_t h = cfg_.weight * heuristic(temp);
-  const uint32_t f = g + h;
-  if (f > threshold) {
-    return {false, f, false};
-  }
-
-  // Goal check.
-  const auto &goal = anchors[goalIndex_];
-  if (goal.x == goalAnchor_.x && goal.y == goalAnchor_.y) {
-    return {true, threshold, false};
-  }
-
-  if ((nodesExpanded & 0xFFF) == 0 && deadline != 0 && nowMs() > deadline) {
-    return {false, UINT32_MAX, true};
-  }
-  if (maxNodes != 0 && nodesExpanded >= maxNodes) {
-    return {false, UINT32_MAX, true};
-  }
-
-  nodesExpanded++;
-  if (nodesExpanded % 2000000 == 0) {
-    std::cout << "  ... IDA* working: " << nodesExpanded
-              << " nodes, threshold=" << threshold << ", depth=" << g << "\n";
-    std::cout.flush();
-  }
-
-  if (cfg_.deadlockPruning && isDeadlocked(anchors)) {
-    return {false, UINT32_MAX, false};
-  }
-
-  uint32_t nextThreshold = UINT32_MAX;
-
-  for (const uint8_t i : movableBlockIndices_) {
-    const auto saved = anchors[i];
-    for (int d = 0; d < 4; d++) {
-      Position cursor = saved;
-      for (uint8_t k = 1; ; k++) {
-        const Position next = {static_cast<int8_t>(cursor.x + DX[d]),
-                                static_cast<int8_t>(cursor.y + DY[d])};
-        if (!inBounds(i, next)) break;
-        anchors[i] = next;
-        if (collidesWithOthers(i, next, anchors)) {
-          anchors[i] = saved;
-          break;
-        }
-        cursor = next;
-        // Skip non-stride-aligned stopping points (see A* search).
-        if (k % moveStride_ != 0) continue;
-
-        NodeKey sig = signatureFromAnchors(anchors);
-        auto [it, inserted] = pathSet.insert(sig);
-        if (!inserted) {
-          // Cycle on current path — try a longer slide of the same block.
-          if (!cfg_.macroMoves) break;
-          continue;
-        }
-        path.push_back({i, DIRS[d], k});
-
-        const IDAResult r =
-            idaStarDFS(anchors, g + k, threshold, path, pathSet, deadline,
-                       maxNodes, nodesExpanded);
-
-        if (r.exhausted) {
-          path.pop_back();
-          pathSet.erase(sig);
-          anchors[i] = saved;
-          return r;
-        }
-        if (r.found) {
-          // Leave path/pathSet/anchors intact so the caller chain returns the
-          // discovered solution.
-          return r;
-        }
-
-        path.pop_back();
-        pathSet.erase(sig);
-        if (r.nextThreshold < nextThreshold) nextThreshold = r.nextThreshold;
-
-        if (!cfg_.macroMoves) break;
-      }
-      anchors[i] = saved;
-    }
-  }
-  return {false, nextThreshold, false};
-}
-
-std::vector<Turn> AStar::searchIDAStar(const uint32_t maxMs,
-                                       const uint32_t maxNodes) {
-  if (unsolvableAtStart_) {
-    std::cout << "IDA* short-circuit: unsolvable\n";
-    return {};
-  }
-  const uint64_t deadline = maxMs == 0 ? 0 : nowMs() + maxMs;
-
-  std::vector<Position> anchors = initialAnchors_;
-  Node root(anchors);
-  if (isGoalState(root)) return {};
-
-  uint32_t threshold = cfg_.weight * heuristic(root);
-  uint32_t nodesExpanded = 0;
-  std::vector<InternalMove> path;
-  std::unordered_set<NodeKey, NodeKeyHash> pathSet;
-  pathSet.insert(signatureFromAnchors(anchors));
-
-  uint32_t iteration = 0;
-  while (true) {
-    iteration++;
-    const IDAResult r =
-        idaStarDFS(anchors, 0, threshold, path, pathSet, deadline, maxNodes,
-                   nodesExpanded);
-    if (r.exhausted) {
-      std::cout << "IDA* aborted at iter=" << iteration
-                << " threshold=" << threshold << " nodes=" << nodesExpanded
-                << "\n";
-      return {};
-    }
-    if (r.found) {
-      std::vector<Turn> turns;
-      for (const auto &m : path) {
-        const uint8_t d = m.slideDistance == 0 ? 1 : m.slideDistance;
-        for (uint8_t k = 0; k < d; k++) {
-          turns.push_back({m.blockId, m.direction});
-        }
-      }
-      std::cout << "IDA* (w=" << static_cast<int>(cfg_.weight)
-                << ") found solution in " << turns.size() << " moves, "
-                << "iter=" << iteration << " threshold=" << threshold
-                << " nodes=" << nodesExpanded << "\n";
-      if (cfg_.postProcess && !turns.empty()) {
-        const size_t beforeMoves = turns.size();
-        const size_t beforeSteps = countSteps(turns);
-        turns = optimizeSolution(turns);
-        std::cout << "post-process: " << beforeMoves << " -> " << turns.size()
-                  << " moves, " << beforeSteps << " -> " << countSteps(turns)
-                  << " steps\n";
-      }
-      return turns;
-    }
-    if (r.nextThreshold == UINT32_MAX) {
-      std::cout << "IDA* exhausted, no solution found, nodes=" << nodesExpanded
-                << "\n";
-      return {};
-    }
-    threshold = r.nextThreshold;
-  }
 }
 
 // ===========================================================================
@@ -1364,8 +1152,17 @@ AStar::computeRuns(const std::vector<Turn> &turns) {
   return runs;
 }
 
+// Player steps as the UI counts them (solutionView.ts): one step = a maximal
+// run of consecutive turns of the SAME BLOCK, across direction changes — the
+// player performs it as a single polyline drag. (computeRuns is finer: it
+// splits on direction too, because the rewrite passes operate on straight
+// legs.)
 size_t AStar::countSteps(const std::vector<Turn> &turns) {
-  return computeRuns(turns).size();
+  size_t steps = 0;
+  for (size_t i = 0; i < turns.size(); i++)
+    if (i == 0 || turns[i].blockId != turns[i - 1].blockId)
+      steps++;
+  return steps;
 }
 
 bool AStar::replaySolves(const std::vector<Turn> &turns) const {

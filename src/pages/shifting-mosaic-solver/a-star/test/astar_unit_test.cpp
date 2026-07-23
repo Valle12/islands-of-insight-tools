@@ -85,28 +85,6 @@ TEST(Deadlock, DoesNotBlockReachableGoal) {
   EXPECT_GE(turns.size(), 4u); // goal block must move and block 0 displaced
 }
 
-TEST(IDAStar, FindsSolutionEquivalentToAStar) {
-  // 4x4 grid, two single-cell blocks, goal block id 1 from (3,0) to (0,0).
-  std::vector<std::vector<Position>> shapes = {{{0, 0}}, {{0, 0}}};
-  std::vector<Position> initial = {{2, 0}, {3, 0}};
-  AStar a(4, 4, shapes, initial, 1, Position{0, 0});
-  auto turns = a.searchIDAStar();
-  ASSERT_FALSE(turns.empty());
-
-  std::vector<Position> anchors = initial;
-  for (const auto &[blockId, direction] : turns) {
-    auto &p = anchors[blockId];
-    switch (direction) {
-    case Direction::UP:    p.y--; break;
-    case Direction::RIGHT: p.x++; break;
-    case Direction::DOWN:  p.y++; break;
-    case Direction::LEFT:  p.x--; break;
-    }
-  }
-  EXPECT_EQ(anchors[1].x, 0);
-  EXPECT_EQ(anchors[1].y, 0);
-}
-
 TEST(Collision, AllowsDetourAroundOtherBlock) {
   // Two 2x1 blocks on the same row, with a second row free for detour.
   std::vector<std::vector<Position>> shapes = {{{0, 0}, {1, 0}}, {{0, 0}, {1, 0}}};

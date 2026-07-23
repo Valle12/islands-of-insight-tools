@@ -1,9 +1,15 @@
 #ifdef __EMSCRIPTEN__
 
 #include "AStar.h"
+#include "DragSolver.h"
+#ifdef __EMSCRIPTEN_PTHREADS__
+#include "ParallelCascade.h"
+#endif
 
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
+
+#include <string>
 
 using namespace emscripten;
 
@@ -48,48 +54,214 @@ val turnsToJs(const std::vector<Turn> &turns) {
   return result;
 }
 
+template <typename T> T opt(const val &obj, const char *key, const T def) {
+  const val v = obj[key];
+  return v.isUndefined() || v.isNull() ? def : v.template as<T>();
+}
+
+void postProgress(const uint32_t nodesExpanded) {
+  val self = val::global("self");
+  val msg = val::object();
+  msg.set("type", val("progress"));
+  msg.set("progress", nodesExpanded);
+  self.call<void>("postMessage", msg);
+}
+
 } // namespace
 
-val search(unsigned int gridWidth, unsigned int gridHeight, val shapesJs,
-           val initialAnchorsJs, unsigned int goalIndex, val goalAnchorJs,
-           unsigned int weight, bool deadlockPruning, unsigned int maxMs,
-           unsigned int maxNodes, bool useIda,
-           unsigned int pathBlockerWeight, unsigned int boundaryWeight,
-           bool allWallsBfsBase, bool macroMoves,
-           unsigned int axisAwareWeight,
-           unsigned int lpDisplacementWeight,
-           unsigned int strideOverride, bool postProcess) {
-  std::vector<std::vector<Position>> shapes = parseShapes(shapesJs);
-  std::vector<Position> initialAnchors = parseAnchors(initialAnchorsJs);
+// Object-config solver entry: `puzzle` = {gridWidth, gridHeight, shapes,
+// initialAnchors, goalIndex, goalAnchor}; `config` = flat object where every
+// field is optional and defaults are resolved HERE (so adding a knob never
+// grows a positional argument list again). config.engine selects one arm —
+// "unit" (production weighted A*), "drag" (flat drag-space A*), "hier"
+// (receding-horizon drag search), "assembly" (pack-then-slide), "corridor"
+// (hier + synthetic bands), "jam" (dig-cost-guided restarts), "beam" (guided
+// beam) — or "cascade", which runs every arm in turn (worst case 8x maxMs;
+// on a pthreads build it races them instead). See DragSolver.h for the
+// drag-space background.
+val solve(val puzzleVal, val configVal) {
+  std::vector<std::vector<Position>> shapes = parseShapes(puzzleVal["shapes"]);
+  std::vector<Position> initialAnchors =
+      parseAnchors(puzzleVal["initialAnchors"]);
+  const val goalAnchorJs = puzzleVal["goalAnchor"];
   const Position goalAnchor{static_cast<int8_t>(goalAnchorJs["x"].as<int>()),
-                             static_cast<int8_t>(goalAnchorJs["y"].as<int>())};
+                            static_cast<int8_t>(goalAnchorJs["y"].as<int>())};
+  const auto gridWidth =
+      static_cast<uint8_t>(puzzleVal["gridWidth"].as<unsigned>());
+  const auto gridHeight =
+      static_cast<uint8_t>(puzzleVal["gridHeight"].as<unsigned>());
+  const auto goalIndex =
+      static_cast<uint8_t>(puzzleVal["goalIndex"].as<unsigned>());
 
-  AStar::Config cfg;
-  cfg.weight = static_cast<uint8_t>(weight);
-  cfg.deadlockPruning = deadlockPruning;
-  cfg.pathBlockerWeight = static_cast<uint8_t>(pathBlockerWeight);
-  cfg.boundaryDistanceWeight = static_cast<uint8_t>(boundaryWeight);
-  cfg.allWallsBfsBase = allWallsBfsBase;
-  cfg.macroMoves = macroMoves;
-  cfg.axisAwareWeight = static_cast<uint8_t>(axisAwareWeight);
-  cfg.lpDisplacementWeight = static_cast<uint8_t>(lpDisplacementWeight);
-  cfg.strideOverride = static_cast<uint8_t>(strideOverride);
-  cfg.postProcess = postProcess;
+  const std::string engine = opt<std::string>(configVal, "engine", "cascade");
+  const auto maxMs = opt<unsigned>(configVal, "maxMs", 60000);
+  const auto maxNodes = opt<unsigned>(configVal, "maxNodes", 20000000);
+  const bool postProcess = opt<bool>(configVal, "postProcess", true);
+  const bool deadlockPruning = opt<bool>(configVal, "deadlockPruning", true);
 
-  AStar aStar(static_cast<uint8_t>(gridWidth), static_cast<uint8_t>(gridHeight),
-              std::move(shapes), std::move(initialAnchors),
-              static_cast<uint8_t>(goalIndex), goalAnchor, cfg);
-
-  aStar.onProgress = [](uint32_t nodesExpanded) {
-    val self = val::global("self");
-    val msg = val::object();
-    msg.set("type", val("progress"));
-    msg.set("progress", nodesExpanded);
-    self.call<void>("postMessage", msg);
+  const auto runDrag = [&](const bool hierarchical,
+                           const bool assembly = false) {
+    DragSolver::Config cfg;
+    cfg.weight = static_cast<uint8_t>(opt<unsigned>(configVal, "dragWeight", 3));
+    cfg.deadlockPruning = deadlockPruning;
+    cfg.settledOnly = opt<bool>(configVal, "settledOnly", true);
+    cfg.partialExpansionWidth =
+        static_cast<uint16_t>(opt<unsigned>(configVal, "pea", 0));
+    cfg.packingWeight =
+        static_cast<uint8_t>(opt<unsigned>(configVal, "packingWeight", 0));
+    cfg.consolidationGain =
+        static_cast<uint8_t>(opt<unsigned>(configVal, "consolidationGain", 0));
+    cfg.slotHeuristic = opt<bool>(configVal, "slotHeuristic", false);
+    cfg.requireAllSlots = opt<bool>(configVal, "requireAllSlots", false);
+    cfg.lockOnSlot = opt<bool>(configVal, "lockOnSlot", false);
+    cfg.corridorBands = opt<bool>(configVal, "corridorBands", false);
+    cfg.sleepSets = opt<bool>(configVal, "sleepSets", false);
+    cfg.relevantOnly = opt<bool>(configVal, "relevantOnly", false);
+    cfg.jamGuideWeight =
+        static_cast<uint8_t>(opt<unsigned>(configVal, "jamGuideWeight", 0));
+    cfg.jamBlockerPenalty =
+        static_cast<uint8_t>(opt<unsigned>(configVal, "jamBlockerPenalty", 4));
+    cfg.tieBreakSeed = opt<unsigned>(configVal, "tieBreakSeed", 0);
+    cfg.beamWidth = opt<unsigned>(configVal, "beamWidth", 0);
+    cfg.postProcess = postProcess;
+    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
+                      goalAnchor, cfg);
+    solver.onProgress = postProgress;
+    return assembly       ? solver.searchAssembly(maxMs, maxNodes)
+           : hierarchical ? solver.searchHierarchical(maxMs, maxNodes)
+                          : solver.search(maxMs, maxNodes);
+  };
+  // Jam arms: dig-cost-guided restarts / guided beam for compact dense
+  // 0-cut boards; both decline instantly outside the jam profile (the
+  // caller-facing "jam"/"beam" engines skip the gate — explicit choice).
+  const auto runJamArm = [&](const bool beam, const bool gated) {
+    DragSolver::Config cfg;
+    cfg.corridorBands = true;
+    cfg.deadlockPruning = deadlockPruning;
+    if (beam)
+      cfg.jamGuideWeight =
+          static_cast<uint8_t>(opt<unsigned>(configVal, "jamGuideWeight", 8));
+    cfg.jamBlockerPenalty =
+        static_cast<uint8_t>(opt<unsigned>(configVal, "jamBlockerPenalty", 4));
+    cfg.tieBreakSeed = opt<unsigned>(configVal, "tieBreakSeed", 0);
+    cfg.beamWidth = opt<unsigned>(configVal, "beamWidth", 0);
+    if (!beam) {
+      // Luby-shaped restart caps: the browser's ~300s/arm gives the stock
+      // 1.5M-node cap only ~4 rounds, but the elite ratchet needs many. On
+      // the hard-instance family at 300s these defaults (20k base / 64
+      // elites) descend the ratchet -46% deeper than stock (HARD-BOARDS.md).
+      // Overridable so the caller-facing "jam" engine can still sweep.
+      cfg.jamRoundNodeCap = opt<unsigned>(configVal, "jamRoundNodeCap", 20000);
+      cfg.jamMaxElites = opt<unsigned>(configVal, "jamMaxElites", 64);
+      cfg.jamLubyRestarts = opt<bool>(configVal, "jamLubyRestarts", true);
+    }
+    cfg.postProcess = postProcess;
+    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
+                      goalAnchor, cfg);
+    if (gated && !solver.jamProfile())
+      return std::vector<Turn>{};
+    solver.onProgress = postProgress;
+    return beam ? solver.searchBeamJam(maxMs, maxNodes)
+                : solver.searchJamRestarts(maxMs, maxNodes);
+  };
+  // Corridor arm: hier with synthetic distance bands (declines instantly
+  // when the goal has real cut bottlenecks).
+  const auto runCorridor = [&]() {
+    configVal.set("corridorBands", true);
+    auto t = runDrag(true);
+    configVal.set("corridorBands", false);
+    return t;
+  };
+  const auto runUnit = [&] {
+    AStar::Config cfg;
+    cfg.weight = static_cast<uint8_t>(opt<unsigned>(configVal, "weight", 3));
+    cfg.deadlockPruning = deadlockPruning;
+    cfg.pathBlockerWeight =
+        static_cast<uint8_t>(opt<unsigned>(configVal, "pathBlockerWeight", 1));
+    cfg.boundaryDistanceWeight =
+        static_cast<uint8_t>(opt<unsigned>(configVal, "boundaryWeight", 1));
+    cfg.axisAwareWeight =
+        static_cast<uint8_t>(opt<unsigned>(configVal, "axisAwareWeight", 1));
+    cfg.lpDisplacementWeight = static_cast<uint8_t>(
+        opt<unsigned>(configVal, "lpDisplacementWeight", 1));
+    cfg.strideOverride =
+        static_cast<uint8_t>(opt<unsigned>(configVal, "strideOverride", 0));
+    cfg.postProcess = postProcess;
+    AStar solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
+                 goalAnchor, cfg);
+    solver.onProgress = postProgress;
+    return solver.search(maxMs, maxNodes);
   };
 
-  auto turns = useIda ? aStar.searchIDAStar(maxMs, maxNodes)
-                      : aStar.search(maxMs, maxNodes);
+  std::vector<Turn> turns;
+  if (engine == "drag") {
+    turns = runDrag(false);
+  } else if (engine == "hier") {
+    turns = runDrag(true);
+  } else if (engine == "assembly") {
+    turns = runDrag(false, true);
+  } else if (engine == "corridor") {
+    turns = runCorridor();
+  } else if (engine == "jam") {
+    turns = runJamArm(false, opt<bool>(configVal, "gated", false));
+  } else if (engine == "beam") {
+    turns = runJamArm(true, opt<bool>(configVal, "gated", false));
+  } else if (engine == "unit") {
+    turns = runUnit();
+  } else { // cascade: assembly → corridor → hier → drag → relevant →
+           // jam-restarts → guided beam → unit
+#ifdef __EMSCRIPTEN_PTHREADS__
+    // Threaded build: race the arms on real pthreads. Only this (calling)
+    // thread touches JS — arm progress flows through atomics, forwarded here.
+    turns = solveArmsParallel(gridWidth, gridHeight, shapes, initialAnchors,
+                              goalIndex, goalAnchor, maxMs, maxNodes,
+                              postProcess, postProgress);
+#else
+    // Pack-then-slide puzzles fall to the assembly pipeline in about a
+    // second; it fails fast when no off-sweep packing exists.
+    turns = runDrag(false, true);
+    // Corridor puzzles (no cut bottleneck, long goal journey) — declines
+    // instantly otherwise. Partial expansion 48 is what the threaded cascade
+    // (ParallelCascade.h arms 0/3), the CLI cascade and the worker portfolio
+    // all give these two arms; without it this path searched them wider and
+    // shallower than every other chain.
+    configVal.set("pea", 48u);
+    if (turns.empty())
+      turns = runCorridor();
+    if (turns.empty())
+      turns = runDrag(true);
+    if (turns.empty()) {
+      // The deep-puzzle arm: same config that cracked shiftingMosaicTest37.
+      configVal.set("dragWeight", 4u);
+      configVal.set("pea", 64u);
+      turns = runDrag(false);
+    }
+    if (turns.empty()) {
+      // Jam arm: relevance filter + commutativity pruning for compact dense
+      // boards where the unrestricted searches drown.
+      configVal.set("sleepSets", true);
+      configVal.set("relevantOnly", true);
+      turns = runDrag(false);
+      configVal.set("sleepSets", false);
+      configVal.set("relevantOnly", false);
+    }
+    // Jam-restart and guided-beam arms: serial-unlock boards (jam-profile
+    // gated, instant decline elsewhere).
+    if (turns.empty())
+      turns = runJamArm(false, true);
+    if (turns.empty()) {
+      // Wide beam + heavy dig penalty — the config that cracked seed 3870.
+      // Safe here because this sequential path runs one arm at a time in the
+      // whole heap; the threaded cascade shares one heap across 8 arms and so
+      // deliberately keeps the auto (narrower) width instead.
+      configVal.set("beamWidth", 500000u);
+      configVal.set("jamBlockerPenalty", 8u);
+      turns = runJamArm(true, true);
+    }
+    if (turns.empty())
+      turns = runUnit();
+#endif
+  }
   return turnsToJs(turns);
 }
 
@@ -121,7 +293,7 @@ val optimize(unsigned int gridWidth, unsigned int gridHeight, val shapesJs,
 }
 
 EMSCRIPTEN_BINDINGS(shifting_mosaic_astar_module) {
-  function("search", &search);
+  function("solve", &solve);
   function("optimize", &optimize);
 }
 

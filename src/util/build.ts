@@ -1,5 +1,5 @@
-import { copyFileSync, mkdirSync } from "fs";
-import { resolve } from "path";
+import { copyFileSync, mkdirSync } from "node:fs";
+import { resolve } from "node:path";
 import "./buildWasm";
 import { pngDataUrl, sassCompiler } from "./plugins";
 
@@ -26,15 +26,30 @@ for (const file of ["astar.mjs", "astar.wasm", "astar.worker.js"]) {
 }
 
 // Shifting-mosaic solver WASM — served under /sm-wasm to avoid the flat
-// astar.* name collision with the rolling-blocks module.
+// astar.* name collision with the rolling-blocks module. The .threads.*
+// variant is the pthreads build, used when the page is cross-origin
+// isolated (see coi-serviceworker below).
 const shiftingMosaicWasmDir = resolve(
   import.meta.dir,
   "../pages/shifting-mosaic-solver/wasm",
 );
 mkdirSync(resolve("./dist", "sm-wasm"), { recursive: true });
-for (const file of ["astar.mjs", "astar.wasm", "astar.worker.js"]) {
+for (const file of [
+  "astar.mjs",
+  "astar.wasm",
+  "astar.worker.js",
+  "astar.threads.mjs",
+  "astar.threads.wasm",
+]) {
   copyFileSync(
     resolve(shiftingMosaicWasmDir, file),
     resolve("./dist", "sm-wasm", file),
   );
 }
+
+// COOP/COEP service-worker shim — must live at the site root so its scope
+// covers every page (GitHub Pages cannot set real response headers).
+copyFileSync(
+  resolve(import.meta.dir, "../common/coi-serviceworker.js"),
+  resolve("./dist", "coi-serviceworker.js"),
+);

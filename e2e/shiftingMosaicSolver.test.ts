@@ -645,6 +645,31 @@ test.describe("Shifting Mosaic Solver", () => {
     await expect(page.locator("#drop-overlay")).toBeHidden();
   });
 
+  test("solves a real fixture through the portfolio bridge", async ({
+    page,
+  }) => {
+    await page.goto(SHIFTING_MOSAIC_URL);
+
+    // A real (small) fixture exercises the multi-worker portfolio end to
+    // end: several racing solver arms, first-win termination, progress
+    // aggregation, and the step-through view on a multi-block solution.
+    const json = readFileSync("test/resources/shiftingMosaicTest2.json", "utf8");
+    await page.locator("#config-file-input").setInputFiles({
+      name: "shiftingMosaicTest2.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(json),
+    });
+    await expect(page.locator(".block-row")).toHaveCount(3);
+
+    await page.getByRole("button", { name: "Calculate Solution" }).click();
+    await expect(page.locator("#solution-view")).toBeVisible({
+      timeout: 60000,
+    });
+    await expect(page.locator("#solution-step-counter")).toContainText(
+      "Step 1",
+    );
+  });
+
   test("rejects an invalid dropped file", async ({ page }) => {
     await page.goto(SHIFTING_MOSAIC_URL);
 

@@ -14,16 +14,16 @@ export class Board {
   private nextBlockId = 1;
   private hoveredBlockId = 0;
   private isPainting = false;
-  private inProgressCells = new Set<string>();
+  private readonly inProgressCells = new Set<string>();
   private attemptedOverlap = false;
   private isPlacingGoalZone = false;
   private placementCursor: Position | null = null;
   private goalZoneCells: Position[] = [];
   private selectedTool: ShiftingMosaicTool;
-  private editor: ShiftingMosaicSolverEditor;
+  private readonly editor: ShiftingMosaicSolverEditor;
   private blockAssignments: number[][] = [];
-  private blocks: Map<number, Block> = new Map();
-  private grid = document.getElementById("grid") as HTMLDivElement;
+  private readonly blocks: Map<number, Block> = new Map();
+  private readonly grid = document.getElementById("grid") as HTMLDivElement;
 
   constructor(
     editor: ShiftingMosaicSolverEditor,

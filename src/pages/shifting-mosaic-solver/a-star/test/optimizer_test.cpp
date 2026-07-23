@@ -65,11 +65,12 @@ bool replayValid(const Puzzle &p, const std::vector<Turn> &turns) {
          anchors[p.goalIndex].y == p.goalAnchor.y;
 }
 
+// Player steps as the UI counts them: maximal same-block runs (direction
+// changes fold into one polyline drag).
 size_t countSteps(const std::vector<Turn> &turns) {
   size_t steps = 0;
   for (size_t i = 0; i < turns.size(); i++) {
-    if (i == 0 || turns[i].blockId != turns[i - 1].blockId ||
-        turns[i].direction != turns[i - 1].direction) {
+    if (i == 0 || turns[i].blockId != turns[i - 1].blockId) {
       steps++;
     }
   }

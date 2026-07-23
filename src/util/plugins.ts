@@ -1,5 +1,5 @@
 import type { BunPlugin } from "bun";
-import { readFileSync } from "fs";
+import { readFileSync } from "node:fs";
 import { compile } from "sass";
 
 export const sassCompiler = (): BunPlugin => ({

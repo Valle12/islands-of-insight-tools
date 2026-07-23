@@ -101,7 +101,29 @@
       "Bash(grep -E \"moves,|\\\\\\(pass\\\\\\)|\\\\\\(fail\\\\\\)| pass$| fail$\")",
       "Bash(grep -E \"moves,|\\\\\\(fail\\\\\\)| pass$| fail$|reason\")",
       "Bash(grep -E \"\\\\\\(fail\\\\\\)| pass$| fail$|Test35|Test36|Test39\")",
-      "Bash(grep -E \" pass$| fail$|\\\\\\(fail\\\\\\)\")"
+      "Bash(grep -E \" pass$| fail$|\\\\\\(fail\\\\\\)\")",
+      "Read(//e/packages/vcpkg/**)",
+      "Bash(./vcpkg.exe install *)",
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -u train.py --resume checkpoints/latest.pt --davi-iters 9 --batch-size 128)",
+      "Bash(.venv/Scripts/python.exe eval.py --weight 3.0 --max-nodes 30000)",
+      "Bash(.venv/Scripts/python.exe synth.py --templates 5 --scrambles-per-template 20 --max-shape 30 --max-blocks 12 --max-grid 40)",
+      "Bash(rm -rf checkpoints/*)",
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -u train.py --pretrain-epochs 3 --davi-iters 20 --batch-size 128 --davi-examples-per-iter 500000)",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader)",
+      "Read(//c/Users/Valentin/AppData/Local/Temp/claude/E--projects-VS-Code-islands-of-insight-tools/7f0d67af-ee3e-4b65-83c8-e6fd055d2096/tasks/**)",
+      "PowerShell(nvidia-smi *)",
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -u train.py --pretrain-epochs 3 --davi-iters 20 --batch-size 128 --davi-examples-per-iter 500000 --save-interval-seconds 300)",
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -u profile_davi.py)",
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -u investigate_perf.py)",
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -u train.py --resume checkpoints/pretrain.pt --pretrain-epochs 3 --davi-iters 12 --davi-examples-per-iter 250000 --batch-size 128 --save-interval-seconds 300)",
+      "Bash(rm -f checkpoints/latest.pt checkpoints/davi_*.pt)",
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -u train.py --resume checkpoints/pretrain.pt --pretrain-epochs 3 --davi-iters 12 --davi-examples-per-iter 250000 --davi-lr 1e-4 --grad-clip 1.0 --batch-size 128 --save-interval-seconds 300)",
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -u -c ' *)",
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -u train.py --fresh --pretrain-epochs 2 --davi-iters 12 --davi-examples-per-iter 250000 --davi-lr 1e-4 --grad-clip 1.0 --batch-size 128 --save-interval-seconds 300)",
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -u train.py --pretrain-epochs 2 --davi-iters 12 --davi-examples-per-iter 250000 --davi-lr 1e-4 --grad-clip 1.0 --batch-size 128 --save-interval-seconds 300)",
+      "Bash(PYTHONIOENCODING=utf-8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True SAT_NEIGHBOUR_CHUNK=512 .venv/Scripts/python.exe -u train.py --pretrain-epochs 2 --davi-iters 12 --davi-examples-per-iter 250000 --davi-lr 1e-4 --grad-clip 1.0 --batch-size 128 --save-interval-seconds 300)",
+      "Bash(PYTHONIOENCODING=utf-8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True SAT_NEIGHBOUR_CHUNK=512 .venv/Scripts/python.exe -u train.py --pretrain-epochs 3 --pretrain-examples-per-epoch 3000000 --davi-iters 16 --davi-examples-per-iter 300000 --davi-lr 1e-4 --grad-clip 1.0 --batch-size 128 --save-interval-seconds 300)"
     ]
   }
 }

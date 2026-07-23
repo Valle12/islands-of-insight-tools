@@ -1,3 +1,4 @@
+import { registerCoiShim } from "../../common/coiRegister";
 import type {
   Position,
   ShiftingMosaicTest,
@@ -11,62 +12,63 @@ import type { Turn } from "./turn";
 import {
   searchShiftingMosaicWasm,
   type ShiftingMosaicPuzzle,
+  type SolverHandle,
 } from "./wasmBridge";
 
 export class ShiftingMosaicSolverEditor {
   private static readonly DEFAULT_GRID_WIDTH = 6;
   private static readonly DEFAULT_GRID_HEIGHT = 6;
 
-  private blocksListEl = document.getElementById(
+  private readonly blocksListEl = document.getElementById(
     "blocks-list",
   ) as HTMLDivElement;
-  private widthField = document.getElementById(
+  private readonly widthField = document.getElementById(
     "grid-width",
   ) as HTMLInputElement;
-  private heightField = document.getElementById(
+  private readonly heightField = document.getElementById(
     "grid-height",
   ) as HTMLInputElement;
-  private statusEl = document.getElementById("tool-status") as HTMLDivElement;
-  private placementBanner = document.getElementById(
+  private readonly statusEl = document.getElementById("tool-status") as HTMLDivElement;
+  private readonly placementBanner = document.getElementById(
     "placement-banner",
   ) as HTMLDivElement;
-  private warningBanner = document.getElementById(
+  private readonly warningBanner = document.getElementById(
     "warning-banner",
   ) as HTMLDivElement;
   private warningTimeoutId: number | null = null;
 
-  private editorCard = document.getElementById(
+  private readonly editorCard = document.getElementById(
     "editor-card",
   ) as HTMLDivElement;
-  private editorSection = document.getElementById(
+  private readonly editorSection = document.getElementById(
     "editor-section",
   ) as HTMLDivElement;
-  private solutionViewEl = document.getElementById(
+  private readonly solutionViewEl = document.getElementById(
     "solution-view",
   ) as HTMLDivElement;
 
-  private solutionPanel = document.getElementById(
+  private readonly solutionPanel = document.getElementById(
     "solution-panel",
   ) as HTMLDivElement;
-  private solutionStatus = document.getElementById(
+  private readonly solutionStatus = document.getElementById(
     "solution-status",
   ) as HTMLSpanElement;
-  private solutionMessage = document.getElementById(
+  private readonly solutionMessage = document.getElementById(
     "solution-message",
   ) as HTMLDivElement;
-  private solutionSpinner = document.getElementById(
+  private readonly solutionSpinner = document.getElementById(
     "solution-spinner",
   ) as HTMLDivElement;
-  private solutionProgressText = document.getElementById(
+  private readonly solutionProgressText = document.getElementById(
     "solution-progress-text",
   ) as HTMLSpanElement;
-  private calculateBtn = document.getElementById(
+  private readonly calculateBtn = document.getElementById(
     "calculate-solution",
   ) as HTMLButtonElement;
-  private fileInput = document.getElementById(
+  private readonly fileInput = document.getElementById(
     "config-file-input",
   ) as HTMLInputElement;
-  private dropOverlay = document.getElementById(
+  private readonly dropOverlay = document.getElementById(
     "drop-overlay",
   ) as HTMLDivElement;
 
@@ -74,7 +76,7 @@ export class ShiftingMosaicSolverEditor {
   private gridHeight = ShiftingMosaicSolverEditor.DEFAULT_GRID_HEIGHT;
   private selectedTool: ShiftingMosaicTool = "obstruction";
   private board: Board;
-  private currentWorker: Worker | null = null;
+  private currentWorker: SolverHandle | null = null;
   private solutionView: SolutionView | null = null;
 
   constructor() {
@@ -176,7 +178,6 @@ export class ShiftingMosaicSolverEditor {
         const id = Number(placeButton.dataset.blockPlaceId);
         this.board.startGoalZonePlacement(id);
         this.hideSolution();
-        return;
       }
     });
 
@@ -591,6 +592,16 @@ export class ShiftingMosaicSolverEditor {
   }
 }
 
+// Module-scope so the editor (and the DOM listeners it owns) lives as long as
+// the page does, rather than reading as an object constructed and dropped.
+let editor: ShiftingMosaicSolverEditor | undefined;
+
 if (process.env.NODE_ENV !== "test") {
-  new ShiftingMosaicSolverEditor();
+  // Opt this page into cross-origin isolation (wasm threads) where the
+  // browser supports the shim; everything degrades to the worker portfolio
+  // otherwise.
+  registerCoiShim();
+  editor = new ShiftingMosaicSolverEditor();
 }
+
+export { editor };

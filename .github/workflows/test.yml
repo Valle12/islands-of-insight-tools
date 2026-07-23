@@ -24,6 +24,18 @@ jobs:
         working-directory: src/pages/rolling-blocks-solver/a-star
         run: ctest --test-dir build --output-on-failure
 
+      - name: Build shifting-mosaic C++ tests
+        working-directory: src/pages/shifting-mosaic-solver/a-star
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON && cmake --build build
+
+      # json_test defaults to the production six-arm parallel cascade (the
+      # same solveArmsParallel the threaded wasm build ships), so ALL 44
+      # fixtures are hard-required — including test37 (deep-drag arm,
+      # ~4-8 min) and test41 (assembly arm, ~25s).
+      - name: Run shifting-mosaic C++ tests
+        working-directory: src/pages/shifting-mosaic-solver/a-star
+        run: ctest --test-dir build --output-on-failure
+
       - name: Setup Emscripten
         uses: emscripten-core/setup-emsdk@v16
 
@@ -51,6 +63,34 @@ jobs:
             --bind \
             -flto \
             -fno-exceptions
+
+      - name: Build shifting-mosaic WASM
+        run: |
+          ASTAR_DIR=src/pages/shifting-mosaic-solver/a-star
+          OUT_DIR=src/pages/shifting-mosaic-solver/wasm
+          mkdir -p "$OUT_DIR"
+          build_variant() {
+            em++ \
+              "$ASTAR_DIR/wasm_bindings.cpp" \
+              "$ASTAR_DIR/AStar.cpp" \
+              "$ASTAR_DIR/DragSolver.cpp" \
+              -o "$OUT_DIR/$1" \
+              $2 \
+              -std=c++23 \
+              -O3 \
+              -sWASM=1 \
+              -sMODULARIZE=1 \
+              -sEXPORT_NAME=createShiftingMosaicAStarModule \
+              -sENVIRONMENT=web,worker \
+              -sALLOW_MEMORY_GROWTH=1 \
+              -sINITIAL_MEMORY=16777216 \
+              -sMAXIMUM_MEMORY=4GB \
+              --bind \
+              -flto \
+              -fno-exceptions
+          }
+          build_variant astar.mjs ""
+          build_variant astar.threads.mjs "-pthread -sPTHREAD_POOL_SIZE=4"
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2

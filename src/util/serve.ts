@@ -1,4 +1,4 @@
-import { resolve } from "path";
+import { resolve } from "node:path";
 import index from "./../pages/index.html";
 import phasicDialSolver from "./../pages/phasic-dial-solver/index.html";
 import rollingBlocksSolver from "./../pages/rolling-blocks-solver/index.html";
@@ -54,6 +54,26 @@ const server = Bun.serve({
     }
     if (url.pathname === "/sm-wasm/astar.worker.js") {
       const file = Bun.file(resolve(shiftingMosaicWasmDir, "astar.worker.js"));
+      return new Response(file, {
+        headers: { "Content-Type": "application/javascript" },
+      });
+    }
+    if (url.pathname === "/sm-wasm/astar.threads.mjs") {
+      const file = Bun.file(resolve(shiftingMosaicWasmDir, "astar.threads.mjs"));
+      return new Response(file, {
+        headers: { "Content-Type": "application/javascript" },
+      });
+    }
+    if (url.pathname === "/sm-wasm/astar.threads.wasm") {
+      const file = Bun.file(resolve(shiftingMosaicWasmDir, "astar.threads.wasm"));
+      return new Response(file, {
+        headers: { "Content-Type": "application/wasm" },
+      });
+    }
+    if (url.pathname === "/coi-serviceworker.js") {
+      const file = Bun.file(
+        resolve(import.meta.dir, "./../common/coi-serviceworker.js"),
+      );
       return new Response(file, {
         headers: { "Content-Type": "application/javascript" },
       });

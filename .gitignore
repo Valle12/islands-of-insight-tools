@@ -38,5 +38,7 @@ test-results
 playwright-report
 astar.wasm
 astar.mjs
+astar.threads.wasm
+astar.threads.mjs
 build-*
 .playwright-mcp

@@ -12,12 +12,15 @@ if(MSVC)
     string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
 endif()
 
-add_executable(shifting_mosaic_a_star main.cpp AStar.cpp)
+# The bench CLI (main.cpp) reads fixture JSONs directly.
+find_package(nlohmann_json CONFIG REQUIRED)
+
+add_executable(shifting_mosaic_a_star main.cpp AStar.cpp DragSolver.cpp)
+target_link_libraries(shifting_mosaic_a_star PRIVATE nlohmann_json::nlohmann_json)
 
 include(CTest)
 if (BUILD_TESTING)
     find_package(GTest CONFIG REQUIRED)
-    find_package(nlohmann_json CONFIG REQUIRED)
     include(GoogleTest)
     add_subdirectory(test)
 endif ()

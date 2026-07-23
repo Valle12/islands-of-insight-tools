@@ -1,5 +1,7 @@
 #include "AStar.h"
+#include "DragSolver.h"
 #include "Node.h"
+#include "ParallelCascade.h"
 #include "Types.h"
 
 #include <gtest/gtest.h>
@@ -88,13 +90,13 @@ bool validateSolution(const ShiftingMosaicTestData &data,
   return g.x == data.goalAnchor.x && g.y == data.goalAnchor.y;
 }
 
-// Player "steps" = maximal runs of same-block, same-direction turns (one drag
-// each). The post-processor must never increase this either.
+// Player "steps" as the UI counts them (solutionView.ts): maximal runs of
+// same-block turns — direction changes fold into one polyline drag. The
+// post-processor must never increase this.
 size_t countSteps(const std::vector<Turn> &turns) {
   size_t steps = 0;
   for (size_t i = 0; i < turns.size(); i++) {
-    if (i == 0 || turns[i].blockId != turns[i - 1].blockId ||
-        turns[i].direction != turns[i - 1].direction) {
+    if (i == 0 || turns[i].blockId != turns[i - 1].blockId) {
       steps++;
     }
   }
@@ -129,10 +131,14 @@ TEST_P(ShiftingMosaicJsonTest, ShouldFindValidSolution) {
     GTEST_SKIP() << "Cannot load " << filename << ": " << e.what();
   }
 
-  // Production config: weighted A* with the full additive heuristic stack.
-  // This solves 30 of the 31 fixtures (everything except shiftingMosaicTest21).
-  // Env vars override any field so a single binary can be re-run under
-  // different settings.
+  // Default engine "cascade" = solveArmsParallel, the SAME six-arm race the
+  // threaded wasm build runs in the browser — this suite hard-requires every
+  // fixture through the production flow (test37 falls to the deep-drag arm
+  // in ~4-5 min, test41 to the assembly arm in ~25s; everything else in
+  // ms-to-seconds, since the first winning arm cancels the rest). Env vars
+  // override any field so a single binary can be re-run under different
+  // settings; SHIFTING_MOSAIC_ENGINE selects cascade (default), unit, drag,
+  // or hier.
   AStar::Config cfg;
   cfg.weight = 3;
   cfg.lpDisplacementWeight = 1;
@@ -142,21 +148,17 @@ TEST_P(ShiftingMosaicJsonTest, ShouldFindValidSolution) {
   // Get the raw search output here; the post-processor is exercised explicitly
   // below so the baseline and optimized turn counts can be compared.
   cfg.postProcess = false;
-  // Per search pass. A failed guided pass is followed by a BFS pass, so a
-  // hard puzzle can take up to 2x this.
-  uint32_t budgetMs = 60000;
+  // Per arm (cascade) / per search pass (unit, which retries as BFS on a
+  // failed guided pass — so a hard puzzle can take up to 2x this). 300s
+  // mirrors the production per-arm budget.
+  uint32_t budgetMs = 300000;
   uint32_t maxNodes = 20000000;
-  bool useIda = false;
   if (const char *w = std::getenv("SHIFTING_MOSAIC_WEIGHT"))
     cfg.weight = static_cast<uint8_t>(std::atoi(w));
   if (const char *p = std::getenv("SHIFTING_MOSAIC_PATH_BLOCKER_WEIGHT"))
     cfg.pathBlockerWeight = static_cast<uint8_t>(std::atoi(p));
   if (const char *bd = std::getenv("SHIFTING_MOSAIC_BOUNDARY_WEIGHT"))
     cfg.boundaryDistanceWeight = static_cast<uint8_t>(std::atoi(bd));
-  if (const char *aw = std::getenv("SHIFTING_MOSAIC_ALL_WALLS_BFS"))
-    cfg.allWallsBfsBase = std::atoi(aw) != 0;
-  if (const char *mm = std::getenv("SHIFTING_MOSAIC_MACROS"))
-    cfg.macroMoves = std::atoi(mm) != 0;
   if (const char *ax = std::getenv("SHIFTING_MOSAIC_AXIS_WEIGHT"))
     cfg.axisAwareWeight = static_cast<uint8_t>(std::atoi(ax));
   if (const char *lp = std::getenv("SHIFTING_MOSAIC_LP_WEIGHT"))
@@ -167,13 +169,34 @@ TEST_P(ShiftingMosaicJsonTest, ShouldFindValidSolution) {
     budgetMs = static_cast<uint32_t>(std::atoi(b));
   if (const char *m = std::getenv("SHIFTING_MOSAIC_MAX_NODES"))
     maxNodes = static_cast<uint32_t>(std::atoi(m));
-  if (const char *i = std::getenv("SHIFTING_MOSAIC_IDASTAR"))
-    useIda = std::atoi(i) != 0;
+  std::string engine = "cascade";
+  if (const char *e = std::getenv("SHIFTING_MOSAIC_ENGINE"))
+    engine = e;
 
+  std::vector<Turn> turns;
   AStar solver(data.gridWidth, data.gridHeight, data.shapes, data.initialAnchors,
                data.goalIndex, data.goalAnchor, cfg);
-  auto turns = useIda ? solver.searchIDAStar(budgetMs, maxNodes)
-                      : solver.search(budgetMs, maxNodes);
+  if (engine == "cascade") {
+    turns = solveArmsParallel(data.gridWidth, data.gridHeight, data.shapes,
+                              data.initialAnchors, data.goalIndex,
+                              data.goalAnchor, budgetMs, maxNodes,
+                              /*postProcess=*/false, nullptr);
+  } else if (engine == "drag" || engine == "hier") {
+    DragSolver::Config dcfg;
+    dcfg.weight = cfg.weight;
+    dcfg.postProcess = cfg.postProcess;
+    if (const char *s = std::getenv("SHIFTING_MOSAIC_SETTLED"))
+      dcfg.settledOnly = std::atoi(s) != 0;
+    if (const char *pw = std::getenv("SHIFTING_MOSAIC_PEA"))
+      dcfg.partialExpansionWidth = static_cast<uint16_t>(std::atoi(pw));
+    DragSolver drag(data.gridWidth, data.gridHeight, data.shapes,
+                    data.initialAnchors, data.goalIndex, data.goalAnchor,
+                    dcfg);
+    turns = engine == "hier" ? drag.searchHierarchical(budgetMs, maxNodes)
+                             : drag.search(budgetMs, maxNodes);
+  } else {
+    turns = solver.search(budgetMs, maxNodes);
+  }
 
   ASSERT_FALSE(turns.empty()) << "No solution found for " << filename;
   EXPECT_TRUE(validateSolution(data, turns))

@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Worker as ArmWorker } from "node:worker_threads";
+import { PORTFOLIO } from "../../src/pages/shifting-mosaic-solver/wasmBridge";
 import type { Position, ShiftingMosaicTest } from "../../src/util/types";
 
 // ---------------------------------------------------------------------------
@@ -14,10 +16,16 @@ import type { Position, ShiftingMosaicTest } from "../../src/util/types";
 const DX = [0, 1, 0, -1];
 const DY = [-1, 0, 1, 0];
 
-const PER_PUZZLE_BUDGET_MS = 60_000;
-// A failed guided pass is followed by a BFS pass, so the solver can run for
-// up to 2x the budget before giving up.
-const PER_PUZZLE_TIMEOUT_MS = PER_PUZZLE_BUDGET_MS * 2 + 15_000;
+// Per portfolio ARM. The arms race in parallel workers (the production
+// browser flow), so a fixture's wall time is its fastest winning arm — not
+// a sum of stages. 90s covers the slowest ordinary fixtures: test41 solves
+// in the assembly arm (~33s native, more in wasm). test37 is the
+// exception: its winning arm (deep flat drag) alone needs ~250s natively,
+// so it runs as a dedicated long-budget case below.
+const PER_PUZZLE_BUDGET_MS = 90_000;
+const PER_PUZZLE_TIMEOUT_MS = PER_PUZZLE_BUDGET_MS * 2 + 30_000;
+const LONG_BUDGET_MS = 600_000;
+const LONG_TIMEOUT_MS = LONG_BUDGET_MS * 2 + 30_000;
 
 interface WasmTurn {
   blockId: number;
@@ -27,26 +35,17 @@ interface WasmTurn {
 type WasmTurnList = { length: number; [index: number]: WasmTurn };
 
 interface WasmModule {
-  search(
-    gridWidth: number,
-    gridHeight: number,
-    shapes: Position[][],
-    initialAnchors: Position[],
-    goalIndex: number,
-    goalAnchor: Position,
-    weight: number,
-    deadlockPruning: boolean,
-    maxMs: number,
-    maxNodes: number,
-    useIda: boolean,
-    pathBlockerWeight: number,
-    boundaryWeight: number,
-    allWallsBfsBase: boolean,
-    macroMoves: boolean,
-    axisAwareWeight: number,
-    lpDisplacementWeight: number,
-    strideOverride: number,
-    postProcess: boolean,
+  // Object-config entry; schema in wasm_bindings.cpp::solve.
+  solve(
+    puzzle: {
+      gridWidth: number;
+      gridHeight: number;
+      shapes: Position[][];
+      initialAnchors: Position[];
+      goalIndex: number;
+      goalAnchor: Position;
+    },
+    config: Record<string, unknown>,
   ): WasmTurnList;
   optimize(
     gridWidth: number,
@@ -59,13 +58,14 @@ interface WasmModule {
   ): WasmTurnList;
 }
 
-// Player "steps" = maximal runs of same-block, same-direction turns.
+// Player "steps" as the UI counts them (solutionView.ts): maximal runs of
+// same-block turns — direction changes fold into one polyline drag.
 function countSteps(turns: WasmTurn[]): number {
   let steps = 0;
   for (let i = 0; i < turns.length; i++) {
     const prev = turns[i - 1];
     const cur = turns[i]!;
-    if (!prev || prev.blockId !== cur.blockId || prev.direction !== cur.direction) {
+    if (!prev || prev.blockId !== cur.blockId) {
       steps++;
     }
   }
@@ -151,77 +151,129 @@ function validateSolution(
 }
 
 describe("WASM solver (shifting-mosaic)", () => {
+  // test37's winning cascade arm alone exceeds the ordinary per-arm budget
+  // (see LONG_BUDGET_MS above), so it runs as its own long case at the end.
+  const LONG_BUDGET_FIXTURES = new Set<string>(["shiftingMosaicTest37.json"]);
+
   const cases: [string][] = [["shiftingMosaicTest.json"]];
   for (let i = 1; i <= 43; i++) {
     cases.push([`shiftingMosaicTest${i}.json`]);
   }
+  const activeCases = cases.filter(([f]) => !LONG_BUDGET_FIXTURES.has(f));
 
-  test.each(cases)(
-    "solves %s",
-    async filename => {
-      // A fresh module per puzzle: a hard puzzle that exhausts the wasm32
-      // address space aborts only its own instance — it never poisons the
-      // tests that run after it.
-      const module = await loadWasmModule();
-      const data: ShiftingMosaicTest = await Bun.file(
-        `${import.meta.dir}/../resources/${filename}`,
-      ).json();
+  // Race the FULL production portfolio (one worker thread per arm, each
+  // with its own wasm module instance — an arm that exhausts the wasm32
+  // address space aborts only its own worker). First non-empty plan wins
+  // and the rest are terminated, exactly like wasmBridge does in the
+  // browser. node:worker_threads is used explicitly because the test
+  // preload's happy-dom `Worker` global is a non-functional stub.
+  function racePortfolio(
+    puzzle: Record<string, unknown>,
+    budgetMs: number,
+  ): Promise<WasmTurn[]> {
+    const arms = PORTFOLIO.map(arm => ({
+      ...arm,
+      maxMs: budgetMs,
+      postProcess: false,
+    }));
+    const workerPath = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "portfolio.worker.ts",
+    );
+    return new Promise(resolve => {
+      const workers = arms.map(() => new ArmWorker(workerPath));
+      let pending = workers.length;
+      let settled = false;
+      const finish = (turns: WasmTurn[]) => {
+        settled = true;
+        for (const w of workers) void w.terminate();
+        resolve(turns);
+      };
+      workers.forEach((worker, i) => {
+        worker.on("message", (data: { type: string; path?: WasmTurn[] }) => {
+          if (settled) return;
+          // The wasm module also posts {type:"progress"} while searching —
+          // only "done"/"error" settle an arm.
+          if (data.type === "done" && data.path && data.path.length > 0) {
+            finish(data.path);
+          } else if (
+            (data.type === "done" || data.type === "error") &&
+            --pending === 0
+          ) {
+            finish([]); // every arm came back empty or errored
+          }
+        });
+        worker.on("error", (err: unknown) => {
+          console.log(`arm ${i} error:`, err instanceof Error ? err.message : String(err));
+          if (settled) return;
+          if (--pending === 0) finish([]);
+        });
+        worker.postMessage({ puzzle, config: arms[i] });
+      });
+    });
+  }
 
-      // Production config: weighted A* (w=3) + the full additive heuristic
-      // stack, stride auto-detection on (strideOverride = 0). postProcess is
-      // off here so the raw solution can serve as the optimization baseline.
-      const rawResult = module.search(
+  async function solveFixture(filename: string, budgetMs: number) {
+    const module = await loadWasmModule(); // main-thread instance: optimizer
+    const data: ShiftingMosaicTest = await Bun.file(
+      `${import.meta.dir}/../resources/${filename}`,
+    ).json();
+
+    // postProcess is off in the arms so the raw solution can serve as the
+    // optimization baseline.
+    const raw = await racePortfolio(
+      {
+        gridWidth: data.gridWidth,
+        gridHeight: data.gridHeight,
+        shapes: data.shapes,
+        initialAnchors: data.initialAnchors,
+        goalIndex: data.goalIndex,
+        goalAnchor: data.goalAnchor,
+      },
+      budgetMs,
+    );
+
+    // Post-process the raw solution and compare.
+    const optimized = toTurnArray(
+      module.optimize(
         data.gridWidth,
         data.gridHeight,
         data.shapes,
         data.initialAnchors,
         data.goalIndex,
         data.goalAnchor,
-        /* weight */ 3,
-        /* deadlockPruning */ true,
-        /* maxMs */ PER_PUZZLE_BUDGET_MS,
-        /* maxNodes */ 20_000_000,
-        /* useIda */ false,
-        /* pathBlockerWeight */ 1,
-        /* boundaryWeight */ 1,
-        /* allWallsBfsBase */ false,
-        /* macroMoves */ false,
-        /* axisAwareWeight */ 1,
-        /* lpDisplacementWeight */ 1,
-        /* strideOverride */ 0,
-        /* postProcess */ false,
-      );
-      const raw = toTurnArray(rawResult);
+        raw,
+      ),
+    );
 
-      // Post-process the raw solution and compare.
-      const optimized = toTurnArray(
-        module.optimize(
-          data.gridWidth,
-          data.gridHeight,
-          data.shapes,
-          data.initialAnchors,
-          data.goalIndex,
-          data.goalAnchor,
-          raw,
-        ),
-      );
+    console.log(
+      `${filename}: ${raw.length} -> ${optimized.length} moves, ` +
+        `${countSteps(raw)} -> ${countSteps(optimized)} steps`,
+    );
 
-      console.log(
-        `${filename}: ${raw.length} -> ${optimized.length} moves, ` +
-          `${countSteps(raw)} -> ${countSteps(optimized)} steps`,
-      );
+    // The raw solution must be valid, and the optimized one must still be
+    // valid while never being longer in moves or in player steps.
+    expect(raw.length).toBeGreaterThan(0);
+    expect(validateSolution(data, raw).valid).toBe(true);
 
-      // The raw solution must be valid, and the optimized one must still be
-      // valid while never being longer in moves or in player steps.
-      expect(raw.length).toBeGreaterThan(0);
-      expect(validateSolution(data, raw).valid).toBe(true);
+    expect(optimized.length).toBeGreaterThan(0);
+    const { valid, reason } = validateSolution(data, optimized);
+    expect(valid, reason).toBe(true);
+    expect(optimized.length).toBeLessThanOrEqual(raw.length);
+    expect(countSteps(optimized)).toBeLessThanOrEqual(countSteps(raw));
+  }
 
-      expect(optimized.length).toBeGreaterThan(0);
-      const { valid, reason } = validateSolution(data, optimized);
-      expect(valid, reason).toBe(true);
-      expect(optimized.length).toBeLessThanOrEqual(raw.length);
-      expect(countSteps(optimized)).toBeLessThanOrEqual(countSteps(raw));
-    },
+  test.each(activeCases)(
+    "solves %s",
+    filename => solveFixture(filename, PER_PUZZLE_BUDGET_MS),
     PER_PUZZLE_TIMEOUT_MS,
   );
+
+  for (const f of LONG_BUDGET_FIXTURES) {
+    test(
+      `solves ${f} (long budget)`,
+      () => solveFixture(f, LONG_BUDGET_MS),
+      LONG_TIMEOUT_MS,
+    );
+  }
 });

@@ -4,6 +4,7 @@
 #include "NodeKey.h"
 #include "Types.h"
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -15,10 +16,9 @@ struct HeapEntry;
 
 class AStar {
 public:
-  // Internal move record: a Turn plus a slide distance. With macroMoves
-  // disabled, slideDistance is always 1 (so it round-trips to the public Turn
-  // representation unchanged). With macroMoves enabled, slideDistance can be
-  // >1 and the path reconstructor expands it to that many 1-cell Turns.
+  // Internal move record: a Turn plus a slide distance. slideDistance is the
+  // move stride (1 unless the puzzle is grid-quantized); the path
+  // reconstructor expands it to that many 1-cell Turns.
   struct InternalMove {
     uint8_t blockId = 0;
     Direction direction = Direction::UP;
@@ -35,6 +35,16 @@ public:
 
   std::function<void(uint32_t)> onProgress;
 
+  // Cumulative counters for the most recent search() call, summed across
+  // fallback passes (stride-1 retry, BFS retry). Benchmarking/telemetry
+  // only — never read by the search itself.
+  struct SearchStats {
+    uint32_t nodesExpanded = 0;
+    uint64_t statesStored = 0;
+    uint8_t passes = 0;
+  };
+  [[nodiscard]] const SearchStats &lastStats() const { return stats_; }
+
   // Heuristic add-ons. All flags are tunable; the BFS-through-locked-walls
   // base + final-position blocker count are always on.
   struct Config {
@@ -48,16 +58,6 @@ public:
     // BFS shortest path through *current* non-goal blocks (path-blocker
     // count). Non-admissible.
     uint8_t pathBlockerWeight = 0;
-    // If true, replace the BFS-through-locked-walls heuristic base with the
-    // tighter "BFS through *all* current non-goal blocks". Admissible (lower
-    // bound on goal-block moves) but per-state cost.
-    bool allWallsBfsBase = false;
-    // If true, move generation emits multi-cell macro slides: each
-    // (block, direction, k) for k=1..max-slide is a separate successor with
-    // cost = k. Same state space as 1-cell A* (intermediate stops still
-    // reachable), but A* can directly enqueue deeper states. Often helps
-    // rush-hour-style puzzles where solutions involve long slides.
-    bool macroMoves = false;
     // Multiplier on per-block perpendicular-displacement penalty. For each
     // movable block currently in the goal block's BFS path that can only move
     // perpendicular to the goal block's direction of travel, this adds at
@@ -73,14 +73,17 @@ public:
     // Move-stride override. 0 = auto-detect the grid-quantization factor;
     // >=1 = force that stride (1 disables quantization).
     uint8_t strideOverride = 0;
-    // If true, search() / searchIDAStar() run optimizeSolution() on the found
-    // path before returning. Turn it off to measure the raw search output.
+    // If true, search() runs optimizeSolution() on the found path before
+    // returning. Turn it off to measure the raw search output.
     bool postProcess = true;
     // If true, when guided (weighted) A* finds nothing, search() retries once
     // as pure breadth-first search (weight 0). BFS cannot be misled by a weak
     // heuristic, so it cracks dense puzzles whose heuristic gives no usable
     // gradient — at the cost of a second search pass.
     bool bfsFallback = true;
+    // Cooperative cancellation: when set and it becomes true, the search
+    // returns empty at the next budget checkpoint.
+    std::atomic<bool> *cancel = nullptr;
   };
 
   AStar(uint8_t gridWidth, uint8_t gridHeight,
@@ -98,10 +101,6 @@ public:
   // maxMs == 0 means no wall-clock budget.
   // maxNodes == 0 means no expansion-count budget.
   std::vector<Turn> search(uint32_t maxMs = 0, uint32_t maxNodes = 0);
-
-  // IDA* alternative. O(depth) memory; same heuristic / config knobs.
-  std::vector<Turn> searchIDAStar(uint32_t maxMs = 0,
-                                  uint32_t maxNodes = 0);
 
   // Post-processes a solved turn list with validity-preserving local rewrites
   // (trailing-move truncation, redundant out-and-back cancellation,
@@ -174,6 +173,7 @@ private:
   // Set by runAStar: true if the open set was fully drained (genuine "no
   // solution" within the move model), false if a budget/cap aborted it.
   bool searchExhausted_ = false;
+  SearchStats stats_{};
   std::vector<Turn> runAStar(uint32_t maxMs, uint32_t maxNodes);
 
   static constexpr int8_t DX[4] = {0, 1, 0, -1};
@@ -202,9 +202,6 @@ private:
   [[nodiscard]] uint32_t
   boundaryDistanceSum(const std::vector<Position> &anchors) const;
   [[nodiscard]] uint32_t
-  allWallsBfsDistance(const std::vector<Position> &anchors,
-                      Position currentGoal) const;
-  [[nodiscard]] uint32_t
   axisAwareBlockerCost(const std::vector<Position> &anchors,
                        Position currentGoal) const;
   [[nodiscard]] uint32_t
@@ -227,7 +224,8 @@ private:
 
   // --- Solution post-processing -------------------------------------------
   // A run is a maximal stretch of consecutive turns of the same block in the
-  // same direction — i.e. one player "drag" / step.
+  // same direction — one straight leg of a drag. (A player step can span
+  // several runs of one block; countSteps uses that coarser UI definition.)
   struct MoveRun {
     size_t start;
     size_t len;
@@ -249,18 +247,4 @@ private:
   [[nodiscard]] bool tryRunRemoval(std::vector<Turn> &turns) const;
   [[nodiscard]] bool trySingleRemoval(std::vector<Turn> &turns) const;
   [[nodiscard]] bool tryReorderMerge(std::vector<Turn> &turns) const;
-
-  // IDA* DFS helper. Returns +1 when the search ran but no goal was found.
-  // Mutates `path` and `pathSet` as it descends.
-  struct IDAResult {
-    bool found;
-    uint32_t nextThreshold;
-    bool exhausted; // true when budget hit (caller should abort)
-  };
-  IDAResult idaStarDFS(std::vector<Position> &anchors, uint32_t g,
-                       uint32_t threshold,
-                       std::vector<InternalMove> &path,
-                       std::unordered_set<NodeKey, NodeKeyHash> &pathSet,
-                       uint64_t deadline, uint32_t maxNodes,
-                       uint32_t &nodesExpanded);
 };
