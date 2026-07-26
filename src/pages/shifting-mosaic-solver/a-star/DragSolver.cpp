@@ -26,11 +26,21 @@ struct DragHeapEntry {
   uint32_t f;
   uint32_t g;
   uint32_t cells;
+  // NOTE: `signature` below is a POINTER pair, not a NodeKey copy. See the
+  // struct tail.
   // cells + scaled remaining-displacement estimate (see dispField_): among
   // equal (f, g), prefer states whose mask-blockers are closest to viable
   // parking. Pure ordering hint — never enters f.
   uint32_t tie;
-  NodeKey signature;
+  // Was a 48-byte NodeKey copy. The heap holds MORE entries than there are
+  // states (PEA* re-queues a parent for each successor batch), so this was the
+  // single largest consumer after the state map itself: 64 -> 32 bytes here.
+  // Both pointers are stable for the life of the search — `states` is never
+  // erased and unordered_map does not move its elements — so `key` addresses
+  // the map's own key and `info` its value. Carrying both means popping a
+  // state no longer costs a states.find().
+  const NodeKey *key = nullptr;
+  DragSolver::StateInfo *info = nullptr;
   auto operator<=>(const DragHeapEntry &o) const {
     if (const auto c = f <=> o.f; c != 0) return c;
     if (const auto c = o.g <=> g; c != 0) return c;
@@ -963,34 +973,30 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
       openHeap;
 
   const NodeKey rootSig = signatureFromAnchors(startAnchors);
-  states[rootSig] = {0, 0, {}, {}, 0, false, false};
+  auto *rootEntry = states.emplace(rootSig).first;
+  rootEntry->value = {0, 0, nullptr, {}, 0, false, false};
   nodeStore.try_emplace(rootSig, Node(startAnchors));
   const uint32_t rootDisp = displacementSum(startAnchors);
   openHeap.push({cfg_.weight * heuristic(startAnchors) +
                      (cfg_.packingWeight * rootDisp) / 16,
-                 0, 0, 16 * rootDisp, rootSig});
+                 0, 0, 16 * rootDisp, &rootEntry->key, &rootEntry->value});
 
   uint32_t nodesExpanded = 0;
   uint64_t loopIters = 0;
   // Best jam-term expanded state (jam guide only): the drag chain to it is
   // returned as bestPartialDrags on failure — the restart driver's elite.
-  NodeKey bestJamSig;
+  const StateInfo *bestJamState = nullptr;
   uint32_t bestJamVal = UINT32_MAX;
   const auto finishStats = [&] {
     stats_.passes++;
     stats_.nodesExpanded += nodesExpanded;
     stats_.statesStored += states.size();
     if (result.alts.empty() && bestJamVal != UINT32_MAX &&
-        bestJamSig.len != 0) {
+        bestJamState != nullptr) {
       result.bestPartialJam = bestJamVal;
-      NodeKey cur = bestJamSig;
-      while (true) {
-        auto it = states.find(cur);
-        if (it == states.end() || !it->second.hasParent)
-          break;
-        result.bestPartialDrags.push_back(it->second.move);
-        cur = it->second.parent;
-      }
+      for (const StateInfo *cur = bestJamState; cur && cur->hasParent;
+           cur = cur->parent)
+        result.bestPartialDrags.push_back(cur->move);
       std::reverse(result.bestPartialDrags.begin(),
                    result.bestPartialDrags.end());
     }
@@ -1171,15 +1177,17 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
     DragHeapEntry current = openHeap.top();
     openHeap.pop();
 
-    auto sit = states.find(current.signature);
-    if (sit == states.end() || sit->second.closed ||
-        sit->second.gScore < current.g ||
-        (sit->second.gScore == current.g && sit->second.cells < current.cells))
+    // The heap entry carries the map node directly, so popping no longer
+    // costs a hash lookup (this used to be states.find on every pop).
+    StateInfo *const sit = current.info;
+    if (sit == nullptr || sit->closed ||
+        sit->gScore < current.g ||
+        (sit->gScore == current.g && sit->cells < current.cells))
       continue;
 
-    auto nit = nodeStore.find(current.signature);
+    auto nit = nodeStore.find(*current.key);
     if (nit == nodeStore.end()) {
-      sit->second.closed = true;
+      sit->closed = true;
       continue;
     }
     // Copied out: the node may stay live across PEA* batches while the store
@@ -1210,14 +1218,9 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
         // Walk the parent chain to collect the drag plan.
         SegmentAlt alt;
         alt.endAnchors = anchors;
-        NodeKey cur = current.signature;
-        while (true) {
-          auto it = states.find(cur);
-          if (it == states.end() || !it->second.hasParent)
-            break;
-          alt.drags.push_back(it->second.move);
-          cur = it->second.parent;
-        }
+        for (const StateInfo *cur = current.info; cur && cur->hasParent;
+             cur = cur->parent)
+          alt.drags.push_back(cur->move);
         std::reverse(alt.drags.begin(), alt.drags.end());
         seenEnds.insert(coarse);
         result.alts.push_back(std::move(alt));
@@ -1227,13 +1230,13 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
         }
       }
       // Qualifying states are recorded leaves — never expanded.
-      sit->second.closed = true;
-      nodeStore.erase(current.signature);
+      sit->closed = true;
+      nodeStore.erase(*current.key);
       continue;
     }
 
     // References into `states` stay valid across inserts (node-based map).
-    StateInfo &info = sit->second;
+    StateInfo &info = *sit;
     if (info.batchesEmitted == 0) {
       nodesExpanded++;
       // Report cumulatively across passes/segments so callers see a monotone
@@ -1249,7 +1252,7 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
       }
       if (cfg_.deadlockPruning && isDeadlocked(anchors)) {
         info.closed = true;
-        nodeStore.erase(current.signature);
+        nodeStore.erase(*current.key);
         continue;
       }
     }
@@ -1304,7 +1307,7 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
         stats_.minJamTerm = jamBase;
       if (jamBase < bestJamVal) {
         bestJamVal = jamBase;
-        bestJamSig = current.signature;
+        bestJamState = current.info;
       }
     }
     if (gProg > stats_.maxProgress)
@@ -1499,33 +1502,33 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
       const Cand &c = candScratch_[ci];
       const Position newPos = grid_.anchorFromIndex(c.toIdx);
       NodeKey newSig =
-          childSignature(current.signature, c.blockId, anchors[c.blockId],
+          childSignature(*current.key, c.blockId, anchors[c.blockId],
                          newPos);
-      auto [newIt, inserted] = states.try_emplace(newSig);
+      auto [newEntry, inserted] = states.emplace(newSig);
+      StateInfo &child = newEntry->value;
       const bool better =
           inserted ||
-          (!newIt->second.closed &&
-           (newG < newIt->second.gScore ||
-            (newG == newIt->second.gScore && c.cells < newIt->second.cells)));
+          (!child.closed &&
+           (newG < child.gScore ||
+            (newG == child.gScore && c.cells < child.cells)));
       if (!better)
         continue;
-      newIt->second = {newG,         c.cells, current.signature,
-                       {c.blockId, c.toIdx}, 0,       true,
-                       false};
+      child = {newG, c.cells, current.info, {c.blockId, c.toIdx}, 0, true,
+               false};
       if (por)
-        newIt->second.slept = sleptMaskOf[c.blockId];
+        child.slept = sleptMaskOf[c.blockId];
       std::vector<Position> newAnchors = anchors;
       newAnchors[c.blockId] = newPos;
       nodeStore.insert_or_assign(newSig, Node(std::move(newAnchors)));
-      openHeap.push({c.f, newG, c.cells, c.tie, std::move(newSig)});
+      openHeap.push({c.f, newG, c.cells, c.tie, &newEntry->key, &child});
     }
     if (batch != 0 && emitTo < candScratch_.size()) {
       info.batchesEmitted++;
       openHeap.push({candScratch_[emitTo].f, current.g, current.cells,
-                     current.tie, current.signature});
+                     current.tie, current.key, current.info});
     } else {
       info.closed = true;
-      nodeStore.erase(current.signature);
+      nodeStore.erase(*current.key);
     }
   }
 

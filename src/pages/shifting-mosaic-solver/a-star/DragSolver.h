@@ -3,6 +3,7 @@
 #include "BitGrid.h"
 #include "Node.h"
 #include "NodeKey.h"
+#include "StateTable.h"
 #include "Types.h"
 
 #include <atomic>
@@ -363,7 +364,11 @@ public:
                               cfg_.jamDensityPct;
   }
 
-private:
+  // DragMove and StateInfo are implementation details, but the search's
+  // priority-queue entry (DragHeapEntry, file-scope in DragSolver.cpp) now
+  // carries a StateInfo* instead of copying a 48-byte NodeKey, so it has to be
+  // able to name the type. Nothing outside the solver uses these.
+public:
   struct DragMove {
     uint8_t blockId = 0;
     uint16_t toIdx = 0; // anchor index (x * gridHeight + y)
@@ -372,7 +377,19 @@ private:
   struct StateInfo {
     uint32_t gScore = UINT32_MAX;
     uint32_t cells = UINT32_MAX; // cumulative unit cells traveled (tie-break)
-    NodeKey parent;
+    // Parent link as a POINTER, not a copy of the parent's NodeKey. A NodeKey
+    // is 48 bytes and used to be two thirds of this struct; every stored state
+    // paid it, and memory is what bounds this solver (the browser races 8 arms
+    // inside one 8GB heap). 72 -> 32 bytes per state.
+    //
+    // Safe because std::unordered_map guarantees that references and pointers
+    // to elements survive inserts and rehashes, and `states` is never erased —
+    // the same guarantee runAStarDrag already relies on when it holds
+    // `StateInfo &info` across successor inserts. nullptr = root.
+    //
+    // The parent chain is only ever walked for `move`, never for an ancestor's
+    // key, so following pointers also removes a hash lookup per step.
+    const StateInfo *parent = nullptr;
     DragMove move{};
     uint16_t batchesEmitted = 0; // PEA*: successor batches already pushed
     bool hasParent = false;
@@ -383,7 +400,8 @@ private:
     uint32_t slept = 0;
   };
 
-  using StateMap = std::unordered_map<NodeKey, StateInfo, NodeKeyHash>;
+private:
+  using StateMap = StateTable<StateInfo>;
 
   uint8_t gridWidth_;
   uint8_t gridHeight_;

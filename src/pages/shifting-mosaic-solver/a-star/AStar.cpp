@@ -33,7 +33,12 @@ template <typename F> ScopeExit(F) -> ScopeExit<F>;
 struct HeapEntry {
   uint32_t f;
   uint32_t g;
-  NodeKey signature;
+  // Pointers into the state map instead of a 48-byte NodeKey copy: 56 -> 24
+  // bytes per queued entry. `key` addresses the map's own key, `info` its
+  // value; both stay valid because the map is never erased from. Popping a
+  // state therefore costs no states.find().
+  const NodeKey *key = nullptr;
+  AStar::StateInfo *info = nullptr;
   // Order by f; on ties, prefer the deeper node (larger g) so the search
   // dives toward goals instead of fanning out across an f-plateau.
   auto operator<=>(const HeapEntry &o) const {
@@ -915,19 +920,12 @@ NodeKey AStar::nodeSignature(const Node &node) const {
   return signatureFromAnchors(node.anchors);
 }
 
-std::vector<Turn> AStar::reconstructPath(const StateMap &states,
-                                         const NodeKey &goalSignature) {
+std::vector<Turn> AStar::reconstructPath(const StateInfo *goal) {
   // Walk cameFrom backward, collect macro moves, then expand each macro into
   // (slideDistance) 1-cell Turns.
   std::vector<InternalMove> moves;
-  NodeKey current = goalSignature;
-  while (true) {
-    auto it = states.find(current);
-    if (it == states.end() || !it->second.hasParent)
-      break;
-    moves.push_back(it->second.move);
-    current = it->second.parent;
-  }
+  for (const StateInfo *cur = goal; cur && cur->hasParent; cur = cur->parent)
+    moves.push_back(cur->move);
   std::reverse(moves.begin(), moves.end());
 
   std::vector<Turn> turns;
@@ -1022,9 +1020,11 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
   std::priority_queue<HeapEntry, std::vector<HeapEntry>, std::greater<>>
       openHeap;
 
-  states[rootSig] = {0, {}, {}, false, false};
+  auto *rootEntry = states.emplace(rootSig).first;
+  rootEntry->value = {0, nullptr, {}, false, false};
   nodeStore.try_emplace(rootSig, root);
-  openHeap.emplace(cfg_.weight * heuristic(root), 0, rootSig);
+  openHeap.emplace(cfg_.weight * heuristic(root), 0, &rootEntry->key,
+                   &rootEntry->value);
 
   uint32_t nodesExpanded = 0;
   const ScopeExit statsGuard{[&] {
@@ -1075,13 +1075,14 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
     HeapEntry current = openHeap.top();
     openHeap.pop();
 
-    auto sit = states.find(current.signature);
-    if (sit == states.end() || sit->second.closed ||
-        sit->second.gScore < current.g)
+    // The heap entry carries the map node, so no states.find() per pop.
+    StateInfo *const sit = current.info;
+    if (sit == nullptr || sit->closed ||
+        sit->gScore < current.g)
       continue;
 
-    sit->second.closed = true;
-    auto nit = nodeStore.find(current.signature);
+    sit->closed = true;
+    auto nit = nodeStore.find(*current.key);
     if (nit == nodeStore.end())
       continue;
     Node node = std::move(nit->second);
@@ -1091,7 +1092,7 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
       std::cout << "A* (w=" << static_cast<int>(cfg_.weight) << ") found solution in "
                 << current.g << " moves, expanded " << nodesExpanded
                 << " nodes\n";
-      return reconstructPath(states, current.signature);
+      return reconstructPath(current.info);
     }
 
     nodesExpanded++;
@@ -1132,15 +1133,16 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
 
           const uint32_t newG = current.g + k;
 
-          auto [newIt, inserted] = states.try_emplace(newSig);
-          if (inserted || (!newIt->second.closed && newG < newIt->second.gScore)) {
-            newIt->second = {newG, current.signature,
-                             {static_cast<uint8_t>(i), DIRS[d], k}, true, false};
+          auto [newEntry, inserted] = states.emplace(newSig);
+          StateInfo &child = newEntry->value;
+          if (inserted || (!child.closed && newG < child.gScore)) {
+            child = {newG, current.info,
+                     {static_cast<uint8_t>(i), DIRS[d], k}, true, false};
             nodeStore.insert_or_assign(newSig, std::move(newNode));
             openHeap.emplace(
                 newG +
                     cfg_.weight * heuristic(nodeStore.find(newSig)->second),
-                newG, newSig);
+                newG, &newEntry->key, &child);
           }
 
           break;

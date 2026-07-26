@@ -2,6 +2,7 @@
 
 #include "Node.h"
 #include "NodeKey.h"
+#include "StateTable.h"
 #include "Types.h"
 
 #include <atomic>
@@ -27,7 +28,12 @@ public:
 
   struct StateInfo {
     uint32_t gScore = UINT32_MAX;
-    NodeKey parent;
+    // Parent link as a POINTER, not a copy of the parent's 48-byte NodeKey —
+    // that copy was three quarters of this struct, paid by every stored state.
+    // 64 -> 24 bytes. Safe because unordered_map keeps element pointers valid
+    // across inserts and rehashes and `states` is never erased; the chain is
+    // only ever walked for `move`, never for an ancestor's key. nullptr = root.
+    const StateInfo *parent = nullptr;
     InternalMove move{};
     bool hasParent = false;
     bool closed = false;
@@ -242,10 +248,11 @@ private:
   [[nodiscard]] NodeKey
   signatureFromAnchors(const std::vector<Position> &anchors) const;
 
-  using StateMap = std::unordered_map<NodeKey, StateInfo, NodeKeyHash>;
+  using StateMap = StateTable<StateInfo>;
 
-  static std::vector<Turn> reconstructPath(const StateMap &states,
-                                           const NodeKey &goalSignature);
+  // Walks the parent chain from the goal state. Takes the state itself rather
+  // than (map, key): the walk only ever reads `move`, so it needs no lookups.
+  static std::vector<Turn> reconstructPath(const StateInfo *goal);
 
   // --- Solution post-processing -------------------------------------------
   // A run is a maximal stretch of consecutive turns of the same block in the
