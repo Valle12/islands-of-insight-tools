@@ -24,14 +24,19 @@ function getModule(name) {
   return modulePromises.get(name);
 }
 
+// Variant → module file. "threads" = pthreads build (cross-origin isolated
+// pages); "threads-mem64" = pthreads + 8GB shared MEMORY64 heap; "mem64" =
+// single-threaded 8GB MEMORY64 build; anything else = the portable wasm32 build.
+const MODULE_BY_VARIANT = {
+  threads: "astar.threads.mjs",
+  "threads-mem64": "astar.threads.mem64.mjs",
+  mem64: "astar.mem64.mjs",
+};
+
 self.onmessage = async event => {
-  // `variant: "threads"` selects the pthreads build (requires the page to be
-  // cross-origin isolated — the bridge only asks for it then).
   const { puzzle, config, variant } = event.data;
   try {
-    const module = await getModule(
-      variant === "threads" ? "astar.threads.mjs" : "astar.mjs",
-    );
+    const module = await getModule(MODULE_BY_VARIANT[variant] ?? "astar.mjs");
     const result = module.solve(puzzle, config ?? {});
 
     const path = [];

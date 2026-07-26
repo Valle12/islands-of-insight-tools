@@ -10,6 +10,7 @@
     "e2e": "bunx playwright test",
     "bench:sm": "bun run src/util/benchShiftingMosaic.ts",
     "fuzz:sm": "bun run src/util/fuzzShiftingMosaic.ts",
+    "test:mem64": "node --test test/shiftingMosaicSolver/mem64.node.test.mjs",
     "rolling-blocks-test": "ROLLING_BLOCKS_TEST=true bun test test/rollingBlocksSolver/bfs.test.ts",
     "test": "bun run build:wasm && ROLLING_BLOCKS_TEST=true bun test"
   },

@@ -1,4 +1,5 @@
 #include "DragSolver.h"
+#include "MemoryProbe.h"
 
 #include "AStar.h"
 
@@ -425,7 +426,8 @@ void DragSolver::computeCutSchedule() {
   // along the shortest path. progressOf then rises as the goal advances, so
   // hier can subgoal "push the goal one band closer" instead of solving the
   // whole corridor at once. Pseudo-cuts are guidance, not constraints.
-  if (cfg_.corridorBands && cuts.empty() && path.size() >= 8) {
+  if (cfg_.corridorBands && cuts.empty() &&
+      path.size() >= cfg_.corridorBandMinPath) {
     std::vector<int32_t> dist(totalAnchors, -1);
     std::vector<uint16_t> q{targetIdx};
     dist[targetIdx] = 0;
@@ -1131,6 +1133,33 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
                   << " drag expansions\n";
       finishStats();
       return finishResult(false);
+    }
+    // Graceful memory stop — see Config::maxStatesStored. Same cadence and the
+    // same unwind as the timeout above, so an out-of-memory search reports "no
+    // solution" instead of aborting the (shared) wasm heap under everyone else.
+    if (cfg_.maxStatesStored != 0 && (loopIters & 0xFF) == 0 &&
+        states.size() >= cfg_.maxStatesStored) {
+      if (verbose)
+        std::cout << "DragSolver hit the state ceiling (" << states.size()
+                  << " states) after " << nodesExpanded << " drag expansions\n";
+      finishStats();
+      return finishResult(false);
+    }
+    // Measured-memory ceiling. Same cadence deliberately: liveAllocatedBytes()
+    // walks allocator structures under emscripten, so it must not run per node.
+    if (cfg_.maxHeapBytes != 0 && (loopIters & 0xFF) == 0) {
+      const uint64_t used = memprobe::liveAllocatedBytes();
+      // 0 means the platform cannot measure — treat as "no information" and
+      // keep searching rather than stopping a search that is perfectly fine.
+      if (used != 0 && used >= cfg_.maxHeapBytes) {
+        if (verbose)
+          std::cout << "DragSolver hit the memory ceiling (" << (used >> 20)
+                    << " MB of " << (cfg_.maxHeapBytes >> 20) << " MB) after "
+                    << nodesExpanded << " drag expansions\n";
+        stats_.stoppedOnMemory = true;
+        finishStats();
+        return finishResult(false);
+      }
     }
     if (nodeCap != 0 && nodesExpanded >= nodeCap) {
       if (verbose)
@@ -1931,8 +1960,12 @@ std::vector<Turn> DragSolver::searchAssembly(const uint32_t maxMs,
   }
   std::cout << "assembly: solved — " << plan.size() << " turns\n";
   if (cfg_.postProcess && !plan.empty()) {
+    // Give the optimizer the race's cancel flag: once another arm has won,
+    // polishing a plan nobody will use only delays every other arm's join.
+    AStar::Config oc;
+    oc.cancel = cfg_.cancel;
     AStar optimizer(gridWidth_, gridHeight_, shapes_, initialAnchors_,
-                    goalIndex_, goalAnchor_);
+                    goalIndex_, goalAnchor_, oc);
     const size_t beforeMoves = plan.size();
     plan = optimizer.optimizeSolution(plan);
     std::cout << "post-process: " << beforeMoves << " -> " << plan.size()
@@ -1950,8 +1983,12 @@ std::vector<Turn> DragSolver::finalizePlan(const std::vector<DragMove> &drags) {
     return {};
   }
   if (cfg_.postProcess) {
+    // Give the optimizer the race's cancel flag: once another arm has won,
+    // polishing a plan nobody will use only delays every other arm's join.
+    AStar::Config oc;
+    oc.cancel = cfg_.cancel;
     AStar optimizer(gridWidth_, gridHeight_, shapes_, initialAnchors_,
-                    goalIndex_, goalAnchor_);
+                    goalIndex_, goalAnchor_, oc);
     const size_t beforeMoves = turns.size();
     turns = optimizer.optimizeSolution(turns);
     std::cout << "post-process: " << beforeMoves << " -> " << turns.size()
@@ -2202,9 +2239,19 @@ std::vector<Turn> DragSolver::searchJamRestarts(const uint32_t maxMs,
     }
   }
   cfg_ = saved;
+  // Expose the deepest elite so a stalled board can be decomposed (the pool is
+  // kept sorted by jam term, so front() is the deepest).
+  if (!elites.empty()) {
+    lastEliteAnchors_ = elites.front().anchors;
+    lastElitePrefix_ = elites.front().prefix;
+  }
   std::cout << "DragSolver(jam): " << restarts << " restart rounds, "
             << stats_.nodesExpanded << " total expansions, "
-            << (turns.empty() ? "no solution" : "SOLVED") << "\n";
+            << (turns.empty() ? "no solution" : "SOLVED");
+  if (turns.empty() && !elites.empty())
+    std::cout << " (deepest elite jam " << elites.front().jam << ", "
+              << elites.front().prefix.size() << " drags)";
+  std::cout << "\n";
   return turns;
 }
 

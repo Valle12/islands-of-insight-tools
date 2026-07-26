@@ -11,20 +11,227 @@
 #include <thread>
 #include <vector>
 
-// Races the three production solver arms on std::threads and returns the
-// first non-empty plan (the others are cancelled cooperatively). Works both
-// natively and under emscripten pthreads. The caller's thread blocks in
-// here, polling per-arm progress atomics and forwarding their sum to
-// `onProgress` — arms themselves never touch the callback, so under
-// emscripten only the calling (module) thread ever crosses into JS.
+namespace cascade {
+
+inline constexpr int ARMS = 8;
+
+inline uint64_t nowMsSteady() {
+  using namespace std::chrono;
+  return static_cast<uint64_t>(
+      duration_cast<milliseconds>(steady_clock::now().time_since_epoch())
+          .count());
+}
+
+inline const char *armName(const int arm) {
+  switch (arm) {
+  case 0: return "hier";
+  case 1: return "drag";
+  case 2: return "unit";
+  case 3: return "corridor";
+  case 4: return "assembly";
+  case 5: return "jam";
+  case 6: return "jamrestart";
+  case 7: return "jambeam";
+  default: return "?";
+  }
+}
+
+// Per-arm outcome, so a fuzz campaign can answer "which arms actually earn
+// their slot, and how fast" instead of it being guesswork. In the race the
+// losers are cancelled, so their wallMs is a lower bound; in the sequential
+// phase every number is a true runtime.
+struct ArmOutcome {
+  int arm = -1;
+  bool solved = false;   // produced a non-empty plan
+  bool won = false;      // its plan is the one returned
+  bool declined = false; // gate said no, or it bailed instantly
+  uint32_t wallMs = 0;
+};
+
+// One production arm, extracted so the parallel race and the sequential
+// fallback run byte-identical configurations — two copies would drift.
+//
+// `respectJamGate` is the one deliberate difference between the two callers.
+// Arms 6 and 7 normally decline unless jamProfile() holds, because spending a
+// racing thread on them elsewhere is usually waste. In the sequential phase
+// that trade inverts: the fast attempt has already failed, nothing else is
+// competing for the thread, and measurement showed the gate is what loses
+// boards — seed 41193 (37x9) is solved by arm 6 in 12ms but excluded by the
+// aspect test, and 42889 (25x7) likewise. So phase 2 runs every arm ungated.
+inline std::vector<Turn>
+runArm(const int arm, const uint8_t gridWidth, const uint8_t gridHeight,
+       const std::vector<std::vector<Position>> &shapes,
+       const std::vector<Position> &initialAnchors, const uint8_t goalIndex,
+       const Position goalAnchor, const uint32_t maxMs, const uint32_t maxNodes,
+       const bool postProcess, const uint64_t maxHeapBytes,
+       std::atomic<bool> *cancel,
+       const std::function<void(uint32_t)> &onArmProgress,
+       const bool respectJamGate, const uint8_t jamAspect16 = 42,
+       const uint8_t jamDensityPct = 40) {
+  switch (arm) {
+  case 0: { // receding-horizon drag search — fast on cut-structured puzzles
+    DragSolver::Config cfg;
+    cfg.maxHeapBytes = maxHeapBytes;
+    cfg.jamAspect16 = jamAspect16;
+    cfg.jamDensityPct = jamDensityPct;
+    cfg.weight = 3;
+    cfg.settledOnly = true;
+    cfg.partialExpansionWidth = 48;
+    cfg.postProcess = postProcess;
+    cfg.cancel = cancel;
+    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
+                      goalAnchor, cfg);
+    solver.onProgress = onArmProgress;
+    return solver.searchHierarchical(maxMs, maxNodes);
+  }
+  case 1: { // the deep-puzzle flat drag config (cracked shiftingMosaicTest37)
+    DragSolver::Config cfg;
+    cfg.maxHeapBytes = maxHeapBytes;
+    cfg.jamAspect16 = jamAspect16;
+    cfg.jamDensityPct = jamDensityPct;
+    cfg.weight = 4;
+    cfg.settledOnly = true;
+    cfg.partialExpansionWidth = 64;
+    cfg.postProcess = postProcess;
+    cfg.cancel = cancel;
+    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
+                      goalAnchor, cfg);
+    solver.onProgress = onArmProgress;
+    return solver.search(maxMs, maxNodes == 0 ? 0 : maxNodes);
+  }
+  case 2: { // the legacy unit-move production config — zero-regression arm
+    AStar::Config cfg;
+    cfg.maxHeapBytes = maxHeapBytes;
+    // no jamAspect16 here: the unit arm is AStar and has no jam gate.
+    cfg.weight = 3;
+    cfg.pathBlockerWeight = 1;
+    cfg.boundaryDistanceWeight = 1;
+    cfg.axisAwareWeight = 1;
+    cfg.lpDisplacementWeight = 1;
+    cfg.postProcess = postProcess;
+    cfg.cancel = cancel;
+    AStar solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
+                 goalAnchor, cfg);
+    solver.onProgress = onArmProgress;
+    return solver.search(maxMs, maxNodes);
+  }
+  case 3: { // corridor — synthetic distance bands (declines fast on cut boards)
+    DragSolver::Config cfg;
+    cfg.maxHeapBytes = maxHeapBytes;
+    cfg.jamAspect16 = jamAspect16;
+    cfg.jamDensityPct = jamDensityPct;
+    cfg.weight = 3;
+    cfg.settledOnly = true;
+    cfg.partialExpansionWidth = 48;
+    cfg.corridorBands = true;
+    cfg.postProcess = postProcess;
+    cfg.cancel = cancel;
+    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
+                      goalAnchor, cfg);
+    solver.onProgress = onArmProgress;
+    return solver.searchHierarchical(maxMs, maxNodes);
+  }
+  case 4: { // assembly — pack-then-slide (declines fast without a packing)
+    DragSolver::Config cfg;
+    cfg.maxHeapBytes = maxHeapBytes;
+    cfg.jamAspect16 = jamAspect16;
+    cfg.jamDensityPct = jamDensityPct;
+    cfg.postProcess = postProcess;
+    cfg.cancel = cancel;
+    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
+                      goalAnchor, cfg);
+    solver.onProgress = onArmProgress;
+    return solver.searchAssembly(maxMs, maxNodes);
+  }
+  case 5: { // jam — relevance filter + commutativity pruning for compact
+            // dense boards where the unrestricted searches drown
+    DragSolver::Config cfg;
+    cfg.maxHeapBytes = maxHeapBytes;
+    cfg.jamAspect16 = jamAspect16;
+    cfg.jamDensityPct = jamDensityPct;
+    cfg.weight = 4;
+    cfg.settledOnly = true;
+    cfg.partialExpansionWidth = 64;
+    cfg.sleepSets = true;
+    cfg.relevantOnly = true;
+    cfg.postProcess = postProcess;
+    cfg.cancel = cancel;
+    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
+                      goalAnchor, cfg);
+    solver.onProgress = onArmProgress;
+    return solver.search(maxMs, maxNodes);
+  }
+  case 6: { // jam restarts — dig-cost-guided diversified rounds for compact
+            // dense 0-cut boards (cracked seeds 10276/4722; bands covers 9164)
+    DragSolver::Config cfg;
+    cfg.maxHeapBytes = maxHeapBytes;
+    cfg.jamAspect16 = jamAspect16;
+    cfg.jamDensityPct = jamDensityPct;
+    cfg.corridorBands = true; // synthesizes only on 0-cut long-path boards
+    // Luby-shaped round caps: at the browser's ~300s/arm budget the stock
+    // 1.5M-node cap yields only ~4 restart rounds, but the elite ratchet is a
+    // lottery that needs many (seed 8697: 110). Measured on the hard-instance
+    // family at 300s, luby20k/e64 descends the ratchet -46% deeper than stock
+    // (mean minJamTerm 40->21.7) — best of every config tried. See
+    // HARD-BOARDS.md.
+    cfg.jamRoundNodeCap = 20000;
+    cfg.jamMaxElites = 64;
+    cfg.jamLubyRestarts = true;
+    cfg.postProcess = postProcess;
+    cfg.cancel = cancel;
+    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
+                      goalAnchor, cfg);
+    if (respectJamGate && !solver.jamProfile())
+      return {};
+    solver.onProgress = onArmProgress;
+    return solver.searchJamRestarts(maxMs, maxNodes);
+  }
+  case 7: { // guided beam — breadth against the jam plateaus the restart
+            // rounds dive past. Heavy penalty is the config that cracked 3870.
+    DragSolver::Config cfg;
+    cfg.maxHeapBytes = maxHeapBytes;
+    cfg.jamAspect16 = jamAspect16;
+    cfg.jamDensityPct = jamDensityPct;
+    cfg.corridorBands = true;
+    cfg.jamGuideWeight = 8;
+    cfg.jamBlockerPenalty = 8;
+    cfg.postProcess = postProcess;
+    cfg.cancel = cancel;
+    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
+                      goalAnchor, cfg);
+    if (respectJamGate && !solver.jamProfile())
+      return {};
+    solver.onProgress = onArmProgress;
+    return solver.searchBeamJam(maxMs, maxNodes);
+  }
+  default:
+    return {};
+  }
+}
+
+} // namespace cascade
+
+// Races the production solver arms on std::threads and returns the first
+// non-empty plan (the others are cancelled cooperatively). Works both natively
+// and under emscripten pthreads. The caller's thread blocks in here, polling
+// per-arm progress atomics and forwarding their sum to `onProgress` — arms
+// themselves never touch the callback, so under emscripten only the calling
+// (module) thread ever crosses into JS.
 inline std::vector<Turn> solveArmsParallel(
     const uint8_t gridWidth, const uint8_t gridHeight,
     const std::vector<std::vector<Position>> &shapes,
     const std::vector<Position> &initialAnchors, const uint8_t goalIndex,
     const Position goalAnchor, const uint32_t maxMs, const uint32_t maxNodes,
     const bool postProcess,
-    const std::function<void(uint32_t)> &onProgress) {
-  constexpr int ARMS = 8;
+    const std::function<void(uint32_t)> &onProgress,
+    // Measured-bytes ceiling applied to EVERY arm. 0 = unlimited. This matters
+    // most here and nowhere else: under emscripten pthreads all 8 arms share
+    // ONE heap, so an unbounded arm does not merely fail itself — exhausting a
+    // shared wasm heap ABORTS the module, taking down arms that were winning.
+    const uint64_t maxHeapBytes = 0, const uint8_t jamAspect16 = 42,
+    const uint8_t jamDensityPct = 40,
+    std::vector<cascade::ArmOutcome> *outcomes = nullptr) {
+  using cascade::ARMS;
   std::atomic<bool> cancel{false};
   std::atomic<int> winner{-1};
   std::atomic<int> finished{0};
@@ -36,160 +243,27 @@ inline std::vector<Turn> solveArmsParallel(
     if (winner.compare_exchange_strong(expected, arm))
       cancel.store(true, std::memory_order_relaxed);
   };
-  const auto armProgress = [&progress](const int arm) {
-    return [&progress, arm](const uint32_t n) {
-      progress[arm].store(n, std::memory_order_relaxed);
-    };
-  };
 
+  std::atomic<uint32_t> armMs[ARMS] = {};
   std::thread threads[ARMS];
-  // Arm 0: receding-horizon drag search — fast on cut-structured puzzles.
-  threads[0] = std::thread([&] {
-    DragSolver::Config cfg;
-    cfg.weight = 3;
-    cfg.settledOnly = true;
-    cfg.partialExpansionWidth = 48;
-    cfg.postProcess = postProcess;
-    cfg.cancel = &cancel;
-    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors,
-                      goalIndex, goalAnchor, cfg);
-    solver.onProgress = armProgress(0);
-    results[0] = solver.searchHierarchical(maxMs, maxNodes);
-    if (!results[0].empty())
-      claimWin(0);
-    finished.fetch_add(1);
-  });
-  // Arm 1: the deep-puzzle flat drag config (cracked shiftingMosaicTest37).
-  threads[1] = std::thread([&] {
-    DragSolver::Config cfg;
-    cfg.weight = 4;
-    cfg.settledOnly = true;
-    cfg.partialExpansionWidth = 64;
-    cfg.postProcess = postProcess;
-    cfg.cancel = &cancel;
-    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors,
-                      goalIndex, goalAnchor, cfg);
-    solver.onProgress = armProgress(1);
-    results[1] = solver.search(maxMs, maxNodes == 0 ? 0 : maxNodes);
-    if (!results[1].empty())
-      claimWin(1);
-    finished.fetch_add(1);
-  });
-  // Arm 2: the legacy unit-move production config — zero-regression arm.
-  threads[2] = std::thread([&] {
-    AStar::Config cfg;
-    cfg.weight = 3;
-    cfg.pathBlockerWeight = 1;
-    cfg.boundaryDistanceWeight = 1;
-    cfg.axisAwareWeight = 1;
-    cfg.lpDisplacementWeight = 1;
-    cfg.postProcess = postProcess;
-    cfg.cancel = &cancel;
-    AStar solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
-                 goalAnchor, cfg);
-    solver.onProgress = armProgress(2);
-    results[2] = solver.search(maxMs, maxNodes);
-    if (!results[2].empty())
-      claimWin(2);
-    finished.fetch_add(1);
-  });
-  // Arm 3: corridor — synthetic distance bands (declines fast on cut boards).
-  threads[3] = std::thread([&] {
-    DragSolver::Config cfg;
-    cfg.weight = 3;
-    cfg.settledOnly = true;
-    cfg.partialExpansionWidth = 48;
-    cfg.corridorBands = true;
-    cfg.postProcess = postProcess;
-    cfg.cancel = &cancel;
-    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors,
-                      goalIndex, goalAnchor, cfg);
-    solver.onProgress = armProgress(3);
-    results[3] = solver.searchHierarchical(maxMs, maxNodes);
-    if (!results[3].empty())
-      claimWin(3);
-    finished.fetch_add(1);
-  });
-  // Arm 4: assembly — pack-then-slide (declines fast without a packing).
-  threads[4] = std::thread([&] {
-    DragSolver::Config cfg;
-    cfg.postProcess = postProcess;
-    cfg.cancel = &cancel;
-    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors,
-                      goalIndex, goalAnchor, cfg);
-    solver.onProgress = armProgress(4);
-    results[4] = solver.searchAssembly(maxMs, maxNodes);
-    if (!results[4].empty())
-      claimWin(4);
-    finished.fetch_add(1);
-  });
-  // Arm 5: jam — relevance filter + commutativity pruning for compact
-  // dense boards where the unrestricted searches drown.
-  threads[5] = std::thread([&] {
-    DragSolver::Config cfg;
-    cfg.weight = 4;
-    cfg.settledOnly = true;
-    cfg.partialExpansionWidth = 64;
-    cfg.sleepSets = true;
-    cfg.relevantOnly = true;
-    cfg.postProcess = postProcess;
-    cfg.cancel = &cancel;
-    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors,
-                      goalIndex, goalAnchor, cfg);
-    solver.onProgress = armProgress(5);
-    results[5] = solver.search(maxMs, maxNodes);
-    if (!results[5].empty())
-      claimWin(5);
-    finished.fetch_add(1);
-  });
-
-  // Arm 6: jam restarts — dig-cost-guided diversified rounds for compact
-  // dense 0-cut boards (cracked seeds 10276/4722; bands round covers 9164).
-  // Declines instantly outside the jam profile.
-  threads[6] = std::thread([&] {
-    DragSolver::Config cfg;
-    cfg.corridorBands = true; // synthesizes only on 0-cut long-path boards
-    // Luby-shaped round caps: at the browser's ~300s/arm budget the stock
-    // 1.5M-node cap yields only ~4 restart rounds, but the elite ratchet is a
-    // lottery that needs many (seed 8697: 110). Measured on the hard-instance
-    // family at 300s, luby20k/e64 descends the ratchet -46% deeper than stock
-    // (mean minJamTerm 40->21.7) — best of every config tried. See
-    // HARD-BOARDS.md. Zero-touch on non-jam boards (this arm gate-declines).
-    cfg.jamRoundNodeCap = 20000;
-    cfg.jamMaxElites = 64;
-    cfg.jamLubyRestarts = true;
-    cfg.postProcess = postProcess;
-    cfg.cancel = &cancel;
-    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors,
-                      goalIndex, goalAnchor, cfg);
-    if (solver.jamProfile()) {
-      solver.onProgress = armProgress(6);
-      results[6] = solver.searchJamRestarts(maxMs, maxNodes);
-      if (!results[6].empty())
-        claimWin(6);
-    }
-    finished.fetch_add(1);
-  });
-  // Arm 7: guided beam — breadth against jam plateaus the restart rounds
-  // dive past. Same jam-profile gate. Auto beam width (shared heap); the
-  // heavy penalty is from the config that cracked seed 3870.
-  threads[7] = std::thread([&] {
-    DragSolver::Config cfg;
-    cfg.corridorBands = true;
-    cfg.jamGuideWeight = 8;
-    cfg.jamBlockerPenalty = 8;
-    cfg.postProcess = postProcess;
-    cfg.cancel = &cancel;
-    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors,
-                      goalIndex, goalAnchor, cfg);
-    if (solver.jamProfile()) {
-      solver.onProgress = armProgress(7);
-      results[7] = solver.searchBeamJam(maxMs, maxNodes);
-      if (!results[7].empty())
-        claimWin(7);
-    }
-    finished.fetch_add(1);
-  });
+  for (int i = 0; i < ARMS; i++) {
+    threads[i] = std::thread([&, i] {
+      const uint64_t started = cascade::nowMsSteady();
+      results[i] = cascade::runArm(
+          i, gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
+          goalAnchor, maxMs, maxNodes, postProcess, maxHeapBytes, &cancel,
+          [&progress, i](const uint32_t n) {
+            progress[i].store(n, std::memory_order_relaxed);
+          },
+          /*respectJamGate=*/true, jamAspect16, jamDensityPct);
+      armMs[i].store(
+          static_cast<uint32_t>(cascade::nowMsSteady() - started),
+          std::memory_order_relaxed);
+      if (!results[i].empty())
+        claimWin(i);
+      finished.fetch_add(1);
+    });
+  }
 
   while (finished.load() < ARMS) {
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -204,10 +278,109 @@ inline std::vector<Turn> solveArmsParallel(
     t.join();
 
   const int w = winner.load();
+  if (outcomes) {
+    outcomes->clear();
+    for (int i = 0; i < ARMS; i++) {
+      const uint32_t ms = armMs[i].load(std::memory_order_relaxed);
+      outcomes->push_back({i, !results[i].empty(), i == w,
+                           // <5ms with no plan means it gate-declined or
+                           // short-circuited rather than actually searching.
+                           results[i].empty() && ms < 5, ms});
+    }
+  }
   if (w >= 0)
     return results[w];
   for (const auto &r : results)
     if (!r.empty())
       return r;
+  return {};
+}
+
+// Last-resort fallback: run the same arms ONE AT A TIME, so each gets the whole
+// heap instead of a contested slice of it, and run them UNGATED.
+//
+// Why this exists (measured, seeds regenerated from the v4 campaign):
+//   42889 — the race fails at 351s; arm 2 (unit) solves it alone in 108s using
+//           6.24GB. In the race, arms 0/1/3 fill the shared 8GB and everything
+//           stops before unit can get there. Pure starvation.
+//   41193 — solved by arm 6 in 12ms, but the aspect leg of jamProfile() (37x9)
+//           excludes that arm from the race entirely.
+// Neither needs a better algorithm; both need resources or permission.
+//
+// Cost is wall-clock: arms run in series. It is bounded in practice because a
+// memory-bound arm self-terminates early (on 45501 the hungry arms hit 8GB at
+// 66-221s rather than running their full budget), and `totalMaxMs` caps the
+// phase outright. Callers must tell the user this phase has started — it is
+// materially slower than the race.
+inline std::vector<Turn> solveArmsSequential(
+    const uint8_t gridWidth, const uint8_t gridHeight,
+    const std::vector<std::vector<Position>> &shapes,
+    const std::vector<Position> &initialAnchors, const uint8_t goalIndex,
+    const Position goalAnchor, const uint32_t maxMsPerArm,
+    const uint32_t totalMaxMs, const uint32_t maxNodes, const bool postProcess,
+    const std::function<void(uint32_t)> &onProgress,
+    const uint64_t maxHeapBytes = 0, std::atomic<bool> *cancel = nullptr,
+    const uint8_t jamAspect16 = 42, const uint8_t jamDensityPct = 40,
+    std::vector<cascade::ArmOutcome> *outcomes = nullptr) {
+  // Order is MEASURED, not assumed: all 8 arms were run standalone against
+  // every one of 12 boards the race loses (96 runs, 300s and an 8GB cap each,
+  // ungated exactly as here) — test-results/arm-study.
+  //
+  //   arm         wins/12   median win   fastest
+  //   jamrestart      7        81s          11ms
+  //   unit            1        52s
+  //   jam             1        77s
+  //   corridor        1       251s
+  //   hier/drag/assembly/jambeam   0
+  //
+  // jamrestart wins 7 of 12 and no other arm wins more than one; on 56676,
+  // where three arms can win, it is also the fastest (20s vs 52s vs 251s).
+  // Ordering by win rate, then median time; the four arms that never win are
+  // ordered cheapest-first, with assembly early because it declines in
+  // milliseconds when no packing exists and drag last as the memory glutton.
+  //
+  // NOTE the easy-board distribution is nearly the INVERSE of this (unit 45%
+  // and corridor 35% of wins over 2,000 fuzz boards, jamrestart 1.5%). Phase 2
+  // only ever runs on boards the race already lost, so ordering it from
+  // general fuzz statistics would put the one arm that matters last.
+  //
+  // 4 of the 12 (41926, 48368, 60672, 60758) are solved by no arm at all, so
+  // no ordering rescues them.
+  constexpr int ORDER[cascade::ARMS] = {6, 2, 5, 3, 4, 7, 0, 1};
+
+  const uint64_t deadline =
+      totalMaxMs == 0 ? 0 : cascade::nowMsSteady() + totalMaxMs;
+  uint32_t carried = 0; // progress from arms already finished
+
+  for (const int arm : ORDER) {
+    if (cancel && cancel->load(std::memory_order_relaxed))
+      return {};
+    uint32_t budget = maxMsPerArm;
+    if (deadline != 0) {
+      const uint64_t now = cascade::nowMsSteady();
+      if (now >= deadline)
+        break;
+      const auto left = static_cast<uint32_t>(deadline - now);
+      budget = (maxMsPerArm == 0) ? left : std::min(maxMsPerArm, left);
+    }
+    uint32_t armBase = carried;
+    const uint64_t started = cascade::nowMsSteady();
+    auto turns = cascade::runArm(
+        arm, gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
+        goalAnchor, budget, maxNodes, postProcess, maxHeapBytes, cancel,
+        [&onProgress, armBase](const uint32_t n) {
+          if (onProgress)
+            onProgress(armBase + n);
+        },
+        /*respectJamGate=*/false, jamAspect16, jamDensityPct);
+    const auto ms =
+        static_cast<uint32_t>(cascade::nowMsSteady() - started);
+    if (outcomes)
+      outcomes->push_back(
+          {arm, !turns.empty(), !turns.empty(), turns.empty() && ms < 5, ms});
+    if (!turns.empty())
+      return turns;
+    carried += 1; // keep the counter monotonic across arms
+  }
   return {};
 }

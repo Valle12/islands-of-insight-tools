@@ -2,7 +2,12 @@
 //
 //   bun run src/util/fuzzShiftingMosaic.ts [--count 50] [--shuffle 100000]
 //       [--budget-ms 30000] [--seed-base 1000] [--out results.json]
-//       [--exe <path>] [--work-dir <dir>] [--retry]
+//       [--exe <path>] [--work-dir <dir>] [--retry] [--engine <name>]
+//
+// --engine parallel is the SHIPPED browser path (solveArmsParallel: 8 arms
+// racing on real threads). --engine cascade is the sequential chain and is
+// a different measurement — each board takes 8 threads under `parallel`, so
+// shard accordingly.
 //
 // --retry: after the sweep, re-attempt every failure with an escalation
 // ladder (long-budget cascade → elite-jam marathon → wide guided beam) —
@@ -43,6 +48,10 @@ interface CaseResult {
   turns?: number;
   steps?: number;
   wallMs: number;
+  // Per-arm outcome from the parallel/sequential engines: which arms solved,
+  // which won, and how long each took. Aggregated to decide the sequential
+  // phase's arm ORDER, which is otherwise guesswork.
+  arms?: { arm: number; name: string; solved: boolean; won: boolean; declined: boolean; wallMs: number }[];
   error?: string;
 }
 
@@ -56,6 +65,8 @@ function parseArgs(argv: string[]) {
     out: "",
     workDir: "",
     retry: false,
+    engine: "cascade",
+    extra: [] as string[],
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
@@ -72,6 +83,10 @@ function parseArgs(argv: string[]) {
     else if (arg === "--out") opts.out = resolve(next());
     else if (arg === "--work-dir") opts.workDir = resolve(next());
     else if (arg === "--retry") opts.retry = true;
+    else if (arg === "--engine") opts.engine = next();
+    // Repeatable passthrough for solver flags the harness does not model,
+    // e.g. --extra --jam-aspect --extra 66 --extra --max-heap-bytes ...
+    else if (arg === "--extra") opts.extra.push(next());
     else throw new Error(`Unknown argument: ${arg}`);
   }
   if (!opts.workDir)
@@ -126,7 +141,7 @@ for (let i = 0; i < opts.count; i++) {
   // Cascade worst case: 8 sequential stages + optimizer slack.
   const solve = await runCli(
     opts.exe,
-    ["--fixture", fixture, "--engine", "cascade", "--budget-ms", String(opts.budgetMs), "--max-nodes", "0", "--json"],
+    ["--fixture", fixture, "--engine", opts.engine, "--budget-ms", String(opts.budgetMs), "--max-nodes", "0", ...opts.extra, "--json"],
     opts.budgetMs * 9 + 120_000,
   );
   const s = solve.json ?? {};
@@ -148,6 +163,7 @@ for (let i = 0; i < opts.count; i++) {
     turns: s.turns,
     steps: s.steps,
     wallMs: s.wallMs ?? Date.now() - started,
+    arms: s.arms,
     error: solve.json ? undefined : `solver produced no JSON (exit ${solve.exitCode})`,
   };
   results.push(r);

@@ -40,35 +40,31 @@ const server = Bun.serve({
         headers: { "Content-Type": "application/javascript" },
       });
     }
-    if (url.pathname === "/sm-wasm/astar.mjs") {
-      const file = Bun.file(resolve(shiftingMosaicWasmDir, "astar.mjs"));
-      return new Response(file, {
-        headers: { "Content-Type": "application/javascript" },
-      });
-    }
-    if (url.pathname === "/sm-wasm/astar.wasm") {
-      const file = Bun.file(resolve(shiftingMosaicWasmDir, "astar.wasm"));
-      return new Response(file, {
-        headers: { "Content-Type": "application/wasm" },
-      });
-    }
-    if (url.pathname === "/sm-wasm/astar.worker.js") {
-      const file = Bun.file(resolve(shiftingMosaicWasmDir, "astar.worker.js"));
-      return new Response(file, {
-        headers: { "Content-Type": "application/javascript" },
-      });
-    }
-    if (url.pathname === "/sm-wasm/astar.threads.mjs") {
-      const file = Bun.file(resolve(shiftingMosaicWasmDir, "astar.threads.mjs"));
-      return new Response(file, {
-        headers: { "Content-Type": "application/javascript" },
-      });
-    }
-    if (url.pathname === "/sm-wasm/astar.threads.wasm") {
-      const file = Bun.file(resolve(shiftingMosaicWasmDir, "astar.threads.wasm"));
-      return new Response(file, {
-        headers: { "Content-Type": "application/wasm" },
-      });
+    // Shifting-mosaic solver assets (all build variants: wasm32, pthreads,
+    // MEMORY64). Served by extension — bun can hand the browser the mem64
+    // binary even though it cannot instantiate it itself.
+    if (url.pathname.startsWith("/sm-wasm/")) {
+      const name = url.pathname.slice("/sm-wasm/".length);
+      const allowed = new Set([
+        "astar.mjs",
+        "astar.wasm",
+        "astar.worker.js",
+        "astar.threads.mjs",
+        "astar.threads.wasm",
+        "astar.mem64.mjs",
+        "astar.mem64.wasm",
+        "astar.threads.mem64.mjs",
+        "astar.threads.mem64.wasm",
+      ]);
+      if (allowed.has(name)) {
+        return new Response(Bun.file(resolve(shiftingMosaicWasmDir, name)), {
+          headers: {
+            "Content-Type": name.endsWith(".wasm")
+              ? "application/wasm"
+              : "application/javascript",
+          },
+        });
+      }
     }
     if (url.pathname === "/coi-serviceworker.js") {
       const file = Bun.file(

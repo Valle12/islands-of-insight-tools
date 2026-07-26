@@ -40,5 +40,9 @@ astar.wasm
 astar.mjs
 astar.threads.wasm
 astar.threads.mjs
+astar.mem64.wasm
+astar.mem64.mjs
+astar.threads.mem64.wasm
+astar.threads.mem64.mjs
 build-*
 .playwright-mcp

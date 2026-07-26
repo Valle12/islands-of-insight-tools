@@ -14,6 +14,15 @@ export interface WasmSearchCallbacks {
   onProgress?: (nodesExpanded: number) => void;
   onDone?: (path: Turn[]) => void;
   onError?: (error: string) => void;
+  /**
+   * Fired when the solver moves to a different strategy. Currently only
+   * "sequential": the parallel race found nothing, so the arms are being
+   * re-run one at a time, each with the whole heap. That recovers boards the
+   * race cannot (measured: one starved of memory, one excluded by an arm
+   * gate) but is materially slower, so the UI must say so rather than leaving
+   * an unchanged spinner.
+   */
+  onPhase?: (phase: string) => void;
 }
 
 export interface ShiftingMosaicPuzzle {
@@ -38,9 +47,19 @@ export interface SolverHandle {
 //
 // Budgets follow the "anytime" UX: hard puzzles may search minutes; the UI
 // shows live progress and its Cancel path calls SolverHandle.terminate().
-// maxNodes 0 = unbounded (hier's per-segment searches bound memory);
-// the flat arms keep a node cap as their wasm-heap safety valve.
 const SOLVE_BUDGET_MS = 300_000;
+// On the memory: a FLAT search (drag / unit) keeps every expanded node's state
+// map + per-expansion scratch resident, ~2.0-2.4KB/node measured, so its heap
+// grows ~linearly with nodes and hits the wasm32 4GB wall at ~1.7M nodes on a
+// hard board. When an arm hits the wall it aborts — but each arm is its own
+// worker, so the bridge just retires that one worker (see onmessage/onerror
+// below) and the portfolio races on; a hard board simply ends "no solution".
+// A node cap is NOT a useful safety valve here: the wall already self-enforces
+// and the abort is already contained, while any cap low enough to matter also
+// cuts legitimate deep solves that run right up to the wall (shiftingMosaicTest37
+// finds its 41-drag plan on the flat drag arm at ~1.3M nodes / ~3GB). The real
+// ceiling-lift is the MEMORY64 build (astar.mem64, 8GB heap), preferred below
+// wherever the runtime can load it. maxNodes here stays a loose runaway guard.
 // Exported so the wasm test suite can race the EXACT production arm set.
 export const PORTFOLIO: Record<string, unknown>[] = [
   // Pack-then-slide pipeline — solves shiftingMosaicTest41-class puzzles in
@@ -77,6 +96,32 @@ function isAlreadySolved(p: ShiftingMosaicPuzzle): boolean {
   return g.x === p.goalAnchor.x && g.y === p.goalAnchor.y;
 }
 
+// Tiny modules declaring a single 64-bit memory. If the engine validates one,
+// it can load the matching MEMORY64 build, whose heap ceiling is 8GB instead of
+// the wasm32 4GB wall — enough that the deep arms stop aborting mid-search on
+// the hardest boards. Browsers enable Memory64 behind a flag today and natively
+// soon; bun cannot load either yet.
+//   - NON-SHARED (flags 0x04 = is64): the single-threaded astar.mem64 build.
+//   - SHARED (flags 0x07 = is64|shared|has_max, min 0 max 1): the pthreads
+//     astar.threads.mem64 build, whose arms race inside one shared 64-bit heap.
+//     This is a distinct capability — an engine can have one without the other.
+const MEMORY64_PROBE = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x05, 0x03, 0x01, 0x04, 0x00,
+]);
+const SHARED_MEMORY64_PROBE = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x05, 0x04, 0x01, 0x07, 0x00,
+  0x01,
+]);
+function validates(bytes: Uint8Array): boolean {
+  try {
+    return typeof WebAssembly !== "undefined" && WebAssembly.validate(bytes);
+  } catch {
+    return false;
+  }
+}
+const supportsMemory64 = () => validates(MEMORY64_PROBE);
+const supportsSharedMemory64 = () => validates(SHARED_MEMORY64_PROBE);
+
 /**
  * Spawns a portfolio of WASM solver workers racing diverse engine configs
  * (drag-space hierarchical/flat + the legacy unit-move A*). The first worker
@@ -98,7 +143,20 @@ export function searchShiftingMosaicWasm(
   // or the sequential in-wasm cascade when only one core is available.
   const isolated =
     typeof crossOriginIsolated !== "undefined" && crossOriginIsolated;
-  const variant = isolated ? "threads" : "default";
+  // Pick the biggest heap each path can load. On the hardest boards a deep arm
+  // exhausts the 4GB wasm32 heap and aborts partway through its budget; the 8GB
+  // MEMORY64 builds let it run to the end instead.
+  //   - isolated (threads cascade, one SHARED heap for all 8 arms): the 8GB
+  //     shared-memory64 build if the engine validates it, else the wasm32 one.
+  //   - non-isolated (one heap per worker): the 8GB non-shared build, else
+  //     wasm32. An arm that hits even the 8GB wall still only retires itself.
+  const variant = isolated
+    ? supportsSharedMemory64()
+      ? "threads-mem64"
+      : "threads"
+    : supportsMemory64()
+      ? "mem64"
+      : "default";
   const configs =
     isolated || poolSize === 1
       ? [{ engine: "cascade", maxMs: SOLVE_BUDGET_MS, maxNodes: 0 }]
@@ -134,6 +192,12 @@ export function searchShiftingMosaicWasm(
         let total = 0;
         for (const n of progressByWorker.values()) total += n;
         callbacks.onProgress?.(total);
+        return;
+      }
+      if (type === "phase") {
+        // Posted by the wasm module itself (it runs inside this worker, so its
+        // self.postMessage lands here directly).
+        callbacks.onPhase?.(String(event.data.phase));
         return;
       }
       if (type === "done") {

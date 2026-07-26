@@ -4,9 +4,13 @@
 // src/util/fuzzShiftingMosaic.ts).
 //
 //   shifting_mosaic_a_star --fixture <path>
-//       [--engine unit|drag|hier|assembly|corridor|jam|beam|cascade]
+//       [--engine unit|drag|hier|assembly|corridor|jam|beam|cascade|
+//                parallel|sequential|twophase|arm]
+//       [--arm N] [--arm-gated] [--jam-aspect N] [--jam-density N]
 //       [--weight N] [--budget-ms N] [--max-nodes N] [--stride N]
-//       [--no-post] [--settled] [--pea N] [--ratchet] [--json]
+//       [--no-post] [--settled] [--pea N] [--ratchet] [--max-states N]
+//       [--max-heap-bytes N]
+//       [--json]
 //
 //   shifting_mosaic_a_star --generate <outPath> --seed N [--shuffle N]
 //       [--json]
@@ -21,6 +25,7 @@
 #include "AStar.h"
 #include "BitGrid.h"
 #include "DragSolver.h"
+#include "ParallelCascade.h"
 #include "Types.h"
 
 #include <algorithm>
@@ -118,6 +123,101 @@ uint64_t nowMs() {
   return static_cast<uint64_t>(
       duration_cast<milliseconds>(steady_clock::now().time_since_epoch())
           .count());
+}
+
+// Writes `anchors` as a fixture over the same board. Used to hand a stalled
+// jam run's deepest elite back to the solver as a RESIDUAL problem: the
+// ratchet often clears the goal's dig route without committing the goal, and
+// finishing from that state is far shallower than solving from the root.
+bool writeFixtureAt(const Fixture &data, const std::vector<Position> &anchors,
+                    const std::string &path) {
+  json fx;
+  fx["gridWidth"] = data.gridWidth;
+  fx["gridHeight"] = data.gridHeight;
+  json shapesJson = json::array();
+  for (const auto &s : data.shapes) {
+    json cells = json::array();
+    for (const auto &c : s)
+      cells.push_back({{"x", c.x}, {"y", c.y}});
+    shapesJson.push_back(cells);
+  }
+  fx["shapes"] = shapesJson;
+  json anchorsJson = json::array();
+  for (const auto &a : anchors)
+    anchorsJson.push_back({{"x", a.x}, {"y", a.y}});
+  fx["initialAnchors"] = anchorsJson;
+  fx["goalIndex"] = data.goalIndex;
+  fx["goalAnchor"] = {{"x", data.goalAnchor.x}, {"y", data.goalAnchor.y}};
+  std::ofstream out(path);
+  if (!out.is_open())
+    return false;
+  out << fx.dump();
+  return true;
+}
+
+void writeTurnsFile(const std::vector<Turn> &turns, const std::string &path) {
+  json tj = json::array();
+  for (const auto &t : turns)
+    tj.push_back(
+        {{"blockId", t.blockId}, {"direction", static_cast<int>(t.direction)}});
+  std::ofstream f(path);
+  f << tj.dump();
+}
+
+// Replays a turn stream against the fixture with FULL legality checking —
+// bounds and collisions via BitGrid, not just the final goal position that
+// replaySolves checks. This is the safety net for a plan STITCHED from two
+// independently-solved halves, where nothing else has validated the seam.
+int runVerify(const Fixture &data, const std::string &turnsPath) {
+  std::ifstream f(turnsPath);
+  if (!f.is_open()) {
+    std::cerr << "verify: cannot open " << turnsPath << "\n";
+    return 2;
+  }
+  const json tj = json::parse(f);
+  std::vector<Turn> turns;
+  turns.reserve(tj.size());
+  for (const auto &t : tj)
+    turns.push_back({t["blockId"].get<uint8_t>(),
+                     static_cast<Direction>(t["direction"].get<int>())});
+
+  std::vector<Position> anchors = data.initialAnchors;
+  BitGrid grid(data.gridWidth, data.gridHeight, data.shapes);
+  grid.buildOccupancy(anchors);
+  size_t illegalAt = SIZE_MAX;
+  for (size_t i = 0; i < turns.size(); i++) {
+    const uint8_t b = turns[i].blockId;
+    if (b >= anchors.size()) {
+      illegalAt = i;
+      break;
+    }
+    const Position from = anchors[b];
+    const int d = static_cast<int>(turns[i].direction);
+    const Position to{static_cast<int8_t>(from.x + BitGrid::DX[d]),
+                      static_cast<int8_t>(from.y + BitGrid::DY[d])};
+    grid.removeBlock(b, from);
+    if (!grid.canPlace(b, to.x, to.y)) {
+      grid.addBlock(b, from);
+      illegalAt = i;
+      break;
+    }
+    grid.addBlock(b, to);
+    anchors[b] = to;
+  }
+  const bool legal = illegalAt == SIZE_MAX;
+  const auto &g = anchors[data.goalIndex];
+  const bool solved =
+      legal && g.x == data.goalAnchor.x && g.y == data.goalAnchor.y;
+  const json out = {
+      {"verify", turnsPath},
+      {"turns", turns.size()},
+      {"steps", countPlayerSteps(turns)},
+      {"legal", legal},
+      {"illegalAt", legal ? int64_t{-1} : static_cast<int64_t>(illegalAt)},
+      {"solved", solved},
+  };
+  std::cout << out.dump() << "\n";
+  return solved ? 0 : 1;
 }
 
 // Generates a random SOLVABLE fixture: random grid and polyomino blocks with
@@ -312,6 +412,21 @@ int main(int argc, char **argv) {
   bool sleepSets = false;
   bool relevantOnly = false;
   bool bands = false;
+  uint8_t bandMinPath = DragSolver::Config{}.corridorBandMinPath;
+  uint64_t maxStates = 0;    // 0 = unlimited (unchanged behaviour)
+  uint64_t maxHeapBytes = 0; // 0 = unlimited; measured bytes, not a proxy
+  uint32_t seqTotalMs = 0;   // total cap for the sequential phase; 0 = none
+  uint8_t jamAspect16 = DragSolver::Config{}.jamAspect16;   // x16 ratio
+  uint8_t jamDensityPct = DragSolver::Config{}.jamDensityPct; // percent
+  int armIndex = -1;          // --engine arm: which race arm to run alone
+  bool armGated = false;      // apply jamProfile() to arms 6/7 (phase 2 does not)
+  std::vector<cascade::ArmOutcome> armOutcomes;
+  // Decomposition of a stalled jam board: dump the deepest elite as a residual
+  // fixture (+ the root→elite prefix) so the remainder can be solved
+  // separately and the two halves stitched.
+  std::string dumpElitePath;
+  std::string dumpEliteTurnsPath;
+  std::string verifyPath;
   uint8_t jamPenalty = 4;
   uint8_t jamGuide = 0;
   bool jamPin = false;
@@ -358,6 +473,17 @@ int main(int argc, char **argv) {
     else if (arg == "--por") sleepSets = true;
     else if (arg == "--relevant") relevantOnly = true;
     else if (arg == "--bands") bands = true;
+    else if (arg == "--band-min-path") bandMinPath = static_cast<uint8_t>(std::atoi(next()));
+    else if (arg == "--max-states") { maxStates = std::strtoull(next(), nullptr, 10); cfg.maxStatesStored = maxStates; }
+    else if (arg == "--arm") armIndex = std::atoi(next());
+    else if (arg == "--arm-gated") armGated = true;
+    else if (arg == "--jam-density") jamDensityPct = static_cast<uint8_t>(std::atoi(next()));
+    else if (arg == "--jam-aspect") jamAspect16 = static_cast<uint8_t>(std::atoi(next()));
+    else if (arg == "--seq-total-ms") seqTotalMs = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
+    else if (arg == "--max-heap-bytes") { maxHeapBytes = std::strtoull(next(), nullptr, 10); cfg.maxHeapBytes = maxHeapBytes; }
+    else if (arg == "--dump-elite") dumpElitePath = next();
+    else if (arg == "--dump-elite-turns") dumpEliteTurnsPath = next();
+    else if (arg == "--verify") verifyPath = next();
     else if (arg == "--jam-penalty") jamPenalty = static_cast<uint8_t>(std::atoi(next()));
     else if (arg == "--jam-guide") jamGuide = static_cast<uint8_t>(std::atoi(next()));
     else if (arg == "--jam-pin") jamPin = true;
@@ -382,7 +508,8 @@ int main(int argc, char **argv) {
     return usage(argv[0]);
   if (engine != "unit" && engine != "drag" && engine != "hier" &&
       engine != "assembly" && engine != "corridor" && engine != "jam" &&
-      engine != "beam" && engine != "cascade") {
+      engine != "beam" && engine != "cascade" && engine != "parallel" &&
+      engine != "sequential" && engine != "twophase" && engine != "arm") {
     std::cerr << "Unknown engine '" << engine << "'\n";
     return 2;
   }
@@ -393,6 +520,8 @@ int main(int argc, char **argv) {
     std::cerr << e.what() << "\n";
     return 1;
   }
+  if (!verifyPath.empty())
+    return runVerify(data, verifyPath);
 
   uint64_t t0 = 0, t1 = 0, t2 = 0;
   std::vector<Turn> turns;
@@ -401,8 +530,75 @@ int main(int argc, char **argv) {
   uint8_t passes = 0;
   uint32_t minJamTerm = UINT32_MAX;
   uint32_t maxProgress = 0;
+  // True when any search stopped on the measured-memory ceiling rather than
+  // the clock or exhaustion — the stdout message is verbose-gated, so the stat
+  // is the only reliable signal.
+  bool stoppedOnMemory = false;
   std::string stage = engine;
-  if (engine == "cascade") {
+  if (engine == "parallel") {
+    // THE SHIPPED PATH. solveArmsParallel is the exact function the threaded
+    // wasm build calls for a cross-origin-isolated page (wasm_bindings.cpp
+    // under __EMSCRIPTEN_PTHREADS__): 8 arms racing on real threads, first
+    // non-empty plan wins and cancels the rest. --engine cascade is the
+    // SEQUENTIAL chain and answers a different question — use this one to
+    // measure what a browser actually does.
+    t0 = nowMs();
+    t1 = t0;
+    turns = solveArmsParallel(data.gridWidth, data.gridHeight, data.shapes,
+                              data.initialAnchors, data.goalIndex,
+                              data.goalAnchor, budgetMs, maxNodes,
+                              cfg.postProcess, [](uint32_t) {}, maxHeapBytes,
+                              jamAspect16, jamDensityPct, &armOutcomes);
+    t2 = nowMs();
+  } else if (engine == "arm") {
+    // Runs ONE race arm with its REAL configuration, via the same runArm the
+    // race and the sequential phase use. Necessary because --engine jam/beam
+    // build their own default configs and are NOT arms 6/7 — measuring those
+    // and calling the result "per-arm" silently compares the wrong solver
+    // (it is why an earlier study concluded no arm could solve seed 45501,
+    // which arm 6 in fact wins). Ungated by default, matching phase 2.
+    if (armIndex < 0 || armIndex >= cascade::ARMS) {
+      std::cerr << "--engine arm needs --arm 0.." << (cascade::ARMS - 1)
+                << std::endl;
+      return 2;
+    }
+    t0 = nowMs();
+    t1 = t0;
+    turns = cascade::runArm(armIndex, data.gridWidth, data.gridHeight,
+                            data.shapes, data.initialAnchors, data.goalIndex,
+                            data.goalAnchor, budgetMs, maxNodes,
+                            cfg.postProcess, maxHeapBytes, nullptr,
+                            [](uint32_t) {}, armGated, jamAspect16,
+                            jamDensityPct);
+    t2 = nowMs();
+    stage = cascade::armName(armIndex);
+  } else if (engine == "sequential" || engine == "twophase") {
+    // "sequential" = phase 2 alone (each arm gets the whole heap, ungated).
+    // "twophase"   = what the browser will do: race first, fall back second.
+    t0 = nowMs();
+    t1 = t0;
+    if (engine == "twophase")
+      turns = solveArmsParallel(data.gridWidth, data.gridHeight, data.shapes,
+                                data.initialAnchors, data.goalIndex,
+                                data.goalAnchor, budgetMs, maxNodes,
+                                cfg.postProcess, [](uint32_t) {}, maxHeapBytes,
+                                jamAspect16, jamDensityPct, &armOutcomes);
+    if (turns.empty()) {
+      if (engine == "twophase")
+        std::cout << "cascade: parallel race found nothing - falling back to "
+                     "sequential arms (slower; each arm gets the whole heap)\n";
+      turns = solveArmsSequential(
+          data.gridWidth, data.gridHeight, data.shapes, data.initialAnchors,
+          data.goalIndex, data.goalAnchor, budgetMs, seqTotalMs, maxNodes,
+          cfg.postProcess, [](uint32_t) {}, maxHeapBytes, nullptr, jamAspect16,
+          jamDensityPct, &armOutcomes);
+      if (!turns.empty())
+        stage = "sequential";
+    } else {
+      stage = "parallel";
+    }
+    t2 = nowMs();
+  } else if (engine == "cascade") {
     // The production chain (mirrors wasm_bindings' cascade): assembly →
     // hier → deep flat drag → unit, each with the full per-stage budget.
     t0 = nowMs();
@@ -410,6 +606,7 @@ int main(int argc, char **argv) {
     const auto accumulate = [&](const DragSolver &s) {
       nodesExpanded += s.lastStats().nodesExpanded;
       statesStored += s.lastStats().statesStored;
+      stoppedOnMemory = stoppedOnMemory || s.lastStats().stoppedOnMemory;
       passes = static_cast<uint8_t>(passes + s.lastStats().passes);
     };
     {
@@ -519,6 +716,7 @@ int main(int argc, char **argv) {
       turns = s.search(budgetMs, maxNodes);
       nodesExpanded += s.lastStats().nodesExpanded;
       statesStored += s.lastStats().statesStored;
+      stoppedOnMemory = stoppedOnMemory || s.lastStats().stoppedOnMemory;
       passes = static_cast<uint8_t>(passes + s.lastStats().passes);
       if (!turns.empty()) stage = "unit";
     }
@@ -540,6 +738,11 @@ int main(int argc, char **argv) {
     dcfg.sleepSets = sleepSets;
     dcfg.relevantOnly = relevantOnly;
     dcfg.corridorBands = (engine == "corridor") || bands;
+    dcfg.corridorBandMinPath = bandMinPath;
+    dcfg.maxStatesStored = maxStates;
+    dcfg.maxHeapBytes = maxHeapBytes;
+    dcfg.jamAspect16 = jamAspect16;
+    dcfg.jamDensityPct = jamDensityPct;
     dcfg.jamGuideWeight = jamGuide;
     dcfg.jamPinRoute = jamPin;
     dcfg.jamRoundNodeCap = jamRoundCap;
@@ -565,9 +768,28 @@ int main(int argc, char **argv) {
     t2 = nowMs();
     nodesExpanded = solver.lastStats().nodesExpanded;
     statesStored = solver.lastStats().statesStored;
+    stoppedOnMemory = solver.lastStats().stoppedOnMemory;
     passes = solver.lastStats().passes;
     minJamTerm = solver.lastStats().minJamTerm;
     maxProgress = solver.lastStats().maxProgress;
+    // Decomposition hand-off: on a stalled jam run, write the deepest elite as
+    // a residual fixture and its root→elite prefix, so the remainder can be
+    // attacked separately and the halves stitched (verify with --verify).
+    if (!solver.lastEliteAnchors().empty()) {
+      if (!dumpElitePath.empty()) {
+        if (writeFixtureAt(data, solver.lastEliteAnchors(), dumpElitePath))
+          std::cerr << "elite residual fixture dumped to " << dumpElitePath
+                    << "\n";
+        else
+          std::cerr << "cannot write " << dumpElitePath << "\n";
+      }
+      if (!dumpEliteTurnsPath.empty()) {
+        const auto prefix = solver.lastElitePrefixTurns();
+        writeTurnsFile(prefix, dumpEliteTurnsPath);
+        std::cerr << "elite prefix (" << prefix.size() << " turns) dumped to "
+                  << dumpEliteTurnsPath << "\n";
+      }
+    }
   } else {
     t0 = nowMs();
     AStar solver(data.gridWidth, data.gridHeight, data.shapes,
@@ -577,6 +799,7 @@ int main(int argc, char **argv) {
     t2 = nowMs();
     nodesExpanded = solver.lastStats().nodesExpanded;
     statesStored = solver.lastStats().statesStored;
+    stoppedOnMemory = solver.lastStats().stoppedOnMemory;
     passes = solver.lastStats().passes;
   }
 
@@ -586,7 +809,7 @@ int main(int argc, char **argv) {
   const bool solved = !turns.empty() || alreadySolved;
   const bool valid = !solved || alreadySolved || replaySolves(data, turns);
 
-  const json out = {
+  json out = {
       {"fixture", std::filesystem::path(fixturePath).filename().string()},
       {"engine", engine},
       {"solved", solved},
@@ -606,7 +829,25 @@ int main(int argc, char **argv) {
                          ? -1
                          : static_cast<int64_t>(minJamTerm)},
       {"maxProgress", maxProgress},
+      {"stoppedOnMemory", stoppedOnMemory},
+      {"jamAspect16", jamAspect16},
+      {"jamDensityPct", jamDensityPct},
   };
+
+  // Per-arm telemetry (parallel/sequential/twophase only): which arms solved,
+  // which won, and how long each took. Feeds the fuzz aggregation that decides
+  // the sequential phase's arm ORDER — without it that order is guesswork.
+  if (!armOutcomes.empty()) {
+    json arms = json::array();
+    for (const auto &a : armOutcomes)
+      arms.push_back({{"arm", a.arm},
+                      {"name", cascade::armName(a.arm)},
+                      {"solved", a.solved},
+                      {"won", a.won},
+                      {"declined", a.declined},
+                      {"wallMs", a.wallMs}});
+    out["arms"] = arms;
+  }
 
   if (!dumpPath.empty() && !turns.empty()) {
     json turnsJson = json::array();

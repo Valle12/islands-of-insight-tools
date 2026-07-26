@@ -3,6 +3,7 @@
 #include "AStar.h"
 #include "DragSolver.h"
 #ifdef __EMSCRIPTEN_PTHREADS__
+#include "MemoryProbe.h"
 #include "ParallelCascade.h"
 #endif
 
@@ -64,6 +65,19 @@ void postProgress(const uint32_t nodesExpanded) {
   val msg = val::object();
   msg.set("type", val("progress"));
   msg.set("progress", nodesExpanded);
+  self.call<void>("postMessage", msg);
+}
+
+// Tells the page which solve phase is running. The sequential fallback is
+// materially slower than the race (arms run in series rather than at once), so
+// the UI has to say so rather than leaving the user on an unchanged spinner.
+// The wasm module runs INSIDE the worker, so `self` is the worker scope and
+// this reaches wasmBridge's onmessage directly — no relay in astar.worker.js.
+void postPhase(const char *phase) {
+  val self = val::global("self");
+  val msg = val::object();
+  msg.set("type", val("phase"));
+  msg.set("phase", val(phase));
   self.call<void>("postMessage", msg);
 }
 
@@ -213,9 +227,29 @@ val solve(val puzzleVal, val configVal) {
 #ifdef __EMSCRIPTEN_PTHREADS__
     // Threaded build: race the arms on real pthreads. Only this (calling)
     // thread touches JS — arm progress flows through atomics, forwarded here.
+    // All 8 arms share ONE heap here (8GB with memory64, else 4GB), so cap each
+    // arm below the ceiling: exhausting a shared wasm heap ABORTS the module
+    // rather than failing one arm. 85% leaves room for the overshoot between
+    // checkpoints (measured ~8% with 8 arms allocating concurrently).
+    const uint64_t heapMax = memprobe::heapCeilingBytes();
+    const uint64_t armHeapCap = heapMax == 0 ? 0 : (heapMax / 100) * 85;
     turns = solveArmsParallel(gridWidth, gridHeight, shapes, initialAnchors,
                               goalIndex, goalAnchor, maxMs, maxNodes,
-                              postProcess, postProgress);
+                              postProcess, postProgress, armHeapCap);
+    if (turns.empty()) {
+      // Phase 2: the same arms one at a time, each with the whole heap and
+      // ungated. Measured to recover boards the race cannot: 42889 is starved
+      // (arm 2 needs 6.24GB, the race never leaves that much free) and 41193
+      // is gate-excluded (arm 6 solves it in 12ms but jamProfile() rejects
+      // 37x9). Costs wall-clock, hence the phase notice.
+      const uint32_t seqTotalMs =
+          opt<unsigned>(configVal, "seqTotalMs", maxMs == 0 ? 0 : maxMs * 4);
+      postPhase("sequential");
+      turns = solveArmsSequential(gridWidth, gridHeight, shapes, initialAnchors,
+                                  goalIndex, goalAnchor, maxMs, seqTotalMs,
+                                  maxNodes, postProcess, postProgress,
+                                  armHeapCap);
+    }
 #else
     // Pack-then-slide puzzles fall to the assembly pipeline in about a
     // second; it fails fast when no off-sweep packing exists.

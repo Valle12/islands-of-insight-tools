@@ -41,6 +41,10 @@ public:
   struct SearchStats {
     uint32_t nodesExpanded = 0;
     uint64_t statesStored = 0;
+    // True when the search stopped because it hit maxHeapBytes rather than
+    // exhausting the space or the clock — distinguishes "too big for this heap"
+    // from "genuinely searched out", which the two need different responses to.
+    bool stoppedOnMemory = false;
     uint8_t passes = 0;
   };
   [[nodiscard]] const SearchStats &lastStats() const { return stats_; }
@@ -84,6 +88,27 @@ public:
     // Cooperative cancellation: when set and it becomes true, the search
     // returns empty at the next budget checkpoint.
     std::atomic<bool> *cancel = nullptr;
+    // Ceiling on the LIVE state map of a single search pass; 0 = unlimited
+    // (bit-identical to the historical behaviour). maxNodes bounds EXPANSIONS,
+    // which is not what fills the heap. Mirrors DragSolver::Config::
+    // maxStatesStored — see the longer rationale there. Deterministic, so this
+    // is the knob TESTS should use.
+    uint64_t maxStatesStored = 0;
+    // Ceiling on MEASURED live allocated bytes; 0 = unlimited. The production
+    // mechanism — see DragSolver::Config::maxHeapBytes.
+    uint64_t maxHeapBytes = 0;
+    // Backstop cap for optimizeSolution, which is otherwise unbounded: no
+    // deadline, no cancel check, up to 100k rewrite passes each replaying the
+    // whole plan. NOTE: measurement cleared the optimizer as the cause of the
+    // browser budget overruns — on seed 45501 (118 turns) --no-post was no
+    // faster (618s vs 601s), so the overrun was the search arms, fixed in
+    // AStar::search. This cap exists only so a pathological plan cannot add an
+    // unbounded tail after the search stops; it is deliberately loose enough
+    // never to bite in practice, because the optimizer earns its keep (that
+    // same board: 163 -> 118 turns). Stopping early is safe — the loop is
+    // monotone and every accepted rewrite is replay-validated, so an early
+    // exit yields a valid, merely-less-polished plan. 0 = unbounded.
+    uint32_t optimizeMaxMs = 30000;
   };
 
   AStar(uint8_t gridWidth, uint8_t gridHeight,

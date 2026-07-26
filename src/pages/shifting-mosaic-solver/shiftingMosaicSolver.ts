@@ -385,9 +385,19 @@ export class ShiftingMosaicSolverEditor {
     this.stopCurrentWorker();
     this.showSolving();
 
+    // Set by onPhase; prefixes the progress line so the slower second attempt
+    // is visible rather than looking like the first one has stalled.
+    let phaseLabel = "Searching…";
     this.currentWorker = searchShiftingMosaicWasm(puzzle, {
       onProgress: nodesExpanded => {
-        this.solutionProgressText.textContent = `Searching… (${nodesExpanded.toLocaleString()} nodes explored)`;
+        this.solutionProgressText.textContent = `${phaseLabel} (${nodesExpanded.toLocaleString()} nodes explored)`;
+      },
+      onPhase: phase => {
+        if (phase === "sequential") {
+          phaseLabel =
+            "First attempt found nothing — trying harder (slower, one strategy at a time)…";
+          this.solutionProgressText.textContent = phaseLabel;
+        }
       },
       onDone: turns => {
         this.currentWorker = null;

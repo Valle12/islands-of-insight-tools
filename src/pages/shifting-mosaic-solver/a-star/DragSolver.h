@@ -105,6 +105,19 @@ public:
     // it otherwise lacks (0 real cuts → binary progress → flat search).
     // Guidance only (waypoints are not unavoidable); hier backtracks.
     bool corridorBands = false;
+    // Minimum goal-path length (in anchors) that earns synthetic bands. The
+    // guard exists so trivially-short journeys are not banded, but it is
+    // length-based and length is NOT what makes a board hard: seeds 29534
+    // (12x9 @ 63%), 39598 (12x9 @ 65%) and 39857 (21x6 @ 61%) all have 0 real
+    // cuts and a 5-7 anchor path, so at the old value of 8 they got NO bands
+    // at all. 0 real cuts AND no pseudo-cuts leaves progressOf binary — the
+    // exact "flat search drowns" pathology bands were built to fix (seed
+    // 1022) — and it also makes the corridor arm decline outright, so arm 3
+    // of the browser race was a guaranteed no-op on that whole class.
+    // Lowered to 3 after measuring the 8-arm race on all 44 production
+    // fixtures: 44/44 still pass, total race time +0.26%, one fixture's plan
+    // improves (14->12 moves) and one costs a move (test3, 10->11).
+    uint8_t corridorBandMinPath = 3;
     // Jam guide: weight (scaled /16) of the dig-cost gradient INSIDE f. The
     // dig cost is a per-expansion Dijkstra of the goal's cheapest route to
     // the target where each newly swept movable-block cell costs
@@ -119,6 +132,66 @@ public:
     // Beam width for searchBeamJam. 0 = auto (scaled to the board's anchor
     // count, capped for the wasm heap).
     uint32_t beamWidth = 0;
+    // Ceiling on the LIVE state map of a single search pass. 0 = unlimited
+    // (bit-identical to the historical behaviour).
+    //
+    // maxNodes bounds EXPANSIONS, which is not what consumes the heap: states
+    // stored runs ~2.3x expansions, and on seed 45501 the flat drag arm held
+    // 61.4M states for 26.8GB (~437 bytes/state). Until now nothing checked
+    // the live set at all — statesStored was only summed into stats AFTER a
+    // pass finished — so a search could only discover it was out of memory by
+    // failing to allocate. Under wasm that ABORTS, and on the cross-origin
+    // isolated path all 8 racing arms share ONE 8GB heap, so a single greedy
+    // arm can take down arms that were about to win.
+    //
+    // Checked on the same cadence as the deadline and unwinds the same way, so
+    // hitting it is an ordinary "no solution in budget", not a crash.
+    // Per PASS, not cumulative: hierarchical searches free each segment's map
+    // before the next, and peak memory is what matters.
+    //
+    // Deterministic, so this is the knob TESTS should use; maxHeapBytes below
+    // is the production mechanism.
+    uint64_t maxStatesStored = 0;
+    // Aspect cutoff used by jamProfile(), as the ratio x16 (42 = 2.625). A
+    // board whose longer side exceeds this multiple of its shorter side is
+    // treated as "corridor territory" and the two jam specialists (arms 6 and
+    // 7 of the race) decline on it.
+    //
+    // This leg has now excluded four boards the jam machinery can actually
+    // handle: 41193 (37x9) is solved by the jam-restart arm in 12ms yet gated
+    // out at aspect 4.1; 42889 (25x7, 3.6) likewise at 284s; and 39857 (21x6)
+    // and 30033 (26x6) were excluded from band synthesis by the same test.
+    // Relaxed from 42 (2.625x) to 66 (4.125x) after the full treatment:
+    //   - bench diff, 56 fixtures: 0 regressions, 1 new solve
+    //     (fuzz-3058-hard, 131.7s -> 11.2s), total wall -10%
+    //   - paired fuzz, 2,000 boards: 0 regressions, 0 invalid, 1 new solve
+    //   - campaign v5, 10,000 fresh seeds: 9,994/10,000, 0 invalid, and
+    //     nothing exceeding the 300s budget (v4 had four such boards)
+    // It also converts three previously-unsolvable boards into race wins:
+    // 41193 (49s), 42889 (179s) and 45501 (201s) — the last being the board
+    // once profiled at 26.8GB and written off.
+    // Must move together with jamDensityPct: on 41193 relaxing either alone
+    // changes nothing, because that board fails both legs.
+    uint8_t jamAspect16 = 66;
+    // Density floor used by jamProfile(), in percent of grid cells filled.
+    // The other half of the same story: seed 41193 (37x9) sits at 39.04%, just
+    // under the stock 40, so relaxing the aspect cutoff alone still leaves it
+    // gated out even though the jam-restart arm solves it in 12ms.
+    // Relaxed 40 -> 35 alongside jamAspect16; the two were validated together
+    // (see there for the bench/fuzz/campaign evidence) and neither works
+    // alone. 40 reproduces the historical behaviour.
+    uint8_t jamDensityPct = 35;
+    // Ceiling on MEASURED live allocated bytes (memprobe::liveAllocatedBytes).
+    // 0 = unlimited. Checked on the same cadence as the deadline and unwinds
+    // the same way, so running out of memory reports "no solution in budget"
+    // rather than aborting — which on the shared-heap browser path would take
+    // down the seven other arms with it.
+    //
+    // Preferred over maxStatesStored in production because a state count is a
+    // board-dependent proxy for bytes (NodeKey heap-allocates past 16 blocks).
+    // Process-wide, not per-arm: under emscripten pthreads every arm allocates
+    // from ONE heap, so that is the quantity that actually runs out.
+    uint64_t maxHeapBytes = 0;
     // Pin the jam guide to one corridor: the FIRST dig field's argmin route
     // (dilated by 2 cells) becomes a hard corridor for every later dig
     // Dijkstra — the goal must go that way and blockers must leave it.
@@ -160,6 +233,10 @@ public:
   struct SearchStats {
     uint32_t nodesExpanded = 0;
     uint64_t statesStored = 0;
+    // True when the search stopped because it hit maxHeapBytes rather than
+    // exhausting the space or the clock — distinguishes "too big for this heap"
+    // from "genuinely searched out", which the two need different responses to.
+    bool stoppedOnMemory = false;
     uint64_t floodFills = 0;
     uint8_t passes = 0;
     // Jam telemetry: best (lowest) jam dig cost and deepest cut/band progress
@@ -228,6 +305,23 @@ public:
 
   [[nodiscard]] const SearchStats &lastStats() const { return stats_; }
 
+  // After a searchJamRestarts run that found no solution: the DEEPEST banked
+  // elite (lowest jam term) — its board state, and the drag chain reaching it
+  // from the root. Lets a caller DECOMPOSE a stalled board: the ratchet often
+  // clears the goal's dig route (low jam) without ever committing the goal
+  // along it, and the residual "finish from here" problem is far shallower
+  // than the original. Every reachable state of a solvable board is itself
+  // solvable (drags are reversible), so the residual is always well-posed;
+  // stitching prefix + residual solution yields a full plan.
+  [[nodiscard]] const std::vector<Position> &lastEliteAnchors() const {
+    return lastEliteAnchors_;
+  }
+  // Root → elite as unit-move turns (empty when no elite was banked).
+  [[nodiscard]] std::vector<Turn> lastElitePrefixTurns() {
+    return lastElitePrefix_.empty() ? std::vector<Turn>{}
+                                    : reconstructTurns(lastElitePrefix_);
+  }
+
   // Luby restart sequence unit for 1-based round index i:
   // 1,1,2,1,1,2,4,1,1,2,1,1,2,4,8,... Multiplies jamRoundNodeCap when
   // jamLubyRestarts is set. Public for direct testing.
@@ -260,13 +354,13 @@ public:
       return false; // real cuts → hier/assembly territory
     const int lo = std::min(gridWidth_, gridHeight_);
     const int hi = std::max(gridWidth_, gridHeight_);
-    if (hi * 16 > lo * 42) // aspect > 2.6 → corridor territory
+    if (hi * 16 > lo * cfg_.jamAspect16) // too thin → corridor territory
       return false;
     size_t cells = 0;
     for (const auto &s : shapes_)
       cells += s.size();
-    return cells * 100 >=
-           static_cast<size_t>(gridWidth_) * gridHeight_ * 40;
+    return cells * 100 >= static_cast<size_t>(gridWidth_) * gridHeight_ *
+                              cfg_.jamDensityPct;
   }
 
 private:
@@ -346,6 +440,9 @@ private:
   [[nodiscard]] uint32_t
   displacementSum(const std::vector<Position> &anchors) const;
   SearchStats stats_{};
+  // Deepest elite of the last searchJamRestarts run (see lastEliteAnchors).
+  std::vector<Position> lastEliteAnchors_;
+  std::vector<DragMove> lastElitePrefix_;
 
   [[nodiscard]] bool isGoal(const std::vector<Position> &anchors) const {
     const auto &a = anchors[goalIndex_];

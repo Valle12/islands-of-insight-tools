@@ -1,4 +1,5 @@
 #include "AStar.h"
+#include "MemoryProbe.h"
 
 #include <algorithm>
 #include <chrono>
@@ -946,28 +947,44 @@ std::vector<Turn> AStar::reconstructPath(const StateMap &states,
 // fallback guarantees we never lose a puzzle that stride-1 could solve.
 std::vector<Turn> AStar::search(const uint32_t maxMs, const uint32_t maxNodes) {
   stats_ = {};
+  // ONE deadline for the whole entry point. runAStar takes a RELATIVE budget
+  // and restarts its own clock, so handing each fallback pass the full maxMs
+  // silently tripled the caller's budget (guided → stride-1 → BFS). That is
+  // how a 300s browser solve reached 13 minutes: solveArmsParallel joins every
+  // arm, so one arm overrunning holds the whole race open. Mirrors the
+  // absolute-deadline convention DragSolver::search already follows.
+  const uint64_t deadline = maxMs == 0 ? 0 : nowMs() + maxMs;
+  const auto remainingMs = [deadline]() -> uint32_t {
+    if (deadline == 0) return 0; // 0 == unlimited, preserved
+    const uint64_t now = nowMs();
+    return now >= deadline ? 1u : static_cast<uint32_t>(deadline - now);
+  };
+  const auto outOfTime = [deadline] {
+    return deadline != 0 && nowMs() >= deadline;
+  };
+
   std::vector<Turn> result = runAStar(maxMs, maxNodes);
   if (result.empty() && searchExhausted_ && moveStride_ > 1 &&
-      cfg_.strideOverride == 0) {
+      cfg_.strideOverride == 0 && !outOfTime()) {
     std::cout << "A*: stride-" << static_cast<int>(moveStride_)
               << " search exhausted with no solution — falling back to "
                  "stride-1\n";
     const uint8_t saved = moveStride_;
     moveStride_ = 1;
-    result = runAStar(maxMs, maxNodes);
+    result = runAStar(remainingMs(), maxNodes);
     moveStride_ = saved;
   }
   // Last resort: if the guided search came up empty, retry as pure BFS
   // (weight 0, stride 1). BFS can't be led astray by a weak heuristic, so it
   // cracks dense puzzles where weighted A* just wanders. This only ever runs
   // when A* already failed, so it cannot regress a puzzle A* can solve.
-  if (result.empty() && cfg_.bfsFallback && cfg_.weight != 0) {
+  if (result.empty() && cfg_.bfsFallback && cfg_.weight != 0 && !outOfTime()) {
     std::cout << "A*: guided search found nothing — retrying as pure BFS\n";
     const uint8_t savedWeight = cfg_.weight;
     const uint8_t savedStride = moveStride_;
     cfg_.weight = 0;
     moveStride_ = 1;
-    result = runAStar(maxMs, maxNodes);
+    result = runAStar(remainingMs(), maxNodes);
     cfg_.weight = savedWeight;
     moveStride_ = savedStride;
   }
@@ -1032,6 +1049,28 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
                 << ", states=" << states.size() << ", store=" << nodeStore.size()
                 << ")\n";
       return {};
+    }
+    // Graceful memory stop — see Config::maxStatesStored. maxNodes above bounds
+    // EXPANSIONS, which is not what fills the heap; this bounds the live set.
+    if (cfg_.maxStatesStored != 0 && (nodesExpanded & 0xFF) == 0 &&
+        states.size() >= cfg_.maxStatesStored) {
+      std::cout << "A* hit state ceiling of " << cfg_.maxStatesStored
+                << " (states=" << states.size() << ", store=" << nodeStore.size()
+                << ") after " << nodesExpanded << " nodes\n";
+      return {};
+    }
+    // Measured-memory ceiling; coarse cadence because liveAllocatedBytes()
+    // walks allocator structures under emscripten. 0 = cannot measure here,
+    // which must NOT be read as "no memory used".
+    if (cfg_.maxHeapBytes != 0 && (nodesExpanded & 0xFF) == 0) {
+      const uint64_t used = memprobe::liveAllocatedBytes();
+      if (used != 0 && used >= cfg_.maxHeapBytes) {
+        std::cout << "A* hit memory ceiling (" << (used >> 20) << " MB of "
+                  << (cfg_.maxHeapBytes >> 20) << " MB) after " << nodesExpanded
+                  << " nodes\n";
+        stats_.stoppedOnMemory = true;
+        return {};
+      }
     }
     HeapEntry current = openHeap.top();
     openHeap.pop();
@@ -1321,8 +1360,16 @@ AStar::optimizeSolution(const std::vector<Turn> &input) const {
 
   // Every accepted rewrite strictly lowers (turns, then steps), both bounded
   // below by 0, so the loop terminates; the cap is only a paranoia guard.
+  // The wall-clock cap and cancel check are NOT paranoia: without them a long
+  // plan polishes for minutes while the caller's budget has already expired.
   constexpr int kMaxIterations = 100000;
+  const uint64_t deadline =
+      cfg_.optimizeMaxMs == 0 ? 0 : nowMs() + cfg_.optimizeMaxMs;
   for (int iter = 0; iter < kMaxIterations; iter++) {
+    if (deadline != 0 && nowMs() >= deadline)
+      break;
+    if (cfg_.cancel && cfg_.cancel->load(std::memory_order_relaxed))
+      break;
     const bool improved =
         tryRunPairCancellation(cur) || tryRunRemoval(cur) ||
         trySingleRemoval(cur) || tryReorderMerge(cur);

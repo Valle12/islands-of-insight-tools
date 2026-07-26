@@ -27,8 +27,9 @@ for (const file of ["astar.mjs", "astar.wasm", "astar.worker.js"]) {
 
 // Shifting-mosaic solver WASM — served under /sm-wasm to avoid the flat
 // astar.* name collision with the rolling-blocks module. The .threads.*
-// variant is the pthreads build, used when the page is cross-origin
-// isolated (see coi-serviceworker below).
+// variant is the pthreads build (cross-origin isolated pages, see
+// coi-serviceworker below); the .mem64.* variant is the MEMORY64 build
+// (8GB heap) the bridge prefers where the runtime supports Memory64.
 const shiftingMosaicWasmDir = resolve(
   import.meta.dir,
   "../pages/shifting-mosaic-solver/wasm",
@@ -40,6 +41,10 @@ for (const file of [
   "astar.worker.js",
   "astar.threads.mjs",
   "astar.threads.wasm",
+  "astar.mem64.mjs",
+  "astar.mem64.wasm",
+  "astar.threads.mem64.mjs",
+  "astar.threads.mem64.wasm",
 ]) {
   copyFileSync(
     resolve(shiftingMosaicWasmDir, file),

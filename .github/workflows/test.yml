@@ -69,6 +69,7 @@ jobs:
           ASTAR_DIR=src/pages/shifting-mosaic-solver/a-star
           OUT_DIR=src/pages/shifting-mosaic-solver/wasm
           mkdir -p "$OUT_DIR"
+          # $1 output name, $2 extra flags, $3 MAXIMUM_MEMORY (default 4GB).
           build_variant() {
             em++ \
               "$ASTAR_DIR/wasm_bindings.cpp" \
@@ -84,13 +85,18 @@ jobs:
               -sENVIRONMENT=web,worker \
               -sALLOW_MEMORY_GROWTH=1 \
               -sINITIAL_MEMORY=16777216 \
-              -sMAXIMUM_MEMORY=4GB \
+              -sMAXIMUM_MEMORY="${3:-4GB}" \
               --bind \
               -flto \
               -fno-exceptions
           }
           build_variant astar.mjs ""
           build_variant astar.threads.mjs "-pthread -sPTHREAD_POOL_SIZE=4"
+          # MEMORY64 build (8GB heap); loaded by node, not bun — tested below.
+          build_variant astar.mem64.mjs "-sMEMORY64=1" "8GB"
+          # pthreads + 8GB shared MEMORY64 heap (isolated path). Browser-only
+          # (shared memory64), so its build is verified here but not unit-tested.
+          build_variant astar.threads.mem64.mjs "-pthread -sPTHREAD_POOL_SIZE=4 -sMEMORY64=1" "8GB"
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
@@ -100,6 +106,11 @@ jobs:
 
       - name: Run tests
         run: ROLLING_BLOCKS_TEST=true bun test
+
+      # bun cannot instantiate a Memory64 module, so the mem64 build is tested
+      # under node (preinstalled on the runner) instead of in `bun test`.
+      - name: Run MEMORY64 wasm test (node)
+        run: node --test test/shiftingMosaicSolver/mem64.node.test.mjs
 
       - name: Install Playwright browsers
         run: bunx playwright install --with-deps

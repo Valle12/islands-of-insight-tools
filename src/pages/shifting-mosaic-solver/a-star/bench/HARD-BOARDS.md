@@ -63,6 +63,88 @@ compact jams above, so they are a new class rather than a repeat:
 | 23444 | 8x25, aspect 3.13 | 57% | open — resists ALL THREE gradients: jam ratchet frozen at 48 across 856 rounds, corridor stalls at band-progress 4/7 across three 90m-3h runs (w3 settled=4, w3 no-settle=2, w2=4). Structurally hard, not tuning-hard |
 | 29534 | 12x9, aspect 1.33 | 63% | open — ladder + 1366-round marathon exhausted; **optimum >9 drags** (frontier bits 30, depth 9 clean, 242M states; table filled during depth 10) |
 
+### Diagnostic campaign (2026-07-24): both CLASSIFIED, both still open
+
+Fixtures now banked here (`fuzz-{23444,29534}-hard.json`; regenerate bit-identical
+with `--generate --seed N --shuffle 1000000`) — they previously lived only in
+`test-results/`, which `playwright test` CLEARS on every run.
+
+Ran the best SHIPPED config, which had never been used at marathon scale on
+these two (the earlier marathons predate `jamMaxElites`/`jamLuby`: they used the
+old 6-elite single-lineage pool). Sequential 2h runs, native build:
+`--engine jam --bands --jam-luby --jam-elites 64 --jam-round-cap 20000`.
+
+| seed | rounds | minJamTerm | maxProgress | front trajectory | verdict |
+|------|--------|-----------|-------------|------------------|---------|
+| 29534 | 4091 | **8** | 0 | 52 → 20 → 8 | depth-limited; wide pool BROKE the old 20-wall |
+| 23444 | 2613 | **48** | 4 | 80 → 72 → 48 | structural ridge; identical to the old run |
+
+**The wide elite pool is a real gain on 29534** (20 → 8; the old marathon froze
+at 20 for 1366 rounds) — the `jamMaxElites` widening does what it was built for.
+It is NOT a gain on 23444.
+
+**`minJamTerm` IS NOT A PROXY FOR REMAINING DEPTH — do not read it as
+distance-to-go.** 29534 reaches jam 8 with `maxProgress 0`: the goal's dig ROUTE
+is nearly clear while the goal itself has never moved, and committing it
+re-blocks the route. Proven by DECOMPOSITION (new `--dump-elite` writes the
+deepest elite as a residual fixture, `--dump-elite-turns` its root→elite prefix,
+`--verify` legality-replays any turn stream): the jam-8 elite (78 drags) handed
+to the FULL CASCADE fails — 448s, 22.8M nodes, `stage:"none"`. Together with the
+parent ratchet's 2h of rounds warm-started from jam-8 elites, jam 8 is a
+PLATEAU, not a near-solution. Decomposition adds nothing here.
+
+**Breadth from the root is much weaker than the warm-started ratchet**: beam
+500k/30min on 29534 reaches only minJamTerm 32 vs the ratchet's 8. (Width 2M was
+hard-killed — the beam's per-layer arena outgrows what the box will hand it.)
+
+**THE BAND-LENGTH GUARD WAS DENYING 29534 ANY PROGRESS GRADIENT (2026-07-24) —
+a real latent bug, fixed, but it does not crack the board.** `computeCutSchedule`
+synthesizes corridor bands only when `path.size() >= 8` (now
+`Config::corridorBandMinPath`, CLI `--band-min-path`, default 8 = unchanged).
+29534's goal journey is 6 cells (5 middle path anchors), so it fell UNDER the
+guard: 0 real cuts AND no pseudo-cuts ⇒ `progressOf` BINARY ⇒ the corridor arm
+declined outright ("no bands synthesized") and every other arm searched with no
+progress signal at all. **The guard is length-based, but this board's difficulty
+is density-based** (63%, a 12-cell goal block on 12x9) — so a board that needed
+bands most was the one excluded. Note this also means the earlier `maxProgress:0`
+telemetry did NOT mean "the goal never advanced"; there was no metric to advance.
+
+At `--band-min-path 5` the board synthesizes 6 bands, and the effect is large:
+
+| run | maxProgress | minJamTerm | work |
+|-----|-------------|------------|------|
+| jam, NO bands (2h, baseline) | **0** | 8 | 4091 rounds |
+| corridor + bands (15m / 30m) | 2 / **2** | — | 24 / 48 passes, 18 / 35 backtracks |
+| jam + bands (1h / 3h) | 5 / **5** | 8 / 8 | 1786 / 5449 rounds, 130M / 416M nodes |
+
+The goal advances 5 of 6 bands where it previously never left 0, and the jam
+front descends faster (44→8 vs 52→20→8). **The two gradients do NOT conflict
+here** — contrary to the 11386 note, dig-cost + bands COMPOSE on this board.
+But both arms hit a hard ceiling that TIME DOES NOT MOVE: corridor 2→2 across a
+2x budget, jam 5→5 across a 3x budget (3x rounds, 3.2x expansions, identical
+maxProgress AND minJamTerm). Band 5 / jam 8 is a wall, not a budget edge.
+**29534 stays open.** Kept as an opt-in knob (default preserves current
+behaviour bit-for-bit; NOT wired into any production arm — doing so would change
+band synthesis on every 0-cut board with a 4-7 anchor path and needs the full
+44-fixture + fuzz regression first). Unlike recombination below this is NOT
+"ruled out": it demonstrably deepens the attack (0→5) and any future
+short-journey dense board would hit the same trap — it simply does not finish
+this one.
+
+**ELITE RECOMBINATION: TRIED, RULED OUT, AND REMOVED (2026-07-24, 23444) — do
+not re-attempt.** The mechanism (briefly `Config::jamRecombine` /
+`--jam-recombine`, since deleted): once the front stagnates 24+ rounds, replay a
+SECOND elite's drag chain onto the deepest elite's state, keeping the drags
+still reachable there — a move-sequence crossover carrying two lineages' unlocks
+into one start state, since the ratchet otherwise only ever MUTATES one elite.
+Distinct from the ruled-out bidirectional bridging, which spliced far-apart
+forward/backward frontier states; these are siblings from one pool. Result on
+23444: 2620 rounds / 173.9M expansions / minJamTerm 48 — statistically identical
+to the 2613-round / 173.2M baseline, same 80→72→48 trajectory. **The ridge is
+not a diversity failure**, so combining lineages is the wrong axis. Removed per
+the project's pattern for ruled-out levers (as with bidirectional, deadlock
+patterns, PDBs); recover from git history if a future idea needs the crossover.
+
 **Hardness is a property of the BOARD DISTRIBUTION, and it is measurable
 (2026-07-20).** Sampling checkpoints of a board's ground-truth walk at a fixed
 15s/stage cascade gives a hard FRACTION. Measured:
