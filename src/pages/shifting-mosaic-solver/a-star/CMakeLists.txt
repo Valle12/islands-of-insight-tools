@@ -171,6 +171,8 @@ add_executable(shifting_mosaic_a_star
     main.cpp
     BenchFixture.cpp
     BenchCommands.cpp
+    BenchOptions.cpp
+    BenchEngines.cpp
     SolverClock.cpp
     AStar.cpp
     AStarHeuristics.cpp
