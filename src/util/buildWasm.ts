@@ -90,62 +90,48 @@ await build({
   needsBoost: true,
 });
 
-await build({
-  aStarDir: resolve(projectRoot, "src/pages/shifting-mosaic-solver/a-star"),
-  outDir: resolve(projectRoot, "src/pages/shifting-mosaic-solver/wasm"),
-  sources: ["wasm_bindings.cpp", "AStar.cpp", "DragSolver.cpp"],
-  outputJs: "astar.mjs",
-  exportName: "createShiftingMosaicAStarModule",
-  needsBoost: false,
-});
+// The four shifting-mosaic variants compile the SAME three translation units
+// and differ only in output name / memory model / -pthread, so they are listed
+// once and built concurrently — serially they cost 4x the wall clock of the
+// slowest one, and `bun run build` and `bun test` both pay for all of them.
+//   - threads:       cross-origin isolated pages (the coi-serviceworker shim
+//                    supplies COOP/COEP on GitHub Pages). Its cascade races the
+//                    solver arms on real threads inside one module.
+//   - mem64:         single-threaded with an 8GB heap ceiling instead of the
+//                    4GB wasm32 wall. The flat drag / hier / unit arms keep
+//                    every expanded node's state resident (~2.4KB/node), so on
+//                    the hardest boards they hit the 4GB wall and ABORT at ~25%
+//                    of their time budget (measured, IIT-21); this build lets
+//                    them run the whole budget. The bridge prefers it in the
+//                    multi-worker portfolio when the runtime supports
+//                    (non-shared) Memory64 — browsers behind a flag today, node
+//                    natively; bun cannot load it yet.
+//   - threads+mem64: the primary isolated path with an 8GB SHARED heap. This is
+//                    where a bigger heap matters most — all 8 cascade arms race
+//                    inside ONE shared heap. Shared 64-bit memory is a distinct
+//                    capability from the single-threaded build's non-shared
+//                    one, so the bridge gates it on its own validate probe and
+//                    falls back to the wasm32 threads build.
+const SHIFTING_MOSAIC_VARIANTS = [
+  { outputJs: "astar.mjs" },
+  { outputJs: "astar.threads.mjs", threads: true },
+  { outputJs: "astar.mem64.mjs", memory64: true },
+  { outputJs: "astar.threads.mem64.mjs", threads: true, memory64: true },
+] as const;
 
-// pthreads variant: used when the page is cross-origin isolated (the
-// coi-serviceworker shim provides COOP/COEP on GitHub Pages). Its cascade
-// races the solver arms on real threads inside one module.
-await build({
-  aStarDir: resolve(projectRoot, "src/pages/shifting-mosaic-solver/a-star"),
-  outDir: resolve(projectRoot, "src/pages/shifting-mosaic-solver/wasm"),
-  sources: ["wasm_bindings.cpp", "AStar.cpp", "DragSolver.cpp"],
-  outputJs: "astar.threads.mjs",
-  exportName: "createShiftingMosaicAStarModule",
-  needsBoost: false,
-  extraArgs: ["-pthread", "-sPTHREAD_POOL_SIZE=10"],
-});
-
-// MEMORY64 variant: single-threaded, but with an 8GB heap ceiling instead of
-// the 4GB wasm32 wall. The flat drag / hier / unit arms keep every expanded
-// node's state resident (~2.4KB/node), so on the hardest boards they hit the
-// 4GB wall and ABORT at ~25% of their time budget (measured, IIT-21). This
-// build lets those arms run their whole budget. The bridge prefers it in the
-// multi-worker portfolio (non-isolated fallback) when the runtime supports
-// (non-shared) Memory64 — browsers behind a flag today, node natively; bun
-// cannot load it yet — and falls back to the wasm32 build otherwise.
-await build({
-  aStarDir: resolve(projectRoot, "src/pages/shifting-mosaic-solver/a-star"),
-  outDir: resolve(projectRoot, "src/pages/shifting-mosaic-solver/wasm"),
-  sources: ["wasm_bindings.cpp", "AStar.cpp", "DragSolver.cpp"],
-  outputJs: "astar.mem64.mjs",
-  exportName: "createShiftingMosaicAStarModule",
-  needsBoost: false,
-  memory64: true,
-  maxMemory: "8GB",
-});
-
-// pthreads + MEMORY64 variant: the primary (cross-origin isolated) path with
-// an 8GB SHARED heap instead of the 4GB one. This is where a bigger heap
-// matters most — all 8 cascade arms race inside ONE shared heap, so on the
-// isolated path 4GB is split across them and the deep arms hit the wall
-// soonest. Uses a shared 64-bit memory (a different capability from the
-// single-threaded mem64 build's non-shared one), so the bridge gates it on a
-// SHARED-memory64 validate probe and falls back to the wasm32 threads build.
-await build({
-  aStarDir: resolve(projectRoot, "src/pages/shifting-mosaic-solver/a-star"),
-  outDir: resolve(projectRoot, "src/pages/shifting-mosaic-solver/wasm"),
-  sources: ["wasm_bindings.cpp", "AStar.cpp", "DragSolver.cpp"],
-  outputJs: "astar.threads.mem64.mjs",
-  exportName: "createShiftingMosaicAStarModule",
-  needsBoost: false,
-  memory64: true,
-  maxMemory: "8GB",
-  extraArgs: ["-pthread", "-sPTHREAD_POOL_SIZE=10"],
-});
+await Promise.all(
+  SHIFTING_MOSAIC_VARIANTS.map(variant =>
+    build({
+      aStarDir: resolve(projectRoot, "src/pages/shifting-mosaic-solver/a-star"),
+      outDir: resolve(projectRoot, "src/pages/shifting-mosaic-solver/wasm"),
+      sources: ["wasm_bindings.cpp", "AStar.cpp", "DragSolver.cpp"],
+      outputJs: variant.outputJs,
+      exportName: "createShiftingMosaicAStarModule",
+      needsBoost: false,
+      memory64: "memory64" in variant,
+      maxMemory: "memory64" in variant ? "8GB" : "4GB",
+      extraArgs:
+        "threads" in variant ? ["-pthread", "-sPTHREAD_POOL_SIZE=10"] : [],
+    }),
+  ),
+);

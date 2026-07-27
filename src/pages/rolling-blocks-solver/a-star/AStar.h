@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <functional>
 #include <queue>
+#include <array>
 #include <unordered_map>
 #include <vector>
 
@@ -26,7 +27,10 @@ public:
     bool closed = false;
   };
 
-  std::function<void(uint32_t)> onProgress;
+  // Optional per-expansion progress callback (throttled by the search).
+  void setOnProgress(std::function<void(uint32_t)> cb) {
+    onProgress = std::move(cb);
+  }
 
   AStar(uint8_t gridWidth, uint8_t gridHeight, std::vector<Tile> cells,
         uint8_t weight = 2);
@@ -41,7 +45,8 @@ private:
   std::vector<GoalCluster> goalClusters_;
 
   struct MustTouchEntry {
-    int8_t x, y;
+    int8_t x;
+    int8_t y;
     uint16_t index;
   };
   std::vector<MustTouchEntry> mustTouchIndices_;
@@ -51,7 +56,8 @@ private:
     GoalCluster cluster;
     bool valid = false;
   };
-  GoalAssignEntry blockGoalAssignment_[256]{};
+  std::array<GoalAssignEntry, 256> blockGoalAssignment_{};
+  std::function<void(uint32_t)> onProgress;
 
   [[nodiscard]] uint32_t heuristic(const Node &node) const;
   [[nodiscard]] uint32_t mustTouchHeuristic(const Node &node) const;

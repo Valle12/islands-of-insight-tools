@@ -241,8 +241,12 @@ test.describe("Shifting Mosaic wasm variants", () => {
         if (msg?.type === "phase" && msg.phase) phases.push(msg.phase);
       };
       try {
-        const factory = (await import("/sm-wasm/astar.threads.mem64.mjs"))
-          .default;
+        // Built as a variable, not a literal: a literal specifier makes tsc try
+        // to resolve this browser-only URL at compile time and fail with
+        // TS2307 (the sibling call in solveWith() dodges it via a template
+        // literal). `bunx tsc --noEmit` is otherwise clean on this tree.
+        const mem64Url = "/sm-wasm/" + "astar.threads.mem64.mjs";
+        const factory = (await import(/* @vite-ignore */ mem64Url)).default;
         const mod = await factory();
         const column = [
           { x: 0, y: 0 },

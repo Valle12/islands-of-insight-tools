@@ -13,17 +13,33 @@ export function registerCoiShim(): void {
   // file:// or other non-secure contexts can't register service workers.
   if (!window.isSecureContext) return;
 
+  // Page-relative, NOT root-absolute: the site is published to a GitHub Pages
+  // project sub-path (https://<user>.github.io/<repo>/), so "/coi-serviceworker.js"
+  // would resolve against the domain root and 404. Pages live one level below
+  // the site root, so "../" lands on it — and the worker's default scope is its
+  // own directory, i.e. the site root, covering every page.
   navigator.serviceWorker
-    .register("/coi-serviceworker.js")
-    .then(registration => {
-      // First visit: the worker only controls the page after a reload.
-      // Guard against loops (e.g. a browser that never becomes isolated).
+    .register("../coi-serviceworker.js")
+    .then(async () => {
+      // register() resolves while the worker may still be INSTALLING; reloading
+      // now would come back uncontrolled and the guard below would then block
+      // the retry that would have worked. Wait for activation first.
+      await navigator.serviceWorker.ready;
+      // Test ISOLATION, not "is a worker controlling us". The shim calls
+      // clients.claim(), so after awaiting ready a controller usually already
+      // exists — but this document was fetched BEFORE the worker could add
+      // COOP/COEP, so it is still not isolated. Keying the reload off the
+      // controller therefore skipped it exactly when it was needed, and the
+      // page silently fell back to the non-threaded portfolio. (Caught by
+      // e2e/shiftingMosaicWasmVariants.test.ts, which asserts isolation on a
+      // fresh browser context; a warm context hides it because the worker is
+      // already installed and the very first load comes back isolated.)
+      // Guard against loops on browsers that can never isolate.
       if (
-        !navigator.serviceWorker.controller &&
+        !window.crossOriginIsolated &&
         sessionStorage.getItem(RELOAD_GUARD) !== "1"
       ) {
         sessionStorage.setItem(RELOAD_GUARD, "1");
-        registration.addEventListener("updatefound", () => {});
         window.location.reload();
       }
     })

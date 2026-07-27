@@ -246,12 +246,15 @@ public:
     uint32_t maxProgress = 0;
   };
 
-  std::function<void(uint32_t)> onProgress;
+  // Optional per-expansion progress callback (throttled by the search).
+  void setOnProgress(std::function<void(uint32_t)> cb) {
+    onProgress = std::move(cb);
+  }
 
   DragSolver(uint8_t gridWidth, uint8_t gridHeight,
              std::vector<std::vector<Position>> shapes,
              std::vector<Position> initialAnchors, uint8_t goalIndex,
-             Position goalAnchor, Config config);
+             Position goalAnchor, const Config &config);
 
   // Replace the packer's slot assignment (packing guide) with an external
   // one: `slots[i]` = anchor index (x * gridHeight + y) for block i, or -1.
@@ -458,6 +461,8 @@ private:
   [[nodiscard]] uint32_t
   displacementSum(const std::vector<Position> &anchors) const;
   SearchStats stats_{};
+  // Kept out of the hot scalar block above deliberately — this is cold state.
+  std::function<void(uint32_t)> onProgress;
   // Deepest elite of the last searchJamRestarts run (see lastEliteAnchors).
   std::vector<Position> lastEliteAnchors_;
   std::vector<DragMove> lastElitePrefix_;

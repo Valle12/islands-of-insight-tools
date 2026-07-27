@@ -4,6 +4,7 @@
 #include "DragSolver.h"
 #include "Types.h"
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -66,8 +67,15 @@ runArm(const int arm, const uint8_t gridWidth, const uint8_t gridHeight,
        const bool postProcess, const uint64_t maxHeapBytes,
        std::atomic<bool> *cancel,
        const std::function<void(uint32_t)> &onArmProgress,
-       const bool respectJamGate, const uint8_t jamAspect16 = 42,
-       const uint8_t jamDensityPct = 40) {
+       // Defer to DragSolver::Config's own defaults rather than re-declaring
+       // them here: the literals used to be 42/40, which silently overrode the
+       // validated 66/35 relaxation for every caller that did not pass them
+       // (wasm_bindings.cpp and json_test.cpp both omit these arguments), so
+       // the shipped cross-origin-isolated build and the C++ test suite ran the
+       // pre-relaxation gate while main.cpp ran the relaxed one.
+       const bool respectJamGate,
+       const uint8_t jamAspect16 = DragSolver::Config{}.jamAspect16,
+       const uint8_t jamDensityPct = DragSolver::Config{}.jamDensityPct) {
   switch (arm) {
   case 0: { // receding-horizon drag search — fast on cut-structured puzzles
     DragSolver::Config cfg;
@@ -81,7 +89,7 @@ runArm(const int arm, const uint8_t gridWidth, const uint8_t gridHeight,
     cfg.cancel = cancel;
     DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
                       goalAnchor, cfg);
-    solver.onProgress = onArmProgress;
+    solver.setOnProgress(onArmProgress);
     return solver.searchHierarchical(maxMs, maxNodes);
   }
   case 1: { // the deep-puzzle flat drag config (cracked shiftingMosaicTest37)
@@ -96,7 +104,7 @@ runArm(const int arm, const uint8_t gridWidth, const uint8_t gridHeight,
     cfg.cancel = cancel;
     DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
                       goalAnchor, cfg);
-    solver.onProgress = onArmProgress;
+    solver.setOnProgress(onArmProgress);
     return solver.search(maxMs, maxNodes == 0 ? 0 : maxNodes);
   }
   case 2: { // the legacy unit-move production config — zero-regression arm
@@ -112,7 +120,7 @@ runArm(const int arm, const uint8_t gridWidth, const uint8_t gridHeight,
     cfg.cancel = cancel;
     AStar solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
                  goalAnchor, cfg);
-    solver.onProgress = onArmProgress;
+    solver.setOnProgress(onArmProgress);
     return solver.search(maxMs, maxNodes);
   }
   case 3: { // corridor — synthetic distance bands (declines fast on cut boards)
@@ -128,7 +136,7 @@ runArm(const int arm, const uint8_t gridWidth, const uint8_t gridHeight,
     cfg.cancel = cancel;
     DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
                       goalAnchor, cfg);
-    solver.onProgress = onArmProgress;
+    solver.setOnProgress(onArmProgress);
     return solver.searchHierarchical(maxMs, maxNodes);
   }
   case 4: { // assembly — pack-then-slide (declines fast without a packing)
@@ -140,7 +148,7 @@ runArm(const int arm, const uint8_t gridWidth, const uint8_t gridHeight,
     cfg.cancel = cancel;
     DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
                       goalAnchor, cfg);
-    solver.onProgress = onArmProgress;
+    solver.setOnProgress(onArmProgress);
     return solver.searchAssembly(maxMs, maxNodes);
   }
   case 5: { // jam — relevance filter + commutativity pruning for compact
@@ -158,7 +166,7 @@ runArm(const int arm, const uint8_t gridWidth, const uint8_t gridHeight,
     cfg.cancel = cancel;
     DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
                       goalAnchor, cfg);
-    solver.onProgress = onArmProgress;
+    solver.setOnProgress(onArmProgress);
     return solver.search(maxMs, maxNodes);
   }
   case 6: { // jam restarts — dig-cost-guided diversified rounds for compact
@@ -183,7 +191,7 @@ runArm(const int arm, const uint8_t gridWidth, const uint8_t gridHeight,
                       goalAnchor, cfg);
     if (respectJamGate && !solver.jamProfile())
       return {};
-    solver.onProgress = onArmProgress;
+    solver.setOnProgress(onArmProgress);
     return solver.searchJamRestarts(maxMs, maxNodes);
   }
   case 7: { // guided beam — breadth against the jam plateaus the restart
@@ -201,7 +209,7 @@ runArm(const int arm, const uint8_t gridWidth, const uint8_t gridHeight,
                       goalAnchor, cfg);
     if (respectJamGate && !solver.jamProfile())
       return {};
-    solver.onProgress = onArmProgress;
+    solver.setOnProgress(onArmProgress);
     return solver.searchBeamJam(maxMs, maxNodes);
   }
   default:
@@ -228,14 +236,15 @@ inline std::vector<Turn> solveArmsParallel(
     // most here and nowhere else: under emscripten pthreads all 8 arms share
     // ONE heap, so an unbounded arm does not merely fail itself — exhausting a
     // shared wasm heap ABORTS the module, taking down arms that were winning.
-    const uint64_t maxHeapBytes = 0, const uint8_t jamAspect16 = 42,
-    const uint8_t jamDensityPct = 40,
+    const uint64_t maxHeapBytes = 0,
+    const uint8_t jamAspect16 = DragSolver::Config{}.jamAspect16,
+    const uint8_t jamDensityPct = DragSolver::Config{}.jamDensityPct,
     std::vector<cascade::ArmOutcome> *outcomes = nullptr) {
   using cascade::ARMS;
   std::atomic<bool> cancel{false};
   std::atomic<int> winner{-1};
   std::atomic<int> finished{0};
-  std::atomic<uint32_t> progress[ARMS] = {};
+  std::array<std::atomic<uint32_t>, ARMS> progress = {};
   std::vector<Turn> results[ARMS];
 
   const auto claimWin = [&](const int arm) {
@@ -244,8 +253,8 @@ inline std::vector<Turn> solveArmsParallel(
       cancel.store(true, std::memory_order_relaxed);
   };
 
-  std::atomic<uint32_t> armMs[ARMS] = {};
-  std::thread threads[ARMS];
+  std::array<std::atomic<uint32_t>, ARMS> armMs = {};
+  std::array<std::thread, ARMS> threads;
   for (int i = 0; i < ARMS; i++) {
     threads[i] = std::thread([&, i] {
       const uint64_t started = cascade::nowMsSteady();
@@ -320,8 +329,13 @@ inline std::vector<Turn> solveArmsSequential(
     const uint32_t totalMaxMs, const uint32_t maxNodes, const bool postProcess,
     const std::function<void(uint32_t)> &onProgress,
     const uint64_t maxHeapBytes = 0, std::atomic<bool> *cancel = nullptr,
-    const uint8_t jamAspect16 = 42, const uint8_t jamDensityPct = 40,
-    std::vector<cascade::ArmOutcome> *outcomes = nullptr) {
+    const uint8_t jamAspect16 = DragSolver::Config{}.jamAspect16,
+    const uint8_t jamDensityPct = DragSolver::Config{}.jamDensityPct,
+    std::vector<cascade::ArmOutcome> *outcomes = nullptr,
+    // Called as each arm starts. The browser surfaces this so the slow phase
+    // visibly progresses; without it the UI sits on one unchanged line for
+    // minutes and reads as a hang.
+    const std::function<void(const char *)> &onArmStart = {}) {
   // Order is MEASURED, not assumed: all 8 arms were run standalone against
   // every one of 12 boards the race loses (96 runs, 300s and an 8GB cap each,
   // ungated exactly as here) — test-results/arm-study.
@@ -348,6 +362,15 @@ inline std::vector<Turn> solveArmsSequential(
   // no ordering rescues them.
   constexpr int ORDER[cascade::ARMS] = {6, 2, 5, 3, 4, 7, 0, 1};
 
+  // Own the buffer the way solveArmsParallel does. main.cpp's --engine twophase
+  // hands the SAME vector to both phases, so appending here without clearing
+  // produced 8 race rows followed by up to 8 sequential rows: duplicate arm
+  // ids, two `won:true` entries, and cancelled-loser wallMs (a lower bound)
+  // mixed with true standalone runtimes — corrupting the very telemetry the
+  // ORDER below is derived from.
+  if (outcomes)
+    outcomes->clear();
+
   const uint64_t deadline =
       totalMaxMs == 0 ? 0 : cascade::nowMsSteady() + totalMaxMs;
   uint32_t carried = 0; // progress from arms already finished
@@ -363,12 +386,19 @@ inline std::vector<Turn> solveArmsSequential(
       const auto left = static_cast<uint32_t>(deadline - now);
       budget = (maxMsPerArm == 0) ? left : std::min(maxMsPerArm, left);
     }
-    uint32_t armBase = carried;
+    const uint32_t armBase = carried;
+    if (onArmStart)
+      onArmStart(cascade::armName(arm));
+    // Last value this arm reported, so `carried` can advance by the arm's real
+    // node count when it finishes. Written and read only on this thread — the
+    // arms run in series here.
+    uint32_t armLast = 0;
     const uint64_t started = cascade::nowMsSteady();
     auto turns = cascade::runArm(
         arm, gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
         goalAnchor, budget, maxNodes, postProcess, maxHeapBytes, cancel,
-        [&onProgress, armBase](const uint32_t n) {
+        [&onProgress, &armLast, armBase](const uint32_t n) {
+          armLast = n;
           if (onProgress)
             onProgress(armBase + n);
         },
@@ -380,7 +410,11 @@ inline std::vector<Turn> solveArmsSequential(
           {arm, !turns.empty(), !turns.empty(), turns.empty() && ms < 5, ms});
     if (!turns.empty())
       return turns;
-    carried += 1; // keep the counter monotonic across arms
+    // Carry the arm's OWN last count, not a constant: `carried += 1` made the
+    // forwarded total collapse to ~0 at every one of the eight arm boundaries,
+    // so the UI's "N nodes explored" readout jumped backwards from millions to
+    // single digits during the very phase the code announces as the slow one.
+    carried += armLast;
   }
   return {};
 }

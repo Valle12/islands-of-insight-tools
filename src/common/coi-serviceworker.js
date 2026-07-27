@@ -25,17 +25,27 @@ if (typeof window === "undefined" && typeof self !== "undefined") {
     if (request.cache === "only-if-cached" && request.mode !== "same-origin")
       return;
     event.respondWith(
-      fetch(request).then(response => {
-        if (response.status === 0) return response;
-        const headers = new Headers(response.headers);
-        headers.set("Cross-Origin-Embedder-Policy", "credentialless");
-        headers.set("Cross-Origin-Opener-Policy", "same-origin");
-        return new Response(response.body, {
-          status: response.status,
-          statusText: response.statusText,
-          headers,
-        });
-      }),
+      fetch(request)
+        .then(response => {
+          if (response.status === 0) return response;
+          const headers = new Headers(response.headers);
+          headers.set("Cross-Origin-Embedder-Policy", "credentialless");
+          headers.set("Cross-Origin-Opener-Policy", "same-origin");
+          return new Response(response.body, {
+            status: response.status,
+            statusText: response.statusText,
+            headers,
+          });
+        })
+        // This worker's scope is the whole site, so EVERY request flows through
+        // here. Without a catch, one rejected fetch (offline, a blocked
+        // third-party script, an extension) becomes a hard network error plus
+        // an unhandled rejection. Re-throwing lets the browser apply its own
+        // failure handling instead.
+        .catch(err => {
+          console.warn("coi-serviceworker passthrough failed:", err);
+          throw err;
+        }),
     );
   });
 }

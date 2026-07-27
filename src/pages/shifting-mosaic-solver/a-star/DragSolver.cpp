@@ -4,6 +4,7 @@
 #include "AStar.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <chrono>
 #include <compare>
@@ -13,6 +14,7 @@
 #include <iostream>
 #include <queue>
 #include <random>
+#include <utility>
 
 namespace {
 uint64_t nowMs() {
@@ -56,7 +58,7 @@ DragSolver::DragSolver(const uint8_t gridWidth, const uint8_t gridHeight,
                        std::vector<std::vector<Position>> shapes,
                        std::vector<Position> initialAnchors,
                        const uint8_t goalIndex, const Position goalAnchor,
-                       const Config config)
+                       const Config &config)
     : gridWidth_(gridWidth), gridHeight_(gridHeight),
       shapes_(std::move(shapes)), initialAnchors_(std::move(initialAnchors)),
       goalIndex_(goalIndex), goalAnchor_(goalAnchor), cfg_(config),
@@ -67,6 +69,9 @@ DragSolver::DragSolver(const uint8_t gridWidth, const uint8_t gridHeight,
     for (uint8_t i = 0; i < shapes_.size(); i++) {
       if (i == goalIndex_) continue;
       std::vector<Position> cells = shapes_[i];
+      // See AStar's copy of this loop: an empty shape has no origin to
+      // normalise against, and cells[0] on it is undefined behaviour.
+      if (cells.empty()) continue;
       int8_t minX = cells[0].x;
       int8_t minY = cells[0].y;
       for (const auto &c : cells) {
@@ -773,9 +778,9 @@ NodeKey DragSolver::coarseSignature(
   for (const auto &group : symmetryGroups_) {
     const size_t m = group.size();
     if (m > 64) continue;
-    uint16_t vals[64];
+    std::array<uint16_t, 64> vals; // NOLINT — only [0,m) is written then read
     for (size_t k = 0; k < m; k++) vals[k] = d[group[k]];
-    std::sort(vals, vals + m);
+    std::sort(vals.begin(), vals.begin() + static_cast<ptrdiff_t>(m));
     for (size_t k = 0; k < m; k++) d[group[k]] = vals[k];
   }
   return key;
@@ -806,7 +811,7 @@ NodeKey DragSolver::childSignature(const NodeKey &parentKey,
     d[block] = newPacked;
     return key;
   }
-  uint16_t vals[64];
+  std::array<uint16_t, 64> vals; // NOLINT — only [0,m) is written then read
   for (size_t k = 0; k < m; k++) vals[k] = d[slots[k]];
   for (size_t k = 0; k < m; k++) {
     if (vals[k] == oldPacked) {
@@ -814,7 +819,7 @@ NodeKey DragSolver::childSignature(const NodeKey &parentKey,
       break;
     }
   }
-  std::sort(vals, vals + m);
+  std::sort(vals.begin(), vals.begin() + static_cast<ptrdiff_t>(m));
   for (size_t k = 0; k < m; k++) d[slots[k]] = vals[k];
   return key;
 }
@@ -835,9 +840,9 @@ NodeKey DragSolver::signatureFromAnchors(
   for (const auto &group : symmetryGroups_) {
     const size_t m = group.size();
     if (m > 64) continue;
-    uint16_t vals[64];
+    std::array<uint16_t, 64> vals; // NOLINT — only [0,m) is written then read
     for (size_t k = 0; k < m; k++) vals[k] = d[group[k]];
-    std::sort(vals, vals + m);
+    std::sort(vals.begin(), vals.begin() + static_cast<ptrdiff_t>(m));
     for (size_t k = 0; k < m; k++) d[group[k]] = vals[k];
   }
   return key;
@@ -1153,6 +1158,16 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
     }
     // Measured-memory ceiling. Same cadence deliberately: liveAllocatedBytes()
     // walks allocator structures under emscripten, so it must not run per node.
+    if ((loopIters & 0xFF) == 0 && memprobe::nearHeapLimit()) {
+      // Unconditional: an aborting module takes every other arm with it, so
+      // this fires even when no maxHeapBytes was configured.
+      if (verbose)
+        std::cout << "DragSolver stopped at the heap limit after "
+                  << nodesExpanded << " drag expansions\n";
+      stats_.stoppedOnMemory = true;
+      finishStats();
+      return finishResult(false);
+    }
     if (cfg_.maxHeapBytes != 0 && (loopIters & 0xFF) == 0) {
       const uint64_t used = memprobe::liveAllocatedBytes();
       // 0 means the platform cannot measure — treat as "no information" and
@@ -1346,7 +1361,13 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
     grid_.buildOccupancy(anchors);
     for (const uint8_t i : movableBlockIndices_) {
       const Position from = anchors[i];
-      if (!(relevantMask >> i & 1))
+      // `i < 32` guard: relevantMask is a uint32_t and is set to UINT32_MAX
+      // (= "no filtering") whenever shapes_.size() > 32, but `UINT32_MAX >> i`
+      // with i >= 32 is undefined. x86/wasm happen to mask the count to 5 bits
+      // today; a compiler that folds the shift to 0 would silently skip every
+      // block with index >= 32. The sibling shifts below are already gated on
+      // `por` (which requires shapes_.size() <= 32); this one was not.
+      if (i < 32 && !(relevantMask >> i & 1))
         continue; // relevance-filtered
       if (por && (info.slept >> i & 1))
         continue; // commutes with the drag that created this node
@@ -1416,8 +1437,21 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
                                 !grid_.canPlace(i, t.x, t.y + 1);
           const bool blockedH = !grid_.canPlace(i, t.x - 1, t.y) ||
                                 !grid_.canPlace(i, t.x + 1, t.y);
+          // Must mirror progressOf(), which treats the exact target as
+          // middleCuts_ + 1 — reading the RAW progressIndex_ table instead
+          // silently dropped the winning move. On a 0-cut board with no
+          // corridor bands that table is all zeros, so gProg and
+          // progressIndex_[targetIdx] are both 0, `advances` was false for the
+          // drag home, and if goalAnchor_ is not flush both ways the `continue`
+          // below discarded it — no state satisfying isGoal() could ever be
+          // created. That silently crippled every settledOnly arm (hier, flat
+          // drag, corridor, jam-filtered = 4 of the 8 racing arms) and
+          // searchAssembly's final goal leg, whose entire job is that drag.
+          const bool reachesTarget =
+              t.x == goalAnchor_.x && t.y == goalAnchor_.y;
           const bool advances =
-              i == goalIndex_ && progressIndex_[toIdx] > gProg;
+              i == goalIndex_ &&
+              (reachesTarget || progressIndex_[toIdx] > gProg);
           if (!(blockedV && blockedH) && !advances)
             continue;
         }
@@ -1501,7 +1535,7 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
     for (size_t ci = emitFrom; ci < emitTo; ci++) {
       const Cand &c = candScratch_[ci];
       const Position newPos = grid_.anchorFromIndex(c.toIdx);
-      NodeKey newSig =
+      const NodeKey newSig =
           childSignature(*current.key, c.blockId, anchors[c.blockId],
                          newPos);
       auto [newEntry, inserted] = states.emplace(newSig);
@@ -1578,7 +1612,7 @@ bool DragSolver::replayIsValid(const std::vector<Turn> &turns) const {
     if (blockId >= anchors.size())
       return false;
     const Position from = anchors[blockId];
-    const int d = static_cast<int>(direction);
+    const auto d = std::to_underlying(direction);
     const Position to = {static_cast<int8_t>(from.x + BitGrid::DX[d]),
                          static_cast<int8_t>(from.y + BitGrid::DY[d])};
     grid.removeBlock(blockId, from);
@@ -1714,6 +1748,13 @@ std::vector<Turn> DragSolver::searchAssembly(const uint32_t maxMs,
     c.packingGuide = false;
     c.postProcess = false;
     c.cancel = cfg_.cancel;
+    // Inherit the resource ceilings. ALL of the assembly arm's actual search
+    // happens in these children — the outer solver only orchestrates — so
+    // leaving them at 0 (unlimited) meant maxHeapBytes was silently ignored by
+    // the whole arm. On the isolated build all 8 arms share ONE wasm heap and
+    // exhausting it ABORTS the module, killing every other arm.
+    c.maxHeapBytes = cfg_.maxHeapBytes;
+    c.maxStatesStored = cfg_.maxStatesStored;
     c.frozenBlocks = frozen;
     DragSolver child(gridWidth_, gridHeight_, shapes_, f.anchors,
                      remaining.front(), slotPos(remaining.front()), c);
@@ -1813,9 +1854,9 @@ std::vector<Turn> DragSolver::searchAssembly(const uint32_t maxMs,
         for (const auto &t : jturns)
           anchors[t.blockId] = {
               static_cast<int8_t>(anchors[t.blockId].x +
-                                  BitGrid::DX[static_cast<int>(t.direction)]),
+                                  BitGrid::DX[std::to_underlying(t.direction)]),
               static_cast<int8_t>(anchors[t.blockId].y +
-                                  BitGrid::DY[static_cast<int>(t.direction)])};
+                                  BitGrid::DY[std::to_underlying(t.direction)])};
         plan.resize(cur.planLen);
         plan.insert(plan.end(), jturns.begin(), jturns.end());
         std::cout << "assembly: joint endgame SOLVED the packing ("
@@ -1867,6 +1908,10 @@ std::vector<Turn> DragSolver::searchAssembly(const uint32_t maxMs,
     c.packingGuide = false; // slots injected below
     c.postProcess = false;
     c.cancel = cfg_.cancel;
+    // See jointEndgame: the child does the searching, so it must inherit the
+    // heap/state ceilings or the arm has none.
+    c.maxHeapBytes = cfg_.maxHeapBytes;
+    c.maxStatesStored = cfg_.maxStatesStored;
     c.frozenBlocks = {goalIndex_};
     DragSolver child(gridWidth_, gridHeight_, shapes_, cur.anchors, piece,
                      slotPos(piece), c);
@@ -1887,9 +1932,9 @@ std::vector<Turn> DragSolver::searchAssembly(const uint32_t maxMs,
     next.anchors = cur.anchors;
     for (const auto &t : turns) {
       next.anchors[t.blockId].x = static_cast<int8_t>(
-          next.anchors[t.blockId].x + BitGrid::DX[static_cast<int>(t.direction)]);
+          next.anchors[t.blockId].x + BitGrid::DX[std::to_underlying(t.direction)]);
       next.anchors[t.blockId].y = static_cast<int8_t>(
-          next.anchors[t.blockId].y + BitGrid::DY[static_cast<int>(t.direction)]);
+          next.anchors[t.blockId].y + BitGrid::DY[std::to_underlying(t.direction)]);
     }
     plan.resize(cur.planLen);
     plan.insert(plan.end(), turns.begin(), turns.end());
@@ -1943,6 +1988,9 @@ std::vector<Turn> DragSolver::searchAssembly(const uint32_t maxMs,
     c.packingGuide = false;
     c.postProcess = false;
     c.cancel = cfg_.cancel;
+    // See jointEndgame: inherit the heap/state ceilings.
+    c.maxHeapBytes = cfg_.maxHeapBytes;
+    c.maxStatesStored = cfg_.maxStatesStored;
     DragSolver finalLeg(gridWidth_, gridHeight_, shapes_, anchors, goalIndex_,
                         goalAnchor_, c);
     finalLeg.overrideSlots(packedSlot_);
@@ -1967,8 +2015,8 @@ std::vector<Turn> DragSolver::searchAssembly(const uint32_t maxMs,
     // polishing a plan nobody will use only delays every other arm's join.
     AStar::Config oc;
     oc.cancel = cfg_.cancel;
-    AStar optimizer(gridWidth_, gridHeight_, shapes_, initialAnchors_,
-                    goalIndex_, goalAnchor_, oc);
+    const AStar optimizer(gridWidth_, gridHeight_, shapes_, initialAnchors_,
+                          goalIndex_, goalAnchor_, oc);
     const size_t beforeMoves = plan.size();
     plan = optimizer.optimizeSolution(plan);
     std::cout << "post-process: " << beforeMoves << " -> " << plan.size()
@@ -1990,8 +2038,8 @@ std::vector<Turn> DragSolver::finalizePlan(const std::vector<DragMove> &drags) {
     // polishing a plan nobody will use only delays every other arm's join.
     AStar::Config oc;
     oc.cancel = cfg_.cancel;
-    AStar optimizer(gridWidth_, gridHeight_, shapes_, initialAnchors_,
-                    goalIndex_, goalAnchor_, oc);
+    const AStar optimizer(gridWidth_, gridHeight_, shapes_, initialAnchors_,
+                          goalIndex_, goalAnchor_, oc);
     const size_t beforeMoves = turns.size();
     turns = optimizer.optimizeSolution(turns);
     std::cout << "post-process: " << beforeMoves << " -> " << turns.size()
@@ -2315,6 +2363,20 @@ std::vector<Turn> DragSolver::searchBeamJam(const uint32_t maxMs,
   uint32_t round = 0;
   const uint32_t savedSeed = cfg_.tieBreakSeed;
   const bool savedCanon = cfg_.canonicalizeSymmetry;
+  // anchorsOf() above decodes per-block anchors straight out of the NodeKey,
+  // but signatureFromAnchors SORTS each symmetry group's packed anchors, so on
+  // a board with same-shape blocks d[i] is not block i's anchor. Every drag
+  // recorded in round 0 then named a permuted label, reconstructTurns failed
+  // its reachability check and finalizePlan returned {} — so round 0 was
+  // systematically thrown away (odds of the root already being canonical are
+  // 1/k! per group), and the retry below treated a structural bug as a "rare"
+  // mix-up. Only round 1+ could ever return a plan.
+  //
+  // Canonicalisation only buys state-space collapsing, and only groups make it
+  // differ from the identity, so drop it up front exactly when it would break
+  // the decode. Boards without same-shape blocks are unaffected.
+  if (!symmetryGroups_.empty())
+    cfg_.canonicalizeSymmetry = false;
   const bool savedPin = cfg_.jamPinRoute;
   for (; turns.empty(); round++) {
     if (deadline != 0 && nowMs() >= deadline)
@@ -2352,6 +2414,21 @@ std::vector<Turn> DragSolver::searchBeamJam(const uint32_t maxMs,
         break;
       if (cfg_.cancel && cfg_.cancel->load(std::memory_order_relaxed))
         break;
+      // Memory ceiling. The beam keeps EVERY layer of the round resident
+      // (`arena` is cleared per round, not per depth) plus a `visited` set of
+      // the same keys, so at W up to 150k x MAX_DEPTH it is the hungriest arm
+      // there is — yet it was the only search entry point that never consulted
+      // cfg_.maxHeapBytes. On the isolated build all 8 arms share ONE wasm
+      // heap and exhausting it ABORTS the module rather than retiring one arm.
+      if (cfg_.maxHeapBytes != 0) {
+        const uint64_t used = memprobe::liveAllocatedBytes();
+        if (used != 0 && used >= cfg_.maxHeapBytes) {
+          std::cout << "beam-jam hit memory ceiling (" << (used >> 20)
+                    << " MB of " << (cfg_.maxHeapBytes >> 20) << " MB)\n";
+          stats_.stoppedOnMemory = true;
+          break;
+        }
+      }
       cands.clear();
       const auto keepBestW = [&] {
         if (cands.size() <= 2 * static_cast<size_t>(W))

@@ -29,6 +29,7 @@
 #include "Types.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -80,20 +81,46 @@ Fixture loadFixture(const std::string &path) {
   return data;
 }
 
-// Replays the turns and checks the goal block ends on the goal anchor.
-bool replaySolves(const Fixture &data, const std::vector<Turn> &turns) {
-  std::vector<Position> anchors = data.initialAnchors;
-  for (const auto &[blockId, direction] : turns) {
-    if (blockId >= anchors.size())
-      return false;
-    auto &p = anchors[blockId];
-    switch (direction) {
-    case Direction::UP:    p.y--; break;
-    case Direction::RIGHT: p.x++; break;
-    case Direction::DOWN:  p.y++; break;
-    case Direction::LEFT:  p.x--; break;
+// Replays a turn stream with FULL legality checking — bounds and collisions
+// via BitGrid, not just the final goal position. Returns the index of the first
+// illegal move, or SIZE_MAX when the whole stream is legal; `anchors` is left
+// holding the position reached.
+//
+// Every validity check goes through here. A goal-position-only replay cannot
+// see a plan that drives a block through another block or off the grid, which
+// is exactly the class of defect the fuzz campaign exists to catch.
+size_t firstIllegalMove(const Fixture &data, const std::vector<Turn> &turns,
+                        std::vector<Position> &anchors) {
+  anchors = data.initialAnchors;
+  BitGrid grid(data.gridWidth, data.gridHeight, data.shapes);
+  grid.buildOccupancy(anchors);
+  for (size_t i = 0; i < turns.size(); i++) {
+    const uint8_t b = turns[i].blockId;
+    if (b >= anchors.size())
+      return i;
+    const int d = static_cast<int>(turns[i].direction);
+    if (d < 0 || d > 3)
+      return i;
+    const Position from = anchors[b];
+    const Position to{static_cast<int8_t>(from.x + BitGrid::DX[d]),
+                      static_cast<int8_t>(from.y + BitGrid::DY[d])};
+    grid.removeBlock(b, from);
+    if (!grid.canPlace(b, to.x, to.y)) {
+      grid.addBlock(b, from);
+      return i;
     }
+    grid.addBlock(b, to);
+    anchors[b] = to;
   }
+  return SIZE_MAX;
+}
+
+// Replays the turns and checks the plan is legal AND lands the goal block on
+// the goal anchor.
+bool replaySolves(const Fixture &data, const std::vector<Turn> &turns) {
+  std::vector<Position> anchors;
+  if (firstIllegalMove(data, turns, anchors) != SIZE_MAX)
+    return false;
   const auto &g = anchors[data.goalIndex];
   return g.x == data.goalAnchor.x && g.y == data.goalAnchor.y;
 }
@@ -164,10 +191,9 @@ void writeTurnsFile(const std::vector<Turn> &turns, const std::string &path) {
   f << tj.dump();
 }
 
-// Replays a turn stream against the fixture with FULL legality checking —
-// bounds and collisions via BitGrid, not just the final goal position that
-// replaySolves checks. This is the safety net for a plan STITCHED from two
-// independently-solved halves, where nothing else has validated the seam.
+// Replays a turn stream read from a file. The safety net for a plan STITCHED
+// from two independently-solved halves, where nothing else has validated the
+// seam. Shares firstIllegalMove() with the inline `valid` check above.
 int runVerify(const Fixture &data, const std::string &turnsPath) {
   std::ifstream f(turnsPath);
   if (!f.is_open()) {
@@ -181,29 +207,8 @@ int runVerify(const Fixture &data, const std::string &turnsPath) {
     turns.push_back({t["blockId"].get<uint8_t>(),
                      static_cast<Direction>(t["direction"].get<int>())});
 
-  std::vector<Position> anchors = data.initialAnchors;
-  BitGrid grid(data.gridWidth, data.gridHeight, data.shapes);
-  grid.buildOccupancy(anchors);
-  size_t illegalAt = SIZE_MAX;
-  for (size_t i = 0; i < turns.size(); i++) {
-    const uint8_t b = turns[i].blockId;
-    if (b >= anchors.size()) {
-      illegalAt = i;
-      break;
-    }
-    const Position from = anchors[b];
-    const int d = static_cast<int>(turns[i].direction);
-    const Position to{static_cast<int8_t>(from.x + BitGrid::DX[d]),
-                      static_cast<int8_t>(from.y + BitGrid::DY[d])};
-    grid.removeBlock(b, from);
-    if (!grid.canPlace(b, to.x, to.y)) {
-      grid.addBlock(b, from);
-      illegalAt = i;
-      break;
-    }
-    grid.addBlock(b, to);
-    anchors[b] = to;
-  }
+  std::vector<Position> anchors;
+  const size_t illegalAt = firstIllegalMove(data, turns, anchors);
   const bool legal = illegalAt == SIZE_MAX;
   const auto &g = anchors[data.goalIndex];
   const bool solved =
@@ -456,16 +461,32 @@ int main(int argc, char **argv) {
       }
       return argv[++i];
     };
+    // atoi()/atoll() report nothing: a typo'd or out-of-range value silently
+    // becomes 0 and the sweep looks like it honoured the flag while measuring
+    // something else. Every numeric option goes through this instead.
+    const auto nextU = [&]() -> uint64_t {
+      const char *const raw = next();
+      char *end = nullptr;
+      errno = 0;
+      const unsigned long long v = std::strtoull(raw, &end, 10);
+      // strtoull happily wraps a leading '-' into a huge value, so reject the
+      // sign explicitly rather than letting "-1" mean 18446744073709551615.
+      if (end == raw || *end != '\0' || errno == ERANGE || raw[0] == '-') {
+        std::cerr << "Invalid number for " << arg << ": " << raw << "\n";
+        std::exit(2);
+      }
+      return v;
+    };
     if (arg == "--fixture") fixturePath = next();
     else if (arg == "--engine") engine = next();
-    else if (arg == "--weight") cfg.weight = static_cast<uint8_t>(std::atoi(next()));
-    else if (arg == "--budget-ms") budgetMs = static_cast<uint32_t>(std::atoll(next()));
-    else if (arg == "--max-nodes") maxNodes = static_cast<uint32_t>(std::atoll(next()));
-    else if (arg == "--stride") cfg.strideOverride = static_cast<uint8_t>(std::atoi(next()));
+    else if (arg == "--weight") cfg.weight = static_cast<uint8_t>(nextU());
+    else if (arg == "--budget-ms") budgetMs = static_cast<uint32_t>(nextU());
+    else if (arg == "--max-nodes") maxNodes = static_cast<uint32_t>(nextU());
+    else if (arg == "--stride") cfg.strideOverride = static_cast<uint8_t>(nextU());
     else if (arg == "--settled") settledOnly = true;
-    else if (arg == "--pea") pea = static_cast<uint16_t>(std::atoi(next()));
-    else if (arg == "--packing-weight") packingWeight = static_cast<uint8_t>(std::atoi(next()));
-    else if (arg == "--consolidation") consolidationGain = static_cast<uint8_t>(std::atoi(next()));
+    else if (arg == "--pea") pea = static_cast<uint16_t>(nextU());
+    else if (arg == "--packing-weight") packingWeight = static_cast<uint8_t>(nextU());
+    else if (arg == "--consolidation") consolidationGain = static_cast<uint8_t>(nextU());
     else if (arg == "--slot-h") slotHeuristic = true;
     else if (arg == "--dump") dumpPath = next();
     else if (arg == "--all-slots") requireAllSlots = true;
@@ -473,28 +494,28 @@ int main(int argc, char **argv) {
     else if (arg == "--por") sleepSets = true;
     else if (arg == "--relevant") relevantOnly = true;
     else if (arg == "--bands") bands = true;
-    else if (arg == "--band-min-path") bandMinPath = static_cast<uint8_t>(std::atoi(next()));
-    else if (arg == "--max-states") { maxStates = std::strtoull(next(), nullptr, 10); cfg.maxStatesStored = maxStates; }
-    else if (arg == "--arm") armIndex = std::atoi(next());
+    else if (arg == "--band-min-path") bandMinPath = static_cast<uint8_t>(nextU());
+    else if (arg == "--max-states") { maxStates = nextU(); cfg.maxStatesStored = maxStates; }
+    else if (arg == "--arm") armIndex = static_cast<int>(nextU());
     else if (arg == "--arm-gated") armGated = true;
-    else if (arg == "--jam-density") jamDensityPct = static_cast<uint8_t>(std::atoi(next()));
-    else if (arg == "--jam-aspect") jamAspect16 = static_cast<uint8_t>(std::atoi(next()));
-    else if (arg == "--seq-total-ms") seqTotalMs = static_cast<uint32_t>(std::strtoul(next(), nullptr, 10));
-    else if (arg == "--max-heap-bytes") { maxHeapBytes = std::strtoull(next(), nullptr, 10); cfg.maxHeapBytes = maxHeapBytes; }
+    else if (arg == "--jam-density") jamDensityPct = static_cast<uint8_t>(nextU());
+    else if (arg == "--jam-aspect") jamAspect16 = static_cast<uint8_t>(nextU());
+    else if (arg == "--seq-total-ms") seqTotalMs = static_cast<uint32_t>(nextU());
+    else if (arg == "--max-heap-bytes") { maxHeapBytes = nextU(); cfg.maxHeapBytes = maxHeapBytes; }
     else if (arg == "--dump-elite") dumpElitePath = next();
     else if (arg == "--dump-elite-turns") dumpEliteTurnsPath = next();
     else if (arg == "--verify") verifyPath = next();
-    else if (arg == "--jam-penalty") jamPenalty = static_cast<uint8_t>(std::atoi(next()));
-    else if (arg == "--jam-guide") jamGuide = static_cast<uint8_t>(std::atoi(next()));
+    else if (arg == "--jam-penalty") jamPenalty = static_cast<uint8_t>(nextU());
+    else if (arg == "--jam-guide") jamGuide = static_cast<uint8_t>(nextU());
     else if (arg == "--jam-pin") jamPin = true;
-    else if (arg == "--jam-round-cap") jamRoundCap = static_cast<uint32_t>(std::atoll(next()));
-    else if (arg == "--jam-elites") jamElites = static_cast<uint32_t>(std::atoll(next()));
+    else if (arg == "--jam-round-cap") jamRoundCap = static_cast<uint32_t>(nextU());
+    else if (arg == "--jam-elites") jamElites = static_cast<uint32_t>(nextU());
     else if (arg == "--jam-luby") jamLuby = true;
-    else if (arg == "--tie-seed") tieSeed = static_cast<uint32_t>(std::atoll(next()));
-    else if (arg == "--beam") beamWidth = static_cast<uint32_t>(std::atoll(next()));
+    else if (arg == "--tie-seed") tieSeed = static_cast<uint32_t>(nextU());
+    else if (arg == "--beam") beamWidth = static_cast<uint32_t>(nextU());
     else if (arg == "--generate") generatePath = next();
-    else if (arg == "--seed") seed = static_cast<uint32_t>(std::atoll(next()));
-    else if (arg == "--shuffle") shuffleMoves = static_cast<uint32_t>(std::atoll(next()));
+    else if (arg == "--seed") seed = static_cast<uint32_t>(nextU());
+    else if (arg == "--shuffle") shuffleMoves = static_cast<uint32_t>(nextU());
     else if (arg == "--no-post") cfg.postProcess = false;
     else if (arg == "--json") emitJson = true;
     else {
@@ -558,8 +579,7 @@ int main(int argc, char **argv) {
     // (it is why an earlier study concluded no arm could solve seed 45501,
     // which arm 6 in fact wins). Ungated by default, matching phase 2.
     if (armIndex < 0 || armIndex >= cascade::ARMS) {
-      std::cerr << "--engine arm needs --arm 0.." << (cascade::ARMS - 1)
-                << std::endl;
+      std::cerr << "--engine arm needs --arm 0.." << (cascade::ARMS - 1) << "\n";
       return 2;
     }
     t0 = nowMs();
@@ -807,7 +827,10 @@ int main(int argc, char **argv) {
   const bool alreadySolved = goalStart.x == data.goalAnchor.x &&
                              goalStart.y == data.goalAnchor.y;
   const bool solved = !turns.empty() || alreadySolved;
-  const bool valid = !solved || alreadySolved || replaySolves(data, turns);
+  // No `|| alreadySolved` short-circuit: a board whose goal block starts home
+  // can still be handed a non-empty plan, and skipping the replay meant even
+  // the weak goal check never ran on it.
+  const bool valid = !solved || replaySolves(data, turns);
 
   json out = {
       {"fixture", std::filesystem::path(fixturePath).filename().string()},

@@ -73,11 +73,15 @@ void postProgress(const uint32_t nodesExpanded) {
 // the UI has to say so rather than leaving the user on an unchanged spinner.
 // The wasm module runs INSIDE the worker, so `self` is the worker scope and
 // this reaches wasmBridge's onmessage directly — no relay in astar.worker.js.
-void postPhase(const char *phase) {
+// (Only the pthreads build has a sequential fallback to announce, so a
+// single-threaded build never calls this.)
+[[maybe_unused]] void postPhase(const char *phase, const char *arm = nullptr) {
   val self = val::global("self");
   val msg = val::object();
   msg.set("type", val("phase"));
   msg.set("phase", val(phase));
+  if (arm != nullptr)
+    msg.set("arm", val(arm));
   self.call<void>("postMessage", msg);
 }
 
@@ -93,7 +97,14 @@ void postPhase(const char *phase) {
 // beam) — or "cascade", which runs every arm in turn (worst case 8x maxMs;
 // on a pthreads build it races them instead). See DragSolver.h for the
 // drag-space background.
-val solve(val puzzleVal, val configVal) {
+val solve(val puzzleVal, val configValIn) {
+  // Work on a shallow COPY of the caller's config. The cascade chains below
+  // hand per-arm overrides to the shared runDrag/runJamArm lambdas via
+  // configVal.set(...), and several of them (pea, dragWeight, beamWidth,
+  // jamBlockerPenalty) are never restored — mutating the caller's object would
+  // leak one call's arm tuning into the next solve() on the same object.
+  val configVal =
+      val::global("Object").call<val>("assign", val::object(), configValIn);
   std::vector<std::vector<Position>> shapes = parseShapes(puzzleVal["shapes"]);
   std::vector<Position> initialAnchors =
       parseAnchors(puzzleVal["initialAnchors"]);
@@ -140,7 +151,7 @@ val solve(val puzzleVal, val configVal) {
     cfg.postProcess = postProcess;
     DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
                       goalAnchor, cfg);
-    solver.onProgress = postProgress;
+    solver.setOnProgress(postProgress);
     return assembly       ? solver.searchAssembly(maxMs, maxNodes)
            : hierarchical ? solver.searchHierarchical(maxMs, maxNodes)
                           : solver.search(maxMs, maxNodes);
@@ -174,7 +185,7 @@ val solve(val puzzleVal, val configVal) {
                       goalAnchor, cfg);
     if (gated && !solver.jamProfile())
       return std::vector<Turn>{};
-    solver.onProgress = postProgress;
+    solver.setOnProgress(postProgress);
     return beam ? solver.searchBeamJam(maxMs, maxNodes)
                 : solver.searchJamRestarts(maxMs, maxNodes);
   };
@@ -203,7 +214,7 @@ val solve(val puzzleVal, val configVal) {
     cfg.postProcess = postProcess;
     AStar solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
                  goalAnchor, cfg);
-    solver.onProgress = postProgress;
+    solver.setOnProgress(postProgress);
     return solver.search(maxMs, maxNodes);
   };
 
@@ -245,10 +256,26 @@ val solve(val puzzleVal, val configVal) {
       const uint32_t seqTotalMs =
           opt<unsigned>(configVal, "seqTotalMs", maxMs == 0 ? 0 : maxMs * 4);
       postPhase("sequential");
+      // Nearly the whole heap, but NEVER unlimited. Arms run one at a time so
+      // each gets far more than the race's 85% slice — that is the point of
+      // the phase — yet a wasm heap that runs out does not fail the arm, it
+      // ABORTS the module: the user sees "RuntimeError: Aborted()" and loses
+      // the whole solve. Passing 0 here (as an earlier revision did) reasoned
+      // correctly that the race's slice recreates starvation, but drew the
+      // wrong conclusion: the fix is a bigger bound, not no bound.
+      // 90% leaves headroom for the coarse checkpoint cadence and for the
+      // allocations the module itself needs to report a result.
+      const uint64_t seqHeapCap = heapMax == 0 ? 0 : (heapMax / 100) * 90;
       turns = solveArmsSequential(gridWidth, gridHeight, shapes, initialAnchors,
                                   goalIndex, goalAnchor, maxMs, seqTotalMs,
                                   maxNodes, postProcess, postProgress,
-                                  armHeapCap);
+                                  seqHeapCap, /*cancel=*/nullptr,
+                                  DragSolver::Config{}.jamAspect16,
+                                  DragSolver::Config{}.jamDensityPct,
+                                  /*outcomes=*/nullptr,
+                                  [](const char *arm) {
+                                    postPhase("sequential", arm);
+                                  });
     }
 #else
     // Pack-then-slide puzzles fall to the assembly pipeline in about a

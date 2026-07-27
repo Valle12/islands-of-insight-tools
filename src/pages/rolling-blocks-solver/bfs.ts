@@ -5,9 +5,9 @@ import { Node } from "./node";
 import type { Turn } from "./turn";
 
 export class BFS {
-  private gridWidth: number;
-  private gridHeight: number;
-  private cells: Tile[][];
+  private readonly gridWidth: number;
+  private readonly gridHeight: number;
+  private readonly cells: Tile[][];
 
   private readonly dx = [0, 1, 0, -1];
   private readonly dy = [-1, 0, 1, 0];

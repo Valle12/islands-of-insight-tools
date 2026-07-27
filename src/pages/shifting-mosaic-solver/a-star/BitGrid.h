@@ -3,6 +3,7 @@
 #include "Types.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -97,7 +98,18 @@ public:
   // dist/parentDir fields and returns the reached anchor indices, excluding
   // `from` itself. parentDir(idx) is the direction taken INTO idx.
   const std::vector<uint16_t> &floodFill(const uint8_t i, const Position from) {
-    curEpoch_++;
+    // Epoch stamping lets the scratch arrays skip a clear on every fill, but
+    // the counter is finite: once it wraps, stale stamps from ~4 billion fills
+    // ago compare equal to the current epoch and wasReached()/parentDirOf()
+    // report visits this fill never made (DragSolver::reconstructTurns then
+    // walks a stale parent chain, or reads DIRS[-1]). One long run reaches this
+    // — the fuzz harness retries at --budget-ms 10800000 and there is roughly
+    // one fill per expansion per movable block. Reset the stamps on wrap; it
+    // costs one O(cells) clear per 2^32 fills.
+    if (++curEpoch_ == 0) {
+      std::fill(epoch_.begin(), epoch_.end(), 0);
+      curEpoch_ = 1;
+    }
     reached_.clear();
     queue_.clear();
     const uint16_t start = anchorIndex(from);

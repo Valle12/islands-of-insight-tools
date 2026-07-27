@@ -36,13 +36,13 @@ val search(unsigned int gridWidth, unsigned int gridHeight, val cellsJs,
               std::move(cells), static_cast<uint8_t>(weight));
 
   // Wire up progress callback to post messages to the worker's parent
-  aStar.onProgress = [](uint32_t nodesExpanded) {
+  aStar.setOnProgress([](uint32_t nodesExpanded) {
     val self = val::global("self");
     val msg = val::object();
     msg.set("type", val("progress"));
     msg.set("progress", nodesExpanded);
     self.call<void>("postMessage", msg);
-  };
+  });
 
   auto turns = aStar.search(std::move(root));
 

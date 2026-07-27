@@ -298,6 +298,156 @@ escalation they pointed at (disk-based visited sets, ~x1.6 resources per +1
 depth, or a bits-32 34GB hash) was already out of budget when they were
 live; recover them from git history if that ever changes.
 
+## Campaigns v3-v5 and the shipped-path audit (2026-07-25/27, IIT-21)
+
+Everything below was measured against `--engine parallel`, a CLI engine added
+in this work that calls `solveArmsParallel` directly — the SAME function the
+threaded wasm build runs for a cross-origin-isolated page. The older campaigns
+used `--engine cascade`, the SEQUENTIAL chain, which is a different algorithm;
+measuring that and reporting it as browser behaviour was an error corrected
+here.
+
+| campaign | seeds | config | result |
+|---|---|---|---|
+| v3 | 30000-39999 | sequential cascade, 30s/stage | 9,984 sweep, 9,993 after a partial ladder |
+| v4 | 40000-49999 | **shipped race**, 300s | **9,995 / 10,000**, 0 invalid |
+| v5 | 52000-61999 | shipped race, relaxed jam gate, deadline enforced, 8GB cap | **9,994 / 10,000**, 0 invalid, **0 boards over budget** |
+
+v4 vs v5 is the comparison that matters: same solve rate, but v4 had FOUR
+boards exceeding their own 300s budget (worst 789s) while v5's maximum is
+278s. The budget became real without costing solve rate.
+
+### The budget was never enforced (fixed)
+
+`AStar::search` runs up to three passes (guided, stride-1, BFS fallback) and
+handed each the full `maxMs`, while `runAStar` restarts its clock per call — a
+3x ceiling. `DragSolver::search` already passed an absolute deadline; AStar was
+the outlier. Two suspects were investigated and CLEARED by measurement, noted
+so they are not re-investigated: the post-processor (`--no-post` was no faster,
+618s vs 601s on seed 45501) and solver teardown (60-79ms).
+
+The residual overshoot was `std::unordered_map` rehashing — relinking tens of
+millions of separately-allocated nodes inside one loop iteration, which no
+deadline check can preempt. Replacing the state map (below) took the overshoot
+from 1.2-1.4x down to 1.02-1.13x.
+
+### Memory, not time, bounds the hard tail
+
+Of 19 hard-tail boards profiled at 8GB: the 8 that FIT solve in <= 71s against
+a 300s budget; the 11 that do not need 13-28GB. Nothing lies between 6.6GB and
+13GB. Raising the time budget cannot help this class — heap is the lever, and
+the browser races all 8 arms inside ONE shared heap (8GB memory64, 4GB wasm32;
+verified in Chrome 150 that `threads-mem64` is the variant actually selected).
+
+Per-arm peaks differ by ~100x, which is how one arm starves seven others:
+
+| arm | seed 48368 | seed 45501 |
+|---|---|---|
+| drag | 14.2GB | 26.8GB |
+| unit | 8.7GB | 14.2GB |
+| hier | 4.2GB | 12.0GB |
+| corridor | 3.1GB | 9.4GB |
+| jam | 1.6GB | 5.7GB |
+| beam | 0.16GB | 0.49GB |
+
+### Per-state footprint: 462 -> 282 bytes (measured, seed 45501)
+
+`NodeKey` is 48 bytes and was stored 3-4x per state (map key, the parent link,
+every open-heap entry, `nodeStore`). Two changes, both verified BIT-IDENTICAL
+across 111 fixture/engine runs — nothing iterates the state maps, so a pure
+representation change cannot alter which states are explored:
+
+1. Parent links and heap entries became pointers into the map: `StateInfo`
+   72->32, `DragHeapEntry` 64->32, `AStar::StateInfo` 64->24, and popping a
+   state no longer costs a `find()`. **462 -> 369 B/state.**
+2. `StateTable` (new) replaced `std::unordered_map`: an open-addressed index
+   table over a block arena whose entries never move — required, because the
+   pointers from step 1 must stay valid, and a textbook open-addressing table
+   relocates on growth. **369 -> 282 B/state**, and states explored in a fixed
+   120s rose 27.9M -> 33.7M (+21%) with a malloc per state gone.
+
+Net: the browser's 8GB heap holds ~30.5M states instead of ~18.6M.
+
+### jamProfile() gate relaxed to 4.125x aspect / 35% density
+
+The gate excluded boards the jam machinery solves outright. Both legs had to
+move together: on seed 41193 (37x9, 39.0% density) relaxing either alone
+changes nothing, because it fails both. Full treatment — 56-fixture bench diff
+(0 regressions, 1 new solve: `fuzz-3058-hard` 131.7s -> 11.2s), 2,000-board
+paired fuzz (0 regressions, 0 invalid), then campaign v5.
+
+Converted from unsolvable to won IN THE RACE: 41193 (49s), 42889 (179s) and
+45501 (201s) — the last previously profiled at 26.8GB and written off.
+
+### Arm ranking on boards the race LOSES
+
+All 8 arms run standalone against the 12 race-losing boards (96 runs, 300s and
+8GB each, ungated) — the population the sequential fallback actually serves:
+
+| arm | wins/12 | median win | fastest |
+|---|---|---|---|
+| jamrestart | **7** | 81s | 11ms |
+| unit | 1 | 52s | |
+| jam | 1 | 77s | |
+| corridor | 1 | 251s | |
+| hier / drag / assembly / jambeam | 0 | | |
+
+Nearly the INVERSE of the easy-board distribution (2,000 fuzz boards: unit 45%
+of wins, corridor 35%, jamrestart 1.5% and fifth). Ordering the sequential
+phase from general fuzz statistics would have put the only arm that wins hard
+boards last. 4 of the 12 (41926, 48368, 60672, 60758) are solved by no arm.
+
+### Two-phase solve
+
+When the race returns empty, the same arms re-run ONE AT A TIME, each with the
+whole heap and UNGATED, ordered by the table above. Measured recoveries: 41193
+(gate-excluded — arm 6 solves it in 12ms) and 42889 (starved — arm 2 needs
+6.24GB, which the shared heap never leaves free). A control board fails bounded
+at the phase cap. The UI announces the phase, because it is much slower.
+
+### Methodology notes worth keeping
+
+- `--max-nodes` bounds nodes per SEARCH PASS, not per run. `hier` starts a pass
+  per segment and `jam` one per restart round, so both ignore it in aggregate
+  and run to the wall clock — which also makes them useless as a determinism
+  baseline. Only `drag` and `unit` are genuinely node-bounded.
+- `--engine jam` is NOT arm 6: it builds a default config without Luby restarts
+  or 64 elites. Measuring it and calling the result "per-arm" compares the
+  wrong solver — it produced the false conclusion that no arm could solve seed
+  45501, which arm 6 wins in 142s. Use `--engine arm --arm N`, which routes
+  through `cascade::runArm` and therefore cannot drift from the race.
+- The shipped race is NONDETERMINISTIC, so "identical solved set" is an
+  unachievable bar for boards finishing within ~10% of the deadline. Seed 50329
+  failed one sweep then solved 3/3 on re-run (299-307s), won by a DIFFERENT arm
+  each time. Compare solved sets excluding that band.
+- Fixtures regenerate bit-exactly from `--generate --seed N --shuffle 1000000`,
+  so campaign artifacts need not be preserved. Do keep them out of the
+  `test-results/` root: Playwright's default `outputDir` is that directory and
+  it WIPES it, which destroyed the v3 and v4 artifacts once (now scoped to
+  `test-results/playwright`).
+- Run heavy boards SEQUENTIALLY. Two concurrent hard boards committed 44GB
+  against 32GB physical and drove the machine into the pagefile.
+
+### Correctness bugs found by review (2026-07-27)
+
+- The `valid` field the fuzz harness reports came from a goal-position-only
+  replay: no bounds check, no collision check. Every "0 invalid" claim before
+  this date could not have detected an illegal plan. Now backed by the BitGrid
+  legality replay that previously only `--verify` reached.
+- `ParallelCascade.h` re-declared the jam-gate defaults (42/40) as function
+  default arguments, so the relaxation above never reached the wasm callers
+  that omit them: the browser ran the OLD gate while the CLI ran the new one.
+- `settledOnly` tested the raw `progressIndex_` table instead of mirroring
+  `progressOf()`, so on a 0-cut board the winning drag home was filtered out
+  entirely — crippling the 4 of 8 arms that set it, plus `searchAssembly`'s
+  final goal leg.
+- `searchBeamJam` decoded a symmetry-CANONICALIZED key into per-block anchors,
+  so round 0's plan always failed replay on any board with same-shape blocks.
+- The COI shim's reload was keyed on `!serviceWorker.controller`; the shim
+  calls `clients.claim()`, so a controller exists while the DOCUMENT is still
+  un-isolated, and first visits silently fell back to the non-threaded
+  portfolio. Key it on `!crossOriginIsolated`.
+
 ## Solved — kept as regression/benchmark cases
 
 | seed  | board  | status |

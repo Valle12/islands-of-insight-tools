@@ -206,7 +206,7 @@ Puzzle randomPuzzle(std::mt19937 &rng) {
   return p;
 }
 
-DragSolver makeDragSolver(const Puzzle &p, DragSolver::Config cfg) {
+DragSolver makeDragSolver(const Puzzle &p, const DragSolver::Config &cfg) {
   return DragSolver(p.w, p.h, p.shapes, p.anchors, p.goalIndex, p.goalAnchor,
                     cfg);
 }
@@ -487,15 +487,20 @@ TEST(DragSolver, JamRoundShapingStaysValidAndDefaultsUnchanged) {
     }
 
     // Defaults (cap 0 = per-round default, 6 elites) must not change search.
+    // Bounded by NODES ONLY (maxMs = 0): searchJamRestarts loops restart rounds
+    // until its budget expires, so a wall-clock budget makes the round count —
+    // and therefore nodesExpanded — a function of machine speed. Asserting
+    // bit-identical output under a 2000ms cap was flaky on a loaded CI box and
+    // vacuous on a fast one.
     DragSolver::Config base;
     base.postProcess = false;
     auto a = makeDragSolver(p, base);
-    const auto ta = a.searchJamRestarts(2000, 200000);
+    const auto ta = a.searchJamRestarts(0, 200000);
     DragSolver::Config explicitDefaults = base;
     explicitDefaults.jamRoundNodeCap = 0;
     explicitDefaults.jamMaxElites = 6;
     auto b = makeDragSolver(p, explicitDefaults);
-    const auto tb = b.searchJamRestarts(2000, 200000);
+    const auto tb = b.searchJamRestarts(0, 200000);
     EXPECT_EQ(a.lastStats().nodesExpanded, b.lastStats().nodesExpanded)
         << "zero-touch round " << round;
     EXPECT_EQ(ta, tb) << "zero-touch plan round " << round;

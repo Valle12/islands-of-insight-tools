@@ -22,7 +22,7 @@ export interface WasmSearchCallbacks {
    * gate) but is materially slower, so the UI must say so rather than leaving
    * an unchanged spinner.
    */
-  onPhase?: (phase: string) => void;
+  onPhase?: (phase: string, arm?: string) => void;
 }
 
 export interface ShiftingMosaicPuzzle {
@@ -127,7 +127,8 @@ const supportsSharedMemory64 = () => validates(SHARED_MEMORY64_PROBE);
  * (drag-space hierarchical/flat + the legacy unit-move A*). The first worker
  * to return a non-empty plan wins and the others are terminated; if every
  * arm comes back empty, the UI gets an empty path ("no solution within
- * budget"). Progress reports are summed across live arms.
+ * budget"). Progress is the cumulative node count across every arm, retired
+ * ones included, so the readout never moves backwards.
  */
 export function searchShiftingMosaicWasm(
   puzzle: ShiftingMosaicPuzzle,
@@ -157,14 +158,25 @@ export function searchShiftingMosaicWasm(
     : supportsMemory64()
       ? "mem64"
       : "default";
+  // Every arm, always. poolSize bounds how many run CONCURRENTLY, never which
+  // ones exist: slicing the portfolio by core count made capability shrink as
+  // the machine improved — a 4-core box raced only the first three arms and
+  // reported "no solution" on boards that the 1-core in-wasm cascade and the
+  // isolated 8-arm race both solve. Arms are queued and back-filled as earlier
+  // ones retire, so a small machine is slower but never less capable.
   const configs =
     isolated || poolSize === 1
       ? [{ engine: "cascade", maxMs: SOLVE_BUDGET_MS, maxNodes: 0 }]
-      : PORTFOLIO.slice(0, poolSize);
+      : PORTFOLIO;
 
   let workers: Worker[] = [];
   let finished = false;
   const progressByWorker = new Map<Worker, number>();
+  // Sticky: if ANY arm searched out cleanly, the board is "no solution within
+  // budget", not a solver failure — otherwise which terminal message the user
+  // saw depended purely on which arm happened to settle last.
+  let anyArmCompleted = false;
+  let lastError = "";
 
   const terminateAll = () => {
     for (const w of workers) w.terminate();
@@ -179,9 +191,44 @@ export function searchShiftingMosaicWasm(
     fn();
   };
 
-  let pending = configs.length;
-  for (const config of configs) {
-    const worker = new Worker("/sm-wasm/astar.worker.js", { type: "module" });
+  // Live workers, not queued arms: spawnNext() increments, retire() decrements.
+  let pending = 0;
+
+  // One arm is done for good: stop it and settle the portfolio once every arm
+  // has retired. A retired arm's last node count deliberately STAYS in
+  // progressByWorker — the readout is cumulative work done, and dropping it
+  // would make the displayed total jump backwards.
+  //
+  // `retired` makes this idempotent per worker: a failing arm can deliver both
+  // an {type:"error"} message AND an onerror event, and the double decrement
+  // would settle the portfolio while other arms were still searching.
+  const retired = new Set<Worker>();
+  let nextConfig = 0;
+  const retire = (worker: Worker) => {
+    if (finished || retired.has(worker)) return;
+    retired.add(worker);
+    pending--;
+    worker.terminate();
+    // Back-fill the freed slot before deciding we are done, so the queued arms
+    // still get their turn on a machine that cannot run them all at once.
+    spawnNext();
+    if (pending > 0) return;
+    finish(() =>
+      anyArmCompleted
+        ? callbacks.onDone?.([])
+        : callbacks.onError?.(lastError || "Worker failed to start"),
+    );
+  };
+
+  function spawnNext() {
+    if (finished || nextConfig >= configs.length) return;
+    const config = configs[nextConfig++]!;
+    // Page-relative, NOT root-absolute: the site is published to a GitHub
+    // Pages project sub-path (https://<user>.github.io/<repo>/), so "/sm-wasm/…"
+    // would resolve against the domain root and 404. Pages live one level
+    // below the site root, so "../" lands on it in dev and in production
+    // alike — the same form rolling-blocks-solver/wasmBridge.ts uses.
+    const worker = new Worker("../sm-wasm/astar.worker.js", { type: "module" });
     workers.push(worker);
     progressByWorker.set(worker, 0);
 
@@ -197,7 +244,10 @@ export function searchShiftingMosaicWasm(
       if (type === "phase") {
         // Posted by the wasm module itself (it runs inside this worker, so its
         // self.postMessage lands here directly).
-        callbacks.onPhase?.(String(event.data.phase));
+        callbacks.onPhase?.(
+          String(event.data.phase),
+          event.data.arm === undefined ? undefined : String(event.data.arm),
+        );
         return;
       }
       if (type === "done") {
@@ -212,32 +262,29 @@ export function searchShiftingMosaicWasm(
           return;
         }
         // This arm found nothing — let the others keep racing.
-        pending--;
-        worker.terminate();
-        if (pending === 0) finish(() => callbacks.onDone?.([]));
+        anyArmCompleted = true;
+        retire(worker);
         return;
       }
       if (type === "error") {
         // A dying arm (e.g. wasm OOM) only retires itself; the portfolio
         // fails only when every arm has failed or come back empty.
-        pending--;
-        worker.terminate();
-        if (pending === 0)
-          finish(() => callbacks.onError?.(event.data.error));
+        lastError = String(event.data.error);
+        retire(worker);
       }
     };
 
     worker.onerror = event => {
-      pending--;
-      worker.terminate();
-      if (pending === 0)
-        finish(() =>
-          callbacks.onError?.(event.message || "Worker failed to start"),
-        );
+      lastError = event.message || "Worker failed to start";
+      retire(worker);
     };
 
     worker.postMessage({ puzzle, config, variant });
+    pending++;
   }
+
+  // Fill the initial slots; retire() back-fills from the queue thereafter.
+  for (let i = 0; i < Math.min(poolSize, configs.length); i++) spawnNext();
 
   return handle;
 }

@@ -7,6 +7,6 @@
 struct Node {
   std::vector<Position> anchors;
 
-  explicit Node(std::vector<Position> anchors)
-      : anchors(std::move(anchors)) {}
+  explicit Node(std::vector<Position> anchorsIn)
+      : anchors(std::move(anchorsIn)) {}
 };

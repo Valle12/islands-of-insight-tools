@@ -185,9 +185,18 @@ describe("WASM solver (shifting-mosaic)", () => {
       let pending = workers.length;
       let settled = false;
       const finish = (turns: WasmTurn[]) => {
+        if (settled) return;
         settled = true;
         for (const w of workers) void w.terminate();
         resolve(turns);
+      };
+      // Each arm may only retire once — 'exit' fires after 'done'/'error' too,
+      // and a double decrement would settle the race early.
+      const retired = new Set<number>();
+      const retire = (i: number) => {
+        if (settled || retired.has(i)) return;
+        retired.add(i);
+        if (--pending === 0) finish([]);
       };
       workers.forEach((worker, i) => {
         worker.on("message", (data: { type: string; path?: WasmTurn[] }) => {
@@ -196,18 +205,19 @@ describe("WASM solver (shifting-mosaic)", () => {
           // only "done"/"error" settle an arm.
           if (data.type === "done" && data.path && data.path.length > 0) {
             finish(data.path);
-          } else if (
-            (data.type === "done" || data.type === "error") &&
-            --pending === 0
-          ) {
-            finish([]); // every arm came back empty or errored
+          } else if (data.type === "done" || data.type === "error") {
+            retire(i); // this arm came back empty or errored
           }
         });
         worker.on("error", (err: unknown) => {
           console.log(`arm ${i} error:`, err instanceof Error ? err.message : String(err));
-          if (settled) return;
-          if (--pending === 0) finish([]);
+          retire(i);
         });
+        // A worker whose wasm module aborts can end WITHOUT an 'error' event.
+        // Without this, pending never reaches 0, the promise never settles, and
+        // the timed-out test leaks every arm — live multi-GB wasm heaps — into
+        // the next fixture, which then spawns a fresh set on top.
+        worker.on("exit", () => retire(i));
         worker.postMessage({ puzzle, config: arms[i] });
       });
     });

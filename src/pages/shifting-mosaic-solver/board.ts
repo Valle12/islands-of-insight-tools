@@ -286,7 +286,17 @@ export class Board {
     });
 
     this.grid.addEventListener("pointermove", event => {
-      const position = this.extractCellPosition(event.target);
+      // Hit-test by coordinate first, NOT event.target. Touch pointers get
+      // implicit pointer capture on the pointerdown target, so event.target
+      // stays pinned to the first cell for the whole gesture and drag-drawing a
+      // multi-cell block was impossible on a touchscreen (#grid sets
+      // touch-action: none precisely so these handlers get the gesture).
+      // render() also rebuilds the grid DOM between moves, invalidating the
+      // captured node. Falls back to event.target where there is no layout to
+      // hit-test against (happy-dom in the unit tests returns null here).
+      const hit =
+        document.elementFromPoint?.(event.clientX, event.clientY) ?? null;
+      const position = this.extractCellPosition(hit ?? event.target);
 
       if (this.isPlacingGoalZone) {
         if (!position) return;

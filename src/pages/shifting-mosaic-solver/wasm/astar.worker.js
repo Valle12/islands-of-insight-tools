@@ -17,6 +17,15 @@ function getModule(name) {
         const createModule = (await import(url)).default;
         return createModule({
           locateFile: path => new URL(`./${path}`, self.location.href).href,
+          // The solver's C++ narrates every pass, segment and 100k-node
+          // milestone on stdout. That is the bench CLI's interface and is
+          // genuinely useful there, but emscripten maps it to console.log, so
+          // in the browser it floods devtools with per-step internals no user
+          // can act on. Progress reaches the UI through the structured
+          // {type:"progress"} / {type:"phase"} messages instead.
+          print: () => {},
+          // stderr stays visible: it is where a real failure would surface.
+          printErr: msg => console.error(msg),
         });
       })(),
     );
@@ -33,10 +42,28 @@ const MODULE_BY_VARIANT = {
   mem64: "astar.mem64.mjs",
 };
 
+// The bridge picks a variant from a WebAssembly.validate() probe, which only
+// proves the engine's VALIDATOR accepts a 64-bit / shared memory declaration —
+// instantiation can still fail (memory descriptor spelling, shared-growable
+// 64-bit memory). Fall back to the portable wasm32 build on any load failure,
+// which is the behaviour buildWasm.ts already documents; without this the arm
+// reported a hard "Solver error" even though astar.mjs would have worked.
+async function loadModule(variant) {
+  const preferred = MODULE_BY_VARIANT[variant];
+  if (!preferred) return getModule("astar.mjs");
+  try {
+    return await getModule(preferred);
+  } catch (err) {
+    console.warn(`${preferred} failed to load, falling back to astar.mjs:`, err);
+    modulePromises.delete(preferred);
+    return getModule("astar.mjs");
+  }
+}
+
 self.onmessage = async event => {
   const { puzzle, config, variant } = event.data;
   try {
-    const module = await getModule(MODULE_BY_VARIANT[variant] ?? "astar.mjs");
+    const module = await loadModule(variant);
     const result = module.solve(puzzle, config ?? {});
 
     const path = [];

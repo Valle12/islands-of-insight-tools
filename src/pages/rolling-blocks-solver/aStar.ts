@@ -67,23 +67,23 @@ class MinHeap {
 // A* (weighted)
 // ---------------------------------------------------------------------------
 export class AStar {
-  private gridWidth: number;
-  private gridHeight: number;
-  private cells: Tile[][];
-  private goalClusters: GoalCluster[];
+  private readonly gridWidth: number;
+  private readonly gridHeight: number;
+  private readonly cells: Tile[][];
+  private readonly goalClusters: GoalCluster[];
 
   /**
    * Heuristic weight.  w=1 → optimal A*.  w>1 → suboptimal but much faster.
    * Solutions are guaranteed to be at most w× the optimal length.
    * Recommended: start at 1, increase to 2 or 3 if memory runs out.
    */
-  private weight: number;
+  private readonly weight: number;
 
   /**
    * Pre-computed list of unsatisfied mustTouch cell indices per grid position.
    * Used so heuristic() doesn't re-scan the full grid every call.
    */
-  private mustTouchIndices: { x: number; y: number; index: bigint }[] = [];
+  private readonly mustTouchIndices: { x: number; y: number; index: bigint }[] = [];
 
   private blockGoalAssignment: Map<number, GoalCluster> = new Map();
 

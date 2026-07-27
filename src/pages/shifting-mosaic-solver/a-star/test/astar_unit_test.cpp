@@ -13,16 +13,16 @@ namespace {
 // here for unit-level checks.
 
 TEST(SearchSmall, EmptyPathWhenStartEqualsGoal) {
-  std::vector<std::vector<Position>> shapes = {{{0, 0}}};
-  std::vector<Position> initial = {{1, 1}};
+  const std::vector<std::vector<Position>> shapes = {{{0, 0}}};
+  const std::vector<Position> initial = {{1, 1}};
   AStar a(3, 3, shapes, initial, 0, Position{1, 1});
   auto turns = a.search();
   EXPECT_TRUE(turns.empty());
 }
 
 TEST(SearchSmall, TrivialOneStepRight) {
-  std::vector<std::vector<Position>> shapes = {{{0, 0}}};
-  std::vector<Position> initial = {{0, 0}};
+  const std::vector<std::vector<Position>> shapes = {{{0, 0}}};
+  const std::vector<Position> initial = {{0, 0}};
   AStar a(3, 3, shapes, initial, 0, Position{1, 0});
   auto turns = a.search();
   ASSERT_EQ(turns.size(), 1);
@@ -33,8 +33,8 @@ TEST(SearchSmall, TrivialOneStepRight) {
 TEST(SearchSmall, TwoBlockDetour) {
   // Grid: . . X . (row 0) – obstacle at (2,0), goal block at (3,0)
   // goal block (id 1) must reach (0,0).
-  std::vector<std::vector<Position>> shapes = {{{0, 0}}, {{0, 0}}};
-  std::vector<Position> initial = {{2, 0}, {3, 0}};
+  const std::vector<std::vector<Position>> shapes = {{{0, 0}}, {{0, 0}}};
+  const std::vector<Position> initial = {{2, 0}, {3, 0}};
   AStar a(4, 2, shapes, initial, 1, Position{0, 0});
   auto turns = a.search();
   ASSERT_FALSE(turns.empty());
@@ -64,8 +64,8 @@ TEST(SearchSmall, TwoBlockDetour) {
 
 TEST(BoundingBox, ManhattanReturnedWhenNoBlockers) {
   // 3x3 grid, single block. Heuristic should equal Manhattan distance.
-  std::vector<std::vector<Position>> shapes = {{{0, 0}}};
-  std::vector<Position> initial = {{0, 0}};
+  const std::vector<std::vector<Position>> shapes = {{{0, 0}}};
+  const std::vector<Position> initial = {{0, 0}};
   AStar a(5, 5, shapes, initial, 0, Position{3, 4});
   // Verify by checking that a search to that anchor takes exactly 7 moves.
   auto turns = a.search();
@@ -77,8 +77,8 @@ TEST(Deadlock, DoesNotBlockReachableGoal) {
   //  A . . *
   //  . . . .
   // Goal block target (0,0).
-  std::vector<std::vector<Position>> shapes = {{{0, 0}}, {{0, 0}}};
-  std::vector<Position> initial = {{0, 0}, {3, 0}};
+  const std::vector<std::vector<Position>> shapes = {{{0, 0}}, {{0, 0}}};
+  const std::vector<Position> initial = {{0, 0}, {3, 0}};
   AStar a(4, 2, shapes, initial, 1, Position{0, 0}, AStar::Config{});
   auto turns = a.search();
   ASSERT_FALSE(turns.empty());
@@ -87,8 +87,8 @@ TEST(Deadlock, DoesNotBlockReachableGoal) {
 
 TEST(Collision, AllowsDetourAroundOtherBlock) {
   // Two 2x1 blocks on the same row, with a second row free for detour.
-  std::vector<std::vector<Position>> shapes = {{{0, 0}, {1, 0}}, {{0, 0}, {1, 0}}};
-  std::vector<Position> initial = {{0, 0}, {3, 0}};
+  const std::vector<std::vector<Position>> shapes = {{{0, 0}, {1, 0}}, {{0, 0}, {1, 0}}};
+  const std::vector<Position> initial = {{0, 0}, {3, 0}};
   AStar a(5, 2, shapes, initial, 1, Position{0, 0});
   auto turns = a.search();
   EXPECT_FALSE(turns.empty());

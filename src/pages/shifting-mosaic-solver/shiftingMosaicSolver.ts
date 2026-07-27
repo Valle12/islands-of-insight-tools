@@ -5,7 +5,7 @@ import type {
   ShiftingMosaicTool,
 } from "../../util/types";
 import { Board } from "./board";
-import { validateConfig } from "./config";
+import { MAX_GRID_SIDE, validateConfig } from "./config";
 import { cardWidthPx } from "./layout";
 import { SolutionView } from "./solutionView";
 import type { Turn } from "./turn";
@@ -208,6 +208,12 @@ export class ShiftingMosaicSolverEditor {
   private parsePositiveInt(value: string): number | null {
     const parsed = Number(value);
     if (!Number.isInteger(parsed) || parsed <= 0) return null;
+    // Upper bound matters: the solver's BitGrid packs one row per uint64_t
+    // (64 columns max) and the wasm boundary narrows dimensions to uint8_t and
+    // coordinates to int8_t, so an unbounded value here silently solves a
+    // *different* board — and the editor would try to build width x height DOM
+    // cells first.
+    if (parsed > MAX_GRID_SIDE) return null;
     return parsed;
   }
 
@@ -392,12 +398,15 @@ export class ShiftingMosaicSolverEditor {
       onProgress: nodesExpanded => {
         this.solutionProgressText.textContent = `${phaseLabel} (${nodesExpanded.toLocaleString()} nodes explored)`;
       },
-      onPhase: phase => {
-        if (phase === "sequential") {
-          phaseLabel =
-            "First attempt found nothing — trying harder (slower, one strategy at a time)…";
-          this.solutionProgressText.textContent = phaseLabel;
-        }
+      onPhase: (phase, arm) => {
+        if (phase !== "sequential") return;
+        // The sequential phase can run for minutes. Naming the current strategy
+        // is the one piece of solver internals worth showing: it is the only
+        // visible sign that a long wait is progressing rather than hung.
+        phaseLabel = arm
+          ? `Trying harder — strategy ${arm} (slower, one at a time)…`
+          : "First attempt found nothing — trying harder (slower, one strategy at a time)…";
+        this.solutionProgressText.textContent = phaseLabel;
       },
       onDone: turns => {
         this.currentWorker = null;
@@ -412,6 +421,11 @@ export class ShiftingMosaicSolverEditor {
 
   private handleSolution(puzzle: ShiftingMosaicPuzzle, turns: Turn[]) {
     this.solutionSpinner.classList.add("hidden");
+    // The search is over — re-enable Calculate. showSolving() disabled it, and
+    // this path (unlike showSolverError/stopCurrentWorker) used to leave it
+    // disabled forever, so after "No solution" the user could not retry without
+    // editing the board first.
+    this.calculateBtn.toggleAttribute("disabled", false);
 
     if (turns.length === 0) {
       // The solver returns an empty path both when the goal block already

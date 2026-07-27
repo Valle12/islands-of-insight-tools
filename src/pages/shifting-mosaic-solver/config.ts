@@ -1,5 +1,23 @@
 import type { Position, ShiftingMosaicTest } from "../../util/types";
 
+/**
+ * Hard ceiling on either grid side. The C++ solver packs one grid row into a
+ * single `uint64_t` (BitGrid), so 64 columns is a real algorithmic limit —
+ * `rows[r] << a.x` is undefined behaviour beyond it and DragSolver's search
+ * entry points bail out with an empty plan, which the UI cannot distinguish
+ * from "no solution". The wasm boundary additionally narrows the dimensions to
+ * `uint8_t` and every coordinate to `int8_t`, so anything past this would be
+ * silently truncated into a *different* board.
+ */
+export const MAX_GRID_SIDE = 64;
+
+/**
+ * Hard ceiling on block count: `Turn.blockId` and `goalIndex` are `uint8_t` in
+ * the solver, and several of its loops use a `uint8_t` induction variable
+ * compared against `shapes_.size()` — which wraps and never terminates at 256.
+ */
+export const MAX_BLOCKS = 255;
+
 export type ConfigParseResult =
   | { ok: true; config: ShiftingMosaicTest }
   | { ok: false; error: string };
@@ -27,11 +45,25 @@ export function validateConfig(data: unknown): ConfigParseResult {
   }
   const raw = data as Record<string, unknown>;
 
-  if (!Number.isInteger(raw.gridWidth) || (raw.gridWidth as number) <= 0) {
-    return { ok: false, error: "gridWidth must be a positive integer." };
+  if (
+    !Number.isInteger(raw.gridWidth) ||
+    (raw.gridWidth as number) <= 0 ||
+    (raw.gridWidth as number) > MAX_GRID_SIDE
+  ) {
+    return {
+      ok: false,
+      error: `gridWidth must be an integer between 1 and ${MAX_GRID_SIDE}.`,
+    };
   }
-  if (!Number.isInteger(raw.gridHeight) || (raw.gridHeight as number) <= 0) {
-    return { ok: false, error: "gridHeight must be a positive integer." };
+  if (
+    !Number.isInteger(raw.gridHeight) ||
+    (raw.gridHeight as number) <= 0 ||
+    (raw.gridHeight as number) > MAX_GRID_SIDE
+  ) {
+    return {
+      ok: false,
+      error: `gridHeight must be an integer between 1 and ${MAX_GRID_SIDE}.`,
+    };
   }
   const gridWidth = raw.gridWidth as number;
   const gridHeight = raw.gridHeight as number;
@@ -44,6 +76,12 @@ export function validateConfig(data: unknown): ConfigParseResult {
     return {
       ok: false,
       error: "shapes must be a non-empty array of cell arrays.",
+    };
+  }
+  if (raw.shapes.length > MAX_BLOCKS) {
+    return {
+      ok: false,
+      error: `A config may define at most ${MAX_BLOCKS} blocks.`,
     };
   }
   const shapes = raw.shapes as Position[][];

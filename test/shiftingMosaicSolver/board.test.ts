@@ -40,9 +40,9 @@ describe("Board (shifting-mosaic)", () => {
     });
 
     test("blockAssignments grid is sized to gridWidth x gridHeight and zero-initialized", () => {
-      expect(internal.blockAssignments.length).toBe(5);
+      expect(internal.blockAssignments).toHaveLength(5);
       for (let x = 0; x < 5; x++) {
-        expect(internal.blockAssignments[x].length).toBe(5);
+        expect(internal.blockAssignments[x]).toHaveLength(5);
         for (let y = 0; y < 5; y++) {
           expect(internal.blockAssignments[x][y]).toBe(0);
         }
@@ -275,8 +275,8 @@ describe("Board (shifting-mosaic)", () => {
 
       expect(internal.gridWidth).toBe(7);
       expect(internal.gridHeight).toBe(3);
-      expect(internal.blockAssignments.length).toBe(7);
-      expect(internal.blockAssignments[0].length).toBe(3);
+      expect(internal.blockAssignments).toHaveLength(7);
+      expect(internal.blockAssignments[0]).toHaveLength(3);
       expect(board.getBlocks().size).toBe(0);
       expect(internal.nextBlockId).toBe(1);
     });
@@ -605,7 +605,7 @@ describe("Board (shifting-mosaic)", () => {
 
     test("renders gridWidth × gridHeight cells", () => {
       board.renderGrid();
-      expect(document.querySelectorAll(".grid-cell").length).toBe(25);
+      expect(document.querySelectorAll(".grid-cell")).toHaveLength(25);
     });
 
     test("sets grid template columns from gridWidth", () => {
@@ -619,7 +619,7 @@ describe("Board (shifting-mosaic)", () => {
     test("clears existing children before rendering", () => {
       board.renderGrid();
       board.renderGrid();
-      expect(document.querySelectorAll(".grid-cell").length).toBe(25);
+      expect(document.querySelectorAll(".grid-cell")).toHaveLength(25);
     });
 
     test("empty cells have 'Empty' aria-label and no block dataset", () => {
@@ -960,7 +960,7 @@ describe("Board (shifting-mosaic)", () => {
       expect(board.getBlocks().size).toBe(1);
       const block = board.getBlocks().get(1)!;
       expect(block.type).toBe("obstruction");
-      expect(block.cells.length).toBe(2);
+      expect(block.cells).toHaveLength(2);
       expect(internal.blockAssignments[0][0]).toBe(1);
       expect(internal.blockAssignments[1][0]).toBe(1);
       expect(internal.nextBlockId).toBe(2);

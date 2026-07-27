@@ -5,6 +5,7 @@
 #include "StateTable.h"
 #include "Types.h"
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -39,7 +40,10 @@ public:
     bool closed = false;
   };
 
-  std::function<void(uint32_t)> onProgress;
+  // Optional per-expansion progress callback (throttled by the search).
+  void setOnProgress(std::function<void(uint32_t)> cb) {
+    onProgress = std::move(cb);
+  }
 
   // Cumulative counters for the most recent search() call, summed across
   // fallback passes (stride-1 retry, BFS retry). Benchmarking/telemetry
@@ -120,7 +124,7 @@ public:
   AStar(uint8_t gridWidth, uint8_t gridHeight,
         std::vector<std::vector<Position>> shapes,
         std::vector<Position> initialAnchors, uint8_t goalIndex,
-        Position goalAnchor, Config config);
+        Position goalAnchor, const Config &config);
 
   AStar(uint8_t gridWidth, uint8_t gridHeight,
         std::vector<std::vector<Position>> shapes,
@@ -140,7 +144,7 @@ public:
   // input. Pure — does not touch search state — so it is safe to run after a
   // solution has been found.
   [[nodiscard]] std::vector<Turn>
-  optimizeSolution(const std::vector<Turn> &turns) const;
+  optimizeSolution(const std::vector<Turn> &input) const;
 
 private:
   uint8_t gridWidth_;
@@ -205,12 +209,15 @@ private:
   // solution" within the move model), false if a budget/cap aborted it.
   bool searchExhausted_ = false;
   SearchStats stats_{};
+  // Kept last: this is cold, and putting it ahead of the hot scalars above
+  // would push them onto different cache lines.
+  std::function<void(uint32_t)> onProgress;
   std::vector<Turn> runAStar(uint32_t maxMs, uint32_t maxNodes);
 
   static constexpr int8_t DX[4] = {0, 1, 0, -1};
   static constexpr int8_t DY[4] = {-1, 0, 1, 0};
   static constexpr Direction DIRS[4] = {Direction::UP, Direction::RIGHT,
-                                         Direction::DOWN, Direction::LEFT};
+                                        Direction::DOWN, Direction::LEFT};
   static constexpr uint32_t SHAPE_STRIDE = 1024;
 
   [[nodiscard]] bool inBounds(uint8_t blockIndex, Position anchor) const;

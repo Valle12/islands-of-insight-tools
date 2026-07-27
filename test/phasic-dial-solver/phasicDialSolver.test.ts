@@ -98,7 +98,7 @@ describe("PhasicDialSolver", () => {
 
     // rebuildDialsList
     const rows = dialsList.querySelectorAll(".dial-row");
-    expect(rows.length).toBe(3);
+    expect(rows).toHaveLength(3);
     let index = 0;
     rows.forEach(row => {
       const color = row.getAttribute("data-color");
@@ -116,10 +116,10 @@ describe("PhasicDialSolver", () => {
 
     // rebuildTable
     const headers = tableHeader.querySelectorAll("th");
-    expect(headers.length).toBe(4);
+    expect(headers).toHaveLength(4);
     const row = tableBody.querySelector("tr");
     const cells = row?.querySelectorAll("td");
-    expect(cells?.length).toBe(4);
+    expect(cells).toHaveLength(4);
   });
 
   test("should add button and update ui", () => {
@@ -141,12 +141,12 @@ describe("PhasicDialSolver", () => {
 
     // rebuildTable
     const headers = tableHeader.querySelectorAll("th");
-    expect(headers.length).toBe(3);
+    expect(headers).toHaveLength(3);
     const rows = tableBody.querySelectorAll("tr");
-    expect(rows.length).toBe(2);
+    expect(rows).toHaveLength(2);
     rows.forEach(row => {
       const cells = row.querySelectorAll("td");
-      expect(cells?.length).toBe(3);
+      expect(cells).toHaveLength(3);
     });
   });
 
@@ -263,13 +263,13 @@ describe("PhasicDialSolver", () => {
     cb2(new Event("click"));
 
     let rows = dialsList.querySelectorAll(".dial-row");
-    expect(rows.length).toBe(3);
+    expect(rows).toHaveLength(3);
 
     cb(new Event("click"));
 
     // rebuildDialsList
     rows = dialsList.querySelectorAll(".dial-row");
-    expect(rows.length).toBe(2);
+    expect(rows).toHaveLength(2);
     let index = 0;
     rows.forEach(row => {
       const color = row.getAttribute("data-color");
@@ -285,10 +285,10 @@ describe("PhasicDialSolver", () => {
 
     // rebuildTable
     const headers = tableHeader.querySelectorAll("th");
-    expect(headers.length).toBe(3);
+    expect(headers).toHaveLength(3);
     const row = tableBody.querySelector("tr");
     const cells = row?.querySelectorAll("td");
-    expect(cells?.length).toBe(3);
+    expect(cells).toHaveLength(3);
 
     expect(result.hidden).toBeTrue();
   });
@@ -310,7 +310,7 @@ describe("PhasicDialSolver", () => {
     cb(new Event("click"));
 
     expect(helpDialog.open).toBeTrue();
-    expect(helpDialog.querySelectorAll("li").length).toBe(3);
+    expect(helpDialog.querySelectorAll("li")).toHaveLength(3);
     expect(helpDialog.querySelector("#help-close")).not.toBeNull();
   });
 
@@ -368,7 +368,7 @@ describe("PhasicDialSolver", () => {
     new PhasicDialSolver();
 
     const dialRows = dialsList.querySelectorAll(".dial-row");
-    expect(dialRows.length).toBe(2);
+    expect(dialRows).toHaveLength(2);
     // md-outlined-text-field doesn't map the `value` attribute to a property
     // in the test DOM, so set the `.value` property explicitly for max values.
     dialRows.forEach(row => {
@@ -387,11 +387,11 @@ describe("PhasicDialSolver", () => {
 
     addButton.click();
     const buttonRows = tableBody.querySelectorAll("tr");
-    expect(buttonRows.length).toBe(2);
+    expect(buttonRows).toHaveLength(2);
     let index = 0;
     buttonRows.forEach(buttonRow => {
       const textFields = buttonRow.querySelectorAll("md-outlined-text-field");
-      expect(textFields.length).toBe(2);
+      expect(textFields).toHaveLength(2);
       const f1 = textFields[0] as MdOutlinedTextField;
       const f2 = textFields[1] as MdOutlinedTextField;
       expect(f1).not.toBeUndefined();

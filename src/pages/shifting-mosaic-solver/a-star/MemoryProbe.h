@@ -26,6 +26,11 @@ inline uint64_t liveAllocatedBytes();
 // the 8GB memory64 build and the 4GB wasm32 fallback with no configuration.
 inline uint64_t heapCeilingBytes();
 
+// True when the module is about to be killed by heap exhaustion. Always false
+// off wasm. Check this even when no budget is configured — an abort destroys
+// the whole solve, not just the arm that overran.
+inline bool nearHeapLimit();
+
 } // namespace memprobe
 
 #if defined(__EMSCRIPTEN__)
@@ -60,6 +65,27 @@ inline uint64_t liveAllocatedBytes() {
 
 inline uint64_t heapCeilingBytes() {
   return static_cast<uint64_t>(emscripten_get_heap_max());
+}
+
+// Last-resort tripwire, independent of any configured budget.
+//
+// Under wasm a heap that cannot grow does not fail an allocation — it ABORTS
+// the module, so the user loses the entire solve with "RuntimeError:
+// Aborted()" instead of getting "no solution". Every configured bound can miss
+// this: maxHeapBytes may be 0 (unlimited), and liveAllocatedBytes() returns 0
+// on a runtime whose mallinfo is unavailable, which the callers must treat as
+// "no information" rather than "no memory used".
+//
+// emscripten_get_heap_size() is the RESERVED WebAssembly memory. It never
+// shrinks, which makes it useless as a per-arm budget, but that is exactly
+// what makes it the right abort predictor: reaching the maximum is precisely
+// the condition that kills the module.
+inline bool nearHeapLimit() {
+  const uint64_t maxBytes = static_cast<uint64_t>(emscripten_get_heap_max());
+  if (maxBytes == 0)
+    return false;
+  const uint64_t reserved = static_cast<uint64_t>(emscripten_get_heap_size());
+  return reserved >= (maxBytes / 100) * 96;
 }
 
 } // namespace memprobe
@@ -99,6 +125,7 @@ inline uint64_t liveAllocatedBytes() {
 }
 
 inline uint64_t heapCeilingBytes() { return 0; } // no fixed ceiling natively
+inline bool nearHeapLimit() { return false; }      // nothing aborts natively
 
 } // namespace memprobe
 
@@ -126,6 +153,7 @@ inline uint64_t liveAllocatedBytes() {
 }
 
 inline uint64_t heapCeilingBytes() { return 0; }
+inline bool nearHeapLimit() { return false; }
 
 } // namespace memprobe
 
@@ -134,6 +162,7 @@ inline uint64_t heapCeilingBytes() { return 0; }
 namespace memprobe {
 inline uint64_t liveAllocatedBytes() { return 0; } // unsupported platform
 inline uint64_t heapCeilingBytes() { return 0; }
+inline bool nearHeapLimit() { return false; }
 } // namespace memprobe
 
 #endif
