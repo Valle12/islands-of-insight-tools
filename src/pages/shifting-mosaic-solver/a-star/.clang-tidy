@@ -1,87 +1,90 @@
-# Static-analysis profile for the shifting-mosaic solver. CLion runs clang-tidy
-# as its C++ inspection engine and picks this file up automatically (Settings >
-# Editor > Inspections > C/C++ > Clang-Tidy > "Prefer .clang-tidy files over IDE
-# settings"), so the IDE and any CLI run agree on what counts as a warning.
+# Static-analysis profile for the shifting-mosaic solver.
 #
-# The tree is clean under this profile. Anything it reports is new.
+# CLion MERGES this file with its own check list rather than replacing it, so a
+# bare `-check-name` here is subtractive in the IDE. The CLI treats the file as
+# the complete list, so without an explicit enable base `clang-tidy` outside the
+# IDE runs nothing at all ("No checks enabled") and silently reports success.
+# The base below exists to make CLI runs meaningful and to keep the IDE and the
+# command line reporting the same thing:
 #
-# Reproduce outside the IDE with CLion's bundled binary:
 #   clang-tidy -p cmake-build-debug-visual-studio --quiet AStar.cpp
 #
-# Disabled checks are listed with the reason; do not drop the "-" entries
-# without re-reading these.
+# Wildcards enable. Nothing is ever silenced with a wildcard — every check that
+# is off is named exactly, and says why below.
 Checks: >
   -*,
   bugprone-*,
+  cert-*,
   clang-analyzer-*,
   concurrency-*,
+  cppcoreguidelines-pro-type-member-init,
   misc-*,
+  modernize-*,
   performance-*,
   portability-*,
   readability-inconsistent-declaration-parameter-name,
   readability-misleading-indentation,
   readability-non-const-parameter,
   readability-redundant-smartptr-get,
+  -cert-err58-cpp,
   -bugprone-easily-swappable-parameters,
   -bugprone-exception-escape,
-  -bugprone-narrowing-conversions,
-  -bugprone-random-generator-seed,
-  -bugprone-too-small-loop-variable,
-  -bugprone-unchecked-string-to-number-conversion,
   -concurrency-mt-unsafe,
   -misc-include-cleaner,
   -misc-no-recursion,
   -misc-non-private-member-variables-in-classes,
   -misc-use-anonymous-namespace,
+  -modernize-avoid-c-arrays,
+  -modernize-use-designated-initializers,
+  -modernize-use-integer-sign-comparison,
+  -modernize-use-trailing-return-type,
   -portability-avoid-pragma-once,
   -clang-analyzer-optin.performance.Padding
 
-# Why each of the above is off:
+# Why each disabled check is off. Do not drop an entry without re-reading this.
 #
+# cert-err58-cpp
+#   GoogleTest's TEST / TEST_P / INSTANTIATE_TEST_SUITE_P each define a
+#   namespace-scope `TestInfo *const test_info_` whose initialiser calls
+#   MakeAndRegisterTestInfo() before main(). That allocates, so it can throw
+#   where nothing can catch it — exactly what the check reports. No enclosing
+#   namespace changes it (storage duration, not linkage; verified against
+#   anonymous, named and no namespace), and no way of writing a GoogleTest test
+#   avoids the macro.
 # bugprone-easily-swappable-parameters
 #   The solver constructors take (gridWidth, gridHeight) and (x, y) pairs by
-#   design; naming them apart would not make them safer.
+#   design; renaming them apart would not make them safer.
 # bugprone-exception-escape
 #   main() and the worker entry points deliberately let a parse failure
 #   terminate rather than half-solve.
-# bugprone-narrowing-conversions
-#   Positions and block ids are int8_t/uint8_t on purpose (node size drives
-#   the memory ceiling). Every narrowing site already carries an explicit
-#   static_cast.
-# bugprone-random-generator-seed
-#   The unit tests seed fixed values so a failing board is reproducible.
-# bugprone-too-small-loop-variable
-#   `for (uint8_t i = 0; i < shapes_.size(); i++)` and friends. The bound is
-#   the block count or a grid row count, and BOTH are uint8_t-bounded by the
-#   data model (goalIndex_, Turn::blockId, gridWidth_/gridHeight_ are all
-#   uint8_t) — a board with 256 blocks is unrepresentable long before the loop
-#   sees it. Widening ~50 loop variables would only obscure that invariant.
-# bugprone-unchecked-string-to-number-conversion / concurrency-mt-unsafe
-#   Bench-CLI and test-only env/argv plumbing. main.cpp validates its numeric
-#   arguments explicitly (see nextU); getenv/exit run before any thread starts.
-# clang-analyzer-optin.performance.Padding
-#   DragSolver is instantiated a handful of times per solve; its field order
-#   groups related state for readability, and reordering it saves ~40 bytes
-#   once. The per-node structs, which DO matter, are packed deliberately.
+# modernize-avoid-c-arrays
+#   BitGrid::DX/DY/DIRS and the small direction tables are constexpr lookup
+#   tables; std::array buys nothing and cost measurable time when tried.
+# modernize-use-designated-initializers
+#   Fires on every aggregate init in the tree (135 sites). The structs it
+#   targets are short, positional and local to the search.
+# modernize-use-integer-sign-comparison
+#   Would wrap every size()/index comparison in std::cmp_less; the loop bounds
+#   are already being widened to size_t (see bugprone-too-small-loop-variable).
+# concurrency-mt-unsafe
+#   getenv/exit in the bench CLI and the test harness, all of it before any
+#   thread starts.
 # misc-include-cleaner
 #   Reports transitively-included standard headers; too noisy to act on.
 # misc-no-recursion
-#   The optimizer and packer are recursive by design.
+#   The optimizer, the packer and the assembly DFS are recursive by design.
 # misc-non-private-member-variables-in-classes
-#   Config structs are plain aggregates.
+#   Config and the search-result structs are plain aggregates.
 # misc-use-anonymous-namespace
 #   Conflicts with the file-static helpers the headers expose inline.
+# modernize-use-trailing-return-type
+#   Pure style, and it would touch every function in the tree.
 # portability-avoid-pragma-once
 #   Every toolchain this project targets (MSVC, GCC, Clang, emscripten)
 #   supports #pragma once.
+# clang-analyzer-optin.performance.Padding
+#   DragSolver is instantiated a handful of times per solve; its field order
+#   groups related state for readability. The per-node structs, which DO matter,
+#   are packed deliberately.
 
-CheckOptions:
-  # Position::x/y are int8_t used as small SIGNED NUMBERS, not characters, so
-  # the check's advice (cast through unsigned char first) would turn -1 into
-  # 255. Narrowed to real char misuse rather than switched off. The option name
-  # was misspelled upstream and later corrected, so both spellings are set —
-  # clang-tidy ignores the one it does not know.
-  bugprone-signed-char-misuse.CharTypdefsToIgnore: 'int8_t'
-  bugprone-signed-char-misuse.CharTypedefsToIgnore: 'int8_t'
-
-HeaderFilterRegex: '.*(AStar|DragSolver|BitGrid|StateTable|ParallelCascade|MemoryProbe|NodeKey|Node|Types)\.h$'
+HeaderFilterRegex: '.*(AStar|BitGrid|BenchFixture|BenchCommands|DragSolver|MemoryProbe|Node|NodeKey|ParallelCascade|SolverClock|StateTable|Types)[A-Za-z]*\.h$'

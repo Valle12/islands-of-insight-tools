@@ -1,11 +1,14 @@
+#include "ClangdCompat.h" // must stay first; see the header
+
 #include "AStar.h"
 #include "DragSolver.h"
-#include "Node.h"
 #include "ParallelCascade.h"
 #include "Types.h"
 
 #include <gtest/gtest.h>
 
+#include <cerrno>
+#include <climits>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
@@ -70,24 +73,24 @@ bool validateSolution(const ShiftingMosaicTestData &data,
   for (const auto &[blockId, direction] : turns) {
     if (blockId >= anchors.size())
       return false;
-    auto &p = anchors[blockId];
+    auto &[px, py] = anchors[blockId];
     switch (direction) {
     case Direction::UP:
-      p.y--;
+      py--;
       break;
     case Direction::RIGHT:
-      p.x++;
+      px++;
       break;
     case Direction::DOWN:
-      p.y++;
+      py++;
       break;
     case Direction::LEFT:
-      p.x--;
+      px--;
       break;
     }
   }
-  const auto &g = anchors[data.goalIndex];
-  return g.x == data.goalAnchor.x && g.y == data.goalAnchor.y;
+  const auto &[gx, gy] = anchors[data.goalIndex];
+  return gx == data.goalAnchor.x && gy == data.goalAnchor.y;
 }
 
 // Player "steps" as the UI counts them (solutionView.ts): maximal runs of
@@ -101,6 +104,27 @@ size_t countSteps(const std::vector<Turn> &turns) {
     }
   }
   return steps;
+}
+
+// Reads a numeric env override, or returns `fallback` when it is unset.
+//
+// std::atoi reports nothing — a typo'd or out-of-range value silently
+// becomes 0, and the run then measures something other than what the sweep
+// asked for while still looking like it honoured the variable. Every knob
+// below goes through this instead, and a malformed value fails the test
+// rather than quietly changing the configuration.
+uint32_t envU32(const char *name, const uint32_t fallback) {
+  const char *const raw = std::getenv(name);
+  if (raw == nullptr || *raw == '\0')
+    return fallback;
+  char *end = nullptr;
+  errno = 0;
+  const unsigned long long v = std::strtoull(raw, &end, 10);
+  const bool valid = end != raw && *end == '\0' && errno != ERANGE &&
+                     raw[0] != '-' && v <= UINT32_MAX;
+  EXPECT_TRUE(valid) << name << "=" << raw
+                     << " is not a valid unsigned number";
+  return valid ? static_cast<uint32_t>(v) : fallback;
 }
 
 class ShiftingMosaicJsonTest : public testing::TestWithParam<std::string> {};
@@ -153,22 +177,19 @@ TEST_P(ShiftingMosaicJsonTest, ShouldFindValidSolution) {
   // mirrors the production per-arm budget.
   uint32_t budgetMs = 300000;
   uint32_t maxNodes = 20000000;
-  if (const char *w = std::getenv("SHIFTING_MOSAIC_WEIGHT"))
-    cfg.weight = static_cast<uint8_t>(std::atoi(w));
-  if (const char *p = std::getenv("SHIFTING_MOSAIC_PATH_BLOCKER_WEIGHT"))
-    cfg.pathBlockerWeight = static_cast<uint8_t>(std::atoi(p));
-  if (const char *bd = std::getenv("SHIFTING_MOSAIC_BOUNDARY_WEIGHT"))
-    cfg.boundaryDistanceWeight = static_cast<uint8_t>(std::atoi(bd));
-  if (const char *ax = std::getenv("SHIFTING_MOSAIC_AXIS_WEIGHT"))
-    cfg.axisAwareWeight = static_cast<uint8_t>(std::atoi(ax));
-  if (const char *lp = std::getenv("SHIFTING_MOSAIC_LP_WEIGHT"))
-    cfg.lpDisplacementWeight = static_cast<uint8_t>(std::atoi(lp));
-  if (const char *st = std::getenv("SHIFTING_MOSAIC_STRIDE"))
-    cfg.strideOverride = static_cast<uint8_t>(std::atoi(st));
-  if (const char *b = std::getenv("SHIFTING_MOSAIC_BUDGET_MS"))
-    budgetMs = static_cast<uint32_t>(std::atoi(b));
-  if (const char *m = std::getenv("SHIFTING_MOSAIC_MAX_NODES"))
-    maxNodes = static_cast<uint32_t>(std::atoi(m));
+  cfg.weight = static_cast<uint8_t>(envU32("SHIFTING_MOSAIC_WEIGHT", cfg.weight));
+  cfg.pathBlockerWeight = static_cast<uint8_t>(
+      envU32("SHIFTING_MOSAIC_PATH_BLOCKER_WEIGHT", cfg.pathBlockerWeight));
+  cfg.boundaryDistanceWeight = static_cast<uint8_t>(
+      envU32("SHIFTING_MOSAIC_BOUNDARY_WEIGHT", cfg.boundaryDistanceWeight));
+  cfg.axisAwareWeight = static_cast<uint8_t>(
+      envU32("SHIFTING_MOSAIC_AXIS_WEIGHT", cfg.axisAwareWeight));
+  cfg.lpDisplacementWeight = static_cast<uint8_t>(
+      envU32("SHIFTING_MOSAIC_LP_WEIGHT", cfg.lpDisplacementWeight));
+  cfg.strideOverride = static_cast<uint8_t>(
+      envU32("SHIFTING_MOSAIC_STRIDE", cfg.strideOverride));
+  budgetMs = envU32("SHIFTING_MOSAIC_BUDGET_MS", budgetMs);
+  maxNodes = envU32("SHIFTING_MOSAIC_MAX_NODES", maxNodes);
   std::string engine = "cascade";
   if (const char *e = std::getenv("SHIFTING_MOSAIC_ENGINE"))
     engine = e;
@@ -185,10 +206,9 @@ TEST_P(ShiftingMosaicJsonTest, ShouldFindValidSolution) {
     DragSolver::Config dcfg;
     dcfg.weight = cfg.weight;
     dcfg.postProcess = cfg.postProcess;
-    if (const char *s = std::getenv("SHIFTING_MOSAIC_SETTLED"))
-      dcfg.settledOnly = std::atoi(s) != 0;
-    if (const char *pw = std::getenv("SHIFTING_MOSAIC_PEA"))
-      dcfg.partialExpansionWidth = static_cast<uint16_t>(std::atoi(pw));
+    dcfg.settledOnly = envU32("SHIFTING_MOSAIC_SETTLED", 0) != 0;
+    dcfg.partialExpansionWidth = static_cast<uint16_t>(
+        envU32("SHIFTING_MOSAIC_PEA", dcfg.partialExpansionWidth));
     DragSolver drag(data.gridWidth, data.gridHeight, data.shapes,
                     data.initialAnchors, data.goalIndex, data.goalAnchor,
                     dcfg);

@@ -78,7 +78,7 @@ public:
         return {&e, false};
       i = (i + 1) & mask;
     }
-    const uint32_t idx = static_cast<uint32_t>(count_);
+    const auto idx = static_cast<uint32_t>(count_);
     ensureBlock(idx);
     Entry &e = at(idx);
     e.key = k;
@@ -103,7 +103,7 @@ private:
   }
 
   void ensureBlock(const uint32_t idx) {
-    if ((idx >> kBlockShift) >= blocks_.size())
+    if (idx >> kBlockShift >= blocks_.size())
       blocks_.push_back(std::make_unique<Entry[]>(kBlockSize));
   }
 

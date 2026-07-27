@@ -3,7 +3,6 @@
 #include "Types.h"
 
 #include <algorithm>
-#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -32,15 +31,15 @@ public:
     for (const auto &shape : shapes) {
       uint8_t maxX = 0;
       uint8_t maxY = 0;
-      for (const auto &cell : shape) {
-        if (cell.x > static_cast<int8_t>(maxX)) maxX = static_cast<uint8_t>(cell.x);
-        if (cell.y > static_cast<int8_t>(maxY)) maxY = static_cast<uint8_t>(cell.y);
+      for (const auto &[cx, cy] : shape) {
+        if (cx > static_cast<int8_t>(maxX)) maxX = static_cast<uint8_t>(cx);
+        if (cy > static_cast<int8_t>(maxY)) maxY = static_cast<uint8_t>(cy);
       }
       boxW_.push_back(maxX + 1);
       boxH_.push_back(maxY + 1);
       std::vector<uint64_t> rows(maxY + 1, 0);
-      for (const auto &cell : shape)
-        rows[cell.y] |= uint64_t{1} << cell.x;
+      for (const auto &[cx, cy] : shape)
+        rows[cy] |= uint64_t{1} << cx;
       shapeRows_.push_back(std::move(rows));
     }
   }
@@ -59,24 +58,24 @@ public:
     return {static_cast<int8_t>(idx / h_), static_cast<int8_t>(idx % h_)};
   }
 
-  void clearOccupancy() { std::fill(occ_.begin(), occ_.end(), 0); }
+  void clearOccupancy() { std::ranges::fill(occ_, 0); }
 
   void buildOccupancy(const std::vector<Position> &anchors) {
     clearOccupancy();
-    for (uint8_t i = 0; i < anchors.size(); i++)
-      addBlock(i, anchors[i]);
+    for (size_t i = 0; i < anchors.size(); i++)
+      addBlock(static_cast<uint8_t>(i), anchors[i]);
   }
 
   void addBlock(const uint8_t i, const Position a) {
     const auto &rows = shapeRows_[i];
-    for (uint8_t r = 0; r < rows.size(); r++)
+    for (size_t r = 0; r < rows.size(); r++)
       occ_[a.y + r] |= rows[r] << a.x;
   }
 
   // Valid because blocks never overlap: every cell is set exactly once.
   void removeBlock(const uint8_t i, const Position a) {
     const auto &rows = shapeRows_[i];
-    for (uint8_t r = 0; r < rows.size(); r++)
+    for (size_t r = 0; r < rows.size(); r++)
       occ_[a.y + r] ^= rows[r] << a.x;
   }
 
@@ -87,8 +86,8 @@ public:
     if (x < 0 || y < 0 || x + boxW_[i] > w_ || y + boxH_[i] > h_)
       return false;
     const auto &rows = shapeRows_[i];
-    for (uint8_t r = 0; r < rows.size(); r++)
-      if ((rows[r] << x) & occ_[y + r])
+    for (size_t r = 0; r < rows.size(); r++)
+      if (rows[r] << x & occ_[y + r])
         return false;
     return true;
   }
@@ -107,7 +106,7 @@ public:
     // one fill per expansion per movable block. Reset the stamps on wrap; it
     // costs one O(cells) clear per 2^32 fills.
     if (++curEpoch_ == 0) {
-      std::fill(epoch_.begin(), epoch_.end(), 0);
+      std::ranges::fill(epoch_, 0);
       curEpoch_ = 1;
     }
     reached_.clear();

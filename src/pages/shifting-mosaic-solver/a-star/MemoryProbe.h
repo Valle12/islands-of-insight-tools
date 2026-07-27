@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
 
 // Actual measured memory, for bounding a search before it exhausts the heap.
@@ -101,9 +100,13 @@ inline bool nearHeapLimit() {
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <windows.h>
-// psapi.h must follow windows.h.
-#include <psapi.h>
+// Capitalised to match the Windows SDK's own file names — clangd resolves the
+// include against the real directory entry and reports a non-portable path for
+// the all-lowercase spelling. (Lowercase is the mingw-w64 convention, which
+// this project does not target: MSVC, Linux/GCC and emscripten only.)
+#include <Windows.h>
+// Psapi.h must follow Windows.h.
+#include <Psapi.h>
 #if defined(_MSC_VER)
 #pragma comment(lib, "Psapi.lib")
 #endif
@@ -121,7 +124,7 @@ inline uint64_t liveAllocatedBytes() {
                             reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&pmc),
                             sizeof(pmc)))
     return 0;
-  return static_cast<uint64_t>(pmc.PrivateUsage);
+  return pmc.PrivateUsage;
 }
 
 inline uint64_t heapCeilingBytes() { return 0; } // no fixed ceiling natively

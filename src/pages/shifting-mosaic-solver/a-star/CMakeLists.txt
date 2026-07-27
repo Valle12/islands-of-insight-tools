@@ -25,7 +25,26 @@ find_package(nlohmann_json CONFIG REQUIRED)
 # older toolchain it is an undefined-reference / std::system_error at runtime.
 find_package(Threads REQUIRED)
 
-add_executable(shifting_mosaic_a_star main.cpp AStar.cpp DragSolver.cpp)
+# AStar.cpp and DragSolver.cpp are each split across several translation units
+# (AStar*.cpp / DragSolver*.cpp) purely for file size; they define one class
+# apiece and must always be compiled together.
+add_executable(shifting_mosaic_a_star
+    main.cpp
+    BenchFixture.cpp
+    BenchCommands.cpp
+    SolverClock.cpp
+    AStar.cpp
+    AStarHeuristics.cpp
+    AStarSearch.cpp
+    AStarOptimizer.cpp
+    DragSolver.cpp
+    DragSolverHeuristics.cpp
+    DragSolverSearch.cpp
+    DragSolverExpand.cpp
+    DragSolverAssembly.cpp
+    DragSolverArms.cpp
+    DragSolverBeam.cpp
+)
 target_link_libraries(shifting_mosaic_a_star PRIVATE nlohmann_json::nlohmann_json Threads::Threads)
 
 include(CTest)

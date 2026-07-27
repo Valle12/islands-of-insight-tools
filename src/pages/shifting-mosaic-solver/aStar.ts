@@ -1,55 +1,8 @@
 import type { Position } from "../../util/types";
+import { MinHeap } from "../../util/minHeap";
 import { Direction } from "./directions";
 import { Node } from "./node";
 import type { Turn } from "./turn";
-
-class MinHeap {
-  private data: { f: number; g: number; signature: string }[] = [];
-
-  push(item: { f: number; g: number; signature: string }) {
-    this.data.push(item);
-    this.bubbleUp(this.data.length - 1);
-  }
-
-  pop(): { f: number; g: number; signature: string } | undefined {
-    if (this.data.length === 0) return undefined;
-    const top = this.data[0]!;
-    const last = this.data.pop()!;
-    if (this.data.length > 0) {
-      this.data[0] = last;
-      this.sinkDown(0);
-    }
-    return top;
-  }
-
-  get size() {
-    return this.data.length;
-  }
-
-  private bubbleUp(i: number) {
-    while (i > 0) {
-      const parent = (i - 1) >> 1;
-      if (this.data[parent]!.f <= this.data[i]!.f) break;
-      [this.data[parent], this.data[i]] = [this.data[i]!, this.data[parent]!];
-      i = parent;
-    }
-  }
-
-  private sinkDown(i: number) {
-    const n = this.data.length;
-    while (true) {
-      let s = i;
-      const l = 2 * i + 1;
-      const r = 2 * i + 2;
-      if (l < n && this.data[l]!.f < this.data[s]!.f) s = l;
-      if (r < n && this.data[r]!.f < this.data[s]!.f) s = r;
-      if (s === i) break;
-      [this.data[s], this.data[i]] = [this.data[i]!, this.data[s]!];
-      i = s;
-    }
-  }
-}
-
 export class AStar {
   private gridWidth: number;
   private gridHeight: number;

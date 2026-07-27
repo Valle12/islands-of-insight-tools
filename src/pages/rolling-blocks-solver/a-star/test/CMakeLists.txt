@@ -3,6 +3,7 @@ add_executable(a_star_tests
     bfs_test.cpp
     ${CMAKE_SOURCE_DIR}/Block.cpp
     ${CMAKE_SOURCE_DIR}/AStar.cpp
+    ${CMAKE_SOURCE_DIR}/AStarGoals.cpp
 )
 
 target_link_libraries(a_star_tests PRIVATE

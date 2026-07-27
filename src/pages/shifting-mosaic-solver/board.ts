@@ -5,6 +5,11 @@ import type {
   ShiftingMosaicTool,
 } from "../../util/types";
 import { Block } from "./block";
+import {
+  extractCellPosition,
+  isContiguous,
+  positionsEqual,
+} from "./boardGeometry";
 import { gridMaxWidthPx } from "./layout";
 import type { ShiftingMosaicSolverEditor } from "./shiftingMosaicSolver";
 
@@ -267,7 +272,7 @@ export class Board {
 
   private addListeners() {
     this.grid.addEventListener("pointerdown", event => {
-      const position = this.extractCellPosition(event.target);
+      const position = extractCellPosition(event.target);
       if (!position) return;
 
       if (this.isPlacingGoalZone) {
@@ -296,11 +301,11 @@ export class Board {
       // hit-test against (happy-dom in the unit tests returns null here).
       const hit =
         document.elementFromPoint?.(event.clientX, event.clientY) ?? null;
-      const position = this.extractCellPosition(hit ?? event.target);
+      const position = extractCellPosition(hit ?? event.target);
 
       if (this.isPlacingGoalZone) {
         if (!position) return;
-        if (this.positionsEqual(position, this.placementCursor)) return;
+        if (positionsEqual(position, this.placementCursor)) return;
         this.placementCursor = position;
         this.editor.render();
         return;
@@ -366,7 +371,7 @@ export class Board {
       return { x, y };
     });
 
-    if (!this.isContiguous(cells)) {
+    if (!isContiguous(cells)) {
       if (this.attemptedOverlap) {
         this.editor.showWarning(
           "Cannot create a block that overlaps with an existing block.",
@@ -461,53 +466,5 @@ export class Board {
 
   private hasBlockAt(x: number, y: number, blockId: number) {
     return this.blockAssignments[x]?.[y] === blockId;
-  }
-
-  private isContiguous(cells: Position[]): boolean {
-    if (cells.length <= 1) return true;
-    const cellSet = new Set(cells.map(c => `${c.x},${c.y}`));
-    const visited = new Set<string>();
-    const start = cells[0]!;
-    const queue: Position[] = [start];
-    visited.add(`${start.x},${start.y}`);
-
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      const neighbors: Position[] = [
-        { x: current.x, y: current.y - 1 },
-        { x: current.x + 1, y: current.y },
-        { x: current.x, y: current.y + 1 },
-        { x: current.x - 1, y: current.y },
-      ];
-      for (const neighbor of neighbors) {
-        const key = `${neighbor.x},${neighbor.y}`;
-        if (cellSet.has(key) && !visited.has(key)) {
-          visited.add(key);
-          queue.push(neighbor);
-        }
-      }
-    }
-
-    return visited.size === cellSet.size;
-  }
-
-  private positionsEqual(a: Position | null, b: Position | null): boolean {
-    if (a === null && b === null) return true;
-    if (a === null || b === null) return false;
-    return a.x === b.x && a.y === b.y;
-  }
-
-  private extractCellPosition(target: EventTarget | null): Position | null {
-    if (!(target instanceof HTMLElement)) return null;
-
-    const cell = target.closest(".grid-cell") as HTMLElement;
-    if (!cell) return null;
-
-    const x = Number(cell.dataset.x);
-    const y = Number(cell.dataset.y);
-
-    if (!Number.isInteger(x) || !Number.isInteger(y)) return null;
-
-    return { x, y };
   }
 }

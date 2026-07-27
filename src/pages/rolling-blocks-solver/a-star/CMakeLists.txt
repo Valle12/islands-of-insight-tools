@@ -12,7 +12,7 @@ if(MSVC)
     string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
 endif()
 
-add_executable(a_star main.cpp Block.cpp AStar.cpp)
+add_executable(a_star main.cpp Block.cpp AStar.cpp AStarGoals.cpp)
 
 find_package(Boost CONFIG REQUIRED)
 target_link_libraries(a_star PRIVATE Boost::boost)

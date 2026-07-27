@@ -1,78 +1,24 @@
-// clangd (CLion's C++ engine) trips over MSVC's <utility> when it advertises
-// P1328 support: _Is_pointer_address_convertible fails to fold to a constant
-// and every std::pair comparison in this file reports a phantom error. Only
-// the IDE analyser is affected — MSVC, GCC and emscripten all compile it. Same
-// workaround as rolling-blocks-solver/a-star/test, but this translation unit —
-// unlike those gtest-only files — is also compiled by em++, whose clang defines
-// __clang__ with no MSVC STL underneath: emscripten's own <yvals_core.h> shim
-// is an #include_next that finds nothing and hard-errors. Requiring _MSC_VER
-// too narrows this to clangd-against-the-MSVC-STL, which is the only case that
-// needs it.
-#if defined(__clang__) && defined(_MSC_VER)
-#include <yvals_core.h>
-#undef __cpp_lib_is_pointer_interconvertible
-#endif
+// AStar: construction and one-shot board analysis.
+//
+// Everything here runs once per AStar instance, before any search: shape
+// boxes and cell sets, same-shape symmetry groups, move-stride detection,
+// the per-block reachability masks and the goal-anchor BFS. The search
+// lives in AStarSearch.cpp and the cost functions in AStarHeuristics.cpp.
+
+#include "ClangdCompat.h" // must stay first; see the header
 
 #include "AStar.h"
-#include "MemoryProbe.h"
 
 #include <algorithm>
-#include <array>
-#include <chrono>
-#include <compare>
 #include <cstdlib>
 #include <deque>
-#include <functional>
 #include <iostream>
 #include <numeric>
-#include <queue>
 #include <ranges>
 #include <string>
-#include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
-
-namespace {
-uint64_t nowMs() {
-  using namespace std::chrono;
-  return static_cast<uint64_t>(
-      duration_cast<milliseconds>(steady_clock::now().time_since_epoch())
-          .count());
-}
-
-// Runs a callback on scope exit — used to accumulate SearchStats on every
-// return path of a search pass.
-template <typename F> struct ScopeExit {
-  F fn;
-  explicit ScopeExit(F f) : fn(std::move(f)) {}
-  ~ScopeExit() { fn(); }
-  // Owns a side effect, not a resource: copying or moving one would run `fn`
-  // more than once. Scope guards are always used as immovable locals.
-  ScopeExit(const ScopeExit &) = delete;
-  ScopeExit(ScopeExit &&) = delete;
-  ScopeExit &operator=(const ScopeExit &) = delete;
-  ScopeExit &operator=(ScopeExit &&) = delete;
-};
-template <typename F> ScopeExit(F) -> ScopeExit<F>;
-} // namespace
-
-struct HeapEntry {
-  uint32_t f;
-  uint32_t g;
-  // Pointers into the state map instead of a 48-byte NodeKey copy: 56 -> 24
-  // bytes per queued entry. `key` addresses the map's own key, `info` its
-  // value; both stay valid because the map is never erased from. Popping a
-  // state therefore costs no states.find().
-  const NodeKey *key = nullptr;
-  AStar::StateInfo *info = nullptr;
-  // Order by f; on ties, prefer the deeper node (larger g) so the search
-  // dives toward goals instead of fanning out across an f-plateau.
-  auto operator<=>(const HeapEntry &o) const {
-    if (const auto c = f <=> o.f; c != 0) return c;
-    return o.g <=> g;
-  }
-  bool operator==(const HeapEntry &o) const = default;
-};
 
 AStar::AStar(const uint8_t gridWidth, const uint8_t gridHeight,
              std::vector<std::vector<Position>> shapes,
@@ -88,20 +34,19 @@ AStar::AStar(const uint8_t gridWidth, const uint8_t gridHeight,
   for (const auto &shape : shapes_) {
     uint8_t maxX = 0;
     uint8_t maxY = 0;
-    for (const auto &cell : shape) {
-      if (cell.x > static_cast<int8_t>(maxX))
-        maxX = static_cast<uint8_t>(cell.x);
-      if (cell.y > static_cast<int8_t>(maxY))
-        maxY = static_cast<uint8_t>(cell.y);
+    for (const auto &[cx, cy] : shape) {
+      if (cx > static_cast<int8_t>(maxX))
+        maxX = static_cast<uint8_t>(cx);
+      if (cy > static_cast<int8_t>(maxY))
+        maxY = static_cast<uint8_t>(cy);
     }
     shapeBoxWidth_.push_back(maxX + 1);
     shapeBoxHeight_.push_back(maxY + 1);
     std::unordered_set<uint16_t> set;
     set.reserve(shape.size() * 2);
-    for (const auto &cell : shape) {
-      set.insert(static_cast<uint16_t>(static_cast<uint32_t>(cell.x) *
-                                           SHAPE_STRIDE +
-                                       cell.y));
+    for (const auto &[cx, cy] : shape) {
+      set.insert(static_cast<uint16_t>(
+          static_cast<uint32_t>(cx) * SHAPE_STRIDE + cy));
     }
     shapeCellSets_.push_back(std::move(set));
   }
@@ -115,7 +60,7 @@ AStar::AStar(const uint8_t gridWidth, const uint8_t gridHeight,
     // lookup is `byShape[shapeKey]` with a std::string we just built, so a
     // heterogeneous hasher would add machinery no call site can use.
     std::unordered_map<std::string, std::vector<uint8_t>> byShape;
-    for (uint8_t i = 0; i < shapes_.size(); i++) {
+    for (size_t i = 0; i < shapes_.size(); i++) {
       if (i == goalIndex_) continue;
       std::vector<Position> cells = shapes_[i];
       // A cell-less shape has no normalisation origin. Leaving it ungrouped
@@ -124,34 +69,33 @@ AStar::AStar(const uint8_t gridWidth, const uint8_t gridHeight,
       if (cells.empty()) continue;
       int8_t minX = cells[0].x;
       int8_t minY = cells[0].y;
-      for (const auto &c : cells) {
-        minX = std::min(minX, c.x);
-        minY = std::min(minY, c.y);
+      for (const auto &[cx, cy] : cells) {
+        minX = std::min(minX, cx);
+        minY = std::min(minY, cy);
       }
-      for (auto &c : cells) {
-        c.x = static_cast<int8_t>(c.x - minX);
-        c.y = static_cast<int8_t>(c.y - minY);
+      for (auto &[cx, cy] : cells) {
+        cx = static_cast<int8_t>(cx - minX);
+        cy = static_cast<int8_t>(cy - minY);
       }
       std::ranges::sort(cells, [](const Position &a, const Position &b) {
         return a.x != b.x ? a.x < b.x : a.y < b.y;
       });
       std::string shapeKey;
       shapeKey.reserve(cells.size() * 2);
-      for (const auto &c : cells) {
-        shapeKey.push_back(static_cast<char>(c.x));
-        shapeKey.push_back(static_cast<char>(c.y));
+      for (const auto &[cx, cy] : cells) {
+        shapeKey.push_back(static_cast<char>(cx));
+        shapeKey.push_back(static_cast<char>(cy));
       }
-      byShape[shapeKey].push_back(i);
+      byShape[shapeKey].push_back(static_cast<uint8_t>(i));
     }
     for (auto &group : byShape | std::views::values) {
       if (group.size() >= 2) symmetryGroups_.push_back(std::move(group));
     }
   }
 
-  const auto &goalShape = shapes_[goalIndex_];
-  for (const auto &cell : goalShape) {
-    const auto ax = static_cast<int16_t>(goalAnchor_.x + cell.x);
-    const auto ay = static_cast<int16_t>(goalAnchor_.y + cell.y);
+  for (const auto &[cx, cy] : shapes_[goalIndex_]) {
+    const auto ax = static_cast<int16_t>(goalAnchor_.x + cx);
+    const auto ay = static_cast<int16_t>(goalAnchor_.y + cy);
     goalBlockFinalCells_.insert(
         static_cast<uint16_t>(ax * static_cast<int16_t>(gridHeight_) + ay));
   }
@@ -161,14 +105,14 @@ AStar::AStar(const uint8_t gridWidth, const uint8_t gridHeight,
   // permanently blocks the goal block's final footprint → unsolvable.
   auto movableFromStart = computeMovableSet(initialAnchors_);
   movableBlockIndices_.reserve(shapes_.size());
-  for (uint8_t i = 0; i < shapes_.size(); i++) {
+  for (size_t i = 0; i < shapes_.size(); i++) {
     if (movableFromStart[i] || i == goalIndex_) {
-      movableBlockIndices_.push_back(i);
+      movableBlockIndices_.push_back(static_cast<uint8_t>(i));
     } else {
-      const auto &a = initialAnchors_[i];
-      for (const auto &cell : shapes_[i]) {
-        const auto enc = static_cast<uint16_t>((a.x + cell.x) * gridHeight_ +
-                                               (a.y + cell.y));
+      const auto &[ax, ay] = initialAnchors_[i];
+      for (const auto &[cx, cy] : shapes_[i]) {
+        const auto enc =
+            static_cast<uint16_t>((ax + cx) * gridHeight_ + (ay + cy));
         if (goalBlockFinalCells_.contains(enc)) {
           unsolvableAtStart_ = true;
           break;
@@ -195,8 +139,8 @@ namespace {
 // the common case.)
 bool shapeScaledBy(const std::vector<Position> &shape, const int g) {
   std::unordered_map<int, int> superCellCount;
-  for (const auto &c : shape) {
-    superCellCount[(c.x / g) * 4096 + (c.y / g)]++;
+  for (const auto &[cx, cy] : shape) {
+    superCellCount[cx / g * 4096 + cy / g]++;
   }
   return std::ranges::all_of(superCellCount | std::views::values,
                              [g](const int count) { return count == g * g; });
@@ -207,19 +151,20 @@ bool shapeScaledBy(const std::vector<Position> &shape, const int g) {
 bool isPerimeterRing(const std::vector<Position> &shape, int &w, int &h) {
   int mx = 0;
   int my = 0;
-  for (const auto &c : shape) {
-    mx = std::max(mx, static_cast<int>(c.x));
-    my = std::max(my, static_cast<int>(c.y));
+  for (const auto &[cx, cy] : shape) {
+    mx = std::max(mx, static_cast<int>(cx));
+    my = std::max(my, static_cast<int>(cy));
   }
   w = mx + 1;
   h = my + 1;
   if (w < 3 || h < 3) return false; // needs a non-empty interior
   std::vector<uint8_t> grid(static_cast<size_t>(w) * h, 0);
-  for (const auto &c : shape) grid[c.x * h + c.y] = 1;
+  for (const auto &[cx, cy] : shape) grid[cx * h + cy] = 1;
   for (int x = 0; x < w; x++) {
     for (int y = 0; y < h; y++) {
-      const bool onBorder = x == 0 || x == w - 1 || y == 0 || y == h - 1;
-      if ((grid[x * h + y] != 0) != onBorder) return false;
+      if (const bool onBorder = x == 0 || x == w - 1 || y == 0 || y == h - 1;
+          (grid[x * h + y] != 0) != onBorder)
+        return false;
     }
   }
   return true;
@@ -248,9 +193,9 @@ bool isPerimeterRing(const std::vector<Position> &shape, int &w, int &h) {
 uint8_t AStar::detectStride() const {
   int g = std::gcd(static_cast<int>(gridWidth_),
                    static_cast<int>(gridHeight_));
-  const auto gi = initialAnchors_[goalIndex_];
-  g = std::gcd(g, std::abs(static_cast<int>(goalAnchor_.x) - gi.x));
-  g = std::gcd(g, std::abs(static_cast<int>(goalAnchor_.y) - gi.y));
+  const auto [goalStartX, goalStartY] = initialAnchors_[goalIndex_];
+  g = std::gcd(g, std::abs(static_cast<int>(goalAnchor_.x) - goalStartX));
+  g = std::gcd(g, std::abs(static_cast<int>(goalAnchor_.y) - goalStartY));
   for (size_t i = 0; i < shapes_.size(); i++) {
     if (shapes_[i].size() <= 1) continue; // points don't constrain the stride
     if (shapeBoxWidth_[i] > 1)
@@ -268,8 +213,8 @@ uint8_t AStar::detectStride() const {
       if (shape.size() == 1) continue; // point
       if (shapeScaledBy(shape, cand)) continue;
       int w = 0;
-      int h = 0;
-      if (isPerimeterRing(shape, w, h) && w % cand == 0 && h % cand == 0)
+      if (int h = 0;
+          isPerimeterRing(shape, w, h) && w % cand == 0 && h % cand == 0)
         continue;
       allSafe = false;
       break;
@@ -293,25 +238,25 @@ void AStar::computeBlockReachability() {
   // 1. Mark locked cells.
   std::vector<uint8_t> lockedCell(total, 0);
   auto movable = computeMovableSet(initialAnchors_);
-  for (uint8_t i = 0; i < shapes_.size(); i++) {
+  for (size_t i = 0; i < shapes_.size(); i++) {
     if (movable[i] || i == goalIndex_) continue;
-    const auto &a = initialAnchors_[i];
-    for (const auto &cell : shapes_[i]) {
-      lockedCell[(a.x + cell.x) * gridHeight_ + (a.y + cell.y)] = 1;
+    const auto &[ax, ay] = initialAnchors_[i];
+    for (const auto &[cx, cy] : shapes_[i]) {
+      lockedCell[(ax + cx) * gridHeight_ + (ay + cy)] = 1;
     }
   }
 
   // 2. Per-block valid-anchor mask.
   blockValidAnchorMask_.assign(shapes_.size(), std::vector<uint8_t>(total, 0));
-  for (uint8_t i = 0; i < shapes_.size(); i++) {
+  for (size_t i = 0; i < shapes_.size(); i++) {
     if (i == goalIndex_) continue;
     const int aw = shapeBoxWidth_[i];
     const int ah = shapeBoxHeight_[i];
     for (int x = 0; x + aw <= gridWidth_; x++) {
       for (int y = 0; y + ah <= gridHeight_; y++) {
         bool ok = true;
-        for (const auto &cell : shapes_[i]) {
-          if (lockedCell[(x + cell.x) * gridHeight_ + (y + cell.y)]) {
+        for (const auto &[cx, cy] : shapes_[i]) {
+          if (lockedCell[(x + cx) * gridHeight_ + (y + cy)]) {
             ok = false;
             break;
           }
@@ -327,9 +272,9 @@ void AStar::computeBlockReachability() {
   //    on a shortest path from goalAnchor → initialAnchor; the goal block's
   //    footprint at any such anchor is part of the "corridor".
   initialGoalPathCells_.assign(total, 0);
-  const auto initGoal = initialAnchors_[goalIndex_];
-  if (goalAnchorAt(initGoal.x, initGoal.y) == UINT16_MAX) return;
-  const uint16_t dStart = goalAnchorAt(initGoal.x, initGoal.y);
+  const auto [initGoalX, initGoalY] = initialAnchors_[goalIndex_];
+  if (goalAnchorAt(initGoalX, initGoalY) == UINT16_MAX) return;
+  const uint16_t dStart = goalAnchorAt(initGoalX, initGoalY);
   const auto &gShape = shapes_[goalIndex_];
   // Collect via reverse BFS: an anchor (x,y) is on some shortest path if
   //   bfs[x,y] + dist((x,y) → initGoal) = dStart and bfs[x,y] + bfs_back == dStart
@@ -341,11 +286,11 @@ void AStar::computeBlockReachability() {
       const uint16_t d = goalAnchorAt(static_cast<int8_t>(x),
                                        static_cast<int8_t>(y));
       if (d == UINT16_MAX || d > dStart) continue;
-      if (const int mh = std::abs(x - initGoal.x) + std::abs(y - initGoal.y);
+      if (const int mh = std::abs(x - initGoalX) + std::abs(y - initGoalY);
           d + mh != dStart)
         continue;
-      for (const auto &cell : gShape) {
-        initialGoalPathCells_[(x + cell.x) * gridHeight_ + (y + cell.y)] = 1;
+      for (const auto &[cx, cy] : gShape) {
+        initialGoalPathCells_[(x + cx) * gridHeight_ + (y + cy)] = 1;
       }
     }
   }
@@ -357,7 +302,7 @@ void AStar::computeBlockReachability() {
   //    exactly what lpDisplacementCost needs, in O(1) per lookup.
   blockSafeAnchorDist_.assign(shapes_.size(),
                               std::vector<uint16_t>(total, UINT16_MAX));
-  for (uint8_t i = 0; i < shapes_.size(); i++) {
+  for (size_t i = 0; i < shapes_.size(); i++) {
     if (i == goalIndex_) continue;
     const int aw = shapeBoxWidth_[i];
     const int ah = shapeBoxHeight_[i];
@@ -367,9 +312,8 @@ void AStar::computeBlockReachability() {
       for (int y = 0; y + ah <= gridHeight_; y++) {
         if (!blockValidAnchorMask_[i][x * gridHeight_ + y]) continue;
         bool inside = false;
-        for (const auto &cell : shapes_[i]) {
-          if (initialGoalPathCells_[(x + cell.x) * gridHeight_ +
-                                     (y + cell.y)]) {
+        for (const auto &[cx, cy] : shapes_[i]) {
+          if (initialGoalPathCells_[(x + cx) * gridHeight_ + (y + cy)]) {
             inside = true;
             break;
           }
@@ -410,23 +354,23 @@ AStar::lpDisplacementCost(const std::vector<Position> &anchors) const {
   uint32_t total = 0;
   for (const uint8_t i : movableBlockIndices_) {
     if (i == goalIndex_) continue;
-    const auto &a = anchors[i];
+    const auto &[ax, ay] = anchors[i];
     // Is this block currently inside the corridor?
     bool inCorridor = false;
-    for (const auto &cell : shapes_[i]) {
-      if (initialGoalPathCells_[(a.x + cell.x) * gridHeight_ +
-                                 (a.y + cell.y)]) {
+    for (const auto &[cx, cy] : shapes_[i]) {
+      if (initialGoalPathCells_[(ax + cx) * gridHeight_ + (ay + cy)]) {
         inCorridor = true;
         break;
       }
     }
     if (!inCorridor) continue;
 
-    // Min Manhattan distance from `a` to a safe anchor — a precomputed O(1)
-    // field lookup. UINT16_MAX means no safe anchor exists, so the blocker is
+    // Min Manhattan distance from this anchor to a safe one — a precomputed
+    // O(1) field lookup. UINT16_MAX means no safe anchor exists, so the
+    // blocker is
     // permanently in the corridor; treat as +1 (search must route around it).
-    const uint16_t d = blockSafeAnchorDist_[i][a.x * gridHeight_ + a.y];
-    total += (d == UINT16_MAX) ? 1u : static_cast<uint32_t>(d);
+    const uint16_t d = blockSafeAnchorDist_[i][ax * gridHeight_ + ay];
+    total += d == UINT16_MAX ? 1u : static_cast<uint32_t>(d);
   }
   return total;
 }
@@ -445,11 +389,11 @@ void AStar::computeGoalAnchorBfs() {
   // Mark cells occupied by locked blocks as walls.
   std::vector<uint8_t> lockedWall(total, 0);
   auto movable = computeMovableSet(initialAnchors_);
-  for (uint8_t i = 0; i < shapes_.size(); i++) {
+  for (size_t i = 0; i < shapes_.size(); i++) {
     if (movable[i] || i == goalIndex_) continue;
-    const auto &a = initialAnchors_[i];
-    for (const auto &cell : shapes_[i]) {
-      lockedWall[(a.x + cell.x) * gridHeight_ + (a.y + cell.y)] = 1;
+    const auto &[ax, ay] = initialAnchors_[i];
+    for (const auto &[cx, cy] : shapes_[i]) {
+      lockedWall[(ax + cx) * gridHeight_ + (ay + cy)] = 1;
     }
   }
 
@@ -458,11 +402,11 @@ void AStar::computeGoalAnchorBfs() {
   const auto &gShape = shapes_[goalIndex_];
   const int gw = shapeBoxWidth_[goalIndex_];
   const int gh = shapeBoxHeight_[goalIndex_];
-  auto anchorValid = [&](int8_t x, int8_t y) {
+  auto anchorValid = [&](const int8_t x, const int8_t y) {
     if (x < 0 || y < 0) return false;
     if (x + gw > gridWidth_ || y + gh > gridHeight_) return false;
-    for (const auto &cell : gShape) {
-      if (lockedWall[(x + cell.x) * gridHeight_ + (y + cell.y)]) return false;
+    for (const auto &[cx, cy] : gShape) {
+      if (lockedWall[(x + cx) * gridHeight_ + (y + cy)]) return false;
     }
     return true;
   };
@@ -480,8 +424,8 @@ void AStar::computeGoalAnchorBfs() {
     queue.pop_front();
     const uint16_t d = goalAnchorBfsDist_[x * gridHeight_ + y];
     for (int dir = 0; dir < 4; dir++) {
-      const int8_t nx = x + DX[dir];
-      const int8_t ny = y + DY[dir];
+      const auto nx = static_cast<int8_t>(x + DX[dir]);
+      const auto ny = static_cast<int8_t>(y + DY[dir]);
       if (!anchorValid(nx, ny)) continue;
       uint16_t &cell = goalAnchorBfsDist_[nx * gridHeight_ + ny];
       if (cell != UINT16_MAX) continue;
@@ -494,952 +438,4 @@ void AStar::computeGoalAnchorBfs() {
                     initialAnchors_[goalIndex_].y) == UINT16_MAX) {
     unsolvableAtStart_ = true;
   }
-}
-
-bool AStar::inBounds(const uint8_t blockIndex, const Position anchor) const {
-  return anchor.x >= 0 && anchor.y >= 0 &&
-         anchor.x + static_cast<int>(shapeBoxWidth_[blockIndex]) <=
-             gridWidth_ &&
-         anchor.y + static_cast<int>(shapeBoxHeight_[blockIndex]) <=
-             gridHeight_;
-}
-
-bool AStar::boundingBoxesOverlap(const uint8_t i, const Position ai,
-                                 const uint8_t j, const Position aj) const {
-  const int aw = shapeBoxWidth_[i];
-  const int ah = shapeBoxHeight_[i];
-  const int bw = shapeBoxWidth_[j];
-  const int bh = shapeBoxHeight_[j];
-  if (ai.x + aw <= aj.x || aj.x + bw <= ai.x)
-    return false;
-  if (ai.y + ah <= aj.y || aj.y + bh <= ai.y)
-    return false;
-  return true;
-}
-
-bool AStar::blocksCollide(const uint8_t i, const Position ai, const uint8_t j,
-                          const Position aj) const {
-  if (!boundingBoxesOverlap(i, ai, j, aj))
-    return false;
-  const int dx = ai.x - aj.x;
-  const int dy = ai.y - aj.y;
-  const int bw = shapeBoxWidth_[j];
-  const int bh = shapeBoxHeight_[j];
-  const auto &setJ = shapeCellSets_[j];
-  return std::ranges::any_of(shapes_[i], [&](const Position &cellA) {
-    const int relX = cellA.x + dx;
-    const int relY = cellA.y + dy;
-    if (relX < 0 || relY < 0)
-      return false;
-    if (relX >= bw || relY >= bh)
-      return false;
-    return setJ.contains(static_cast<uint16_t>(
-        static_cast<uint32_t>(relX) * SHAPE_STRIDE + relY));
-  });
-}
-
-bool AStar::collidesWithOthers(const uint8_t blockIndex,
-                               const Position newAnchor,
-                               const std::vector<Position> &anchors) const {
-  for (size_t j = 0; j < anchors.size(); j++) {
-    if (j == blockIndex)
-      continue;
-    if (blocksCollide(blockIndex, newAnchor, static_cast<uint8_t>(j),
-                      anchors[j]))
-      return true;
-  }
-  return false;
-}
-
-uint32_t AStar::countFinalPositionBlockers(
-    const std::vector<Position> &anchors) const {
-  const int gw = shapeBoxWidth_[goalIndex_];
-  const int gh = shapeBoxHeight_[goalIndex_];
-  uint32_t count = 0;
-  for (size_t i = 0; i < anchors.size(); i++) {
-    if (i == goalIndex_)
-      continue;
-    const auto &a = anchors[i];
-    const int aw = shapeBoxWidth_[i];
-    const int ah = shapeBoxHeight_[i];
-    if (a.x + aw <= goalAnchor_.x || goalAnchor_.x + gw <= a.x)
-      continue;
-    if (a.y + ah <= goalAnchor_.y || goalAnchor_.y + gh <= a.y)
-      continue;
-    for (const auto &cell : shapes_[i]) {
-      const auto enc =
-          static_cast<uint16_t>((a.x + cell.x) * gridHeight_ + (a.y + cell.y));
-      if (goalBlockFinalCells_.contains(enc)) {
-        count++;
-        break;
-      }
-    }
-  }
-  return count;
-}
-
-uint32_t AStar::heuristic(const Node &node) const {
-  const auto &goal = node.anchors[goalIndex_];
-  if (goal.x == goalAnchor_.x && goal.y == goalAnchor_.y) return 0;
-  const uint16_t bfs = goalAnchorAt(goal.x, goal.y);
-  const auto base = bfs == UINT16_MAX
-                        ? static_cast<uint32_t>(std::abs(goal.x - goalAnchor_.x) +
-                                                std::abs(goal.y - goalAnchor_.y))
-                        : static_cast<uint32_t>(bfs);
-  uint32_t h = base + countFinalPositionBlockers(node.anchors);
-  if (cfg_.pathBlockerWeight != 0) {
-    h += cfg_.pathBlockerWeight * countPathBlockers(node.anchors, goal);
-  }
-  if (cfg_.boundaryDistanceWeight != 0) {
-    h += cfg_.boundaryDistanceWeight * boundaryDistanceSum(node.anchors);
-  }
-  if (cfg_.axisAwareWeight != 0) {
-    h += cfg_.axisAwareWeight * axisAwareBlockerCost(node.anchors, goal);
-  }
-  if (cfg_.lpDisplacementWeight != 0) {
-    h += cfg_.lpDisplacementWeight * lpDisplacementCost(node.anchors);
-  }
-  return h;
-}
-
-// Rush-hour-style heuristic. Decide whether the goal block's net trip is
-// dominantly horizontal or vertical, then for each movable non-goal block
-// whose footprint intersects the goal block's corridor:
-//   * if the block can only move ALONG the corridor (parallel axis) →
-//     it has to shift `min(start-side, end-side)` cells to clear; we count 1
-//     as a lower bound that the block has to move at least once.
-//   * if the block can move PERPENDICULAR (rush-hour side-track) → at least
-//     1 perpendicular move to vacate the corridor.
-//   * otherwise (block stuck right now) → it must still be displaced; 2 is a
-//     conservative penalty.
-// Non-admissible; intended for weighted A* / IDA* on rush-hour puzzles.
-uint32_t
-AStar::axisAwareBlockerCost(const std::vector<Position> &anchors,
-                             const Position currentGoal) const {
-  // Corridor: rectangle covering both current and target footprints.
-  const int gw = shapeBoxWidth_[goalIndex_];
-  const int gh = shapeBoxHeight_[goalIndex_];
-  const int xLo = std::min(static_cast<int>(currentGoal.x),
-                            static_cast<int>(goalAnchor_.x));
-  const int xHi =
-      std::max(static_cast<int>(currentGoal.x),
-               static_cast<int>(goalAnchor_.x)) +
-      gw;
-  const int yLo = std::min(static_cast<int>(currentGoal.y),
-                            static_cast<int>(goalAnchor_.y));
-  const int yHi =
-      std::max(static_cast<int>(currentGoal.y),
-               static_cast<int>(goalAnchor_.y)) +
-      gh;
-
-  uint32_t cost = 0;
-  for (const uint8_t i : movableBlockIndices_) {
-    if (i == goalIndex_) continue;
-    const auto &a = anchors[i];
-    const int aw = shapeBoxWidth_[i];
-    const int ah = shapeBoxHeight_[i];
-    // bbox quick reject
-    if (a.x + aw <= xLo || a.x >= xHi) continue;
-    if (a.y + ah <= yLo || a.y >= yHi) continue;
-    bool overlapsCorridor = false;
-    for (const auto &cell : shapes_[i]) {
-      const int cx = a.x + cell.x;
-      const int cy = a.y + cell.y;
-      if (cx >= xLo && cx < xHi && cy >= yLo && cy < yHi) {
-        overlapsCorridor = true;
-        break;
-      }
-    }
-    if (!overlapsCorridor) continue;
-
-    // Decide block axis by probing one cell moves in each direction.
-    bool canMoveHoriz = false;
-    bool canMoveVert = false;
-    static constexpr std::array<int, 2> dirsH = {1, 3}; // RIGHT, LEFT
-    static constexpr std::array<int, 2> dirsV = {0, 2}; // UP, DOWN
-    for (const int d : dirsH) {
-      const Position p = {static_cast<int8_t>(a.x + DX[d]),
-                          static_cast<int8_t>(a.y + DY[d])};
-      if (inBounds(i, p) && !collidesWithOthers(i, p, anchors)) {
-        canMoveHoriz = true;
-        break;
-      }
-    }
-    for (const int d : dirsV) {
-      const Position p = {static_cast<int8_t>(a.x + DX[d]),
-                          static_cast<int8_t>(a.y + DY[d])};
-      if (inBounds(i, p) && !collidesWithOthers(i, p, anchors)) {
-        canMoveVert = true;
-        break;
-      }
-    }
-
-    // NOTE: the perpendicular/parallel distinction this function is named for
-    // is NOT currently implemented. The two branches that used to read
-    // `canMoveVert ? 1 : 1` / `canMoveHoriz ? 1 : 1` were no-op ternaries —
-    // both arms were the literal 1 — so canMoveHoriz/canMoveVert only ever fed
-    // the "stuck" test, and `horizontalTrip` selected between two identical
-    // statements. Collapsed to the behaviour that actually shipped. Giving a
-    // perpendicular blocker a different cost than a parallel one would change
-    // every benchmark on record, so it needs a deliberate re-tune rather than
-    // a silent fix here.
-    cost += (!canMoveHoriz && !canMoveVert)
-                ? 2  // stuck right now; needs cascade to vacate
-                : 1;
-  }
-  return cost;
-}
-
-// Count of movable non-goal blocks whose footprint intersects the goal
-// block's BFS shortest path through the *current* non-goal blocks. The path
-// itself is one of several possible shortest paths, so this is approximate
-// (non-admissible) but strong: each counted block stands between the goal
-// block and its target on at least one optimal anchor-path.
-uint32_t AStar::countPathBlockers(const std::vector<Position> &anchors,
-                                   const Position currentGoal) const {
-  const size_t total =
-      static_cast<size_t>(gridWidth_) * static_cast<size_t>(gridHeight_);
-
-  // Per-cell occupancy: -1 empty, otherwise block index. Allows attributing
-  // path cells to specific blockers.
-  std::vector<int16_t> occupancy(total, -1);
-  for (size_t i = 0; i < anchors.size(); i++) {
-    if (i == goalIndex_) continue;
-    const auto &a = anchors[i];
-    for (const auto &cell : shapes_[i]) {
-      occupancy[(a.x + cell.x) * gridHeight_ + (a.y + cell.y)] =
-          static_cast<int16_t>(i);
-    }
-  }
-
-  // BFS anchor-graph from currentGoal toward goalAnchor; goal block sits on
-  // a cell if its shape (translated by anchor) overlaps with another block's
-  // occupancy. Passable = (no overlap with a non-goal block at any shape
-  // cell).
-  const auto &gShape = shapes_[goalIndex_];
-  const int gw = shapeBoxWidth_[goalIndex_];
-  const int gh = shapeBoxHeight_[goalIndex_];
-  auto anchorPassable = [&](int8_t x, int8_t y) {
-    if (x < 0 || y < 0) return false;
-    if (x + gw > gridWidth_ || y + gh > gridHeight_) return false;
-    return true;
-  };
-  // Per anchor cell, store predecessor for path reconstruction. -2 = not
-  // visited, -1 = root.
-  std::vector<int32_t> pred(total, -2);
-  pred[currentGoal.x * gridHeight_ + currentGoal.y] = -1;
-  std::deque<std::pair<int8_t, int8_t>> queue;
-  queue.emplace_back(currentGoal.x, currentGoal.y);
-  bool reached = currentGoal.x == goalAnchor_.x &&
-                 currentGoal.y == goalAnchor_.y;
-  while (!queue.empty() && !reached) {
-    auto [x, y] = queue.front();
-    queue.pop_front();
-    for (int dir = 0; dir < 4; dir++) {
-      const int8_t nx = x + DX[dir];
-      const int8_t ny = y + DY[dir];
-      if (!anchorPassable(nx, ny)) continue;
-      const int npos = nx * gridHeight_ + ny;
-      if (pred[npos] != -2) continue;
-      pred[npos] = x * gridHeight_ + y;
-      if (nx == goalAnchor_.x && ny == goalAnchor_.y) {
-        reached = true;
-        break;
-      }
-      queue.emplace_back(nx, ny);
-    }
-  }
-  if (!reached) {
-    // No anchor-path even ignoring movable blocks → push hard.
-    return 4;
-  }
-
-  // Walk path from goal anchor back to current; collect blockers along the
-  // way.
-  std::unordered_set<int16_t> blockerSet;
-  int32_t cur = goalAnchor_.x * gridHeight_ + goalAnchor_.y;
-  while (cur != -1) {
-    const auto ax = static_cast<int8_t>(cur / gridHeight_);
-    const auto ay = static_cast<int8_t>(cur % gridHeight_);
-    for (const auto &cell : gShape) {
-      const int gx = ax + cell.x;
-      const int gy = ay + cell.y;
-      const int16_t occ = occupancy[gx * gridHeight_ + gy];
-      if (occ != -1) blockerSet.insert(occ);
-    }
-    cur = pred[cur];
-  }
-  return static_cast<uint32_t>(blockerSet.size());
-}
-
-// Penalize non-goal movable blocks that are far from the grid boundary.
-// Encourages the search to push outer blocks outward to free interior space.
-uint32_t
-AStar::boundaryDistanceSum(const std::vector<Position> &anchors) const {
-  uint32_t total = 0;
-  for (const uint8_t i : movableBlockIndices_) {
-    if (i == goalIndex_) continue;
-    const auto &a = anchors[i];
-    const int aw = shapeBoxWidth_[i];
-    const int ah = shapeBoxHeight_[i];
-    const int distLeft = a.x;
-    const int distRight = gridWidth_ - (a.x + aw);
-    const int distTop = a.y;
-    const int distBottom = gridHeight_ - (a.y + ah);
-    const int distToEdge = std::min({distLeft, distRight, distTop, distBottom});
-    total += static_cast<uint32_t>(distToEdge);
-  }
-  return total;
-}
-
-uint32_t
-AStar::countSweepRectangleBlockers(const std::vector<Position> &anchors,
-                                   const Position goal) const {
-  const int gw = shapeBoxWidth_[goalIndex_];
-  const int gh = shapeBoxHeight_[goalIndex_];
-  const int xLo = std::min(static_cast<int>(goal.x), static_cast<int>(goalAnchor_.x));
-  const int xHi = std::max(static_cast<int>(goal.x), static_cast<int>(goalAnchor_.x)) + gw;
-  const int yLo = std::min(static_cast<int>(goal.y), static_cast<int>(goalAnchor_.y));
-  const int yHi = std::max(static_cast<int>(goal.y), static_cast<int>(goalAnchor_.y)) + gh;
-
-  uint32_t count = 0;
-  for (const uint8_t i : movableBlockIndices_) {
-    if (i == goalIndex_) continue;
-    const auto &a = anchors[i];
-    const int aw = shapeBoxWidth_[i];
-    const int ah = shapeBoxHeight_[i];
-    // bbox quick reject
-    if (a.x + aw <= xLo || a.x >= xHi) continue;
-    if (a.y + ah <= yLo || a.y >= yHi) continue;
-    // cell-level: any cell of this block inside the sweep rect?
-    for (const auto &cell : shapes_[i]) {
-      const int cx = a.x + cell.x;
-      const int cy = a.y + cell.y;
-      if (cx >= xLo && cx < xHi && cy >= yLo && cy < yHi) {
-        count++;
-        break;
-      }
-    }
-  }
-  return count;
-}
-
-bool AStar::isGoalState(const Node &node) const {
-  const auto &anchor = node.anchors[goalIndex_];
-  return anchor.x == goalAnchor_.x && anchor.y == goalAnchor_.y;
-}
-
-// Correct fixpoint: start with NOBODY proven movable, and add X iff some
-// direction has every blocker already proven movable. This catches mutual
-// locks (e.g. a hollow ring around a single cell where each blocks the other
-// in every direction) — the optimistic "start full and remove" variant would
-// keep both in the movable set forever, hiding the deadlock.
-std::vector<bool>
-AStar::computeMovableSet(const std::vector<Position> &anchors) const {
-  const size_t n = anchors.size();
-  const size_t total =
-      static_cast<size_t>(gridWidth_) * static_cast<size_t>(gridHeight_);
-  std::vector<int16_t> occupancy(total, -1);
-  for (size_t i = 0; i < n; i++) {
-    const auto &a = anchors[i];
-    for (const auto &cell : shapes_[i]) {
-      occupancy[(a.x + cell.x) * gridHeight_ + (a.y + cell.y)] =
-          static_cast<int16_t>(i);
-    }
-  }
-  std::vector<bool> movable(n, false);
-  bool changed = true;
-  while (changed) {
-    changed = false;
-    for (size_t i = 0; i < n; i++) {
-      if (movable[i])
-        continue;
-      const auto &a = anchors[i];
-      const auto &shape = shapes_[i];
-      bool canMove = false;
-      for (int d = 0; d < 4; d++) {
-        const Position newAnchor = {static_cast<int8_t>(a.x + DX[d]),
-                                     static_cast<int8_t>(a.y + DY[d])};
-        if (!inBounds(static_cast<uint8_t>(i), newAnchor))
-          continue;
-        bool allFreeable = true;
-        for (const auto &cell : shape) {
-          const int nx = newAnchor.x + cell.x;
-          const int ny = newAnchor.y + cell.y;
-          const int occ = occupancy[nx * gridHeight_ + ny];
-          if (occ == -1 || occ == static_cast<int>(i))
-            continue;
-          if (!movable[occ]) {
-            allFreeable = false;
-            break;
-          }
-        }
-        if (allFreeable) {
-          canMove = true;
-          break;
-        }
-      }
-      if (canMove) {
-        movable[i] = true;
-        changed = true;
-      }
-    }
-  }
-  return movable;
-}
-
-bool AStar::isDeadlocked(const std::vector<Position> &anchors) const {
-  // True iff block `i` currently covers any cell of the goal block's final
-  // footprint. Both sweeps below ask exactly this question.
-  const auto sitsOnGoalFootprint = [&](const size_t i) {
-    const auto &a = anchors[i];
-    return std::ranges::any_of(shapes_[i], [&](const Position &cell) {
-      return goalBlockFinalCells_.contains(static_cast<uint16_t>(
-          (a.x + cell.x) * gridHeight_ + (a.y + cell.y)));
-    });
-  };
-
-  bool hasBlocker = false;
-  for (size_t i = 0; i < anchors.size(); i++) {
-    if (i == goalIndex_)
-      continue;
-    if (sitsOnGoalFootprint(i)) {
-      hasBlocker = true;
-      break;
-    }
-  }
-  if (!hasBlocker)
-    return false;
-  auto movable = computeMovableSet(anchors);
-  for (size_t i = 0; i < anchors.size(); i++) {
-    if (i == goalIndex_ || movable[i])
-      continue;
-    if (sitsOnGoalFootprint(i))
-      return true;
-  }
-  return false;
-}
-
-NodeKey AStar::signatureFromAnchors(
-    const std::vector<Position> &anchors) const {
-  const auto n = static_cast<uint8_t>(anchors.size());
-  NodeKey key(n);
-  uint16_t *d = key.data();
-  for (uint8_t i = 0; i < n; i++) {
-    const auto &a = anchors[i];
-    d[i] = static_cast<uint16_t>(
-        (static_cast<uint16_t>(static_cast<uint8_t>(a.x)) << 8) |
-        static_cast<uint8_t>(a.y));
-  }
-  // Canonicalise interchangeable blocks: within each same-shape group, sort
-  // the packed anchors so states that differ only by permuting identical
-  // blocks collapse to a single signature.
-  for (const auto &group : symmetryGroups_) {
-    const size_t m = group.size();
-    if (m > 64) continue; // absurdly large group — skip (still correct)
-    std::array<uint16_t, 64> vals; // NOLINT — only [0,m) is written then read
-    for (size_t k = 0; k < m; k++) vals[k] = d[group[k]];
-    std::sort(vals.begin(), vals.begin() + static_cast<ptrdiff_t>(m));
-    for (size_t k = 0; k < m; k++) d[group[k]] = vals[k];
-  }
-  return key;
-}
-
-NodeKey AStar::nodeSignature(const Node &node) const {
-  return signatureFromAnchors(node.anchors);
-}
-
-std::vector<Turn> AStar::reconstructPath(const StateInfo *goal) {
-  // Walk cameFrom backward, collect macro moves, then expand each macro into
-  // (slideDistance) 1-cell Turns.
-  std::vector<InternalMove> moves;
-  for (const StateInfo *cur = goal; cur && cur->hasParent; cur = cur->parent)
-    moves.push_back(cur->move);
-  std::ranges::reverse(moves);
-
-  std::vector<Turn> turns;
-  for (const auto &m : moves) {
-    const uint8_t d = m.slideDistance == 0 ? 1 : m.slideDistance;
-    for (uint8_t k = 0; k < d; k++) {
-      turns.push_back({m.blockId, m.direction});
-    }
-  }
-  return turns;
-}
-
-// Public entry: runs A* at the detected/forced move stride, and — when the
-// stride was auto-detected (strideOverride==0) — falls back to stride-1 if
-// the quantized search genuinely exhausts without a solution. Stride
-// quantization is sound but not provably complete for every layout, so the
-// fallback guarantees we never lose a puzzle that stride-1 could solve.
-std::vector<Turn> AStar::search(const uint32_t maxMs, const uint32_t maxNodes) {
-  stats_ = {};
-  // ONE deadline for the whole entry point. runAStar takes a RELATIVE budget
-  // and restarts its own clock, so handing each fallback pass the full maxMs
-  // silently tripled the caller's budget (guided → stride-1 → BFS). That is
-  // how a 300s browser solve reached 13 minutes: solveArmsParallel joins every
-  // arm, so one arm overrunning holds the whole race open. Mirrors the
-  // absolute-deadline convention DragSolver::search already follows.
-  const uint64_t deadline = maxMs == 0 ? 0 : nowMs() + maxMs;
-  const auto remainingMs = [deadline]() -> uint32_t {
-    if (deadline == 0) return 0; // 0 == unlimited, preserved
-    const uint64_t now = nowMs();
-    return now >= deadline ? 1u : static_cast<uint32_t>(deadline - now);
-  };
-  const auto outOfTime = [deadline] {
-    return deadline != 0 && nowMs() >= deadline;
-  };
-
-  std::vector<Turn> result = runAStar(maxMs, maxNodes);
-  if (result.empty() && searchExhausted_ && moveStride_ > 1 &&
-      cfg_.strideOverride == 0 && !outOfTime()) {
-    std::cout << "A*: stride-" << static_cast<int>(moveStride_)
-              << " search exhausted with no solution — falling back to "
-                 "stride-1\n";
-    const uint8_t saved = moveStride_;
-    moveStride_ = 1;
-    result = runAStar(remainingMs(), maxNodes);
-    moveStride_ = saved;
-  }
-  // Last resort: if the guided search came up empty, retry as pure BFS
-  // (weight 0, stride 1). BFS can't be led astray by a weak heuristic, so it
-  // cracks dense puzzles where weighted A* just wanders. This only ever runs
-  // when A* already failed, so it cannot regress a puzzle A* can solve.
-  if (result.empty() && cfg_.bfsFallback && cfg_.weight != 0 && !outOfTime()) {
-    std::cout << "A*: guided search found nothing — retrying as pure BFS\n";
-    const uint8_t savedWeight = cfg_.weight;
-    const uint8_t savedStride = moveStride_;
-    cfg_.weight = 0;
-    moveStride_ = 1;
-    result = runAStar(remainingMs(), maxNodes);
-    cfg_.weight = savedWeight;
-    moveStride_ = savedStride;
-  }
-  if (cfg_.postProcess && !result.empty()) {
-    const size_t beforeMoves = result.size();
-    const size_t beforeSteps = countSteps(result);
-    result = optimizeSolution(result);
-    std::cout << "post-process: " << beforeMoves << " -> " << result.size()
-              << " moves, " << beforeSteps << " -> " << countSteps(result)
-              << " steps\n";
-  }
-  return result;
-}
-
-std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
-                                  const uint32_t maxNodes) {
-  searchExhausted_ = false;
-  if (unsolvableAtStart_) {
-    std::cout << "A* short-circuit: a permanently-locked block sits on the "
-                 "goal block's final footprint — puzzle is unsolvable\n";
-    searchExhausted_ = true;
-    return {};
-  }
-
-  const uint64_t deadline = maxMs == 0 ? 0 : nowMs() + maxMs;
-
-  Node root(initialAnchors_);
-  if (isGoalState(root))
-    return {};
-
-  const NodeKey rootSig = nodeSignature(root);
-
-  StateMap states;
-  std::unordered_map<NodeKey, Node, NodeKeyHash> nodeStore;
-  std::priority_queue<HeapEntry, std::vector<HeapEntry>, std::greater<>>
-      openHeap;
-
-  auto *rootEntry = states.emplace(rootSig).first;
-  rootEntry->value = {0, nullptr, {}, false, false};
-  nodeStore.try_emplace(rootSig, root);
-  openHeap.emplace(cfg_.weight * heuristic(root), 0, &rootEntry->key,
-                   &rootEntry->value);
-
-  uint32_t nodesExpanded = 0;
-  // Checkpoint cadence counter. It must count LOOP ITERATIONS, not expansions:
-  // the two `continue`s below (stale heap entry, missing nodeStore entry) skip
-  // nodesExpanded++, so a long drain of stale/closed duplicates — routine for
-  // weighted A* with re-openings, and guaranteed at the tail of a large search
-  // — freezes nodesExpanded. If its value is not a multiple of the mask, the
-  // deadline, the cancel flag, the state ceiling and the memory ceiling are all
-  // never re-evaluated again for the rest of the drain: the arm overruns its
-  // budget, ignores a winner's cancel, and blows past the shared-heap cap that
-  // exists to stop one arm aborting the whole module. DragSolver::runAStarDrag
-  // already uses this exact pattern (`loopIters`).
-  uint64_t loopIters = 0;
-  const ScopeExit statsGuard{[this, &nodesExpanded, &states] {
-    stats_.passes++;
-    stats_.nodesExpanded += nodesExpanded;
-    stats_.statesStored += states.size();
-  }};
-
-  while (!openHeap.empty()) {
-    loopIters++;
-    if (cfg_.cancel && (loopIters & 0xFF) == 0 &&
-        cfg_.cancel->load(std::memory_order_relaxed)) {
-      std::cout << "A* cancelled after " << nodesExpanded << " nodes\n";
-      return {};
-    }
-    if (deadline != 0 && (loopIters & 0xFFF) == 0 && nowMs() > deadline) {
-      std::cout << "A* timed out after " << nodesExpanded
-                << " nodes (budget " << maxMs << "ms)\n";
-      return {};
-    }
-    if (maxNodes != 0 && nodesExpanded >= maxNodes) {
-      std::cout << "A* hit node cap of " << maxNodes << " (open=" << openHeap.size()
-                << ", states=" << states.size() << ", store=" << nodeStore.size()
-                << ")\n";
-      return {};
-    }
-    // Graceful memory stop — see Config::maxStatesStored. maxNodes above bounds
-    // EXPANSIONS, which is not what fills the heap; this bounds the live set.
-    if (cfg_.maxStatesStored != 0 && (loopIters & 0xFF) == 0 &&
-        states.size() >= cfg_.maxStatesStored) {
-      std::cout << "A* hit state ceiling of " << cfg_.maxStatesStored
-                << " (states=" << states.size() << ", store=" << nodeStore.size()
-                << ") after " << nodesExpanded << " nodes\n";
-      return {};
-    }
-    // Measured-memory ceiling; coarse cadence because liveAllocatedBytes()
-    // walks allocator structures under emscripten. 0 = cannot measure here,
-    // which must NOT be read as "no memory used".
-    if ((loopIters & 0xFF) == 0 && memprobe::nearHeapLimit()) {
-      std::cout << "A* stopped at the heap limit after " << nodesExpanded
-                << " nodes\n";
-      stats_.stoppedOnMemory = true;
-      return {};
-    }
-    if (cfg_.maxHeapBytes != 0 && (loopIters & 0xFF) == 0) {
-      const uint64_t used = memprobe::liveAllocatedBytes();
-      if (used != 0 && used >= cfg_.maxHeapBytes) {
-        std::cout << "A* hit memory ceiling (" << (used >> 20) << " MB of "
-                  << (cfg_.maxHeapBytes >> 20) << " MB) after " << nodesExpanded
-                  << " nodes\n";
-        stats_.stoppedOnMemory = true;
-        return {};
-      }
-    }
-    const HeapEntry current = openHeap.top();
-    openHeap.pop();
-
-    // The heap entry carries the map node, so no states.find() per pop.
-    StateInfo *const sit = current.info;
-    if (sit == nullptr || sit->closed ||
-        sit->gScore < current.g)
-      continue;
-
-    sit->closed = true;
-    auto nit = nodeStore.find(*current.key);
-    if (nit == nodeStore.end())
-      continue;
-    Node node = std::move(nit->second);
-    nodeStore.erase(nit);
-
-    if (isGoalState(node)) {
-      std::cout << "A* (w=" << static_cast<int>(cfg_.weight) << ") found solution in "
-                << current.g << " moves, expanded " << nodesExpanded
-                << " nodes\n";
-      return reconstructPath(current.info);
-    }
-
-    nodesExpanded++;
-    if (onProgress && nodesExpanded % 10000 == 0)
-      onProgress(nodesExpanded);
-    if (nodesExpanded % 2000000 == 0) {
-      std::cout << "  ... A* working: " << nodesExpanded << " nodes, heap="
-                << openHeap.size() << ", states=" << states.size() << ", g="
-                << current.g << "\n";
-      std::cout.flush();
-    }
-
-    if (cfg_.deadlockPruning && isDeadlocked(node.anchors))
-      continue;
-
-    for (const uint8_t i : movableBlockIndices_) {
-      for (int d = 0; d < 4; d++) {
-        // Slide block i in direction d until the first stride-aligned cell,
-        // which is the only real search state in that direction; the cells
-        // skipped on the way are valid 1-cell hops but never branched on.
-        Position cursor = node.anchors[i];
-        std::vector<Position> newAnchors = node.anchors;
-        for (uint8_t k = 1; ; k++) {
-          const Position next = {static_cast<int8_t>(cursor.x + DX[d]),
-                                  static_cast<int8_t>(cursor.y + DY[d])};
-          if (!inBounds(i, next)) break;
-          // Restore previous slot then test collision against the rest.
-          newAnchors[i] = next;
-          if (collidesWithOthers(i, next, newAnchors))
-            break;
-          cursor = next;
-          // Only stride-aligned cells are real search states; the cells in
-          // between are valid 1-cell hops but never branched on.
-          if (k % moveStride_ != 0) continue;
-
-          Node newNode(newAnchors);
-          const NodeKey newSig = signatureFromAnchors(newAnchors);
-
-          const uint32_t newG = current.g + k;
-
-          auto [newEntry, inserted] = states.emplace(newSig);
-          if (StateInfo &child = newEntry->value;
-              inserted || (!child.closed && newG < child.gScore)) {
-            child = {newG, current.info, {i, DIRS[d], k}, true, false};
-            // Reuse insert_or_assign's iterator instead of a second find():
-            // NodeKeyHash is a byte-at-a-time FNV-1a over 2*nBlocks bytes, so
-            // the discarded lookup was a full re-hash plus a bucket probe on
-            // every generated successor.
-            const auto [storedIt, storedInserted] =
-                nodeStore.insert_or_assign(newSig, std::move(newNode));
-            openHeap.emplace(newG + cfg_.weight * heuristic(storedIt->second),
-                             newG, &newEntry->key, &child);
-          }
-
-          break;
-        }
-      }
-    }
-  }
-
-  std::cout << "A* found no solution, expanded " << nodesExpanded << " nodes\n";
-  searchExhausted_ = true;
-  return {};
-}
-
-// ===========================================================================
-// Solution post-processing
-//
-// A* with weighted/non-admissible heuristics returns a *valid* but not
-// necessarily *optimal* solution. This pass shortens it with a handful of
-// local rewrites, each one accepted only if a full replay confirms the
-// candidate is still a valid solution that is no longer than the input. That
-// replay check (`replaySolves`) is the single source of truth — every rewrite
-// rule is just a *candidate generator*, so a buggy generator can never produce
-// an invalid or longer solution, only miss an improvement.
-//
-// Rewrites, applied greedily to a fixed point:
-//   * truncation        — drop everything after the goal block first reaches
-//                         goalAnchor.
-//   * run-pair cancel   — a block slides one way and later the opposite way;
-//                         cancel the overlapping part of both slides.
-//   * run removal       — a block's entire slide turns out to be unnecessary.
-//   * single removal    — one stray turn is unnecessary.
-//   * reorder / merge   — "A slides, B slides, A slides the same way again":
-//                         do both of A's slides back-to-back (one player
-//                         drag) when no collision forbids it.
-// ===========================================================================
-
-std::vector<AStar::MoveRun>
-AStar::computeRuns(const std::vector<Turn> &turns) {
-  std::vector<MoveRun> runs;
-  for (size_t i = 0; i < turns.size(); i++) {
-    if (!runs.empty() && runs.back().blockId == turns[i].blockId &&
-        runs.back().dir == turns[i].direction) {
-      runs.back().len++;
-    } else {
-      runs.emplace_back(i, 1, turns[i].blockId, turns[i].direction);
-    }
-  }
-  return runs;
-}
-
-// Player steps as the UI counts them (solutionView.ts): one step = a maximal
-// run of consecutive turns of the SAME BLOCK, across direction changes — the
-// player performs it as a single polyline drag. (computeRuns is finer: it
-// splits on direction too, because the rewrite passes operate on straight
-// legs.)
-size_t AStar::countSteps(const std::vector<Turn> &turns) {
-  size_t steps = 0;
-  for (size_t i = 0; i < turns.size(); i++)
-    if (i == 0 || turns[i].blockId != turns[i - 1].blockId)
-      steps++;
-  return steps;
-}
-
-bool AStar::replaySolves(const std::vector<Turn> &turns) const {
-  std::vector<Position> anchors = initialAnchors_;
-  for (const auto &t : turns) {
-    if (t.blockId >= anchors.size()) return false;
-    const auto d = std::to_underlying(t.direction);
-    const Position next{static_cast<int8_t>(anchors[t.blockId].x + DX[d]),
-                        static_cast<int8_t>(anchors[t.blockId].y + DY[d])};
-    if (!inBounds(t.blockId, next)) return false;
-    anchors[t.blockId] = next;
-    if (collidesWithOthers(t.blockId, next, anchors)) return false;
-  }
-  return anchors[goalIndex_] == goalAnchor_;
-}
-
-size_t
-AStar::firstSolvingPrefixLen(const std::vector<Turn> &turns) const {
-  std::vector<Position> anchors = initialAnchors_;
-  if (anchors[goalIndex_] == goalAnchor_) return 0;
-  for (size_t i = 0; i < turns.size(); i++) {
-    const auto &t = turns[i];
-    // Same bounds guard replaySolves() carries. optimizeSolution() calls this
-    // FIRST, and the exported optimize() binding (wasm_bindings.cpp) builds
-    // `turns` straight from caller-supplied JS with no validation, so an
-    // out-of-range blockId/direction would otherwise be an out-of-bounds heap
-    // write / static-array read inside wasm linear memory.
-    if (t.blockId >= anchors.size()) return i;
-    // Direction's underlying type is unsigned, so only the upper bound can be
-    // violated by a caller-supplied value.
-    const auto d = std::to_underlying(t.direction);
-    if (d > 3) return i;
-    anchors[t.blockId] = {
-        static_cast<int8_t>(anchors[t.blockId].x + DX[d]),
-        static_cast<int8_t>(anchors[t.blockId].y + DY[d])};
-    if (t.blockId == goalIndex_ && anchors[goalIndex_] == goalAnchor_)
-      return i + 1;
-  }
-  return turns.size();
-}
-
-// A block slides `dir` for `runA` turns and later slides the opposite way for
-// `runB` turns. The overlapping min(lenA, lenB) cells are a pure detour: try
-// to delete that many turns from each run (largest overlap first).
-bool AStar::tryRunPairCancellation(std::vector<Turn> &turns) const {
-  const auto runs = computeRuns(turns);
-  for (size_t a = 0; a < runs.size(); a++) {
-    for (size_t b = a + 1; b < runs.size(); b++) {
-      if (runs[a].blockId != runs[b].blockId) continue;
-      if ((std::to_underlying(runs[a].dir) + 2) % 4 !=
-          std::to_underlying(runs[b].dir))
-        continue; // not opposite directions
-      const size_t maxC = std::min(runs[a].len, runs[b].len);
-      for (size_t c = maxC; c >= 1; c--) {
-        const size_t aLo = runs[a].start + runs[a].len - c;
-        const size_t aHi = runs[a].start + runs[a].len;
-        const size_t bLo = runs[b].start;
-        const size_t bHi = runs[b].start + c;
-        std::vector<Turn> cand;
-        cand.reserve(turns.size() - 2 * c);
-        for (size_t k = 0; k < turns.size(); k++) {
-          if (k >= aLo && k < aHi) continue;
-          if (k >= bLo && k < bHi) continue;
-          cand.push_back(turns[k]);
-        }
-        if (replaySolves(cand)) {
-          turns = std::move(cand);
-          return true;
-        }
-      }
-    }
-  }
-  return false;
-}
-
-// An entire slide of a block may be superfluous (e.g. a block edged aside for
-// a clearance that the rest of the solution never actually needed).
-bool AStar::tryRunRemoval(std::vector<Turn> &turns) const {
-  const auto runs = computeRuns(turns);
-  // `turns` is reassigned on success, so the bound is read once up front.
-  const size_t n = turns.size();
-  for (const auto &r : runs) {
-    std::vector<Turn> cand;
-    cand.reserve(n - r.len);
-    for (size_t k = 0; k < n; k++) {
-      if (k >= r.start && k < r.start + r.len) continue;
-      cand.push_back(turns[k]);
-    }
-    if (replaySolves(cand)) {
-      turns = std::move(cand);
-      return true;
-    }
-  }
-  return false;
-}
-
-// General clean-up: drop any single turn whose removal still leaves a valid
-// solution. Looped, this also unwinds detours one cell at a time.
-bool AStar::trySingleRemoval(std::vector<Turn> &turns) const {
-  // `turns` is reassigned on success, so the bound is read once up front.
-  const size_t n = turns.size();
-  for (size_t k = 0; k < n; k++) {
-    std::vector<Turn> cand;
-    cand.reserve(n - 1);
-    for (size_t m = 0; m < n; m++)
-      if (m != k) cand.push_back(turns[m]);
-    if (replaySolves(cand)) {
-      turns = std::move(cand);
-      return true;
-    }
-  }
-  return false;
-}
-
-// "A slides, B slides, A slides the same way again." If nothing forbids it,
-// run both of A's slides back-to-back so the player performs a single drag.
-// Turn count is unchanged; the player-step count drops by one. Only A's two
-// runs are relocated past *other* blocks' runs — A's own move order is never
-// reordered — so the run brought adjacent always merges.
-bool AStar::tryReorderMerge(std::vector<Turn> &turns) const {
-  const auto runs = computeRuns(turns);
-  const size_t baseSteps = runs.size();
-  std::vector<int> prevRunOfBlock(shapes_.size(), -1);
-  for (size_t j = 0; j < runs.size(); j++) {
-    const int prev = prevRunOfBlock[runs[j].blockId];
-    prevRunOfBlock[runs[j].blockId] = static_cast<int>(j);
-    if (prev < 0) continue;
-    const auto &ri = runs[static_cast<size_t>(prev)];
-    const auto &rj = runs[j];
-    if (ri.dir != rj.dir) continue; // different dir → cannot merge cleanly
-    if (static_cast<size_t>(prev) + 1 == j) continue; // already adjacent
-    const size_t riEnd = ri.start + ri.len;
-    const size_t rjEnd = rj.start + rj.len;
-
-    // Candidate 1: pull run j left, right after run i.
-    {
-      std::vector<Turn> cand;
-      cand.reserve(turns.size());
-      for (size_t k = 0; k < riEnd; k++) cand.push_back(turns[k]);
-      for (size_t k = rj.start; k < rjEnd; k++) cand.push_back(turns[k]);
-      for (size_t k = riEnd; k < rj.start; k++) cand.push_back(turns[k]);
-      for (size_t k = rjEnd; k < turns.size(); k++) cand.push_back(turns[k]);
-      if (countSteps(cand) < baseSteps && replaySolves(cand)) {
-        turns = std::move(cand);
-        return true;
-      }
-    }
-    // Candidate 2: push run i right, just before run j.
-    {
-      std::vector<Turn> cand;
-      cand.reserve(turns.size());
-      for (size_t k = 0; k < ri.start; k++) cand.push_back(turns[k]);
-      for (size_t k = riEnd; k < rj.start; k++) cand.push_back(turns[k]);
-      for (size_t k = ri.start; k < riEnd; k++) cand.push_back(turns[k]);
-      for (size_t k = rj.start; k < turns.size(); k++) cand.push_back(turns[k]);
-      if (countSteps(cand) < baseSteps && replaySolves(cand)) {
-        turns = std::move(cand);
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-std::vector<Turn>
-AStar::optimizeSolution(const std::vector<Turn> &input) const {
-  std::vector<Turn> cur = input;
-  cur.resize(firstSolvingPrefixLen(cur));
-
-  // Every accepted rewrite strictly lowers (turns, then steps), both bounded
-  // below by 0, so the loop terminates; the cap is only a paranoia guard.
-  // The wall-clock cap and cancel check are NOT paranoia: without them a long
-  // plan polishes for minutes while the caller's budget has already expired.
-  constexpr int kMaxIterations = 100000;
-  const uint64_t deadline =
-      cfg_.optimizeMaxMs == 0 ? 0 : nowMs() + cfg_.optimizeMaxMs;
-  for (int iter = 0; iter < kMaxIterations; iter++) {
-    if (deadline != 0 && nowMs() >= deadline)
-      break;
-    if (cfg_.cancel && cfg_.cancel->load(std::memory_order_relaxed))
-      break;
-    if (const bool improved =
-            tryRunPairCancellation(cur) || tryRunRemoval(cur) ||
-            trySingleRemoval(cur) || tryReorderMerge(cur);
-        !improved)
-      break;
-    cur.resize(firstSolvingPrefixLen(cur));
-  }
-  return cur;
 }

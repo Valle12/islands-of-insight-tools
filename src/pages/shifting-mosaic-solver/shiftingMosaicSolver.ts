@@ -6,6 +6,11 @@ import type {
 } from "../../util/types";
 import { Board } from "./board";
 import { MAX_GRID_SIDE, validateConfig } from "./config";
+import {
+  computeGoalAnchor,
+  downloadConfig,
+  parsePositiveInt,
+} from "./editorHelpers";
 import { cardWidthPx } from "./layout";
 import { SolutionView } from "./solutionView";
 import type { Turn } from "./turn";
@@ -195,26 +200,14 @@ export class ShiftingMosaicSolverEditor {
   }
 
   private handleSizeUpdate() {
-    const parsedWidth = this.parsePositiveInt(this.widthField.value);
-    const parsedHeight = this.parsePositiveInt(this.heightField.value);
+    const parsedWidth = parsePositiveInt(this.widthField.value);
+    const parsedHeight = parsePositiveInt(this.heightField.value);
     if (!parsedWidth || !parsedHeight) return;
     this.gridWidth = parsedWidth;
     this.gridHeight = parsedHeight;
     this.board.reconfigure(this.gridWidth, this.gridHeight);
     this.hideSolution();
     this.render();
-  }
-
-  private parsePositiveInt(value: string): number | null {
-    const parsed = Number(value);
-    if (!Number.isInteger(parsed) || parsed <= 0) return null;
-    // Upper bound matters: the solver's BitGrid packs one row per uint64_t
-    // (64 columns max) and the wasm boundary narrows dimensions to uint8_t and
-    // coordinates to int8_t, so an unbounded value here silently solves a
-    // *different* board — and the editor would try to build width x height DOM
-    // cells first.
-    if (parsed > MAX_GRID_SIDE) return null;
-    return parsed;
   }
 
   private applyDefaultGridSize() {
@@ -380,7 +373,7 @@ export class ShiftingMosaicSolverEditor {
         y: block.anchor.y,
       })),
       goalIndex,
-      goalAnchor: this.computeGoalAnchor(goalZoneCells),
+      goalAnchor: computeGoalAnchor(goalZoneCells),
     };
   }
 
@@ -496,24 +489,14 @@ export class ShiftingMosaicSolverEditor {
   private downloadCurrentConfig() {
     const puzzle = this.buildPuzzle();
     if (!puzzle) return;
-    const config: ShiftingMosaicTest = {
+    downloadConfig({
       gridWidth: puzzle.gridWidth,
       gridHeight: puzzle.gridHeight,
       shapes: puzzle.shapes,
       initialAnchors: puzzle.initialAnchors,
       goalIndex: puzzle.goalIndex,
       goalAnchor: puzzle.goalAnchor,
-    };
-    const json = JSON.stringify(config, null, 2);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "shiftingMosaicTest.json";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    });
   }
 
   /** Reads a dropped/picked file, validates it, and populates the editor. */
@@ -597,16 +580,6 @@ export class ShiftingMosaicSolverEditor {
       event.preventDefault();
       void this.loadConfigFromFile(file);
     });
-  }
-
-  private computeGoalAnchor(cells: Position[]): Position {
-    let minX = cells[0]!.x;
-    let minY = cells[0]!.y;
-    for (const cell of cells) {
-      if (cell.x < minX) minX = cell.x;
-      if (cell.y < minY) minY = cell.y;
-    }
-    return { x: minX, y: minY };
   }
 
   hideSolution() {

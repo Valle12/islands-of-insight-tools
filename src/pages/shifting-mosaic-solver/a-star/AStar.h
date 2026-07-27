@@ -5,16 +5,12 @@
 #include "StateTable.h"
 #include "Types.h"
 
-#include <array>
 #include <atomic>
 #include <cstdint>
 #include <functional>
 #include <optional>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
-
-struct HeapEntry;
 
 class AStar {
 public:
@@ -126,10 +122,10 @@ public:
         std::vector<Position> initialAnchors, uint8_t goalIndex,
         Position goalAnchor, const Config &config);
 
-  AStar(uint8_t gridWidth, uint8_t gridHeight,
+  AStar(const uint8_t gridWidth, const uint8_t gridHeight,
         std::vector<std::vector<Position>> shapes,
-        std::vector<Position> initialAnchors, uint8_t goalIndex,
-        Position goalAnchor)
+        std::vector<Position> initialAnchors, const uint8_t goalIndex,
+        const Position goalAnchor)
       : AStar(gridWidth, gridHeight, std::move(shapes),
               std::move(initialAnchors), goalIndex, goalAnchor, Config{}) {}
 
@@ -177,7 +173,7 @@ private:
   // BFS distance from each valid goal-block-anchor to goalAnchor, with locked
   // blocks treated as walls. UINT16_MAX means unreachable.
   std::vector<uint16_t> goalAnchorBfsDist_;
-  uint16_t goalAnchorAt(int8_t x, int8_t y) const {
+  [[nodiscard]] uint16_t goalAnchorAt(const int8_t x, const int8_t y) const {
     return goalAnchorBfsDist_[x * gridHeight_ + y];
   }
   void computeGoalAnchorBfs();

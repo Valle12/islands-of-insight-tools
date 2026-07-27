@@ -1,70 +1,15 @@
 import type { BFSTest, Tile } from "../../util/types";
 import { extractBit, positionToIndex } from "../../util/utilMethods";
+import { MinHeap } from "../../util/minHeap";
+import {
+  blockCompatibleWithCluster,
+  type GoalCluster,
+  precomputeGoalClusters,
+} from "./goalClusters";
 import { Direction } from "./directions";
 import { Node } from "./node";
 import type { Turn } from "./turn";
 
-interface GoalCluster {
-  minX: number;
-  maxX: number;
-  minY: number;
-  maxY: number;
-  width: number;
-  depth: number;
-}
-
-// ---------------------------------------------------------------------------
-// Min-heap keyed on f = g + w*h
-// ---------------------------------------------------------------------------
-class MinHeap {
-  private data: { f: number; g: number; signature: string }[] = [];
-
-  push(item: { f: number; g: number; signature: string }) {
-    this.data.push(item);
-    this.bubbleUp(this.data.length - 1);
-  }
-
-  pop(): { f: number; g: number; signature: string } | undefined {
-    if (this.data.length === 0) return undefined;
-    const top = this.data[0]!;
-    const last = this.data.pop()!;
-    if (this.data.length > 0) {
-      this.data[0] = last;
-      this.sinkDown(0);
-    }
-    return top;
-  }
-
-  get size() {
-    return this.data.length;
-  }
-
-  private bubbleUp(i: number) {
-    while (i > 0) {
-      const parent = (i - 1) >> 1;
-      if (this.data[parent]!.f <= this.data[i]!.f) break;
-      [this.data[parent], this.data[i]] = [this.data[i]!, this.data[parent]!];
-      i = parent;
-    }
-  }
-
-  private sinkDown(i: number) {
-    const n = this.data.length;
-    while (true) {
-      let s = i;
-      const l = 2 * i + 1,
-        r = 2 * i + 2;
-      if (l < n && this.data[l]!.f < this.data[s]!.f) s = l;
-      if (r < n && this.data[r]!.f < this.data[s]!.f) s = r;
-      if (s === i) break;
-      [this.data[s], this.data[i]] = [this.data[i]!, this.data[s]!];
-      i = s;
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// A* (weighted)
 // ---------------------------------------------------------------------------
 export class AStar {
   private readonly gridWidth: number;
@@ -100,7 +45,7 @@ export class AStar {
     this.gridHeight = gridHeight;
     this.cells = cells;
     this.weight = weight;
-    this.goalClusters = this.precomputeGoalClusters();
+    this.goalClusters = precomputeGoalClusters(this.cells, this.gridWidth, this.gridHeight);
 
     for (let x = 0; x < gridWidth; x++) {
       for (let y = 0; y < gridHeight; y++) {
@@ -353,99 +298,6 @@ export class AStar {
   // -------------------------------------------------------------------------
   // Goal cluster pre-computation
   // -------------------------------------------------------------------------
-  private precomputeGoalClusters(): GoalCluster[] {
-    const visited = new Set<string>();
-    const clusters: GoalCluster[] = [];
-
-    for (let x = 0; x < this.gridWidth; x++) {
-      for (let y = 0; y < this.gridHeight; y++) {
-        if (this.cells[x]![y] !== "goal") continue;
-        const key = `${x},${y}`;
-        if (visited.has(key)) continue;
-
-        const component: { x: number; y: number }[] = [];
-        const queue: { x: number; y: number }[] = [{ x, y }];
-        visited.add(key);
-
-        while (queue.length > 0) {
-          const cur = queue.shift()!;
-          component.push(cur);
-          for (const [dx, dy] of [
-            [0, 1],
-            [0, -1],
-            [1, 0],
-            [-1, 0],
-          ] as [number, number][]) {
-            const nx = cur.x + dx,
-              ny = cur.y + dy;
-            if (
-              nx < 0 ||
-              nx >= this.gridWidth ||
-              ny < 0 ||
-              ny >= this.gridHeight
-            )
-              continue;
-            if (this.cells[nx]![ny] !== "goal") continue;
-            const nk = `${nx},${ny}`;
-            if (visited.has(nk)) continue;
-            visited.add(nk);
-            queue.push({ x: nx, y: ny });
-          }
-        }
-
-        const minX = Math.min(...component.map(c => c.x));
-        const maxX = Math.max(...component.map(c => c.x));
-        const minY = Math.min(...component.map(c => c.y));
-        const maxY = Math.max(...component.map(c => c.y));
-        clusters.push({
-          minX,
-          maxX,
-          minY,
-          maxY,
-          width: maxX - minX + 1,
-          depth: maxY - minY + 1,
-        });
-      }
-    }
-
-    return clusters;
-  }
-
-  // -------------------------------------------------------------------------
-  // Block ↔ goal assignment
-  // -------------------------------------------------------------------------
-  private blockPossibleFootprints(block: {
-    width: number;
-    depth: number;
-    height: number;
-  }): { width: number; depth: number }[] {
-    const seen = new Set<string>();
-    const result: { width: number; depth: number }[] = [];
-    for (const [w, d] of [
-      [block.width, block.depth],
-      [block.height, block.depth],
-      [block.width, block.height],
-      [block.depth, block.width],
-      [block.depth, block.height],
-      [block.height, block.width],
-    ] as [number, number][]) {
-      const k = `${w}x${d}`;
-      if (!seen.has(k)) {
-        seen.add(k);
-        result.push({ width: w, depth: d });
-      }
-    }
-    return result;
-  }
-
-  private blockCompatibleWithCluster(
-    block: { width: number; depth: number; height: number },
-    cluster: GoalCluster,
-  ): boolean {
-    return this.blockPossibleFootprints(block).some(
-      fp => fp.width === cluster.width && fp.depth === cluster.depth,
-    );
-  }
 
   private assignBlocksToGoals(
     blocks: {
@@ -469,7 +321,7 @@ export class AStar {
       for (const block of blocks) {
         if (assignment.has(block.id)) continue;
         const compatible = this.goalClusters.filter(
-          c => !taken.has(c) && this.blockCompatibleWithCluster(block, c),
+          c => !taken.has(c) && blockCompatibleWithCluster(block, c),
         );
         if (compatible.length === 1) {
           assignment.set(block.id, compatible[0]!);
@@ -483,7 +335,7 @@ export class AStar {
     for (const block of blocks) {
       if (assignment.has(block.id)) continue;
       const compatible = this.goalClusters.filter(
-        c => !taken.has(c) && this.blockCompatibleWithCluster(block, c),
+        c => !taken.has(c) && blockCompatibleWithCluster(block, c),
       );
       if (compatible.length === 0) continue;
       const nearest = compatible.reduce((best, c) => {

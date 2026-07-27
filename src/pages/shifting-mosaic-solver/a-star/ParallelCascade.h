@@ -241,15 +241,14 @@ inline std::vector<Turn> solveArmsParallel(
     const uint8_t jamDensityPct = DragSolver::Config{}.jamDensityPct,
     std::vector<cascade::ArmOutcome> *outcomes = nullptr) {
   using cascade::ARMS;
-  std::atomic<bool> cancel{false};
-  std::atomic<int> winner{-1};
-  std::atomic<int> finished{0};
+  std::atomic cancel{false};
+  std::atomic winner{-1};
+  std::atomic finished{0};
   std::array<std::atomic<uint32_t>, ARMS> progress = {};
   std::vector<Turn> results[ARMS];
 
   const auto claimWin = [&](const int arm) {
-    int expected = -1;
-    if (winner.compare_exchange_strong(expected, arm))
+    if (int expected = -1; winner.compare_exchange_strong(expected, arm))
       cancel.store(true, std::memory_order_relaxed);
   };
 
@@ -336,7 +335,20 @@ inline std::vector<Turn> solveArmsSequential(
     // visibly progresses; without it the UI sits on one unchanged line for
     // minutes and reads as a hang.
     const std::function<void(const char *)> &onArmStart = {}) {
-  // Order is MEASURED, not assumed: all 8 arms were run standalone against
+  // Own the buffer the way solveArmsParallel does. main.cpp's --engine twophase
+  // hands the SAME vector to both phases, so appending here without clearing
+  // produced 8 race rows followed by up to 8 sequential rows: duplicate arm
+  // ids, two `won:true` entries, and cancelled-loser wallMs (a lower bound)
+  // mixed with true standalone runtimes — corrupting the very telemetry the
+  // ORDER below is derived from.
+  if (outcomes)
+    outcomes->clear();
+
+  const uint64_t deadline =
+      totalMaxMs == 0 ? 0 : cascade::nowMsSteady() + totalMaxMs;
+  uint32_t carried = 0; // progress from arms already finished
+
+  // ORDER is MEASURED, not assumed: all 8 arms were run standalone against
   // every one of 12 boards the race loses (96 runs, 300s and an 8GB cap each,
   // ungated exactly as here) — test-results/arm-study.
   //
@@ -360,22 +372,8 @@ inline std::vector<Turn> solveArmsSequential(
   //
   // 4 of the 12 (41926, 48368, 60672, 60758) are solved by no arm at all, so
   // no ordering rescues them.
-  constexpr int ORDER[cascade::ARMS] = {6, 2, 5, 3, 4, 7, 0, 1};
-
-  // Own the buffer the way solveArmsParallel does. main.cpp's --engine twophase
-  // hands the SAME vector to both phases, so appending here without clearing
-  // produced 8 race rows followed by up to 8 sequential rows: duplicate arm
-  // ids, two `won:true` entries, and cancelled-loser wallMs (a lower bound)
-  // mixed with true standalone runtimes — corrupting the very telemetry the
-  // ORDER below is derived from.
-  if (outcomes)
-    outcomes->clear();
-
-  const uint64_t deadline =
-      totalMaxMs == 0 ? 0 : cascade::nowMsSteady() + totalMaxMs;
-  uint32_t carried = 0; // progress from arms already finished
-
-  for (const int arm : ORDER) {
+  for (constexpr std::array ORDER = {6, 2, 5, 3, 4, 7, 0, 1};
+       const int arm : ORDER) {
     if (cancel && cancel->load(std::memory_order_relaxed))
       return {};
     uint32_t budget = maxMsPerArm;
@@ -384,7 +382,7 @@ inline std::vector<Turn> solveArmsSequential(
       if (now >= deadline)
         break;
       const auto left = static_cast<uint32_t>(deadline - now);
-      budget = (maxMsPerArm == 0) ? left : std::min(maxMsPerArm, left);
+      budget = maxMsPerArm == 0 ? left : std::min(maxMsPerArm, left);
     }
     const uint32_t armBase = carried;
     if (onArmStart)

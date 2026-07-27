@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cassert>
 #include <cstdint>
 #include <cstring>
 
@@ -18,11 +19,22 @@ struct NodeKey {
   uint16_t *heapData = nullptr;
   uint8_t len = 0;
 
+  // The spill buffer is allocated by whichever constructor set len past
+  // InlineCapacity, and every move resets len to 0 along with the pointer, so
+  // `len > InlineCapacity` implies `heapData != nullptr`. Assert it rather
+  // than leave it implicit: callers index the result straight away, and a
+  // reader (human or analyser) cannot otherwise tell this never returns null.
   uint16_t *data() {
-    return len <= InlineCapacity ? inlineData.data() : heapData;
+    if (len <= InlineCapacity)
+      return inlineData.data();
+    assert(heapData != nullptr);
+    return heapData;
   }
   [[nodiscard]] const uint16_t *data() const {
-    return len <= InlineCapacity ? inlineData.data() : heapData;
+    if (len <= InlineCapacity)
+      return inlineData.data();
+    assert(heapData != nullptr);
+    return heapData;
   }
 
   NodeKey() = default;

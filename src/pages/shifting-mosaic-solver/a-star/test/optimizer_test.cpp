@@ -29,18 +29,18 @@ struct Puzzle {
 };
 
 AStar makeSolver(const Puzzle &p) {
-  return AStar(p.gridWidth, p.gridHeight, p.shapes, p.initialAnchors,
-               p.goalIndex, p.goalAnchor);
+  return {p.gridWidth, p.gridHeight, p.shapes, p.initialAnchors, p.goalIndex,
+          p.goalAnchor};
 }
 
 // Independent replay validator (does not share code with AStar): every block
 // stays in bounds, no two blocks ever overlap, goal block lands on goalAnchor.
 bool collisionFree(const Puzzle &p, const std::vector<Position> &anchors) {
-  std::vector<int> occ(static_cast<size_t>(p.gridWidth) * p.gridHeight, -1);
+  std::vector occ(static_cast<size_t>(p.gridWidth) * p.gridHeight, -1);
   for (size_t i = 0; i < anchors.size(); i++) {
-    for (const auto &c : p.shapes[i]) {
-      const int cx = anchors[i].x + c.x;
-      const int cy = anchors[i].y + c.y;
+    for (const auto &[dx, dy] : p.shapes[i]) {
+      const int cx = anchors[i].x + dx;
+      const int cy = anchors[i].y + dy;
       if (cx < 0 || cy < 0 || cx >= p.gridWidth || cy >= p.gridHeight)
         return false;
       const int idx = cx * p.gridHeight + cy;
@@ -54,11 +54,11 @@ bool collisionFree(const Puzzle &p, const std::vector<Position> &anchors) {
 bool replayValid(const Puzzle &p, const std::vector<Turn> &turns) {
   std::vector<Position> anchors = p.initialAnchors;
   if (!collisionFree(p, anchors)) return false;
-  for (const auto &t : turns) {
-    if (t.blockId >= anchors.size()) return false;
-    const int d = static_cast<int>(t.direction);
-    anchors[t.blockId].x = static_cast<int8_t>(anchors[t.blockId].x + DX[d]);
-    anchors[t.blockId].y = static_cast<int8_t>(anchors[t.blockId].y + DY[d]);
+  for (const auto &[blockId, direction] : turns) {
+    if (blockId >= anchors.size()) return false;
+    const int d = static_cast<int>(direction);
+    anchors[blockId].x = static_cast<int8_t>(anchors[blockId].x + DX[d]);
+    anchors[blockId].y = static_cast<int8_t>(anchors[blockId].y + DY[d]);
     if (!collisionFree(p, anchors)) return false;
   }
   return anchors[p.goalIndex].x == p.goalAnchor.x &&
@@ -77,7 +77,8 @@ size_t countSteps(const std::vector<Turn> &turns) {
   return steps;
 }
 
-void add(std::vector<Turn> &turns, uint8_t block, Direction dir, int count) {
+void add(std::vector<Turn> &turns, const uint8_t block, const Direction dir,
+         const int count) {
   for (int i = 0; i < count; i++) turns.push_back({block, dir});
 }
 
@@ -100,8 +101,6 @@ void expectNoRegression(const Puzzle &p, const std::vector<Turn> &before,
   EXPECT_LE(after.size(), before.size()) << "move count increased";
   EXPECT_LE(countSteps(after), countSteps(before)) << "step count increased";
 }
-
-} // namespace
 
 TEST(Optimizer, TruncatesMovesAfterGoalIsReached) {
   const Puzzle p = clearPathPuzzle();
@@ -126,9 +125,9 @@ TEST(Optimizer, CancelsRedundantOutAndBack) {
 
   expectNoRegression(p, input, out);
   EXPECT_EQ(out.size(), 3u);
-  for (const auto &t : out) {
-    EXPECT_EQ(t.blockId, 0);
-    EXPECT_EQ(t.direction, Direction::RIGHT);
+  for (const auto &[blockId, direction] : out) {
+    EXPECT_EQ(blockId, 0);
+    EXPECT_EQ(direction, Direction::RIGHT);
   }
 }
 
@@ -219,3 +218,5 @@ TEST(Optimizer, HandlesAnEmptySolution) {
   const auto out = makeSolver(p).optimizeSolution({});
   EXPECT_TRUE(out.empty());
 }
+
+} // namespace

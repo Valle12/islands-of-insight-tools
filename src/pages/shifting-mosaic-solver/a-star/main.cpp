@@ -22,382 +22,28 @@
 // With --json the LAST stdout line is a single JSON object (search progress
 // chatter precedes it); consumers should parse the final line only.
 
+#include "ClangdCompat.h" // must stay first; see the header
+
 #include "AStar.h"
-#include "BitGrid.h"
+#include "BenchCommands.h"
+#include "BenchFixture.h"
 #include "DragSolver.h"
 #include "ParallelCascade.h"
 #include "Types.h"
 
-#include <algorithm>
 #include <cerrno>
-#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
-#include <random>
+#include <exception>
 #include <string>
 #include <string_view>
 #include <vector>
 
 using json = nlohmann::json;
-
-namespace {
-
-struct Fixture {
-  uint8_t gridWidth{};
-  uint8_t gridHeight{};
-  std::vector<std::vector<Position>> shapes;
-  std::vector<Position> initialAnchors;
-  uint8_t goalIndex{};
-  Position goalAnchor{};
-};
-
-Fixture loadFixture(const std::string &path) {
-  std::ifstream f(path);
-  if (!f.is_open())
-    throw std::runtime_error("Cannot open " + path);
-  json j = json::parse(f);
-
-  Fixture data;
-  data.gridWidth = j["gridWidth"].get<uint8_t>();
-  data.gridHeight = j["gridHeight"].get<uint8_t>();
-  for (const auto &shape : j["shapes"]) {
-    std::vector<Position> cells;
-    cells.reserve(shape.size());
-    for (const auto &c : shape)
-      cells.push_back({static_cast<int8_t>(c["x"].get<int>()),
-                       static_cast<int8_t>(c["y"].get<int>())});
-    data.shapes.push_back(std::move(cells));
-  }
-  for (const auto &a : j["initialAnchors"])
-    data.initialAnchors.push_back({static_cast<int8_t>(a["x"].get<int>()),
-                                   static_cast<int8_t>(a["y"].get<int>())});
-  data.goalIndex = j["goalIndex"].get<uint8_t>();
-  data.goalAnchor = {static_cast<int8_t>(j["goalAnchor"]["x"].get<int>()),
-                     static_cast<int8_t>(j["goalAnchor"]["y"].get<int>())};
-  return data;
-}
-
-// Replays a turn stream with FULL legality checking — bounds and collisions
-// via BitGrid, not just the final goal position. Returns the index of the first
-// illegal move, or SIZE_MAX when the whole stream is legal; `anchors` is left
-// holding the position reached.
-//
-// Every validity check goes through here. A goal-position-only replay cannot
-// see a plan that drives a block through another block or off the grid, which
-// is exactly the class of defect the fuzz campaign exists to catch.
-size_t firstIllegalMove(const Fixture &data, const std::vector<Turn> &turns,
-                        std::vector<Position> &anchors) {
-  anchors = data.initialAnchors;
-  BitGrid grid(data.gridWidth, data.gridHeight, data.shapes);
-  grid.buildOccupancy(anchors);
-  for (size_t i = 0; i < turns.size(); i++) {
-    const uint8_t b = turns[i].blockId;
-    if (b >= anchors.size())
-      return i;
-    const int d = static_cast<int>(turns[i].direction);
-    if (d < 0 || d > 3)
-      return i;
-    const Position from = anchors[b];
-    const Position to{static_cast<int8_t>(from.x + BitGrid::DX[d]),
-                      static_cast<int8_t>(from.y + BitGrid::DY[d])};
-    grid.removeBlock(b, from);
-    if (!grid.canPlace(b, to.x, to.y)) {
-      grid.addBlock(b, from);
-      return i;
-    }
-    grid.addBlock(b, to);
-    anchors[b] = to;
-  }
-  return SIZE_MAX;
-}
-
-// Replays the turns and checks the plan is legal AND lands the goal block on
-// the goal anchor.
-bool replaySolves(const Fixture &data, const std::vector<Turn> &turns) {
-  std::vector<Position> anchors;
-  if (firstIllegalMove(data, turns, anchors) != SIZE_MAX)
-    return false;
-  const auto &g = anchors[data.goalIndex];
-  return g.x == data.goalAnchor.x && g.y == data.goalAnchor.y;
-}
-
-// Player steps as the UI counts them (solutionView.ts): one step = a maximal
-// run of consecutive turns of the same block, across direction changes.
-size_t countPlayerSteps(const std::vector<Turn> &turns) {
-  size_t steps = 0;
-  for (size_t i = 0; i < turns.size(); i++)
-    if (i == 0 || turns[i].blockId != turns[i - 1].blockId)
-      steps++;
-  return steps;
-}
-
-// Straight-drag runs (same block AND same direction) — the legacy metric.
-size_t countDirRuns(const std::vector<Turn> &turns) {
-  size_t runs = 0;
-  for (size_t i = 0; i < turns.size(); i++)
-    if (i == 0 || turns[i].blockId != turns[i - 1].blockId ||
-        turns[i].direction != turns[i - 1].direction)
-      runs++;
-  return runs;
-}
-
-uint64_t nowMs() {
-  using namespace std::chrono;
-  return static_cast<uint64_t>(
-      duration_cast<milliseconds>(steady_clock::now().time_since_epoch())
-          .count());
-}
-
-// Writes `anchors` as a fixture over the same board. Used to hand a stalled
-// jam run's deepest elite back to the solver as a RESIDUAL problem: the
-// ratchet often clears the goal's dig route without committing the goal, and
-// finishing from that state is far shallower than solving from the root.
-bool writeFixtureAt(const Fixture &data, const std::vector<Position> &anchors,
-                    const std::string &path) {
-  json fx;
-  fx["gridWidth"] = data.gridWidth;
-  fx["gridHeight"] = data.gridHeight;
-  json shapesJson = json::array();
-  for (const auto &s : data.shapes) {
-    json cells = json::array();
-    for (const auto &c : s)
-      cells.push_back({{"x", c.x}, {"y", c.y}});
-    shapesJson.push_back(cells);
-  }
-  fx["shapes"] = shapesJson;
-  json anchorsJson = json::array();
-  for (const auto &a : anchors)
-    anchorsJson.push_back({{"x", a.x}, {"y", a.y}});
-  fx["initialAnchors"] = anchorsJson;
-  fx["goalIndex"] = data.goalIndex;
-  fx["goalAnchor"] = {{"x", data.goalAnchor.x}, {"y", data.goalAnchor.y}};
-  std::ofstream out(path);
-  if (!out.is_open())
-    return false;
-  out << fx.dump();
-  return true;
-}
-
-void writeTurnsFile(const std::vector<Turn> &turns, const std::string &path) {
-  json tj = json::array();
-  for (const auto &t : turns)
-    tj.push_back(
-        {{"blockId", t.blockId}, {"direction", static_cast<int>(t.direction)}});
-  std::ofstream f(path);
-  f << tj.dump();
-}
-
-// Replays a turn stream read from a file. The safety net for a plan STITCHED
-// from two independently-solved halves, where nothing else has validated the
-// seam. Shares firstIllegalMove() with the inline `valid` check above.
-int runVerify(const Fixture &data, const std::string &turnsPath) {
-  std::ifstream f(turnsPath);
-  if (!f.is_open()) {
-    std::cerr << "verify: cannot open " << turnsPath << "\n";
-    return 2;
-  }
-  const json tj = json::parse(f);
-  std::vector<Turn> turns;
-  turns.reserve(tj.size());
-  for (const auto &t : tj)
-    turns.push_back({t["blockId"].get<uint8_t>(),
-                     static_cast<Direction>(t["direction"].get<int>())});
-
-  std::vector<Position> anchors;
-  const size_t illegalAt = firstIllegalMove(data, turns, anchors);
-  const bool legal = illegalAt == SIZE_MAX;
-  const auto &g = anchors[data.goalIndex];
-  const bool solved =
-      legal && g.x == data.goalAnchor.x && g.y == data.goalAnchor.y;
-  const json out = {
-      {"verify", turnsPath},
-      {"turns", turns.size()},
-      {"steps", countPlayerSteps(turns)},
-      {"legal", legal},
-      {"illegalAt", legal ? int64_t{-1} : static_cast<int64_t>(illegalAt)},
-      {"solved", solved},
-  };
-  std::cout << out.dump() << "\n";
-  return solved ? 0 : 1;
-}
-
-// Generates a random SOLVABLE fixture: random grid and polyomino blocks with
-// the goal block initially ON its goal anchor, then a long random walk of
-// valid unit moves scrambles the board. The reverse walk solves the shuffled
-// instance, so solvability is guaranteed by construction.
-int runGenerate(const std::string &outPath, const uint32_t seed,
-                const uint32_t shuffleMoves, const bool emitJson) {
-  std::mt19937 rng(seed);
-  const auto randInt = [&](const int lo, const int hi) {
-    return std::uniform_int_distribution<int>(lo, hi)(rng);
-  };
-
-  const int W = randInt(4, 60);
-  const int H = randInt(4, 60);
-  const int targetBlocks = randInt(1, 20);
-
-  std::vector<std::vector<Position>> shapes;
-  std::vector<Position> anchors;
-  std::vector<uint8_t> cellUsed(static_cast<size_t>(W) * H, 0);
-
-  const auto randomShape = [&](const int maxCells) {
-    const int want = randInt(1, maxCells);
-    std::vector<std::pair<int, int>> cells{{0, 0}};
-    int guard = want * 25;
-    while (static_cast<int>(cells.size()) < want && guard-- > 0) {
-      const auto &[bx, by] = cells[randInt(0, static_cast<int>(cells.size()) - 1)];
-      const int d = randInt(0, 3);
-      const int nx = bx + BitGrid::DX[d];
-      const int ny = by + BitGrid::DY[d];
-      if (std::find(cells.begin(), cells.end(), std::make_pair(nx, ny)) ==
-          cells.end())
-        cells.emplace_back(nx, ny);
-    }
-    int mx = INT32_MAX, my = INT32_MAX;
-    for (const auto &[x, y] : cells) {
-      mx = std::min(mx, x);
-      my = std::min(my, y);
-    }
-    std::vector<Position> shape;
-    shape.reserve(cells.size());
-    for (const auto &[x, y] : cells)
-      shape.push_back({static_cast<int8_t>(x - mx), static_cast<int8_t>(y - my)});
-    return shape;
-  };
-
-  const auto tryPlace = [&](const std::vector<Position> &shape) {
-    int bw = 0, bh = 0;
-    for (const auto &c : shape) {
-      bw = std::max(bw, c.x + 1);
-      bh = std::max(bh, c.y + 1);
-    }
-    if (bw > W || bh > H)
-      return false;
-    for (int tries = 0; tries < 200; tries++) {
-      const int ax = randInt(0, W - bw);
-      const int ay = randInt(0, H - bh);
-      bool free = true;
-      for (const auto &c : shape)
-        if (cellUsed[(ax + c.x) * H + (ay + c.y)]) {
-          free = false;
-          break;
-        }
-      if (!free)
-        continue;
-      for (const auto &c : shape)
-        cellUsed[(ax + c.x) * H + (ay + c.y)] = 1;
-      anchors.push_back({static_cast<int8_t>(ax), static_cast<int8_t>(ay)});
-      return true;
-    }
-    return false;
-  };
-
-  for (int b = 0; b < targetBlocks; b++) {
-    const auto shape = randomShape(12);
-    if (tryPlace(shape))
-      shapes.push_back(shape);
-  }
-  if (shapes.empty()) {
-    // Degenerate tight board: guarantee at least a 1-cell goal block.
-    const std::vector<Position> unit{{0, 0}};
-    if (!tryPlace(unit)) {
-      std::cerr << "generate: could not place any block (seed " << seed
-                << ")\n";
-      return 1;
-    }
-    shapes.push_back(unit);
-  }
-
-  const Position goalAnchor = anchors[0]; // goal starts ON its goal
-  // Scramble with a long random walk of valid unit moves.
-  BitGrid grid(static_cast<uint8_t>(W), static_cast<uint8_t>(H), shapes);
-  grid.buildOccupancy(anchors);
-  uint32_t accepted = 0;
-  uint64_t attempts = 0;
-  const uint64_t maxAttempts = static_cast<uint64_t>(shuffleMoves) * 4;
-  while (accepted < shuffleMoves && attempts < maxAttempts) {
-    attempts++;
-    const auto b = static_cast<uint8_t>(randInt(0, static_cast<int>(shapes.size()) - 1));
-    const int d = randInt(0, 3);
-    const Position from = anchors[b];
-    const Position to = {static_cast<int8_t>(from.x + BitGrid::DX[d]),
-                         static_cast<int8_t>(from.y + BitGrid::DY[d])};
-    grid.removeBlock(b, from);
-    if (grid.canPlace(b, to.x, to.y)) {
-      grid.addBlock(b, to);
-      anchors[b] = to;
-      accepted++;
-    } else {
-      grid.addBlock(b, from);
-    }
-  }
-
-  size_t totalCells = 0;
-  for (const auto &s : shapes)
-    totalCells += s.size();
-
-  json fixture;
-  fixture["gridWidth"] = W;
-  fixture["gridHeight"] = H;
-  json shapesJson = json::array();
-  for (const auto &s : shapes) {
-    json cells = json::array();
-    for (const auto &c : s)
-      cells.push_back({{"x", c.x}, {"y", c.y}});
-    shapesJson.push_back(cells);
-  }
-  fixture["shapes"] = shapesJson;
-  json anchorsJson = json::array();
-  for (const auto &a : anchors)
-    anchorsJson.push_back({{"x", a.x}, {"y", a.y}});
-  fixture["initialAnchors"] = anchorsJson;
-  fixture["goalIndex"] = 0;
-  fixture["goalAnchor"] = {{"x", goalAnchor.x}, {"y", goalAnchor.y}};
-
-  std::ofstream out(outPath);
-  if (!out.is_open()) {
-    std::cerr << "generate: cannot write " << outPath << "\n";
-    return 1;
-  }
-  out << fixture.dump();
-
-  const bool goalDisplaced =
-      anchors[0].x != goalAnchor.x || anchors[0].y != goalAnchor.y;
-  const json summary = {
-      {"generated", outPath},
-      {"seed", seed},
-      {"width", W},
-      {"height", H},
-      {"blocks", shapes.size()},
-      {"cells", totalCells},
-      {"density", static_cast<double>(totalCells) / (W * H)},
-      {"shuffleAccepted", accepted},
-      {"shuffleAttempts", attempts},
-      {"goalDisplaced", goalDisplaced},
-  };
-  if (emitJson)
-    std::cout << summary.dump() << "\n";
-  else
-    std::cout << "generated " << outPath << ": " << W << "x" << H << ", "
-              << shapes.size() << " blocks (" << totalCells << " cells), "
-              << accepted << " shuffle moves"
-              << (goalDisplaced ? "" : " (goal back on target)") << "\n";
-  return 0;
-}
-
-int usage(const char *argv0) {
-  std::cerr << "Usage: " << argv0
-            << " --fixture <path> [--engine unit|drag|hier|assembly|corridor|"
-               "jam|beam|cascade] [--weight N] [--budget-ms N] [--max-nodes N]"
-               " [--stride N] [--no-post] [--json]\n";
-  return 2;
-}
-
-} // namespace
 
 int main(int argc, char **argv) {
   std::string fixturePath;
@@ -757,7 +403,7 @@ int main(int argc, char **argv) {
     dcfg.lockOnSlot = lockOnSlot;
     dcfg.sleepSets = sleepSets;
     dcfg.relevantOnly = relevantOnly;
-    dcfg.corridorBands = (engine == "corridor") || bands;
+    dcfg.corridorBands = engine == "corridor" || bands;
     dcfg.corridorBandMinPath = bandMinPath;
     dcfg.maxStatesStored = maxStates;
     dcfg.maxHeapBytes = maxHeapBytes;
@@ -776,7 +422,7 @@ int main(int argc, char **argv) {
                       data.initialAnchors, data.goalIndex, data.goalAnchor,
                       dcfg);
     t1 = nowMs();
-    turns = (engine == "hier" || engine == "corridor")
+    turns = engine == "hier" || engine == "corridor"
                 ? solver.searchHierarchical(budgetMs, maxNodes)
             : engine == "assembly"
                 ? solver.searchAssembly(budgetMs, maxNodes)
@@ -823,9 +469,9 @@ int main(int argc, char **argv) {
     passes = solver.lastStats().passes;
   }
 
-  const auto &goalStart = data.initialAnchors[data.goalIndex];
-  const bool alreadySolved = goalStart.x == data.goalAnchor.x &&
-                             goalStart.y == data.goalAnchor.y;
+  const auto &[startX, startY] = data.initialAnchors[data.goalIndex];
+  const bool alreadySolved =
+      startX == data.goalAnchor.x && startY == data.goalAnchor.y;
   const bool solved = !turns.empty() || alreadySolved;
   // No `|| alreadySolved` short-circuit: a board whose goal block starts home
   // can still be handed a non-empty plan, and skipping the replay meant even
@@ -862,21 +508,21 @@ int main(int argc, char **argv) {
   // the sequential phase's arm ORDER — without it that order is guesswork.
   if (!armOutcomes.empty()) {
     json arms = json::array();
-    for (const auto &a : armOutcomes)
-      arms.push_back({{"arm", a.arm},
-                      {"name", cascade::armName(a.arm)},
-                      {"solved", a.solved},
-                      {"won", a.won},
-                      {"declined", a.declined},
-                      {"wallMs", a.wallMs}});
+    for (const auto &[arm, solvedArm, won, declined, wallMs] : armOutcomes)
+      arms.push_back({{"arm", arm},
+                      {"name", cascade::armName(arm)},
+                      {"solved", solvedArm},
+                      {"won", won},
+                      {"declined", declined},
+                      {"wallMs", wallMs}});
     out["arms"] = arms;
   }
 
   if (!dumpPath.empty() && !turns.empty()) {
     json turnsJson = json::array();
-    for (const auto &t : turns)
-      turnsJson.push_back({{"blockId", t.blockId},
-                           {"direction", static_cast<int>(t.direction)}});
+    for (const auto &[blockId, direction] : turns)
+      turnsJson.push_back({{"blockId", blockId},
+                           {"direction", static_cast<int>(direction)}});
     std::ofstream dump(dumpPath);
     dump << turnsJson.dump();
     std::cerr << "turns dumped to " << dumpPath << "\n";
@@ -893,3 +539,4 @@ int main(int argc, char **argv) {
   }
   return 0;
 }
+

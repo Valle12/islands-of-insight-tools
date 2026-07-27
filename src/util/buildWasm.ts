@@ -84,14 +84,14 @@ async function build({
 await build({
   aStarDir: resolve(projectRoot, "src/pages/rolling-blocks-solver/a-star"),
   outDir: resolve(projectRoot, "src/pages/rolling-blocks-solver/wasm"),
-  sources: ["wasm_bindings.cpp", "AStar.cpp", "Block.cpp"],
+  sources: ["wasm_bindings.cpp", "AStar.cpp", "AStarGoals.cpp", "Block.cpp"],
   outputJs: "astar.mjs",
   exportName: "createAStarModule",
   needsBoost: true,
 });
 
-// The four shifting-mosaic variants compile the SAME three translation units
-// and differ only in output name / memory model / -pthread, so they are listed
+// The four shifting-mosaic variants compile the SAME translation units and
+// differ only in output name / memory model / -pthread, so they are listed
 // once and built concurrently — serially they cost 4x the wall clock of the
 // slowest one, and `bun run build` and `bun test` both pay for all of them.
 //   - threads:       cross-origin isolated pages (the coi-serviceworker shim
@@ -124,7 +124,23 @@ await Promise.all(
     build({
       aStarDir: resolve(projectRoot, "src/pages/shifting-mosaic-solver/a-star"),
       outDir: resolve(projectRoot, "src/pages/shifting-mosaic-solver/wasm"),
-      sources: ["wasm_bindings.cpp", "AStar.cpp", "DragSolver.cpp"],
+      // AStar and DragSolver are each split across several .cpp files purely
+      // for file size; every one of them is part of the same class.
+      sources: [
+        "wasm_bindings.cpp",
+        "SolverClock.cpp",
+        "AStar.cpp",
+        "AStarHeuristics.cpp",
+        "AStarSearch.cpp",
+        "AStarOptimizer.cpp",
+        "DragSolver.cpp",
+        "DragSolverHeuristics.cpp",
+        "DragSolverSearch.cpp",
+        "DragSolverExpand.cpp",
+        "DragSolverAssembly.cpp",
+        "DragSolverArms.cpp",
+        "DragSolverBeam.cpp",
+      ],
       outputJs: variant.outputJs,
       exportName: "createShiftingMosaicAStarModule",
       needsBoost: false,
