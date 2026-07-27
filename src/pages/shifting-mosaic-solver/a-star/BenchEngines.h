@@ -34,7 +34,7 @@ struct SolveResult {
 };
 
 // True for an engine name the CLI understands.
-[[nodiscard]] bool isKnownEngine(const std::string &engine);
+[[nodiscard]] bool isKnownEngine(std::string_view engine);
 
 // Runs the configured engine over the fixture. Returns false when the options
 // are inconsistent (the reason has already been written to stderr).

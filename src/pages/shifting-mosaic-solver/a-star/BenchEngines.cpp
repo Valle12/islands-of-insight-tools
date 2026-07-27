@@ -12,9 +12,11 @@
 
 namespace {
 
-// The bench reports totals at the end; per-node progress is of no interest to
-// it, so every engine passes this instead of a reporter.
-void ignoreProgress(uint32_t) {}
+void ignoreProgress(uint32_t) {
+  // Deliberately empty: the bench reports totals at the end, so per-node
+  // progress is of no interest to it and every engine passes this rather than
+  // a reporter.
+}
 
 void accumulateFrom(SolveResult &res, const DragSolver &solver) {
   const auto &stats = solver.lastStats();
@@ -143,7 +145,7 @@ constexpr std::array<std::string_view, 12> ENGINES{
 
 // The engines that drive DragSolver directly from the command-line options,
 // as opposed to the fixed configurations the cascade and the race use.
-bool isDragFamily(const std::string &engine) {
+bool isDragFamily(const std::string_view engine) {
   return engine == "drag" || engine == "hier" || engine == "assembly" ||
          engine == "corridor" || engine == "jam" || engine == "beam";
 }
@@ -355,7 +357,7 @@ void runUnit(const BenchOptions &opt, const Fixture &data, SolveResult &res) {
 
 } // namespace
 
-bool isKnownEngine(const std::string &engine) {
+bool isKnownEngine(const std::string_view engine) {
   return std::ranges::find(ENGINES, engine) != ENGINES.end();
 }
 
