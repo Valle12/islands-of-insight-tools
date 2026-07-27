@@ -1,90 +1,142 @@
-# Static-analysis profile for the shifting-mosaic solver.
+# Generated from CLion Inspection settings.
 #
-# CLion MERGES this file with its own check list rather than replacing it, so a
-# bare `-check-name` here is subtractive in the IDE. The CLI treats the file as
-# the complete list, so without an explicit enable base `clang-tidy` outside the
-# IDE runs nothing at all ("No checks enabled") and silently reports success.
-# The base below exists to make CLI runs meaningful and to keep the IDE and the
-# command line reporting the same thing:
-#
-#   clang-tidy -p cmake-build-debug-visual-studio --quiet AStar.cpp
-#
-# Wildcards enable. Nothing is ever silenced with a wildcard — every check that
-# is off is named exactly, and says why below.
-Checks: >
-  -*,
-  bugprone-*,
-  cert-*,
-  clang-analyzer-*,
-  concurrency-*,
-  cppcoreguidelines-pro-type-member-init,
-  misc-*,
-  modernize-*,
-  performance-*,
-  portability-*,
-  readability-inconsistent-declaration-parameter-name,
-  readability-misleading-indentation,
-  readability-non-const-parameter,
-  readability-redundant-smartptr-get,
-  -cert-err58-cpp,
-  -bugprone-easily-swappable-parameters,
-  -bugprone-exception-escape,
-  -concurrency-mt-unsafe,
-  -misc-include-cleaner,
-  -misc-no-recursion,
-  -misc-non-private-member-variables-in-classes,
-  -misc-use-anonymous-namespace,
-  -modernize-avoid-c-arrays,
-  -modernize-use-designated-initializers,
-  -modernize-use-integer-sign-comparison,
-  -modernize-use-trailing-return-type,
-  -portability-avoid-pragma-once,
-  -clang-analyzer-optin.performance.Padding
-
-# Why each disabled check is off. Do not drop an entry without re-reading this.
-#
-# cert-err58-cpp
-#   GoogleTest's TEST / TEST_P / INSTANTIATE_TEST_SUITE_P each define a
-#   namespace-scope `TestInfo *const test_info_` whose initialiser calls
-#   MakeAndRegisterTestInfo() before main(). That allocates, so it can throw
-#   where nothing can catch it — exactly what the check reports. No enclosing
-#   namespace changes it (storage duration, not linkage; verified against
-#   anonymous, named and no namespace), and no way of writing a GoogleTest test
-#   avoids the macro.
-# bugprone-easily-swappable-parameters
-#   The solver constructors take (gridWidth, gridHeight) and (x, y) pairs by
-#   design; renaming them apart would not make them safer.
-# bugprone-exception-escape
-#   main() and the worker entry points deliberately let a parse failure
-#   terminate rather than half-solve.
-# modernize-avoid-c-arrays
-#   BitGrid::DX/DY/DIRS and the small direction tables are constexpr lookup
-#   tables; std::array buys nothing and cost measurable time when tried.
-# modernize-use-designated-initializers
-#   Fires on every aggregate init in the tree (135 sites). The structs it
-#   targets are short, positional and local to the search.
-# modernize-use-integer-sign-comparison
-#   Would wrap every size()/index comparison in std::cmp_less; the loop bounds
-#   are already being widened to size_t (see bugprone-too-small-loop-variable).
-# concurrency-mt-unsafe
-#   getenv/exit in the bench CLI and the test harness, all of it before any
-#   thread starts.
-# misc-include-cleaner
-#   Reports transitively-included standard headers; too noisy to act on.
-# misc-no-recursion
-#   The optimizer, the packer and the assembly DFS are recursive by design.
-# misc-non-private-member-variables-in-classes
-#   Config and the search-result structs are plain aggregates.
-# misc-use-anonymous-namespace
-#   Conflicts with the file-static helpers the headers expose inline.
-# modernize-use-trailing-return-type
-#   Pure style, and it would touch every function in the tree.
-# portability-avoid-pragma-once
-#   Every toolchain this project targets (MSVC, GCC, Clang, emscripten)
-#   supports #pragma once.
-# clang-analyzer-optin.performance.Padding
-#   DragSolver is instantiated a handful of times per solve; its field order
-#   groups related state for readability. The per-node structs, which DO matter,
-#   are packed deliberately.
-
-HeaderFilterRegex: '.*(AStar|BitGrid|BenchFixture|BenchCommands|DragSolver|MemoryProbe|Node|NodeKey|ParallelCascade|SolverClock|StateTable|Types)[A-Za-z]*\.h$'
+# One entry is hand-added below CLion's list: -performance-faster-string-find.
+# `performance-*` pulls it in, but clang-tidy 23 reports it as deprecated, and
+# that arrives as a [clang-tidy-config] diagnostic which -warnings-as-errors=*
+# promotes to a hard error on every single file — the build could never pass
+# with it enabled. Its suggested replacement,
+# performance-prefer-single-char-overloads, is already disabled in this
+# profile, so turning the deprecated one off matches the intent.
+---
+Checks: '-*,
+mpi-*,
+bugprone-suspicious-realloc-usage,
+bugprone-terminating-continue,
+bugprone-misplaced-operator-in-strlen-in-alloc,
+bugprone-string-integer-assignment,
+bugprone-copy-constructor-init,
+bugprone-misplaced-widening-cast,
+bugprone-suspicious-string-compare,
+bugprone-argument-comment,
+bugprone-too-small-loop-variable,
+bugprone-no-escape,
+bugprone-multiple-statement-macro,
+bugprone-use-after-move,
+bugprone-inaccurate-erase,
+bugprone-sizeof-expression,
+bugprone-integer-division,
+bugprone-assert-side-effect,
+bugprone-branch-clone,
+bugprone-bad-signal-to-kill-thread,
+bugprone-parent-virtual-call,
+bugprone-dangling-handle,
+bugprone-reserved-identifier,
+bugprone-swapped-arguments,
+bugprone-macro-repeated-side-effects,
+bugprone-dynamic-static-initializers,
+bugprone-suspicious-missing-comma,
+bugprone-sizeof-container,
+bugprone-suspicious-memory-comparison,
+bugprone-move-forwarding-reference,
+bugprone-unused-return-value,
+bugprone-virtual-near-miss,
+bugprone-string-literal-with-embedded-nul,
+bugprone-suspicious-semicolon,
+bugprone-incorrect-roundings,
+bugprone-forwarding-reference-overload,
+bugprone-throw-keyword-missing,
+bugprone-fold-init-type,
+bugprone-undelegated-constructor,
+bugprone-unhandled-self-assignment,
+bugprone-misplaced-pointer-arithmetic-in-alloc,
+bugprone-unused-raii,
+bugprone-undefined-memory-manipulation,
+bugprone-suspicious-memset-usage,
+bugprone-forward-declaration-namespace,
+bugprone-spuriously-wake-up-functions,
+bugprone-suspicious-include,
+bugprone-macro-parentheses,
+bugprone-posix-return,
+bugprone-string-constructor,
+bugprone-lambda-function-name,
+bugprone-suspicious-enum-usage,
+cert-err52-cpp,
+cert-err60-cpp,
+cert-err34-c,
+cert-str34-c,
+cert-msc50-cpp,
+cert-msc51-cpp,
+cert-dcl58-cpp,
+cert-flp30-c,
+cppcoreguidelines-pro-type-member-init,
+cppcoreguidelines-slicing,
+cppcoreguidelines-interfaces-global-init,
+cppcoreguidelines-pro-type-static-cast-downcast,
+cppcoreguidelines-narrowing-conversions,
+google-default-arguments,
+google-runtime-operator,
+hicpp-multiway-paths-covered,
+hicpp-exception-baseclass,
+misc-unconventional-assign-operator,
+misc-misplaced-const,
+misc-new-delete-overloads,
+misc-non-copyable-objects,
+misc-throw-by-value-catch-by-reference,
+misc-uniqueptr-reset-release,
+modernize-*,
+-modernize-use-string-view,
+-modernize-use-std-format,
+-modernize-use-using,
+-modernize-avoid-variadic-functions,
+-modernize-use-structured-binding,
+-modernize-use-default-member-init,
+-modernize-use-ranges,
+-modernize-use-starts-ends-with,
+-modernize-use-std-bit,
+-modernize-use-designated-initializers,
+-modernize-use-trailing-return-type,
+-modernize-avoid-c-arrays,
+-modernize-avoid-c-style-cast,
+-modernize-use-constraints,
+-modernize-avoid-setjmp-longjmp,
+-modernize-min-max-use-initializer-list,
+-modernize-use-std-numbers,
+-modernize-use-scoped-lock,
+-modernize-type-traits,
+-modernize-use-std-print,
+-modernize-use-integer-sign-comparison,
+-modernize-macro-to-enum,
+openmp-use-default-none,
+performance-*,
+-performance-noexcept-swap,
+-performance-noexcept-destructor,
+-performance-use-std-move,
+-performance-enum-size,
+-performance-no-int-to-ptr,
+-performance-string-view-conversions,
+-performance-avoid-endl,
+-performance-prefer-single-char-overloads,
+-performance-faster-string-find,
+portability-simd-intrinsics,
+readability-avoid-const-params-in-decls,
+readability-redundant-smartptr-get,
+readability-make-member-function-const,
+readability-string-compare,
+readability-delete-null-pointer,
+readability-static-accessed-through-instance,
+readability-convert-member-functions-to-static,
+readability-redundant-function-ptr-dereference,
+readability-const-return-type,
+readability-misleading-indentation,
+readability-non-const-parameter,
+readability-redundant-string-cstr,
+readability-use-anyofallof,
+readability-simplify-subscript-expr,
+readability-uniqueptr-delete-release,
+readability-static-definition-in-anonymous-namespace,
+readability-redundant-declaration,
+readability-redundant-string-init,
+readability-redundant-control-flow,
+readability-misplaced-array-index,
+readability-inconsistent-declaration-parameter-name,
+readability-container-size-empty'

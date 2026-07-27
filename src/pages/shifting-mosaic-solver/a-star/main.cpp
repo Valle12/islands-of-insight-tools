@@ -34,13 +34,14 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
-#include <exception>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 using json = nlohmann::json;
@@ -67,10 +68,10 @@ int main(int argc, char **argv) {
   uint64_t maxStates = 0;    // 0 = unlimited (unchanged behaviour)
   uint64_t maxHeapBytes = 0; // 0 = unlimited; measured bytes, not a proxy
   uint32_t seqTotalMs = 0;   // total cap for the sequential phase; 0 = none
-  uint8_t jamAspect16 = DragSolver::Config{}.jamAspect16;   // x16 ratio
+  uint8_t jamAspect16 = DragSolver::Config{}.jamAspect16;     // x16 ratio
   uint8_t jamDensityPct = DragSolver::Config{}.jamDensityPct; // percent
-  int armIndex = -1;          // --engine arm: which race arm to run alone
-  bool armGated = false;      // apply jamProfile() to arms 6/7 (phase 2 does not)
+  int armIndex = -1;     // --engine arm: which race arm to run alone
+  bool armGated = false; // apply jamProfile() to arms 6/7 (phase 2 does not)
   std::vector<cascade::ArmOutcome> armOutcomes;
   // Decomposition of a stalled jam board: dump the deepest elite as a residual
   // fixture (+ the root→elite prefix) so the remainder can be solved
@@ -123,47 +124,90 @@ int main(int argc, char **argv) {
       }
       return v;
     };
-    if (arg == "--fixture") fixturePath = next();
-    else if (arg == "--engine") engine = next();
-    else if (arg == "--weight") cfg.weight = static_cast<uint8_t>(nextU());
-    else if (arg == "--budget-ms") budgetMs = static_cast<uint32_t>(nextU());
-    else if (arg == "--max-nodes") maxNodes = static_cast<uint32_t>(nextU());
-    else if (arg == "--stride") cfg.strideOverride = static_cast<uint8_t>(nextU());
-    else if (arg == "--settled") settledOnly = true;
-    else if (arg == "--pea") pea = static_cast<uint16_t>(nextU());
-    else if (arg == "--packing-weight") packingWeight = static_cast<uint8_t>(nextU());
-    else if (arg == "--consolidation") consolidationGain = static_cast<uint8_t>(nextU());
-    else if (arg == "--slot-h") slotHeuristic = true;
-    else if (arg == "--dump") dumpPath = next();
-    else if (arg == "--all-slots") requireAllSlots = true;
-    else if (arg == "--ratchet") lockOnSlot = true;
-    else if (arg == "--por") sleepSets = true;
-    else if (arg == "--relevant") relevantOnly = true;
-    else if (arg == "--bands") bands = true;
-    else if (arg == "--band-min-path") bandMinPath = static_cast<uint8_t>(nextU());
-    else if (arg == "--max-states") { maxStates = nextU(); cfg.maxStatesStored = maxStates; }
-    else if (arg == "--arm") armIndex = static_cast<int>(nextU());
-    else if (arg == "--arm-gated") armGated = true;
-    else if (arg == "--jam-density") jamDensityPct = static_cast<uint8_t>(nextU());
-    else if (arg == "--jam-aspect") jamAspect16 = static_cast<uint8_t>(nextU());
-    else if (arg == "--seq-total-ms") seqTotalMs = static_cast<uint32_t>(nextU());
-    else if (arg == "--max-heap-bytes") { maxHeapBytes = nextU(); cfg.maxHeapBytes = maxHeapBytes; }
-    else if (arg == "--dump-elite") dumpElitePath = next();
-    else if (arg == "--dump-elite-turns") dumpEliteTurnsPath = next();
-    else if (arg == "--verify") verifyPath = next();
-    else if (arg == "--jam-penalty") jamPenalty = static_cast<uint8_t>(nextU());
-    else if (arg == "--jam-guide") jamGuide = static_cast<uint8_t>(nextU());
-    else if (arg == "--jam-pin") jamPin = true;
-    else if (arg == "--jam-round-cap") jamRoundCap = static_cast<uint32_t>(nextU());
-    else if (arg == "--jam-elites") jamElites = static_cast<uint32_t>(nextU());
-    else if (arg == "--jam-luby") jamLuby = true;
-    else if (arg == "--tie-seed") tieSeed = static_cast<uint32_t>(nextU());
-    else if (arg == "--beam") beamWidth = static_cast<uint32_t>(nextU());
-    else if (arg == "--generate") generatePath = next();
-    else if (arg == "--seed") seed = static_cast<uint32_t>(nextU());
-    else if (arg == "--shuffle") shuffleMoves = static_cast<uint32_t>(nextU());
-    else if (arg == "--no-post") cfg.postProcess = false;
-    else if (arg == "--json") emitJson = true;
+    if (arg == "--fixture")
+      fixturePath = next();
+    else if (arg == "--engine")
+      engine = next();
+    else if (arg == "--weight")
+      cfg.weight = static_cast<uint8_t>(nextU());
+    else if (arg == "--budget-ms")
+      budgetMs = static_cast<uint32_t>(nextU());
+    else if (arg == "--max-nodes")
+      maxNodes = static_cast<uint32_t>(nextU());
+    else if (arg == "--stride")
+      cfg.strideOverride = static_cast<uint8_t>(nextU());
+    else if (arg == "--settled")
+      settledOnly = true;
+    else if (arg == "--pea")
+      pea = static_cast<uint16_t>(nextU());
+    else if (arg == "--packing-weight")
+      packingWeight = static_cast<uint8_t>(nextU());
+    else if (arg == "--consolidation")
+      consolidationGain = static_cast<uint8_t>(nextU());
+    else if (arg == "--slot-h")
+      slotHeuristic = true;
+    else if (arg == "--dump")
+      dumpPath = next();
+    else if (arg == "--all-slots")
+      requireAllSlots = true;
+    else if (arg == "--ratchet")
+      lockOnSlot = true;
+    else if (arg == "--por")
+      sleepSets = true;
+    else if (arg == "--relevant")
+      relevantOnly = true;
+    else if (arg == "--bands")
+      bands = true;
+    else if (arg == "--band-min-path")
+      bandMinPath = static_cast<uint8_t>(nextU());
+    else if (arg == "--max-states") {
+      maxStates = nextU();
+      cfg.maxStatesStored = maxStates;
+    } else if (arg == "--arm")
+      armIndex = static_cast<int>(nextU());
+    else if (arg == "--arm-gated")
+      armGated = true;
+    else if (arg == "--jam-density")
+      jamDensityPct = static_cast<uint8_t>(nextU());
+    else if (arg == "--jam-aspect")
+      jamAspect16 = static_cast<uint8_t>(nextU());
+    else if (arg == "--seq-total-ms")
+      seqTotalMs = static_cast<uint32_t>(nextU());
+    else if (arg == "--max-heap-bytes") {
+      maxHeapBytes = nextU();
+      cfg.maxHeapBytes = maxHeapBytes;
+    } else if (arg == "--dump-elite")
+      dumpElitePath = next();
+    else if (arg == "--dump-elite-turns")
+      dumpEliteTurnsPath = next();
+    else if (arg == "--verify")
+      verifyPath = next();
+    else if (arg == "--jam-penalty")
+      jamPenalty = static_cast<uint8_t>(nextU());
+    else if (arg == "--jam-guide")
+      jamGuide = static_cast<uint8_t>(nextU());
+    else if (arg == "--jam-pin")
+      jamPin = true;
+    else if (arg == "--jam-round-cap")
+      jamRoundCap = static_cast<uint32_t>(nextU());
+    else if (arg == "--jam-elites")
+      jamElites = static_cast<uint32_t>(nextU());
+    else if (arg == "--jam-luby")
+      jamLuby = true;
+    else if (arg == "--tie-seed")
+      tieSeed = static_cast<uint32_t>(nextU());
+    else if (arg == "--beam")
+      beamWidth = static_cast<uint32_t>(nextU());
+    else if (arg == "--generate")
+      generatePath = next();
+    else if (arg == "--seed")
+      seed = static_cast<uint32_t>(nextU());
+    else if (arg == "--shuffle")
+      shuffleMoves = static_cast<uint32_t>(nextU());
+    else if (arg == "--no-post")
+      cfg.postProcess = false;
+    else if (arg == "--json")
+      emitJson = true;
     else {
       std::cerr << "Unknown argument: " << arg << "\n";
       return usage(argv[0]);
@@ -190,7 +234,9 @@ int main(int argc, char **argv) {
   if (!verifyPath.empty())
     return runVerify(data, verifyPath);
 
-  uint64_t t0 = 0, t1 = 0, t2 = 0;
+  uint64_t t0 = 0;
+  uint64_t t1 = 0;
+  uint64_t t2 = 0;
   std::vector<Turn> turns;
   uint32_t nodesExpanded = 0;
   uint64_t statesStored = 0;
@@ -211,11 +257,11 @@ int main(int argc, char **argv) {
     // measure what a browser actually does.
     t0 = nowMs();
     t1 = t0;
-    turns = solveArmsParallel(data.gridWidth, data.gridHeight, data.shapes,
-                              data.initialAnchors, data.goalIndex,
-                              data.goalAnchor, budgetMs, maxNodes,
-                              cfg.postProcess, [](uint32_t) {}, maxHeapBytes,
-                              jamAspect16, jamDensityPct, &armOutcomes);
+    turns = solveArmsParallel(
+        data.gridWidth, data.gridHeight, data.shapes, data.initialAnchors,
+        data.goalIndex, data.goalAnchor, budgetMs, maxNodes, cfg.postProcess,
+        [](uint32_t) {}, maxHeapBytes, jamAspect16, jamDensityPct,
+        &armOutcomes);
     t2 = nowMs();
   } else if (engine == "arm") {
     // Runs ONE race arm with its REAL configuration, via the same runArm the
@@ -225,17 +271,17 @@ int main(int argc, char **argv) {
     // (it is why an earlier study concluded no arm could solve seed 45501,
     // which arm 6 in fact wins). Ungated by default, matching phase 2.
     if (armIndex < 0 || armIndex >= cascade::ARMS) {
-      std::cerr << "--engine arm needs --arm 0.." << (cascade::ARMS - 1) << "\n";
+      std::cerr << "--engine arm needs --arm 0.." << (cascade::ARMS - 1)
+                << "\n";
       return 2;
     }
     t0 = nowMs();
     t1 = t0;
-    turns = cascade::runArm(armIndex, data.gridWidth, data.gridHeight,
-                            data.shapes, data.initialAnchors, data.goalIndex,
-                            data.goalAnchor, budgetMs, maxNodes,
-                            cfg.postProcess, maxHeapBytes, nullptr,
-                            [](uint32_t) {}, armGated, jamAspect16,
-                            jamDensityPct);
+    turns = cascade::runArm(
+        armIndex, data.gridWidth, data.gridHeight, data.shapes,
+        data.initialAnchors, data.goalIndex, data.goalAnchor, budgetMs,
+        maxNodes, cfg.postProcess, maxHeapBytes, nullptr, [](uint32_t) {},
+        armGated, jamAspect16, jamDensityPct);
     t2 = nowMs();
     stage = cascade::armName(armIndex);
   } else if (engine == "sequential" || engine == "twophase") {
@@ -244,11 +290,11 @@ int main(int argc, char **argv) {
     t0 = nowMs();
     t1 = t0;
     if (engine == "twophase")
-      turns = solveArmsParallel(data.gridWidth, data.gridHeight, data.shapes,
-                                data.initialAnchors, data.goalIndex,
-                                data.goalAnchor, budgetMs, maxNodes,
-                                cfg.postProcess, [](uint32_t) {}, maxHeapBytes,
-                                jamAspect16, jamDensityPct, &armOutcomes);
+      turns = solveArmsParallel(
+          data.gridWidth, data.gridHeight, data.shapes, data.initialAnchors,
+          data.goalIndex, data.goalAnchor, budgetMs, maxNodes, cfg.postProcess,
+          [](uint32_t) {}, maxHeapBytes, jamAspect16, jamDensityPct,
+          &armOutcomes);
     if (turns.empty()) {
       if (engine == "twophase")
         std::cout << "cascade: parallel race found nothing - falling back to "
@@ -282,7 +328,8 @@ int main(int argc, char **argv) {
                    data.initialAnchors, data.goalIndex, data.goalAnchor, c);
       turns = s.searchAssembly(budgetMs, maxNodes);
       accumulate(s);
-      if (!turns.empty()) stage = "assembly";
+      if (!turns.empty())
+        stage = "assembly";
     }
     if (turns.empty()) {
       // Corridor arm: instant-declines unless the goal has no real cuts but a
@@ -297,7 +344,8 @@ int main(int argc, char **argv) {
                    data.initialAnchors, data.goalIndex, data.goalAnchor, c);
       turns = s.searchHierarchical(budgetMs, maxNodes);
       accumulate(s);
-      if (!turns.empty()) stage = "corridor";
+      if (!turns.empty())
+        stage = "corridor";
     }
     if (turns.empty()) {
       DragSolver::Config c;
@@ -309,7 +357,8 @@ int main(int argc, char **argv) {
                    data.initialAnchors, data.goalIndex, data.goalAnchor, c);
       turns = s.searchHierarchical(budgetMs, maxNodes);
       accumulate(s);
-      if (!turns.empty()) stage = "hier";
+      if (!turns.empty())
+        stage = "hier";
     }
     if (turns.empty()) {
       DragSolver::Config c;
@@ -321,7 +370,8 @@ int main(int argc, char **argv) {
                    data.initialAnchors, data.goalIndex, data.goalAnchor, c);
       turns = s.search(budgetMs, maxNodes);
       accumulate(s);
-      if (!turns.empty()) stage = "drag";
+      if (!turns.empty())
+        stage = "drag";
     }
     if (turns.empty()) {
       // Jam arm: relevance filter + commutativity pruning for compact dense
@@ -337,13 +387,15 @@ int main(int argc, char **argv) {
                    data.initialAnchors, data.goalIndex, data.goalAnchor, c);
       turns = s.search(budgetMs, maxNodes);
       accumulate(s);
-      if (!turns.empty()) stage = "relevant";
+      if (!turns.empty())
+        stage = "relevant";
     }
     if (turns.empty()) {
       // Jam-restart arm: dig-cost-guided diversified rounds for compact
       // dense 0-cut boards; declines instantly outside the jam profile.
       // Luby-shaped caps (20k base / 64 elites): -46% ratchet depth vs stock
-      // at the 300s browser budget on the hard-instance family (HARD-BOARDS.md).
+      // at the 300s browser budget on the hard-instance family
+      // (HARD-BOARDS.md).
       DragSolver::Config c;
       c.corridorBands = true;
       c.jamRoundNodeCap = 20000;
@@ -355,7 +407,8 @@ int main(int argc, char **argv) {
       if (s.jamProfile()) {
         turns = s.searchJamRestarts(budgetMs, maxNodes);
         accumulate(s);
-        if (!turns.empty()) stage = "jamrestart";
+        if (!turns.empty())
+          stage = "jamrestart";
       }
     }
     if (turns.empty()) {
@@ -373,18 +426,20 @@ int main(int argc, char **argv) {
       if (s.jamProfile()) {
         turns = s.searchBeamJam(budgetMs, maxNodes);
         accumulate(s);
-        if (!turns.empty()) stage = "jambeam";
+        if (!turns.empty())
+          stage = "jambeam";
       }
     }
     if (turns.empty()) {
-      AStar s(data.gridWidth, data.gridHeight, data.shapes,
-              data.initialAnchors, data.goalIndex, data.goalAnchor, cfg);
+      AStar s(data.gridWidth, data.gridHeight, data.shapes, data.initialAnchors,
+              data.goalIndex, data.goalAnchor, cfg);
       turns = s.search(budgetMs, maxNodes);
       nodesExpanded += s.lastStats().nodesExpanded;
       statesStored += s.lastStats().statesStored;
       stoppedOnMemory = stoppedOnMemory || s.lastStats().stoppedOnMemory;
       passes = static_cast<uint8_t>(passes + s.lastStats().passes);
-      if (!turns.empty()) stage = "unit";
+      if (!turns.empty())
+        stage = "unit";
     }
     if (turns.empty())
       stage = "none";
@@ -424,13 +479,10 @@ int main(int argc, char **argv) {
     t1 = nowMs();
     turns = engine == "hier" || engine == "corridor"
                 ? solver.searchHierarchical(budgetMs, maxNodes)
-            : engine == "assembly"
-                ? solver.searchAssembly(budgetMs, maxNodes)
-            : engine == "jam"
-                ? solver.searchJamRestarts(budgetMs, maxNodes)
-            : engine == "beam"
-                ? solver.searchBeamJam(budgetMs, maxNodes)
-                : solver.search(budgetMs, maxNodes);
+            : engine == "assembly" ? solver.searchAssembly(budgetMs, maxNodes)
+            : engine == "jam"  ? solver.searchJamRestarts(budgetMs, maxNodes)
+            : engine == "beam" ? solver.searchBeamJam(budgetMs, maxNodes)
+                               : solver.search(budgetMs, maxNodes);
     t2 = nowMs();
     nodesExpanded = solver.lastStats().nodesExpanded;
     statesStored = solver.lastStats().statesStored;
@@ -494,9 +546,8 @@ int main(int argc, char **argv) {
       {"searchMs", t2 - t1},
       {"wallMs", t2 - t0},
       {"weight", cfg.weight},
-      {"minJamTerm", minJamTerm == UINT32_MAX
-                         ? -1
-                         : static_cast<int64_t>(minJamTerm)},
+      {"minJamTerm",
+       minJamTerm == UINT32_MAX ? -1 : static_cast<int64_t>(minJamTerm)},
       {"maxProgress", maxProgress},
       {"stoppedOnMemory", stoppedOnMemory},
       {"jamAspect16", jamAspect16},
@@ -521,8 +572,9 @@ int main(int argc, char **argv) {
   if (!dumpPath.empty() && !turns.empty()) {
     json turnsJson = json::array();
     for (const auto &[blockId, direction] : turns)
-      turnsJson.push_back({{"blockId", blockId},
-                           {"direction", static_cast<int>(direction)}});
+      turnsJson.push_back(
+          {{"blockId", blockId},
+           {"direction", static_cast<int>(std::to_underlying(direction))}});
     std::ofstream dump(dumpPath);
     dump << turnsJson.dump();
     std::cerr << "turns dumped to " << dumpPath << "\n";
@@ -533,10 +585,9 @@ int main(int argc, char **argv) {
   } else {
     std::cout << out["fixture"].get<std::string>() << ": "
               << (solved ? "SOLVED" : "unsolved") << (valid ? "" : " (INVALID)")
-              << ", " << turns.size() << " turns, "
-              << countPlayerSteps(turns) << " steps, "
-              << nodesExpanded << " nodes, " << (t2 - t0) << " ms\n";
+              << ", " << turns.size() << " turns, " << countPlayerSteps(turns)
+              << " steps, " << nodesExpanded << " nodes, " << (t2 - t0)
+              << " ms\n";
   }
   return 0;
 }
-

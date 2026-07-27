@@ -29,8 +29,9 @@ int runVerify(const Fixture &data, const std::string &turnsPath) {
   std::vector<Turn> turns;
   turns.reserve(tj.size());
   for (const auto &t : tj)
-    turns.push_back({t["blockId"].get<uint8_t>(),
-                     static_cast<Direction>(t["direction"].get<int>())});
+    turns.push_back(
+        {.blockId = t["blockId"].get<uint8_t>(),
+         .direction = static_cast<Direction>(t["direction"].get<int>())});
 
   std::vector<Position> anchors;
   const size_t illegalAt = firstIllegalMove(data, turns, anchors);
@@ -74,14 +75,16 @@ int runGenerate(const std::string &outPath, const uint32_t seed,
     std::vector<std::pair<int, int>> cells{{0, 0}};
     int guard = want * 25;
     while (static_cast<int>(cells.size()) < want && guard-- > 0) {
-      const auto &[bx, by] = cells[randInt(0, static_cast<int>(cells.size()) - 1)];
+      const auto &[bx, by] =
+          cells[randInt(0, static_cast<int>(cells.size()) - 1)];
       const int d = randInt(0, 3);
       const int nx = bx + BitGrid::DX[d];
       if (const int ny = by + BitGrid::DY[d];
           std::ranges::find(cells, std::make_pair(nx, ny)) == cells.end())
         cells.emplace_back(nx, ny);
     }
-    int mx = INT32_MAX, my = INT32_MAX;
+    int mx = INT32_MAX;
+    int my = INT32_MAX;
     for (const auto &[x, y] : cells) {
       mx = std::min(mx, x);
       my = std::min(my, y);
@@ -89,12 +92,14 @@ int runGenerate(const std::string &outPath, const uint32_t seed,
     std::vector<Position> shape;
     shape.reserve(cells.size());
     for (const auto &[x, y] : cells)
-      shape.push_back({static_cast<int8_t>(x - mx), static_cast<int8_t>(y - my)});
+      shape.push_back(
+          {.x = static_cast<int8_t>(x - mx), .y = static_cast<int8_t>(y - my)});
     return shape;
   };
 
   const auto tryPlace = [&](const std::vector<Position> &shape) {
-    int bw = 0, bh = 0;
+    int bw = 0;
+    int bh = 0;
     for (const auto &[cx, cy] : shape) {
       bw = std::max(bw, cx + 1);
       bh = std::max(bh, cy + 1);
@@ -114,7 +119,8 @@ int runGenerate(const std::string &outPath, const uint32_t seed,
         continue;
       for (const auto &[cx, cy] : shape)
         cellUsed[(ax + cx) * H + (ay + cy)] = 1;
-      anchors.push_back({static_cast<int8_t>(ax), static_cast<int8_t>(ay)});
+      anchors.push_back(
+          {.x = static_cast<int8_t>(ax), .y = static_cast<int8_t>(ay)});
       return true;
     }
     return false;
@@ -126,12 +132,12 @@ int runGenerate(const std::string &outPath, const uint32_t seed,
   }
   if (shapes.empty()) {
     // Degenerate tight board: guarantee at least a 1-cell goal block.
-    if (!tryPlace({{0, 0}})) {
+    if (!tryPlace({{.x = 0, .y = 0}})) {
       std::cerr << "generate: could not place any block (seed " << seed
                 << ")\n";
       return 1;
     }
-    shapes.push_back({{0, 0}});
+    shapes.push_back({{.x = 0, .y = 0}});
   }
 
   const auto [goalAnchorX, goalAnchorY] = anchors[0]; // goal starts ON its goal
@@ -143,11 +149,12 @@ int runGenerate(const std::string &outPath, const uint32_t seed,
   const uint64_t maxAttempts = static_cast<uint64_t>(shuffleMoves) * 4;
   while (accepted < shuffleMoves && attempts < maxAttempts) {
     attempts++;
-    const auto b = static_cast<uint8_t>(randInt(0, static_cast<int>(shapes.size()) - 1));
+    const auto b =
+        static_cast<uint8_t>(randInt(0, static_cast<int>(shapes.size()) - 1));
     const int d = randInt(0, 3);
     const Position from = anchors[b];
-    const Position to = {static_cast<int8_t>(from.x + BitGrid::DX[d]),
-                         static_cast<int8_t>(from.y + BitGrid::DY[d])};
+    const Position to = {.x = static_cast<int8_t>(from.x + BitGrid::DX[d]),
+                         .y = static_cast<int8_t>(from.y + BitGrid::DY[d])};
     grid.removeBlock(b, from);
     if (grid.canPlace(b, to.x, to.y)) {
       grid.addBlock(b, to);

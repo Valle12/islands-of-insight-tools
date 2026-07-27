@@ -25,15 +25,24 @@ inline uint64_t nowMsSteady() {
 
 inline const char *armName(const int arm) {
   switch (arm) {
-  case 0: return "hier";
-  case 1: return "drag";
-  case 2: return "unit";
-  case 3: return "corridor";
-  case 4: return "assembly";
-  case 5: return "jam";
-  case 6: return "jamrestart";
-  case 7: return "jambeam";
-  default: return "?";
+  case 0:
+    return "hier";
+  case 1:
+    return "drag";
+  case 2:
+    return "unit";
+  case 3:
+    return "corridor";
+  case 4:
+    return "assembly";
+  case 5:
+    return "jam";
+  case 6:
+    return "jamrestart";
+  case 7:
+    return "jambeam";
+  default:
+    return "?";
   }
 }
 
@@ -230,8 +239,7 @@ inline std::vector<Turn> solveArmsParallel(
     const std::vector<std::vector<Position>> &shapes,
     const std::vector<Position> &initialAnchors, const uint8_t goalIndex,
     const Position goalAnchor, const uint32_t maxMs, const uint32_t maxNodes,
-    const bool postProcess,
-    const std::function<void(uint32_t)> &onProgress,
+    const bool postProcess, const std::function<void(uint32_t)> &onProgress,
     // Measured-bytes ceiling applied to EVERY arm. 0 = unlimited. This matters
     // most here and nowhere else: under emscripten pthreads all 8 arms share
     // ONE heap, so an unbounded arm does not merely fail itself — exhausting a
@@ -264,9 +272,8 @@ inline std::vector<Turn> solveArmsParallel(
             progress[i].store(n, std::memory_order_relaxed);
           },
           /*respectJamGate=*/true, jamAspect16, jamDensityPct);
-      armMs[i].store(
-          static_cast<uint32_t>(cascade::nowMsSteady() - started),
-          std::memory_order_relaxed);
+      armMs[i].store(static_cast<uint32_t>(cascade::nowMsSteady() - started),
+                     std::memory_order_relaxed);
       if (!results[i].empty())
         claimWin(i);
       finished.fetch_add(1);
@@ -290,10 +297,13 @@ inline std::vector<Turn> solveArmsParallel(
     outcomes->clear();
     for (int i = 0; i < ARMS; i++) {
       const uint32_t ms = armMs[i].load(std::memory_order_relaxed);
-      outcomes->push_back({i, !results[i].empty(), i == w,
+      outcomes->push_back({.arm = i,
+                           .solved = !results[i].empty(),
+                           .won = i == w,
                            // <5ms with no plan means it gate-declined or
                            // short-circuited rather than actually searching.
-                           results[i].empty() && ms < 5, ms});
+                           .declined = results[i].empty() && ms < 5,
+                           .wallMs = ms});
     }
   }
   if (w >= 0)
@@ -401,11 +411,13 @@ inline std::vector<Turn> solveArmsSequential(
             onProgress(armBase + n);
         },
         /*respectJamGate=*/false, jamAspect16, jamDensityPct);
-    const auto ms =
-        static_cast<uint32_t>(cascade::nowMsSteady() - started);
+    const auto ms = static_cast<uint32_t>(cascade::nowMsSteady() - started);
     if (outcomes)
-      outcomes->push_back(
-          {arm, !turns.empty(), !turns.empty(), turns.empty() && ms < 5, ms});
+      outcomes->push_back({.arm = arm,
+                           .solved = !turns.empty(),
+                           .won = !turns.empty(),
+                           .declined = turns.empty() && ms < 5,
+                           .wallMs = ms});
     if (!turns.empty())
       return turns;
     // Carry the arm's OWN last count, not a constant: `carried += 1` made the

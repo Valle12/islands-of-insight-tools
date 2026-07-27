@@ -354,8 +354,7 @@ private:
   std::vector<uint32_t> dispContribScratch_;
 
   // Progress of a state: middle cuts crossed, +1 once exactly on target.
-  [[nodiscard]] uint32_t
-  progressOf(const std::vector<Position> &anchors) const;
+  [[nodiscard]] uint32_t progressOf(const std::vector<Position> &anchors) const;
 
   struct SegmentAlt {
     std::vector<DragMove> drags;

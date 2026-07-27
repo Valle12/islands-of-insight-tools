@@ -39,11 +39,12 @@ std::vector<Turn> DragSolver::searchAssembly(const uint32_t maxMs,
   std::vector<Turn> plan;
 
   const auto slotPos = [&](const uint8_t p) {
-    return Position{static_cast<int8_t>(packedSlot_[p] / H),
-                    static_cast<int8_t>(packedSlot_[p] % H)};
+    return Position{.x = static_cast<int8_t>(packedSlot_[p] / H),
+                    .y = static_cast<int8_t>(packedSlot_[p] % H)};
   };
   const auto remainingMs = [&]() -> uint32_t {
-    if (deadline == 0) return 0;
+    if (deadline == 0)
+      return 0;
     const uint64_t now = nowMs();
     return now >= deadline ? 1 : static_cast<uint32_t>(deadline - now);
   };
@@ -106,8 +107,7 @@ std::vector<Turn> DragSolver::searchAssembly(const uint32_t maxMs,
   // remaining pieces plus the last few placed (unfrozen so they can shuffle
   // aside), with requireAllSlots forcing everyone back onto their slots by
   // the end — dissolving a seal that no packing choice or order can.
-  constexpr size_t ENDGAME_K = 3;   // trigger when within K of complete
-  constexpr size_t UNFREEZE_K = 4;  // last-placed pieces to set movable
+  constexpr size_t UNFREEZE_K = 4; // last-placed pieces to set movable
   const auto jointEndgame = [&](const AsmFrame &f,
                                 const uint32_t budgetMs) -> std::vector<Turn> {
     std::vector<uint8_t> remaining;
@@ -130,8 +130,8 @@ std::vector<Turn> DragSolver::searchAssembly(const uint32_t maxMs,
     c.weight = 3;
     c.settledOnly = false; // threading needs floating intermediates
     c.partialExpansionWidth = 48;
-    c.lockOnSlot = false;      // unfrozen placed may leave their slots...
-    c.requireAllSlots = true;  // ...but all must return by the end
+    c.lockOnSlot = false;     // unfrozen placed may leave their slots...
+    c.requireAllSlots = true; // ...but all must return by the end
     c.slotHeuristic = true;
     c.packingGuide = false;
     c.postProcess = false;
@@ -143,7 +143,7 @@ std::vector<Turn> DragSolver::searchAssembly(const uint32_t maxMs,
     // exhausting it ABORTS the module, killing every other arm.
     c.maxHeapBytes = cfg_.maxHeapBytes;
     c.maxStatesStored = cfg_.maxStatesStored;
-    c.frozenBlocks = frozen;
+    c.frozenBlocks = std::move(frozen);
     DragSolver child(gridWidth_, gridHeight_, shapes_, f.anchors,
                      remaining.front(), slotPos(remaining.front()), c);
     child.overrideSlots(packedSlot_);
@@ -180,161 +180,170 @@ std::vector<Turn> DragSolver::searchAssembly(const uint32_t maxMs,
     plan.clear();
     anchors = initialAnchors_;
     std::vector<AsmFrame> stack;
-    stack.push_back({anchors, 0, {}, {}, false});
+    stack.push_back({.anchors = anchors,
+                     .planLen = 0,
+                     .placed = {},
+                     .tried = {},
+                     .jointTried = false});
     absorbOnSlot(stack.back());
     uint32_t backtracks = 0;
     uint32_t jointAttempts = 0;
-    constexpr uint32_t MAX_JOINT = 6; // bound joint time per packing
     bool attemptOver = false;
 
     while (!stack.empty() && !attemptOver) {
+      constexpr uint32_t MAX_JOINT = 6;
       if (cfg_.cancel && cfg_.cancel->load(std::memory_order_relaxed))
         return {};
       if (deadline != 0 && nowMs() > deadline) {
-        std::cout << "assembly: out of time with "
-                  << stack.back().placed.size() << "/" << pieces.size()
-                  << " placed\n";
+        std::cout << "assembly: out of time with " << stack.back().placed.size()
+                  << "/" << pieces.size() << " placed\n";
         return {};
       }
       if (nowMs() > packDeadline) {
         std::cout << "assembly: packing attempt budget spent at "
-                  << stack.back().placed.size() << "/" << pieces.size()
-                  << "\n";
+                  << stack.back().placed.size() << "/" << pieces.size() << "\n";
         break;
       }
-    AsmFrame &cur = stack.back();
-    if (cur.placed.size() >= pieces.size()) {
-      anchors = cur.anchors;
-      plan.resize(cur.planLen);
-      packedAll = true;
-      break;
-    }
-    std::vector<uint8_t> candidates;
-    for (const uint8_t p : pieces) {
-      if (std::ranges::find(cur.placed, p) != cur.placed.end())
-        continue;
-      if (std::ranges::find(cur.tried, p) != cur.tried.end())
-        continue;
-      // approachable() reads the member grid against a hypothetical
-      // arrangement; make it see this frame's goal/piece positions.
-      anchors = cur.anchors;
-      if (!approachable(p, cur.placed))
-        continue;
-      candidates.push_back(p);
-    }
-    // Endgame seal: no single piece advances but we are near completion —
-    // try the bounded joint relaxation before giving up on this frame.
-    if (candidates.empty() && !cur.jointTried &&
-        cur.placed.size() + ENDGAME_K >= pieces.size() &&
-        cur.placed.size() < pieces.size() && jointAttempts < MAX_JOINT) {
-      cur.jointTried = true;
-      jointAttempts++;
-      const uint64_t nowJoint = nowMs();
-      const uint32_t packRem = packDeadline > nowJoint
-                                   ? static_cast<uint32_t>(packDeadline - nowJoint)
-                                   : 1;
-      const uint32_t jointBudget = std::min<uint32_t>(packRem, 90000);
-      std::cout << "assembly: joint endgame at " << cur.placed.size() << "/"
-                << pieces.size() << "\n";
-      if (const auto jturns = jointEndgame(cur, jointBudget);
-          !jturns.empty()) {
+      AsmFrame &cur = stack.back();
+      if (cur.placed.size() >= pieces.size()) {
         anchors = cur.anchors;
-        for (const auto &[blockId, direction] : jturns)
-          anchors[blockId] = {
-              static_cast<int8_t>(anchors[blockId].x +
-                                  BitGrid::DX[std::to_underlying(direction)]),
-              static_cast<int8_t>(anchors[blockId].y +
-                                  BitGrid::DY[std::to_underlying(direction)])};
         plan.resize(cur.planLen);
-        plan.insert(plan.end(), jturns.begin(), jturns.end());
-        std::cout << "assembly: joint endgame SOLVED the packing ("
-                  << jturns.size() << " turns)\n";
         packedAll = true;
         break;
       }
-      continue; // still cur; candidates recomputed next iteration (empty →
-                // backtrack, since jointTried now blocks a re-attempt)
-    }
-    if (candidates.empty()) {
-      // Exhausted this frame: undo its placement and let the parent try a
-      // different piece.
-      stack.pop_back();
-      backtracks++;
-      if (!stack.empty())
-        std::cout << "assembly: backtrack to " << stack.back().placed.size()
-                  << "/" << pieces.size() << " placed\n";
-      if (constexpr uint32_t MAX_BACKTRACKS = 80;
-          backtracks > MAX_BACKTRACKS) {
-        std::cout << "assembly: backtrack limit for this packing\n";
-        attemptOver = true;
+      std::vector<uint8_t> candidates;
+      for (const uint8_t p : pieces) {
+        if (std::ranges::find(cur.placed, p) != cur.placed.end())
+          continue;
+        if (std::ranges::find(cur.tried, p) != cur.tried.end())
+          continue;
+        // approachable() reads the member grid against a hypothetical
+        // arrangement; make it see this frame's goal/piece positions.
+        anchors = cur.anchors;
+        if (!approachable(p, cur.placed))
+          continue;
+        candidates.push_back(p);
       }
-      continue;
-    }
-    // Deepest slot first (farthest from where the goal parks), then the
-    // piece nearest its slot — back columns fill before they get sealed.
-    std::ranges::sort(candidates,
-              [&](const uint8_t a, const uint8_t b) {
-                const auto sa = slotPos(a), sb = slotPos(b);
-                const int da = std::abs(sa.x - cur.anchors[goalIndex_].x) +
-                               std::abs(sa.y - cur.anchors[goalIndex_].y);
-                const int db = std::abs(sb.x - cur.anchors[goalIndex_].x) +
-                               std::abs(sb.y - cur.anchors[goalIndex_].y);
-                if (da != db) return da > db;
-                const int la = std::abs(sa.x - cur.anchors[a].x) +
-                               std::abs(sa.y - cur.anchors[a].y);
-                const int lb = std::abs(sb.x - cur.anchors[b].x) +
-                               std::abs(sb.y - cur.anchors[b].y);
-                return la < lb;
-              });
-    const uint8_t piece = candidates.front();
-    cur.tried.push_back(piece);
+      // Endgame seal: no single piece advances but we are near completion —
+      // try the bounded joint relaxation before giving up on this frame.
+      if (constexpr size_t ENDGAME_K = 3;
+          candidates.empty() && !cur.jointTried &&
+          cur.placed.size() + ENDGAME_K >= pieces.size() &&
+          cur.placed.size() < pieces.size() && jointAttempts < MAX_JOINT) {
+        cur.jointTried = true;
+        jointAttempts++;
+        const uint64_t nowJoint = nowMs();
+        const uint32_t packRem =
+            packDeadline > nowJoint
+                ? static_cast<uint32_t>(packDeadline - nowJoint)
+                : 1;
+        const uint32_t jointBudget = std::min<uint32_t>(packRem, 90000);
+        std::cout << "assembly: joint endgame at " << cur.placed.size() << "/"
+                  << pieces.size() << "\n";
+        if (const auto jturns = jointEndgame(cur, jointBudget);
+            !jturns.empty()) {
+          anchors = cur.anchors;
+          for (const auto &[blockId, direction] : jturns)
+            anchors[blockId] = {
+                .x = static_cast<int8_t>(
+                    anchors[blockId].x +
+                    BitGrid::DX[std::to_underlying(direction)]),
+                .y = static_cast<int8_t>(
+                    anchors[blockId].y +
+                    BitGrid::DY[std::to_underlying(direction)])};
+          plan.resize(cur.planLen);
+          plan.insert(plan.end(), jturns.begin(), jturns.end());
+          std::cout << "assembly: joint endgame SOLVED the packing ("
+                    << jturns.size() << " turns)\n";
+          packedAll = true;
+          break;
+        }
+        continue; // still cur; candidates recomputed next iteration (empty →
+                  // backtrack, since jointTried now blocks a re-attempt)
+      }
+      if (candidates.empty()) {
+        // Exhausted this frame: undo its placement and let the parent try a
+        // different piece.
+        stack.pop_back();
+        backtracks++;
+        if (!stack.empty())
+          std::cout << "assembly: backtrack to " << stack.back().placed.size()
+                    << "/" << pieces.size() << " placed\n";
+        if (constexpr uint32_t MAX_BACKTRACKS = 80;
+            backtracks > MAX_BACKTRACKS) {
+          std::cout << "assembly: backtrack limit for this packing\n";
+          attemptOver = true;
+        }
+        continue;
+      }
+      // Deepest slot first (farthest from where the goal parks), then the
+      // piece nearest its slot — back columns fill before they get sealed.
+      std::ranges::sort(candidates, [&](const uint8_t a, const uint8_t b) {
+        const auto sa = slotPos(a);
+        const auto sb = slotPos(b);
+        const int da = std::abs(sa.x - cur.anchors[goalIndex_].x) +
+                       std::abs(sa.y - cur.anchors[goalIndex_].y);
+        const int db = std::abs(sb.x - cur.anchors[goalIndex_].x) +
+                       std::abs(sb.y - cur.anchors[goalIndex_].y);
+        if (da != db)
+          return da > db;
+        const int la = std::abs(sa.x - cur.anchors[a].x) +
+                       std::abs(sa.y - cur.anchors[a].y);
+        const int lb = std::abs(sb.x - cur.anchors[b].x) +
+                       std::abs(sb.y - cur.anchors[b].y);
+        return la < lb;
+      });
+      const uint8_t piece = candidates.front();
+      cur.tried.push_back(piece);
 
-    Config c;
-    c.weight = 4;
-    c.settledOnly = true;
-    c.partialExpansionWidth = 48;
-    c.lockOnSlot = true;
-    c.packingGuide = false; // slots injected below
-    c.postProcess = false;
-    c.cancel = cfg_.cancel;
-    // See jointEndgame: the child does the searching, so it must inherit the
-    // heap/state ceilings or the arm has none.
-    c.maxHeapBytes = cfg_.maxHeapBytes;
-    c.maxStatesStored = cfg_.maxStatesStored;
-    c.frozenBlocks = {goalIndex_};
-    DragSolver child(gridWidth_, gridHeight_, shapes_, cur.anchors, piece,
-                     slotPos(piece), c);
-    child.overrideSlots(packedSlot_);
-    const uint64_t nowChild = nowMs();
-    const uint32_t packRem =
-        packDeadline > nowChild
-            ? static_cast<uint32_t>(packDeadline - nowChild)
-            : 1;
-    const uint32_t budget = std::min(roundBudget, packRem);
-    const auto turns = child.search(budget, maxNodes);
-    stats_.nodesExpanded += child.lastStats().nodesExpanded;
-    stats_.passes++;
-    if (turns.empty())
-      continue; // same frame, next candidate on the following iteration
+      Config c;
+      c.weight = 4;
+      c.settledOnly = true;
+      c.partialExpansionWidth = 48;
+      c.lockOnSlot = true;
+      c.packingGuide = false; // slots injected below
+      c.postProcess = false;
+      c.cancel = cfg_.cancel;
+      // See jointEndgame: the child does the searching, so it must inherit the
+      // heap/state ceilings or the arm has none.
+      c.maxHeapBytes = cfg_.maxHeapBytes;
+      c.maxStatesStored = cfg_.maxStatesStored;
+      c.frozenBlocks = {goalIndex_};
+      DragSolver child(gridWidth_, gridHeight_, shapes_, cur.anchors, piece,
+                       slotPos(piece), c);
+      child.overrideSlots(packedSlot_);
+      const uint64_t nowChild = nowMs();
+      const uint32_t packRem =
+          packDeadline > nowChild
+              ? static_cast<uint32_t>(packDeadline - nowChild)
+              : 1;
+      const uint32_t budget = std::min(roundBudget, packRem);
+      const auto turns = child.search(budget, maxNodes);
+      stats_.nodesExpanded += child.lastStats().nodesExpanded;
+      stats_.passes++;
+      if (turns.empty())
+        continue; // same frame, next candidate on the following iteration
 
-    AsmFrame next;
-    next.anchors = cur.anchors;
-    for (const auto &[blockId, direction] : turns) {
-      next.anchors[blockId].x = static_cast<int8_t>(
-          next.anchors[blockId].x + BitGrid::DX[std::to_underlying(direction)]);
-      next.anchors[blockId].y = static_cast<int8_t>(
-          next.anchors[blockId].y + BitGrid::DY[std::to_underlying(direction)]);
-    }
-    plan.resize(cur.planLen);
-    plan.insert(plan.end(), turns.begin(), turns.end());
-    next.planLen = plan.size();
-    next.placed = cur.placed;
-    next.placed.push_back(piece);
-    next.tried = {};
-    absorbOnSlot(next);
-    std::cout << "assembly: placed block " << static_cast<int>(piece) << " ("
-              << turns.size() << " turns), " << next.placed.size() << "/"
-              << pieces.size() << "\n";
+      AsmFrame next;
+      next.anchors = cur.anchors;
+      for (const auto &[blockId, direction] : turns) {
+        next.anchors[blockId].x =
+            static_cast<int8_t>(next.anchors[blockId].x +
+                                BitGrid::DX[std::to_underlying(direction)]);
+        next.anchors[blockId].y =
+            static_cast<int8_t>(next.anchors[blockId].y +
+                                BitGrid::DY[std::to_underlying(direction)]);
+      }
+      plan.resize(cur.planLen);
+      plan.insert(plan.end(), turns.begin(), turns.end());
+      next.planLen = plan.size();
+      next.placed = cur.placed;
+      next.placed.push_back(piece);
+      next.tried = {};
+      absorbOnSlot(next);
+      std::cout << "assembly: placed block " << static_cast<int>(piece) << " ("
+                << turns.size() << " turns), " << next.placed.size() << "/"
+                << pieces.size() << "\n";
       stack.push_back(std::move(next));
     }
 
@@ -348,7 +357,8 @@ std::vector<Turn> DragSolver::searchAssembly(const uint32_t maxMs,
     // structurally different packing and start assembly over.
     bool advanced = false;
     while (nextVariant < variants.size()) {
-      if (const auto [co, dp] = variants[nextVariant++]; !tryComputePacking(co, dp))
+      if (const auto [co, dp] = variants[nextVariant++];
+          !tryComputePacking(co, dp))
         continue;
       if (triedPackings.insert(slotSig()).second) {
         advanced = true;
@@ -382,8 +392,8 @@ std::vector<Turn> DragSolver::searchAssembly(const uint32_t maxMs,
     DragSolver finalLeg(gridWidth_, gridHeight_, shapes_, anchors, goalIndex_,
                         goalAnchor_, c);
     finalLeg.overrideSlots(packedSlot_);
-    const auto turns = finalLeg.search(deadline == 0 ? 0 : remainingMs(),
-                                       maxNodes);
+    const auto turns =
+        finalLeg.search(deadline == 0 ? 0 : remainingMs(), maxNodes);
     stats_.nodesExpanded += finalLeg.lastStats().nodesExpanded;
     stats_.passes++;
     if (turns.empty()) {
@@ -455,12 +465,12 @@ DragSolver::reconstructTurns(const std::vector<DragMove> &drags) {
       const int8_t d = grid_.parentDirOf(cur);
       path.push_back(BitGrid::DIRS[d]);
       const auto [px, py] = grid_.anchorFromIndex(cur);
-      cur = grid_.anchorIndex({static_cast<int8_t>(px - BitGrid::DX[d]),
-                               static_cast<int8_t>(py - BitGrid::DY[d])});
+      cur = grid_.anchorIndex({.x = static_cast<int8_t>(px - BitGrid::DX[d]),
+                               .y = static_cast<int8_t>(py - BitGrid::DY[d])});
     }
     std::ranges::reverse(path);
     for (const Direction dir : path)
-      turns.push_back({dragBlockId, dir});
+      turns.push_back({.blockId = dragBlockId, .direction = dir});
     anchors[dragBlockId] = grid_.anchorFromIndex(dragToIdx);
   }
   return turns;
@@ -476,8 +486,8 @@ bool DragSolver::replayIsValid(const std::vector<Turn> &turns) const {
       return false;
     const Position from = anchors[blockId];
     const auto d = std::to_underlying(direction);
-    const Position to = {static_cast<int8_t>(from.x + BitGrid::DX[d]),
-                         static_cast<int8_t>(from.y + BitGrid::DY[d])};
+    const Position to = {.x = static_cast<int8_t>(from.x + BitGrid::DX[d]),
+                         .y = static_cast<int8_t>(from.y + BitGrid::DY[d])};
     grid.removeBlock(blockId, from);
     if (!grid.canPlace(blockId, to.x, to.y))
       return false;

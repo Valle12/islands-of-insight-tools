@@ -23,18 +23,19 @@ DragSolver::DragSolver(const uint8_t gridWidth, const uint8_t gridHeight,
                        Config config)
     : gridWidth_(gridWidth), gridHeight_(gridHeight),
       shapes_(std::move(shapes)), initialAnchors_(std::move(initialAnchors)),
-      goalIndex_(goalIndex), goalAnchor_(goalAnchor),
-      cfg_(std::move(config)),
+      goalIndex_(goalIndex), goalAnchor_(goalAnchor), cfg_(std::move(config)),
       grid_(gridWidth, gridHeight, shapes_) {
   // Same-shape symmetry groups (mirrors AStar's construction).
   {
     std::unordered_map<std::string, std::vector<uint8_t>> byShape;
     for (size_t i = 0; i < shapes_.size(); i++) {
-      if (i == goalIndex_) continue;
+      if (i == goalIndex_)
+        continue;
       std::vector<Position> cells = shapes_[i];
       // See AStar's copy of this loop: an empty shape has no origin to
       // normalise against, and cells[0] on it is undefined behaviour.
-      if (cells.empty()) continue;
+      if (cells.empty())
+        continue;
       int8_t minX = cells[0].x;
       int8_t minY = cells[0].y;
       for (const auto &[cx, cy] : cells) {
@@ -57,7 +58,8 @@ DragSolver::DragSolver(const uint8_t gridWidth, const uint8_t gridHeight,
       byShape[shapeKey].push_back(static_cast<uint8_t>(i));
     }
     for (auto &group : byShape | std::views::values)
-      if (group.size() >= 2) symmetryGroups_.push_back(std::move(group));
+      if (group.size() >= 2)
+        symmetryGroups_.push_back(std::move(group));
   }
   blockGroup_.assign(shapes_.size(), -1);
   for (size_t g = 0; g < symmetryGroups_.size(); g++)
@@ -66,7 +68,8 @@ DragSolver::DragSolver(const uint8_t gridWidth, const uint8_t gridHeight,
 
   goalFinalRows_.assign(gridHeight_, 0);
   for (const auto &[cx, cy] : shapes_[goalIndex_])
-    goalFinalRows_[goalAnchor_.y + cy] |= uint64_t{1} << (goalAnchor_.x + cx);
+    goalFinalRows_[goalAnchor_.y + cy] |=
+        uint64_t{1} << static_cast<unsigned>(goalAnchor_.x + cx);
 
   const auto movableFromStart = computeMovableSet(initialAnchors_);
   movableBlockIndices_.reserve(shapes_.size());
@@ -110,13 +113,15 @@ bool DragSolver::tryComputePacking(const int cellOrderVariant,
   std::vector<uint64_t> lockedRows(gridHeight_, 0);
   {
     std::vector isMovable(shapes_.size(), false);
-    for (const uint8_t i : movableBlockIndices_) isMovable[i] = true;
+    for (const uint8_t i : movableBlockIndices_)
+      isMovable[i] = true;
     for (size_t i = 0; i < shapes_.size(); i++) {
-      if (isMovable[i]) continue;
+      if (isMovable[i])
+        continue;
       const auto &rows = grid_.shapeRows(static_cast<uint8_t>(i));
       for (size_t r = 0; r < rows.size(); r++)
-        lockedRows[initialAnchors_[i].y + r] |= rows[r]
-                                                << initialAnchors_[i].x;
+        lockedRows[initialAnchors_[i].y + r] |=
+            rows[r] << static_cast<unsigned>(initialAnchors_[i].x);
     }
   }
   const auto &sweep = cutSuffixRows_[0];
@@ -125,14 +130,14 @@ bool DragSolver::tryComputePacking(const int cellOrderVariant,
   std::vector<uint16_t> cellList;
   for (int x = 0; x < gridWidth_; x++)
     for (int y = 0; y < H; y++) {
-      if (const uint64_t bit = uint64_t{1} << x;
+      if (const uint64_t bit = uint64_t{1} << static_cast<unsigned>(x);
           lockedRows[y] & bit || sweep[y] & bit)
         continue;
       allowed[x * H + y] = 1;
       cellList.push_back(static_cast<uint16_t>(x * H + y));
     }
   // First-empty-cell scan order — the main packing-shape lever.
-  switch (cellOrderVariant & 3) {
+  switch (static_cast<unsigned>(cellOrderVariant) & 3u) {
   case 0:
     std::ranges::sort(cellList);
     break;
@@ -140,25 +145,26 @@ bool DragSolver::tryComputePacking(const int cellOrderVariant,
     std::ranges::sort(cellList, std::greater());
     break;
   case 2:
-    std::ranges::sort(cellList,
-              [H](const uint16_t a, const uint16_t b) {
-                const int ya = a % H, yb = b % H;
-                return ya != yb ? ya < yb : a < b;
-              });
+    std::ranges::sort(cellList, [H](const uint16_t a, const uint16_t b) {
+      const int ya = a % H;
+      const int yb = b % H;
+      return ya != yb ? ya < yb : a < b;
+    });
     break;
   default:
-    std::ranges::sort(cellList,
-              [H](const uint16_t a, const uint16_t b) {
-                const int ya = a % H, yb = b % H;
-                return ya != yb ? ya > yb : a < b;
-              });
+    std::ranges::sort(cellList, [H](const uint16_t a, const uint16_t b) {
+      const int ya = a % H;
+      const int yb = b % H;
+      return ya != yb ? ya > yb : a < b;
+    });
     break;
   }
 
   std::vector<uint8_t> pieces;
   size_t pieceCells = 0;
   for (const uint8_t i : movableBlockIndices_) {
-    if (i == goalIndex_) continue;
+    if (i == goalIndex_)
+      continue;
     pieces.push_back(i);
     pieceCells += shapes_[i].size();
   }
@@ -177,7 +183,7 @@ bool DragSolver::tryComputePacking(const int cellOrderVariant,
   }
   if (pieces.empty() || pieceCells > cellList.size())
     return false;
-  int holeBudget = static_cast<int>(cellList.size() - pieceCells);
+  auto holeBudget = static_cast<int>(cellList.size() - pieceCells);
 
   std::vector<uint8_t> occ(total, 0);
   std::vector used(pieces.size(), false);
@@ -214,8 +220,10 @@ bool DragSolver::tryComputePacking(const int cellOrderVariant,
     const int tx = target / H;
     const int ty = target % H;
     for (size_t pi = 0; pi < pieces.size(); pi++) {
-      if (used[pi]) continue;
-      for (const uint8_t id = pieces[pi]; const auto &[coverX, coverY] : shapes_[id]) {
+      if (used[pi])
+        continue;
+      for (const uint8_t id = pieces[pi];
+           const auto &[coverX, coverY] : shapes_[id]) {
         const int ax = tx - coverX;
         const int ay = ty - coverY;
         if (!canPlaceAt(id, ax, ay))
@@ -268,7 +276,8 @@ bool DragSolver::tryComputePacking(const int cellOrderVariant,
       int best = -1;
       int bestDist = INT32_MAX;
       for (size_t s = 0; s < slots.size(); s++) {
-        if (taken[s]) continue;
+        if (taken[s])
+          continue;
         const int dx = std::abs(initialAnchors_[m].x - slots[s] / H);
         if (const int dy = std::abs(initialAnchors_[m].y - slots[s] % H);
             dx + dy < bestDist) {
@@ -305,13 +314,15 @@ void DragSolver::computeCutSchedule() {
   std::vector<uint64_t> lockedRows(gridHeight_, 0);
   {
     std::vector isMovable(shapes_.size(), false);
-    for (const uint8_t i : movableBlockIndices_) isMovable[i] = true;
+    for (const uint8_t i : movableBlockIndices_)
+      isMovable[i] = true;
     for (size_t i = 0; i < shapes_.size(); i++) {
-      if (isMovable[i]) continue;
+      if (isMovable[i])
+        continue;
       const auto &rows = grid_.shapeRows(static_cast<uint8_t>(i));
       for (size_t r = 0; r < rows.size(); r++)
-        lockedRows[initialAnchors_[i].y + r] |= rows[r]
-                                                << initialAnchors_[i].x;
+        lockedRows[initialAnchors_[i].y + r] |=
+            rows[r] << static_cast<unsigned>(initialAnchors_[i].x);
     }
   }
 
@@ -322,7 +333,7 @@ void DragSolver::computeCutSchedule() {
       return false;
     const auto &rows = grid_.shapeRows(gi);
     for (size_t r = 0; r < rows.size(); r++)
-      if (rows[r] << x & lockedRows[y + r])
+      if (rows[r] << static_cast<unsigned>(x) & lockedRows[y + r])
         return false;
     return true;
   };
@@ -342,7 +353,8 @@ void DragSolver::computeCutSchedule() {
     std::vector<uint16_t> queue;
     queue.reserve(totalAnchors);
     seen[source] = true;
-    if (track) parent[source] = -1;
+    if (track)
+      parent[source] = -1;
     queue.push_back(source);
     for (size_t head = 0; head < queue.size(); head++) {
       const uint16_t cur = queue[head];
@@ -357,7 +369,8 @@ void DragSolver::computeCutSchedule() {
         if (seen[nIdx] || static_cast<int32_t>(nIdx) == banned)
           continue;
         seen[nIdx] = true;
-        if (track) parent[nIdx] = cur;
+        if (track)
+          parent[nIdx] = cur;
         queue.push_back(nIdx);
       }
     }
@@ -408,12 +421,16 @@ void DragSolver::computeCutSchedule() {
     dist[targetIdx] = 0;
     for (size_t head = 0; head < q.size(); head++) {
       const uint16_t c = q[head];
-      const int cx = c / H, cy = c % H;
+      const int cx = c / H;
+      const int cy = c % H;
       for (int d = 0; d < 4; d++) {
-        const int nx = cx + BitGrid::DX[d], ny = cy + BitGrid::DY[d];
-        if (!validAnchor(nx, ny)) continue;
+        const int nx = cx + BitGrid::DX[d];
+        const int ny = cy + BitGrid::DY[d];
+        if (!validAnchor(nx, ny))
+          continue;
         const auto n = static_cast<uint16_t>(nx * H + ny);
-        if (dist[n] != -1) continue;
+        if (dist[n] != -1)
+          continue;
         dist[n] = dist[c] + 1;
         q.push_back(n);
       }
@@ -422,20 +439,25 @@ void DragSolver::computeCutSchedule() {
       const int numBands = std::clamp(D, 4, 20);
       const int bandWidth = (D + numBands - 1) / numBands; // ceil
       for (int a = 0; a < totalAnchors; a++) {
-        if (dist[a] < 0) { progressIndex_[a] = 0; continue; }
+        if (dist[a] < 0) {
+          progressIndex_[a] = 0;
+          continue;
+        }
         const int b = (D - dist[a]) / bandWidth;
         progressIndex_[a] = static_cast<uint16_t>(std::clamp(b, 0, numBands));
       }
       // One waypoint per band: the first path anchor reaching that band.
       int nextBand = 1;
       for (const uint16_t v : path) {
-        if (v == startIdx) continue;
+        if (v == startIdx)
+          continue;
         while (nextBand <= numBands &&
                progressIndex_[v] >= static_cast<uint16_t>(nextBand)) {
           cuts.push_back(v);
           nextBand++;
         }
-        if (nextBand > numBands) break;
+        if (nextBand > numBands)
+          break;
       }
       corridorBandsActive_ = !cuts.empty();
     }
@@ -454,7 +476,7 @@ void DragSolver::computeCutSchedule() {
     const int vx = cuts[i] / H;
     const int vy = cuts[i] % H;
     for (size_t r = 0; r < rows.size(); r++)
-      acc[vy + r] |= rows[r] << vx;
+      acc[vy + r] |= rows[r] << static_cast<unsigned>(vx);
     cutSuffixRows_[i] = acc;
   }
   std::cout << "DragSolver: cut schedule — " << (k - 1) << " of "
@@ -480,7 +502,7 @@ bool DragSolver::blockOnMask(const uint8_t i, const Position a,
                              const std::vector<uint64_t> &mask) const {
   const auto &rows = grid_.shapeRows(i);
   for (size_t r = 0; r < rows.size(); r++)
-    if (rows[r] << a.x & mask[a.y + r])
+    if (rows[r] << static_cast<unsigned>(a.x) & mask[a.y + r])
       return true;
   return false;
 }
@@ -489,12 +511,12 @@ bool DragSolver::blockOnGoalFootprint(const uint8_t i, const Position a) const {
   return blockOnMask(i, a, goalFinalRows_);
 }
 
-uint32_t
-DragSolver::blockCellsOnMask(const uint8_t i, const Position a,
-                             const std::vector<uint64_t> &mask) const {
+uint32_t DragSolver::blockCellsOnMask(const uint8_t i, const Position a,
+                                      const std::vector<uint64_t> &mask) const {
   const auto &rows = grid_.shapeRows(i);
   uint32_t n = 0;
   for (size_t r = 0; r < rows.size(); r++)
-    n += static_cast<uint32_t>(std::popcount(rows[r] << a.x & mask[a.y + r]));
+    n += static_cast<uint32_t>(
+        std::popcount(rows[r] << static_cast<unsigned>(a.x) & mask[a.y + r]));
   return n;
 }

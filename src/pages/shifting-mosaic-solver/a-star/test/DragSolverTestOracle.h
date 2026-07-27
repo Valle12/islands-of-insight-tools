@@ -52,7 +52,7 @@ struct Puzzle {
 // Brute-force placement check: block i at anchor a, all cells in-bounds by
 // BOUNDING BOX (mirrors AStar::inBounds) and no overlap with other blocks.
 inline bool oracleCanPlace(const Puzzle &p, const size_t i, const Position a,
-                    const std::vector<Position> &anchors) {
+                           const std::vector<Position> &anchors) {
   int boxW = 0;
   int boxH = 0;
   for (const auto &[cx, cy] : p.shapes[i]) {
@@ -76,8 +76,9 @@ inline bool oracleCanPlace(const Puzzle &p, const size_t i, const Position a,
 }
 
 // Reference per-block reachability BFS (a "drag"), independent of BitGrid.
-inline std::map<uint16_t, uint16_t> oracleFloodFill(const Puzzle &p, const size_t i,
-                                             const std::vector<Position> &anchors) {
+inline std::map<uint16_t, uint16_t>
+oracleFloodFill(const Puzzle &p, const size_t i,
+                const std::vector<Position> &anchors) {
   std::map<uint16_t, uint16_t> dist; // anchorIdx -> BFS distance
   std::queue<Position> q;
   dist[static_cast<uint16_t>(anchors[i].x * p.h + anchors[i].y)] = 0;
@@ -87,8 +88,8 @@ inline std::map<uint16_t, uint16_t> oracleFloodFill(const Puzzle &p, const size_
     q.pop();
     const auto curIdx = static_cast<uint16_t>(curX * p.h + curY);
     for (int d = 0; d < 4; d++) {
-      const Position next = {static_cast<int8_t>(curX + DX[d]),
-                             static_cast<int8_t>(curY + DY[d])};
+      const Position next = {.x = static_cast<int8_t>(curX + DX[d]),
+                             .y = static_cast<int8_t>(curY + DY[d])};
       if (!oracleCanPlace(p, i, next, anchors))
         continue;
       const auto nIdx = static_cast<uint16_t>(next.x * p.h + next.y);
@@ -127,8 +128,8 @@ inline int oracleMinDrags(const Puzzle &p) {
         if (dd == 0)
           continue;
         auto next = anchors;
-        next[i] = {static_cast<int8_t>(toIdx / p.h),
-                   static_cast<int8_t>(toIdx % p.h)};
+        next[i] = {.x = static_cast<int8_t>(toIdx / p.h),
+                   .y = static_cast<int8_t>(toIdx % p.h)};
         if (dist.try_emplace(key(next), d + 1).second)
           q.push(next);
       }
@@ -143,8 +144,9 @@ inline bool replayValid(const Puzzle &p, const std::vector<Turn> &turns) {
     if (blockId >= anchors.size())
       return false;
     const int d = static_cast<int>(direction);
-    const Position next = {static_cast<int8_t>(anchors[blockId].x + DX[d]),
-                           static_cast<int8_t>(anchors[blockId].y + DY[d])};
+    const Position next = {.x = static_cast<int8_t>(anchors[blockId].x + DX[d]),
+                           .y =
+                               static_cast<int8_t>(anchors[blockId].y + DY[d])};
     if (!oracleCanPlace(p, blockId, next, anchors))
       return false;
     anchors[blockId] = next;
@@ -164,11 +166,11 @@ inline size_t countPlayerSteps(const std::vector<Turn> &turns) {
 // or not — the oracle decides, and DragSolver must agree either way.
 inline Puzzle randomPuzzle(std::mt19937 &rng) {
   const std::vector<std::vector<Position>> catalog = {
-      {{0, 0}},
-      {{0, 0}, {1, 0}},
-      {{0, 0}, {0, 1}},
-      {{0, 0}, {1, 0}, {0, 1}},
-      {{0, 0}, {1, 0}, {1, 1}},
+      {{.x = 0, .y = 0}},
+      {{.x = 0, .y = 0}, {.x = 1, .y = 0}},
+      {{.x = 0, .y = 0}, {.x = 0, .y = 1}},
+      {{.x = 0, .y = 0}, {.x = 1, .y = 0}, {.x = 0, .y = 1}},
+      {{.x = 0, .y = 0}, {.x = 1, .y = 0}, {.x = 1, .y = 1}},
   };
   std::uniform_int_distribution wDist(4, 6);
   std::uniform_int_distribution hDist(3, 5);
@@ -177,14 +179,15 @@ inline Puzzle randomPuzzle(std::mt19937 &rng) {
   p.h = static_cast<uint8_t>(hDist(rng));
   std::uniform_int_distribution nDist(2, 3);
   const int n = nDist(rng);
-  std::uniform_int_distribution shapeDist(0, static_cast<int>(catalog.size()) - 1);
+  std::uniform_int_distribution shapeDist(0,
+                                          static_cast<int>(catalog.size()) - 1);
   std::uniform_int_distribution xDist(0, p.w - 1);
   std::uniform_int_distribution yDist(0, p.h - 1);
   for (int i = 0; i < n; i++) {
     const auto &shape = catalog[shapeDist(rng)];
     for (int tries = 0; tries < 50; tries++) {
-      const Position a = {static_cast<int8_t>(xDist(rng)),
-                          static_cast<int8_t>(yDist(rng))};
+      const Position a = {.x = static_cast<int8_t>(xDist(rng)),
+                          .y = static_cast<int8_t>(yDist(rng))};
       p.shapes.push_back(shape);
       p.anchors.push_back(a);
       if (oracleCanPlace(p, p.shapes.size() - 1, a, p.anchors))
@@ -195,13 +198,13 @@ inline Puzzle randomPuzzle(std::mt19937 &rng) {
   }
   if (p.shapes.empty()) {
     p.shapes.push_back(catalog[0]);
-    p.anchors.push_back({0, 0});
+    p.anchors.push_back({.x = 0, .y = 0});
   }
   p.goalIndex = 0;
   for (int tries = 0; tries < 50; tries++) {
-    const Position t = {static_cast<int8_t>(xDist(rng)),
-                        static_cast<int8_t>(yDist(rng))};
-    std::vector<Position> alone(p.anchors.size(), {127, 127});
+    const Position t = {.x = static_cast<int8_t>(xDist(rng)),
+                        .y = static_cast<int8_t>(yDist(rng))};
+    std::vector<Position> alone(p.anchors.size(), {.x = 127, .y = 127});
     alone[0] = t;
     // Target just needs the goal's bbox in-grid.
     int boxW = 0, boxH = 0;
@@ -218,6 +221,7 @@ inline Puzzle randomPuzzle(std::mt19937 &rng) {
   return p;
 }
 
-inline DragSolver makeDragSolver(const Puzzle &p, const DragSolver::Config &cfg) {
+inline DragSolver makeDragSolver(const Puzzle &p,
+                                 const DragSolver::Config &cfg) {
   return {p.w, p.h, p.shapes, p.anchors, p.goalIndex, p.goalAnchor, cfg};
 }

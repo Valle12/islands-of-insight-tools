@@ -25,7 +25,7 @@ DragSolver::relevanceMaskOf(const std::vector<Position> &anchors,
     if (x < 0 || y < 0 || x > maxX || y > maxY)
       return false;
     for (size_t r = 0; r < grows.size(); r++)
-      if (grows[r] << x & lockedRows[y + r])
+      if (grows[r] << static_cast<unsigned>(x) & lockedRows[y + r])
         return false;
     return true;
   };
@@ -41,9 +41,11 @@ DragSolver::relevanceMaskOf(const std::vector<Position> &anchors,
   bool found = false;
   for (size_t head = 0; head < q.size() && !found; head++) {
     const uint16_t cur = q[head];
-    const int cx = cur / H, cy = cur % H;
+    const int cx = cur / H;
+    const int cy = cur % H;
     for (int d = 0; d < 4; d++) {
-      const int nx = cx + BitGrid::DX[d], ny = cy + BitGrid::DY[d];
+      const int nx = cx + BitGrid::DX[d];
+      const int ny = cy + BitGrid::DY[d];
       if (!valid(nx, ny))
         continue;
       const auto nIdx = static_cast<uint16_t>(nx * H + ny);
@@ -61,9 +63,10 @@ DragSolver::relevanceMaskOf(const std::vector<Position> &anchors,
     return UINT32_MAX;
   std::vector<uint64_t> sweep(gridHeight_, 0);
   for (int32_t cur = targetIdx; cur != -1; cur = par[cur]) {
-    const int cx = cur / H, cy = cur % H;
+    const int cx = cur / H;
+    const int cy = cur % H;
     for (size_t r = 0; r < grows.size(); r++)
-      sweep[cy + r] |= grows[r] << cx;
+      sweep[cy + r] |= grows[r] << static_cast<unsigned>(cx);
   }
   uint32_t mask = uint32_t{1} << goalIndex_;
   std::vector<uint64_t> accum(gridHeight_, 0); // cells of relevant blocks
@@ -74,7 +77,8 @@ DragSolver::relevanceMaskOf(const std::vector<Position> &anchors,
       mask |= uint32_t{1} << b;
       const auto &rows = grid_.shapeRows(b);
       for (size_t r = 0; r < rows.size(); r++)
-        accum[anchors[b].y + r] |= rows[r] << anchors[b].x;
+        accum[anchors[b].y + r] |= rows[r]
+                                   << static_cast<unsigned>(anchors[b].x);
     }
   }
   // Ring k: dilate the accumulated relevant cells and absorb touching
@@ -83,7 +87,7 @@ DragSolver::relevanceMaskOf(const std::vector<Position> &anchors,
   for (uint8_t ring = 0; ring < relevantRing_; ring++) {
     std::vector<uint64_t> dil(gridHeight_, 0);
     for (int y = 0; y < gridHeight_; y++) {
-      uint64_t m = accum[y] | accum[y] << 1 | accum[y] >> 1;
+      uint64_t m = accum[y] | accum[y] << 1u | accum[y] >> 1u;
       if (y > 0)
         m |= accum[y - 1];
       if (y + 1 < gridHeight_)
@@ -92,13 +96,14 @@ DragSolver::relevanceMaskOf(const std::vector<Position> &anchors,
     }
     bool grew = false;
     for (const uint8_t b : movableBlockIndices_) {
-      if (mask >> b & 1)
+      if (mask >> b & 1u)
         continue;
       if (blockOnMask(b, anchors[b], dil)) {
         mask |= uint32_t{1} << b;
         const auto &rows = grid_.shapeRows(b);
         for (size_t r = 0; r < rows.size(); r++)
-          accum[anchors[b].y + r] |= rows[r] << anchors[b].x;
+          accum[anchors[b].y + r] |= rows[r]
+                                     << static_cast<unsigned>(anchors[b].x);
         grew = true;
       }
     }
@@ -109,8 +114,7 @@ DragSolver::relevanceMaskOf(const std::vector<Position> &anchors,
 }
 
 void DragSolver::updateSleepEnvelope(
-    const uint8_t i, const Position from,
-    const std::vector<uint16_t> &reached,
+    const uint8_t i, const Position from, const std::vector<uint16_t> &reached,
     std::vector<std::vector<uint64_t>> &envRows,
     std::vector<uint32_t> &sleptMaskOf, uint32_t &iterated) const {
   // Interaction envelope = the block's cells at start + every
@@ -122,17 +126,17 @@ void DragSolver::updateSleepEnvelope(
   auto &env = envRows[i];
   const auto &rows = grid_.shapeRows(i);
   for (size_t r = 0; r < rows.size(); r++)
-    env[from.y + r] |= rows[r] << from.x;
+    env[from.y + r] |= rows[r] << static_cast<unsigned>(from.x);
   for (const uint16_t idx : reached) {
     const auto [tx, ty] = grid_.anchorFromIndex(idx);
     for (size_t r = 0; r < rows.size(); r++)
-      env[ty + r] |= rows[r] << tx;
+      env[ty + r] |= rows[r] << static_cast<unsigned>(tx);
   }
   uint32_t sm = 0;
   if (i > 0 && iterated != 0) {
     std::vector<uint64_t> dil(gridHeight_);
     for (uint8_t y = 0; y < gridHeight_; y++) {
-      uint64_t m = env[y] | env[y] << 1 | env[y] >> 1;
+      uint64_t m = env[y] | env[y] << 1u | env[y] >> 1u;
       if (y > 0)
         m |= env[y - 1];
       if (y + 1 < gridHeight_)
@@ -142,7 +146,7 @@ void DragSolver::updateSleepEnvelope(
     for (const uint8_t j : movableBlockIndices_) {
       if (j >= i)
         break;
-      if (!(iterated >> j & 1))
+      if (!(iterated >> j & 1u))
         continue; // j generated nothing here — no (j, i) twin branch
       bool overlap = false;
       for (uint8_t y = 0; y < gridHeight_ && !overlap; y++)
@@ -204,8 +208,8 @@ bool DragSolver::dragBudgetExhausted(const uint64_t deadline,
     if (const uint64_t used = memprobe::liveAllocatedBytes();
         used != 0 && used >= cfg_.maxHeapBytes) {
       if (verbose)
-        std::cout << "DragSolver hit the memory ceiling (" << (used >> 20)
-                  << " MB of " << (cfg_.maxHeapBytes >> 20) << " MB) after "
+        std::cout << "DragSolver hit the memory ceiling (" << (used >> 20u)
+                  << " MB of " << (cfg_.maxHeapBytes >> 20u) << " MB) after "
                   << nodesExpanded << " drag expansions\n";
       stats_.stoppedOnMemory = true;
       return true;

@@ -48,7 +48,8 @@ struct HeapEntry {
   // Order by f; on ties, prefer the deeper node (larger g) so the search
   // dives toward goals instead of fanning out across an f-plateau.
   auto operator<=>(const HeapEntry &o) const {
-    if (const auto c = f <=> o.f; c != 0) return c;
+    if (const auto c = f <=> o.f; c != 0)
+      return c;
     return o.g <=> g;
   }
   bool operator==(const HeapEntry &o) const = default;
@@ -67,7 +68,7 @@ std::vector<Turn> AStar::reconstructPath(const StateInfo *goal) {
   for (const auto &[blockId, direction, slideDistance] : moves) {
     const uint8_t d = slideDistance == 0 ? 1 : slideDistance;
     for (uint8_t k = 0; k < d; k++) {
-      turns.push_back({blockId, direction});
+      turns.push_back({.blockId = blockId, .direction = direction});
     }
   }
   return turns;
@@ -88,7 +89,8 @@ std::vector<Turn> AStar::search(const uint32_t maxMs, const uint32_t maxNodes) {
   // absolute-deadline convention DragSolver::search already follows.
   const uint64_t deadline = deadlineFrom(maxMs);
   const auto remainingMs = [deadline]() -> uint32_t {
-    if (deadline == 0) return 0; // 0 == unlimited, preserved
+    if (deadline == 0)
+      return 0; // 0 == unlimited, preserved
     const uint64_t now = nowMs();
     return now >= deadline ? 1u : static_cast<uint32_t>(deadline - now);
   };
@@ -156,7 +158,11 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
       openHeap;
 
   auto *rootEntry = states.emplace(rootSig).first;
-  rootEntry->value = {0, nullptr, {}, false, false};
+  rootEntry->value = {.gScore = 0,
+                      .parent = nullptr,
+                      .move = {},
+                      .hasParent = false,
+                      .closed = false};
   nodeStore.try_emplace(rootSig, root);
   openHeap.emplace(cfg_.weight * heuristic(root), 0, &rootEntry->key,
                    &rootEntry->value);
@@ -181,29 +187,30 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
 
   while (!openHeap.empty()) {
     loopIters++;
-    if (cfg_.cancel && (loopIters & 0xFF) == 0 &&
+    if (cfg_.cancel && (loopIters & 0xFFu) == 0 &&
         cfg_.cancel->load(std::memory_order_relaxed)) {
       std::cout << "A* cancelled after " << nodesExpanded << " nodes\n";
       return {};
     }
-    if (deadline != 0 && (loopIters & 0xFFF) == 0 && nowMs() > deadline) {
-      std::cout << "A* timed out after " << nodesExpanded
-                << " nodes (budget " << maxMs << "ms)\n";
+    if (deadline != 0 && (loopIters & 0xFFFu) == 0 && nowMs() > deadline) {
+      std::cout << "A* timed out after " << nodesExpanded << " nodes (budget "
+                << maxMs << "ms)\n";
       return {};
     }
     if (maxNodes != 0 && nodesExpanded >= maxNodes) {
-      std::cout << "A* hit node cap of " << maxNodes << " (open=" << openHeap.size()
-                << ", states=" << states.size() << ", store=" << nodeStore.size()
-                << ")\n";
+      std::cout << "A* hit node cap of " << maxNodes
+                << " (open=" << openHeap.size() << ", states=" << states.size()
+                << ", store=" << nodeStore.size() << ")\n";
       return {};
     }
     // Graceful memory stop — see Config::maxStatesStored. maxNodes above bounds
     // EXPANSIONS, which is not what fills the heap; this bounds the live set.
-    if (cfg_.maxStatesStored != 0 && (loopIters & 0xFF) == 0 &&
+    if (cfg_.maxStatesStored != 0 && (loopIters & 0xFFu) == 0 &&
         states.size() >= cfg_.maxStatesStored) {
       std::cout << "A* hit state ceiling of " << cfg_.maxStatesStored
-                << " (states=" << states.size() << ", store=" << nodeStore.size()
-                << ") after " << nodesExpanded << " nodes\n";
+                << " (states=" << states.size()
+                << ", store=" << nodeStore.size() << ") after " << nodesExpanded
+                << " nodes\n";
       return {};
     }
     // Last-resort abort tripwire. Only wasm has a ceiling that kills the
@@ -219,12 +226,12 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
       return {};
     }
 #endif
-    if (cfg_.maxHeapBytes != 0 && (loopIters & 0xFF) == 0) {
+    if (cfg_.maxHeapBytes != 0 && (loopIters & 0xFFu) == 0) {
       if (const uint64_t used = memprobe::liveAllocatedBytes();
           used != 0 && used >= cfg_.maxHeapBytes) {
-        std::cout << "A* hit memory ceiling (" << (used >> 20) << " MB of "
-                  << (cfg_.maxHeapBytes >> 20) << " MB) after " << nodesExpanded
-                  << " nodes\n";
+        std::cout << "A* hit memory ceiling (" << (used >> 20u) << " MB of "
+                  << (cfg_.maxHeapBytes >> 20u) << " MB) after "
+                  << nodesExpanded << " nodes\n";
         stats_.stoppedOnMemory = true;
         return {};
       }
@@ -234,8 +241,7 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
 
     // The heap entry carries the map node, so no states.find() per pop.
     StateInfo *const sit = current.info;
-    if (sit == nullptr || sit->closed ||
-        sit->gScore < current.g)
+    if (sit == nullptr || sit->closed || sit->gScore < current.g)
       continue;
 
     sit->closed = true;
@@ -246,9 +252,9 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
     nodeStore.erase(nit);
 
     if (isGoalState(node)) {
-      std::cout << "A* (w=" << static_cast<int>(cfg_.weight) << ") found solution in "
-                << current.g << " moves, expanded " << nodesExpanded
-                << " nodes\n";
+      std::cout << "A* (w=" << static_cast<int>(cfg_.weight)
+                << ") found solution in " << current.g << " moves, expanded "
+                << nodesExpanded << " nodes\n";
       return reconstructPath(current.info);
     }
 
@@ -256,9 +262,9 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
     if (onProgress && nodesExpanded % 10000 == 0)
       onProgress(nodesExpanded);
     if (nodesExpanded % 2000000 == 0) {
-      std::cout << "  ... A* working: " << nodesExpanded << " nodes, heap="
-                << openHeap.size() << ", states=" << states.size() << ", g="
-                << current.g << "\n";
+      std::cout << "  ... A* working: " << nodesExpanded
+                << " nodes, heap=" << openHeap.size()
+                << ", states=" << states.size() << ", g=" << current.g << "\n";
       std::cout.flush();
     }
 
@@ -272,10 +278,11 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
         // skipped on the way are valid 1-cell hops but never branched on.
         Position cursor = node.anchors[i];
         std::vector<Position> newAnchors = node.anchors;
-        for (uint8_t k = 1; ; k++) {
-          const Position next = {static_cast<int8_t>(cursor.x + DX[d]),
-                                  static_cast<int8_t>(cursor.y + DY[d])};
-          if (!inBounds(i, next)) break;
+        for (uint8_t k = 1;; k++) {
+          const Position next = {.x = static_cast<int8_t>(cursor.x + DX[d]),
+                                 .y = static_cast<int8_t>(cursor.y + DY[d])};
+          if (!inBounds(i, next))
+            break;
           // Restore previous slot then test collision against the rest.
           newAnchors[i] = next;
           if (collidesWithOthers(i, next, newAnchors))
@@ -283,7 +290,8 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
           cursor = next;
           // Only stride-aligned cells are real search states; the cells in
           // between are valid 1-cell hops but never branched on.
-          if (k % moveStride_ != 0) continue;
+          if (k % moveStride_ != 0)
+            continue;
 
           Node newNode(newAnchors);
           const NodeKey newSig = signatureFromAnchors(newAnchors);
@@ -293,7 +301,13 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
           auto [newEntry, inserted] = states.emplace(newSig);
           if (StateInfo &child = newEntry->value;
               inserted || (!child.closed && newG < child.gScore)) {
-            child = {newG, current.info, {i, DIRS[d], k}, true, false};
+            child = {.gScore = newG,
+                     .parent = current.info,
+                     .move = {.blockId = i,
+                              .direction = DIRS[d],
+                              .slideDistance = k},
+                     .hasParent = true,
+                     .closed = false};
             // Reuse insert_or_assign's iterator instead of a second find():
             // NodeKeyHash is a byte-at-a-time FNV-1a over 2*nBlocks bytes, so
             // the discarded lookup was a full re-hash plus a bucket probe on
@@ -314,4 +328,3 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
   searchExhausted_ = true;
   return {};
 }
-

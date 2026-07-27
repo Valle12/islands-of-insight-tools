@@ -34,4 +34,3 @@ size_t countDirRuns(const std::vector<Turn> &turns);
 bool writeFixtureAt(const Fixture &data, const std::vector<Position> &anchors,
                     const std::string &path);
 void writeTurnsFile(const std::vector<Turn> &turns, const std::string &path);
-

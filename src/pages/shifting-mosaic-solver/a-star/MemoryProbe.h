@@ -128,7 +128,7 @@ inline uint64_t liveAllocatedBytes() {
 }
 
 inline uint64_t heapCeilingBytes() { return 0; } // no fixed ceiling natively
-inline bool nearHeapLimit() { return false; }      // nothing aborts natively
+inline bool nearHeapLimit() { return false; }    // nothing aborts natively
 
 } // namespace memprobe
 

@@ -49,7 +49,8 @@ TEST(DragSolver, JamRestartsAndBeamStayValid) {
   // guarantee is that any returned plan replays, and that between them they
   // solve a healthy majority of solvable boards within a generous budget.
   std::mt19937 rng(testSeed(99)); // same instances as the oracle tests
-  int solvable = 0, solved = 0;
+  int solvable = 0;
+  int solved = 0;
   for (int round = 0; round < 60; round++) {
     const Puzzle p = randomPuzzle(rng);
     if (const int want = oracleMinDrags(p); want <= 0)
@@ -93,7 +94,8 @@ TEST(DragSolver, JamRoundShapingStaysValidAndDefaultsUnchanged) {
   // driver's lottery, so plans must stay replay-valid and the defaults must
   // stay bit-identical to the unshaped driver.
   std::mt19937 rng(testSeed(99));
-  int solvable = 0, solved = 0;
+  int solvable = 0;
+  int solved = 0;
   for (int round = 0; round < 40; round++) {
     const Puzzle p = randomPuzzle(rng);
     if (oracleMinDrags(p) <= 0)
@@ -169,4 +171,3 @@ TEST(DragSolver, HierarchicalSolvesSolvableBoards) {
     EXPECT_TRUE(replayValid(p, turns)) << "round " << round;
   }
 }
-

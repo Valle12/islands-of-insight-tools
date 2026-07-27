@@ -5,9 +5,9 @@
 // re-validate the result against a fresh BitGrid.
 
 #include "DragSolver.h"
+#include "MemoryProbe.h"
 #include "Node.h"
 #include "SolverClock.h"
-#include "MemoryProbe.h"
 
 #include <algorithm>
 #include <compare>
@@ -38,8 +38,10 @@ struct DragHeapEntry {
   const NodeKey *key = nullptr;
   DragSolver::StateInfo *info = nullptr;
   auto operator<=>(const DragHeapEntry &o) const {
-    if (const auto c = f <=> o.f; c != 0) return c;
-    if (const auto c = o.g <=> g; c != 0) return c;
+    if (const auto c = f <=> o.f; c != 0)
+      return c;
+    if (const auto c = o.g <=> g; c != 0)
+      return c;
     return tie <=> o.tie;
   }
   bool operator==(const DragHeapEntry &o) const {
@@ -73,18 +75,27 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
 
   StateMap states;
   std::unordered_map<NodeKey, Node, NodeKeyHash> nodeStore;
-  std::priority_queue<DragHeapEntry, std::vector<DragHeapEntry>,
-                      std::greater<>>
+  std::priority_queue<DragHeapEntry, std::vector<DragHeapEntry>, std::greater<>>
       openHeap;
 
   const NodeKey rootSig = signatureFromAnchors(startAnchors);
   auto *rootEntry = states.emplace(rootSig).first;
-  rootEntry->value = {0, 0, nullptr, {}, 0, false, false};
-  nodeStore.try_emplace(rootSig, Node(startAnchors));
+  rootEntry->value = {.gScore = 0,
+                      .cells = 0,
+                      .parent = nullptr,
+                      .move = {},
+                      .batchesEmitted = 0,
+                      .hasParent = false,
+                      .closed = false};
+  nodeStore.try_emplace(rootSig, startAnchors);
   const uint32_t rootDisp = displacementSum(startAnchors);
-  openHeap.push({cfg_.weight * heuristic(startAnchors) +
-                     cfg_.packingWeight * rootDisp / 16,
-                 0, 0, 16 * rootDisp, &rootEntry->key, &rootEntry->value});
+  openHeap.push({.f = cfg_.weight * heuristic(startAnchors) +
+                      cfg_.packingWeight * rootDisp / 16,
+                 .g = 0,
+                 .cells = 0,
+                 .tie = 16 * rootDisp,
+                 .key = &rootEntry->key,
+                 .info = &rootEntry->value});
 
   uint32_t nodesExpanded = 0;
   uint64_t loopIters = 0;
@@ -121,13 +132,15 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
   if (cfg_.relevantOnly) {
     relevanceLocked.assign(gridHeight_, 0);
     std::vector isMov(shapes_.size(), false);
-    for (const uint8_t i : movableBlockIndices_) isMov[i] = true;
+    for (const uint8_t i : movableBlockIndices_)
+      isMov[i] = true;
     for (size_t i = 0; i < shapes_.size(); i++) {
-      if (isMov[i]) continue;
+      if (isMov[i])
+        continue;
       const auto &rows = grid_.shapeRows(static_cast<uint8_t>(i));
       for (size_t r = 0; r < rows.size(); r++)
-        relevanceLocked[initialAnchors_[i].y + r] |= rows[r]
-                                                    << initialAnchors_[i].x;
+        relevanceLocked[initialAnchors_[i].y + r] |=
+            rows[r] << static_cast<unsigned>(initialAnchors_[i].x);
     }
   }
 
@@ -141,9 +154,8 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
     }
     // Everything else is checked on a 1-in-256 cadence; keeping the mask
     // test here means the common iteration never pays for the call.
-    if ((loopIters & 0xFF) == 0 &&
-        dragBudgetExhausted(deadline, nodesExpanded, states.size(),
-                            verbose)) {
+    if ((loopIters & 0xFFu) == 0 &&
+        dragBudgetExhausted(deadline, nodesExpanded, states.size(), verbose)) {
       finishStats();
       return finishResult(false);
     }
@@ -154,8 +166,7 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
     // The heap entry carries the map node directly, so popping no longer
     // costs a hash lookup (this used to be states.find on every pop).
     StateInfo *const sit = current.info;
-    if (sit == nullptr || sit->closed ||
-        sit->gScore < current.g ||
+    if (sit == nullptr || sit->closed || sit->gScore < current.g ||
         (sit->gScore == current.g && sit->cells < current.cells))
       continue;
 
@@ -168,13 +179,13 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
     // takes inserts.
     const std::vector<Position> anchors = nit->second.anchors;
 
-    bool qualifies =
-        progressOf(anchors) >= targetProgress ||
-        (consolidationBelow != 0 && current.g > 0 &&
-         displacementSum(anchors) <= consolidationBelow);
+    bool qualifies = progressOf(anchors) >= targetProgress ||
+                     (consolidationBelow != 0 && current.g > 0 &&
+                      displacementSum(anchors) <= consolidationBelow);
     if (qualifies && cfg_.requireAllSlots && packingGuideActive_) {
       for (const uint8_t b : movableBlockIndices_) {
-        if (b == goalIndex_ || packedSlot_[b] < 0) continue;
+        if (b == goalIndex_ || packedSlot_[b] < 0)
+          continue;
         if (anchors[b].x * gridHeight_ + anchors[b].y != packedSlot_[b]) {
           qualifies = false;
           break;
@@ -248,7 +259,8 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
     uint32_t baseCount = 0;
     uint32_t dispBase = 0;
     for (const uint8_t b : movableBlockIndices_) {
-      if (b == goalIndex_) continue;
+      if (b == goalIndex_)
+        continue;
       if (useSlotH) {
         onMaskScratch_[b] =
             packedSlot_[b] >= 0 &&
@@ -290,7 +302,7 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
     // unreachable (locked-walls disconnection; the admissible h still owns
     // correctness, the guide only orders).
     const auto jamAdd = [&](const uint32_t term) -> uint32_t {
-      const uint32_t t = std::min<uint32_t>(term, 1u << 20);
+      const uint32_t t = std::min<uint32_t>(term, 1u << 20u);
       return cfg_.jamGuideWeight * t / 16;
     };
     // Diversification jitter: replaces the deterministic tie field with a
@@ -298,12 +310,12 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
     // restart.
     const auto jitterTie = [&](const uint8_t block,
                                const uint16_t toIdx) -> uint32_t {
-      uint32_t x = cfg_.tieBreakSeed ^ (static_cast<uint32_t>(block) << 16) ^
-                   toIdx ^ (current.g * 0x9E3779B9u);
+      uint32_t x = cfg_.tieBreakSeed ^ (static_cast<uint32_t>(block) << 16u) ^
+                   toIdx ^ current.g * 0x9E3779B9u;
       x *= 0x85EBCA6Bu;
-      x ^= x >> 13;
+      x ^= x >> 13u;
       x *= 0xC2B2AE35u;
-      x ^= x >> 16;
+      x ^= x >> 16u;
       return x;
     };
 
@@ -327,9 +339,9 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
       // today; a compiler that folds the shift to 0 would silently skip every
       // block with index >= 32. The sibling shifts below are already gated on
       // `por` (which requires shapes_.size() <= 32); this one was not.
-      if (i < 32 && !(relevantMask >> i & 1))
+      if (i < 32 && !(relevantMask >> i & 1u))
         continue; // relevance-filtered
-      if (por && info.slept >> i & 1)
+      if (por && info.slept >> i & 1u)
         continue; // commutes with the drag that created this node
       if (cfg_.lockOnSlot && packingGuideActive_ && i != goalIndex_ &&
           packedSlot_[i] >= 0 &&
@@ -383,16 +395,17 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
           } else if (t.x == goalAnchor_.x && t.y == goalAnchor_.y) {
             h = 0;
           } else {
-            const auto &maskN =
-                cutSuffixRows_[std::min<size_t>(progressIndex_[toIdx],
-                                                cutSuffixRows_.size() - 1)];
+            const auto &maskN = cutSuffixRows_[std::min<size_t>(
+                progressIndex_[toIdx], cutSuffixRows_.size() - 1)];
             if (&maskN == &maskP) {
               h = 1 + baseCount;
             } else {
               uint32_t cnt = 0;
               for (const uint8_t b : movableBlockIndices_) {
-                if (b == goalIndex_) continue;
-                if (blockOnMask(b, anchors[b], maskN)) cnt++;
+                if (b == goalIndex_)
+                  continue;
+                if (blockOnMask(b, anchors[b], maskN))
+                  cnt++;
               }
               h = 1 + cnt;
             }
@@ -421,28 +434,32 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
           // Goal drags read the exact field at the target; non-goal drags
           // shift the parent's term by their sweep-overlap delta.
           const uint32_t jamChild =
-              i == goalIndex_
-                  ? jamField_[toIdx]
-                  : jamBase - jamOldOverlap +
-                        cfg_.jamBlockerPenalty *
-                            blockCellsOnMask(i, t, jamSweepRows_);
+              i == goalIndex_ ? jamField_[toIdx]
+                              : jamBase - jamOldOverlap +
+                                    cfg_.jamBlockerPenalty *
+                                        blockCellsOnMask(i, t, jamSweepRows_);
           f += jamAdd(jamChild);
         }
-        const uint32_t tieVal = cfg_.tieBreakSeed != 0
-                                    ? jitterTie(i, toIdx)
-                                    : newCells + 16 * disp;
-        candScratch_.push_back({f, newCells, tieVal, toIdx, i});
+        const uint32_t tieVal =
+            cfg_.tieBreakSeed != 0 ? jitterTie(i, toIdx) : newCells + 16 * disp;
+        candScratch_.push_back({.f = f,
+                                .cells = newCells,
+                                .tie = tieVal,
+                                .toIdx = toIdx,
+                                .blockId = i});
       }
       grid_.addBlock(i, from);
     }
 
-    std::ranges::sort(candScratch_,
-              [](const Cand &a, const Cand &b) {
-                if (a.f != b.f) return a.f < b.f;
-                if (a.tie != b.tie) return a.tie < b.tie;
-                if (a.blockId != b.blockId) return a.blockId < b.blockId;
-                return a.toIdx < b.toIdx;
-              });
+    std::ranges::sort(candScratch_, [](const Cand &a, const Cand &b) {
+      if (a.f != b.f)
+        return a.f < b.f;
+      if (a.tie != b.tie)
+        return a.tie < b.tie;
+      if (a.blockId != b.blockId)
+        return a.blockId < b.blockId;
+      return a.toIdx < b.toIdx;
+    });
 
     // ---- Emit (PEA*: one batch, then requeue the parent at the next f) ----
     const uint16_t batch = cfg_.partialExpansionWidth;
@@ -461,25 +478,28 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
       StateInfo &child = newEntry->value;
       const bool better =
           inserted ||
-          (!child.closed &&
-           (newG < child.gScore ||
-            (newG == child.gScore && candCells < child.cells)));
+          (!child.closed && (newG < child.gScore || (newG == child.gScore &&
+                                                     candCells < child.cells)));
       if (!better)
         continue;
-      child = {newG,  candCells, current.info, {candBlockId, candToIdx}, 0,
-               true, false};
+      child = {.gScore = newG,
+               .cells = candCells,
+               .parent = current.info,
+               .move = {.blockId = candBlockId, .toIdx = candToIdx},
+               .batchesEmitted = 0,
+               .hasParent = true,
+               .closed = false};
       if (por)
         child.slept = sleptMaskOf[candBlockId];
       std::vector<Position> newAnchors = anchors;
       newAnchors[candBlockId] = newPos;
       nodeStore.insert_or_assign(newSig, Node(std::move(newAnchors)));
-      openHeap.push(
-          {candF, newG, candCells, candTie, &newEntry->key, &child});
+      openHeap.emplace(candF, newG, candCells, candTie, &newEntry->key, &child);
     }
     if (batch != 0 && emitTo < candScratch_.size()) {
       info.batchesEmitted++;
-      openHeap.push({candScratch_[emitTo].f, current.g, current.cells,
-                     current.tie, current.key, current.info});
+      openHeap.emplace(candScratch_[emitTo].f, current.g, current.cells,
+                       current.tie, current.key, current.info);
     } else {
       info.closed = true;
       nodeStore.erase(*current.key);

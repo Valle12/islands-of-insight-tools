@@ -32,14 +32,16 @@ public:
       uint8_t maxX = 0;
       uint8_t maxY = 0;
       for (const auto &[cx, cy] : shape) {
-        if (cx > static_cast<int8_t>(maxX)) maxX = static_cast<uint8_t>(cx);
-        if (cy > static_cast<int8_t>(maxY)) maxY = static_cast<uint8_t>(cy);
+        if (cx > static_cast<int8_t>(maxX))
+          maxX = static_cast<uint8_t>(cx);
+        if (cy > static_cast<int8_t>(maxY))
+          maxY = static_cast<uint8_t>(cy);
       }
       boxW_.push_back(maxX + 1);
       boxH_.push_back(maxY + 1);
       std::vector<uint64_t> rows(maxY + 1, 0);
       for (const auto &[cx, cy] : shape)
-        rows[cy] |= uint64_t{1} << cx;
+        rows[cy] |= uint64_t{1} << static_cast<unsigned>(cx);
       shapeRows_.push_back(std::move(rows));
     }
   }
@@ -55,7 +57,8 @@ public:
     return static_cast<uint16_t>(a.x * h_ + a.y);
   }
   [[nodiscard]] Position anchorFromIndex(const uint16_t idx) const {
-    return {static_cast<int8_t>(idx / h_), static_cast<int8_t>(idx % h_)};
+    return {.x = static_cast<int8_t>(idx / h_),
+            .y = static_cast<int8_t>(idx % h_)};
   }
 
   void clearOccupancy() { std::ranges::fill(occ_, 0); }
@@ -69,14 +72,14 @@ public:
   void addBlock(const uint8_t i, const Position a) {
     const auto &rows = shapeRows_[i];
     for (size_t r = 0; r < rows.size(); r++)
-      occ_[a.y + r] |= rows[r] << a.x;
+      occ_[a.y + r] |= rows[r] << static_cast<unsigned>(a.x);
   }
 
   // Valid because blocks never overlap: every cell is set exactly once.
   void removeBlock(const uint8_t i, const Position a) {
     const auto &rows = shapeRows_[i];
     for (size_t r = 0; r < rows.size(); r++)
-      occ_[a.y + r] ^= rows[r] << a.x;
+      occ_[a.y + r] ^= rows[r] << static_cast<unsigned>(a.x);
   }
 
   // Block i's bounding box must lie fully in-grid (same rule as
@@ -87,7 +90,7 @@ public:
       return false;
     const auto &rows = shapeRows_[i];
     for (size_t r = 0; r < rows.size(); r++)
-      if (rows[r] << x & occ_[y + r])
+      if (rows[r] << static_cast<unsigned>(x) & occ_[y + r])
         return false;
     return true;
   }

@@ -23,18 +23,21 @@ TEST(BitGrid, MatchesCollisionOracleOnRandomBoards) {
     const Puzzle p = randomPuzzle(rng);
     BitGrid grid(p.w, p.h, p.shapes);
     grid.buildOccupancy(p.anchors);
-    std::uniform_int_distribution bDist(0, static_cast<int>(p.shapes.size()) - 1);
+    std::uniform_int_distribution bDist(0,
+                                        static_cast<int>(p.shapes.size()) - 1);
     std::uniform_int_distribution cDist(-2, 7);
     for (int probe = 0; probe < 100; probe++) {
       const auto i = static_cast<uint8_t>(bDist(rng));
-      const Position a = {static_cast<int8_t>(cDist(rng)),
-                          static_cast<int8_t>(cDist(rng))};
+      const Position a = {.x = static_cast<int8_t>(cDist(rng)),
+                          .y = static_cast<int8_t>(cDist(rng))};
       grid.removeBlock(i, p.anchors[i]);
       const bool got = grid.canPlace(i, a.x, a.y);
       grid.addBlock(i, p.anchors[i]);
       const bool want = oracleCanPlace(p, i, a, p.anchors);
-      ASSERT_EQ(got, want) << "round " << round << " block " << static_cast<int>(i)
-                           << " at (" << static_cast<int>(a.x) << "," << static_cast<int>(a.y) << ")";
+      ASSERT_EQ(got, want) << "round " << round << " block "
+                           << static_cast<int>(i) << " at ("
+                           << static_cast<int>(a.x) << ","
+                           << static_cast<int>(a.y) << ")";
     }
   }
 }
@@ -91,7 +94,8 @@ TEST(DragSolver, PartialExpansionPreservesOptimality) {
   // PEA* with a brutal batch width of 2 must still return minimal drag
   // counts at weight 1 — children are emitted in f order and the parent is
   // requeued at the next child's f, so nothing is lost.
-  std::mt19937 rng(testSeed(99)); // same instances as the full-expansion oracle test
+  std::mt19937 rng(
+      testSeed(99)); // same instances as the full-expansion oracle test
   for (int round = 0; round < 120; round++) {
     const Puzzle p = randomPuzzle(rng);
     const int want = oracleMinDrags(p);
@@ -142,7 +146,8 @@ TEST(DragSolver, RelevantOnlySoundAndMostlyComplete) {
   // returned plan must replay-validate, and it must still solve a healthy
   // majority of oracle-solvable boards.
   std::mt19937 rng(testSeed(99)); // same instances as the oracle tests
-  int solvable = 0, solved = 0;
+  int solvable = 0;
+  int solved = 0;
   for (int round = 0; round < 120; round++) {
     const Puzzle p = randomPuzzle(rng);
     const int want = oracleMinDrags(p);

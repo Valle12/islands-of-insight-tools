@@ -5,8 +5,8 @@
 // as a backtracking sequence of small exact searches. Both are incomplete
 // by design and exist for boards where the flat search drowns.
 #include "DragSolver.h"
-#include "SolverClock.h"
 #include "MemoryProbe.h"
+#include "SolverClock.h"
 
 #include <algorithm>
 #include <array>
@@ -27,9 +27,9 @@ std::vector<Turn> DragSolver::searchBeamJam(const uint32_t maxMs,
   const uint32_t W =
       cfg_.beamWidth != 0
           ? cfg_.beamWidth
-          : std::clamp<uint32_t>(
-                static_cast<uint32_t>(gridWidth_) * gridHeight_ * 400, 20000,
-                150000);
+          : std::clamp<uint32_t>(static_cast<uint32_t>(gridWidth_) *
+                                     gridHeight_ * 400,
+                                 20000, 150000);
   // Arena of every kept state across the current round's layers; parent is a
   // global arena index (-1 for the root).
   struct BeamState {
@@ -53,16 +53,16 @@ std::vector<Turn> DragSolver::searchBeamJam(const uint32_t maxMs,
   std::vector<BeamCand> cands;
   std::unordered_set<NodeKey, NodeKeyHash> visited;
   std::vector<Position> anchors(nBlocks);
-  const auto anchorsOf = [&](const NodeKey &key,
-                             std::vector<Position> &out) {
+  const auto anchorsOf = [&](const NodeKey &key, std::vector<Position> &out) {
     const uint16_t *d = key.data();
     for (size_t i = 0; i < nBlocks; i++)
-      out[i] = {static_cast<int8_t>(d[i] >> 8),
-                static_cast<int8_t>(d[i] & 0xFF)};
+      out[i] = {.x = static_cast<int8_t>(d[i] >> 8u),
+                .y = static_cast<int8_t>(d[i] & 0xFFu)};
   };
 
   std::vector frozen(nBlocks, false);
-  for (const uint8_t b : cfg_.frozenBlocks) frozen[b] = true;
+  for (const uint8_t b : cfg_.frozenBlocks)
+    frozen[b] = true;
 
   std::vector<Turn> turns;
   uint32_t round = 0;
@@ -92,29 +92,29 @@ std::vector<Turn> DragSolver::searchBeamJam(const uint32_t maxMs,
       break;
     const uint32_t seed = savedSeed + round * 0x9E3779B9u;
     // Odd beam rounds pin the root route (wide-board diversification).
-    cfg_.jamPinRoute = savedPin || (round & 1) != 0;
+    cfg_.jamPinRoute = savedPin || (round & 1u) != 0;
     jamPinned_ = false;
     const auto jitter = [&](const NodeKey &k) -> uint32_t {
       uint32_t x = seed;
       const uint16_t *d = k.data();
       for (size_t i = 0; i < nBlocks; i++)
         x = (x ^ d[i]) * 0x85EBCA6Bu;
-      x ^= x >> 15;
-      return x & 0x3FF;
+      x ^= x >> 15u;
+      return x & 0x3FFu;
     };
 
     arena.clear();
     layer.clear();
     visited.clear();
     const NodeKey rootKey = signatureFromAnchors(initialAnchors_);
-    arena.push_back({rootKey, -1, {}});
+    arena.push_back({.key = rootKey, .parent = -1, .move = {}});
     layer.push_back(0);
     visited.insert(rootKey);
 
     int32_t goalArena = -1;
     constexpr size_t MAX_DEPTH = 72;
-    for (size_t depth = 0;
-         depth < MAX_DEPTH && goalArena < 0 && !layer.empty(); depth++) {
+    for (size_t depth = 0; depth < MAX_DEPTH && goalArena < 0 && !layer.empty();
+         depth++) {
       if (deadline != 0 && nowMs() >= deadline)
         break;
       if (cfg_.cancel && cfg_.cancel->load(std::memory_order_relaxed))
@@ -128,8 +128,8 @@ std::vector<Turn> DragSolver::searchBeamJam(const uint32_t maxMs,
       if (cfg_.maxHeapBytes != 0) {
         if (const uint64_t used = memprobe::liveAllocatedBytes();
             used != 0 && used >= cfg_.maxHeapBytes) {
-          std::cout << "beam-jam hit memory ceiling (" << (used >> 20)
-                    << " MB of " << (cfg_.maxHeapBytes >> 20) << " MB)\n";
+          std::cout << "beam-jam hit memory ceiling (" << (used >> 20u)
+                    << " MB of " << (cfg_.maxHeapBytes >> 20u) << " MB)\n";
           stats_.stoppedOnMemory = true;
           break;
         }
@@ -139,9 +139,9 @@ std::vector<Turn> DragSolver::searchBeamJam(const uint32_t maxMs,
         if (cands.size() <= 2 * static_cast<size_t>(W))
           return;
         std::ranges::nth_element(cands, cands.begin() + W,
-                                                  [](const BeamCand &a, const BeamCand &b) {
-                             return a.score < b.score;
-                         });
+                                 [](const BeamCand &a, const BeamCand &b) {
+                                   return a.score < b.score;
+                                 });
         cands.resize(W);
       };
       for (const int32_t ai : layer) {
@@ -178,11 +178,13 @@ std::vector<Turn> DragSolver::searchBeamJam(const uint32_t maxMs,
             uint32_t jamChild;
             uint32_t h;
             if (i == goalIndex_) {
-              jamChild = std::min<uint32_t>(jamField_[toIdx], 1u << 19);
+              jamChild = std::min<uint32_t>(jamField_[toIdx], 1u << 19u);
               h = t.x == goalAnchor_.x && t.y == goalAnchor_.y ? 0 : 1;
               if (h == 0) {
                 // Goal reached: commit this child immediately.
-                arena.push_back({std::move(ck), ai, {i, toIdx}});
+                arena.push_back({.key = std::move(ck),
+                                 .parent = ai,
+                                 .move = {.blockId = i, .toIdx = toIdx}});
                 goalArena = static_cast<int32_t>(arena.size()) - 1;
                 break;
               }
@@ -191,13 +193,15 @@ std::vector<Turn> DragSolver::searchBeamJam(const uint32_t maxMs,
                   jamBase - jamOldOverlap +
                       cfg_.jamBlockerPenalty *
                           blockCellsOnMask(i, t, jamSweepRows_),
-                  1u << 19);
+                  1u << 19u);
               h = 1;
             }
-            const uint64_t score =
-                static_cast<uint64_t>(jamChild) << 14 |
-                static_cast<uint64_t>(h) << 10 | jitter(ck);
-            cands.push_back({score, std::move(ck), ai, {i, toIdx}});
+            const uint64_t score = static_cast<uint64_t>(jamChild) << 14u |
+                                   static_cast<uint64_t>(h) << 10u | jitter(ck);
+            cands.push_back({.score = score,
+                             .key = std::move(ck),
+                             .parent = ai,
+                             .move = {.blockId = i, .toIdx = toIdx}});
             keepBestW();
           }
           grid_.addBlock(i, from);
@@ -212,20 +216,20 @@ std::vector<Turn> DragSolver::searchBeamJam(const uint32_t maxMs,
       // Select the next layer: best W distinct candidates.
       if (cands.size() > W) {
         std::ranges::nth_element(cands, cands.begin() + W,
-                                                  [](const BeamCand &a, const BeamCand &b) {
-                             return a.score < b.score;
-                         });
+                                 [](const BeamCand &a, const BeamCand &b) {
+                                   return a.score < b.score;
+                                 });
         cands.resize(W);
       }
-      std::ranges::sort(cands,
-                [](const BeamCand &a, const BeamCand &b) {
-                  return a.score < b.score;
-                });
+      std::ranges::sort(cands, [](const BeamCand &a, const BeamCand &b) {
+        return a.score < b.score;
+      });
       layer.clear();
       for (auto &c : cands) {
         if (!visited.insert(c.key).second)
           continue;
-        arena.push_back({std::move(c.key), c.parent, c.move});
+        arena.push_back(
+            {.key = std::move(c.key), .parent = c.parent, .move = c.move});
         layer.push_back(static_cast<int32_t>(arena.size()) - 1);
       }
     }
@@ -283,8 +287,8 @@ std::vector<Turn> DragSolver::searchHierarchical(const uint32_t maxMs,
 
   struct Frame {
     std::vector<Position> anchors;
-    std::vector<DragMove> drags; // segment that produced this frame
-    BannedSet banned;            // coarse keys of failed/consumed end states
+    std::vector<DragMove> drags;  // segment that produced this frame
+    BannedSet banned;             // coarse keys of failed/consumed end states
     std::vector<SegmentAlt> alts; // prefetched alternative next-segments
     size_t nextAlt = 0;
     // Consecutive consolidation commits without cut progress leading here.
@@ -294,7 +298,12 @@ std::vector<Turn> DragSolver::searchHierarchical(const uint32_t maxMs,
     uint8_t consolidationRun = 0;
   };
   std::vector<Frame> stack;
-  stack.push_back({initialAnchors_, {}, {}, {}, 0, 0});
+  stack.push_back({.anchors = initialAnchors_,
+                   .drags = {},
+                   .banned = {},
+                   .alts = {},
+                   .nextAlt = 0,
+                   .consolidationRun = 0});
   // The consolidation check reads displacement fields before the first
   // segment search populates them; with the packing guide active they are
   // slot-seeded and segment-independent, so computing them once here is
@@ -328,9 +337,8 @@ std::vector<Turn> DragSolver::searchHierarchical(const uint32_t maxMs,
       for (const auto &f : stack)
         all.insert(all.end(), f.drags.begin(), f.drags.end());
       std::cout << "DragSolver(hier): solved — " << all.size() << " drags, "
-                << segments << " segments, " << backtracks
-                << " backtracks, " << stats_.nodesExpanded
-                << " nodes total\n";
+                << segments << " segments, " << backtracks << " backtracks, "
+                << stats_.nodesExpanded << " nodes total\n";
       return finalizePlan(all);
     }
 
@@ -345,8 +353,12 @@ std::vector<Turn> DragSolver::searchHierarchical(const uint32_t maxMs,
                 << cur.alts.size() << ")\n";
       const uint8_t run =
           altP > p ? 0 : static_cast<uint8_t>(cur.consolidationRun + 1);
-      stack.push_back(
-          {std::move(altEndAnchors), std::move(altDrags), {}, {}, 0, run});
+      stack.push_back({.anchors = std::move(altEndAnchors),
+                       .drags = std::move(altDrags),
+                       .banned = {},
+                       .alts = {},
+                       .nextAlt = 0,
+                       .consolidationRun = run});
       continue;
     }
     if (failsAtDepth.size() <= depth)
@@ -383,15 +395,14 @@ std::vector<Turn> DragSolver::searchHierarchical(const uint32_t maxMs,
     // One search prefetches several coarse-distinct segment ends;
     // backtracking then cycles through them without re-searching.
     constexpr uint8_t SEG_ALTERNATIVES = 8;
-    SegmentResult res =
-        runAStarDrag(cur.anchors, p + 1, &cur.banned, deadline, cap,
-                     SEG_ALTERNATIVES, consolidationBelow);
+    SegmentResult res = runAStarDrag(cur.anchors, p + 1, &cur.banned, deadline,
+                                     cap, SEG_ALTERNATIVES, consolidationBelow);
     if (relaxSettled)
       cfg_.settledOnly = true;
     if (res.found) {
-      std::cout << "hier[d=" << depth << "] p=" << p << ": "
-                << res.alts.size() << " segment ends ("
-                << (stats_.nodesExpanded - nodesBefore) << " nodes)\n";
+      std::cout << "hier[d=" << depth << "] p=" << p << ": " << res.alts.size()
+                << " segment ends (" << (stats_.nodesExpanded - nodesBefore)
+                << " nodes)\n";
       // Ban all prefetched ends now so an eventual re-search here explores
       // genuinely new territory.
       for (const auto &[drags, endAnchors] : res.alts)
@@ -405,8 +416,7 @@ std::vector<Turn> DragSolver::searchHierarchical(const uint32_t maxMs,
               << (res.exhausted ? ", exhausted" : "") << ")\n";
     failsAtDepth[depth]++;
     backtracks++;
-    if (constexpr uint32_t MAX_BACKTRACKS = 3000;
-        backtracks > MAX_BACKTRACKS) {
+    if (constexpr uint32_t MAX_BACKTRACKS = 3000; backtracks > MAX_BACKTRACKS) {
       std::cout << "DragSolver(hier): backtrack limit reached\n";
       return {};
     }
@@ -456,4 +466,3 @@ std::vector<Turn> DragSolver::searchHierarchical(const uint32_t maxMs,
   std::cout << "DragSolver(hier): search space exhausted, no solution\n";
   return {};
 }
-

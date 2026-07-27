@@ -9,7 +9,6 @@
 
 #include <cerrno>
 #include <climits>
-#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -54,16 +53,17 @@ ShiftingMosaicTestData loadTestData(const std::string &filename) {
     std::vector<Position> cells;
     cells.reserve(shape.size());
     for (const auto &c : shape)
-      cells.push_back({static_cast<int8_t>(c["x"].get<int>()),
-                       static_cast<int8_t>(c["y"].get<int>())});
+      cells.push_back({.x = static_cast<int8_t>(c["x"].get<int>()),
+                       .y = static_cast<int8_t>(c["y"].get<int>())});
     data.shapes.push_back(std::move(cells));
   }
   for (const auto &a : j["initialAnchors"])
-    data.initialAnchors.push_back({static_cast<int8_t>(a["x"].get<int>()),
-                                    static_cast<int8_t>(a["y"].get<int>())});
+    data.initialAnchors.push_back(
+        {.x = static_cast<int8_t>(a["x"].get<int>()),
+         .y = static_cast<int8_t>(a["y"].get<int>())});
   data.goalIndex = j["goalIndex"].get<uint8_t>();
-  data.goalAnchor = {static_cast<int8_t>(j["goalAnchor"]["x"].get<int>()),
-                     static_cast<int8_t>(j["goalAnchor"]["y"].get<int>())};
+  data.goalAnchor = {.x = static_cast<int8_t>(j["goalAnchor"]["x"].get<int>()),
+                     .y = static_cast<int8_t>(j["goalAnchor"]["y"].get<int>())};
   return data;
 }
 
@@ -75,16 +75,17 @@ bool validateSolution(const ShiftingMosaicTestData &data,
       return false;
     auto &[px, py] = anchors[blockId];
     switch (direction) {
-    case Direction::UP:
+      using enum Direction;
+    case UP:
       py--;
       break;
-    case Direction::RIGHT:
+    case RIGHT:
       px++;
       break;
-    case Direction::DOWN:
+    case DOWN:
       py++;
       break;
-    case Direction::LEFT:
+    case LEFT:
       px--;
       break;
     }
@@ -122,8 +123,7 @@ uint32_t envU32(const char *name, const uint32_t fallback) {
   const unsigned long long v = std::strtoull(raw, &end, 10);
   const bool valid = end != raw && *end == '\0' && errno != ERANGE &&
                      raw[0] != '-' && v <= UINT32_MAX;
-  EXPECT_TRUE(valid) << name << "=" << raw
-                     << " is not a valid unsigned number";
+  EXPECT_TRUE(valid) << name << "=" << raw << " is not a valid unsigned number";
   return valid ? static_cast<uint32_t>(v) : fallback;
 }
 
@@ -177,7 +177,8 @@ TEST_P(ShiftingMosaicJsonTest, ShouldFindValidSolution) {
   // mirrors the production per-arm budget.
   uint32_t budgetMs = 300000;
   uint32_t maxNodes = 20000000;
-  cfg.weight = static_cast<uint8_t>(envU32("SHIFTING_MOSAIC_WEIGHT", cfg.weight));
+  cfg.weight =
+      static_cast<uint8_t>(envU32("SHIFTING_MOSAIC_WEIGHT", cfg.weight));
   cfg.pathBlockerWeight = static_cast<uint8_t>(
       envU32("SHIFTING_MOSAIC_PATH_BLOCKER_WEIGHT", cfg.pathBlockerWeight));
   cfg.boundaryDistanceWeight = static_cast<uint8_t>(
@@ -195,8 +196,8 @@ TEST_P(ShiftingMosaicJsonTest, ShouldFindValidSolution) {
     engine = e;
 
   std::vector<Turn> turns;
-  AStar solver(data.gridWidth, data.gridHeight, data.shapes, data.initialAnchors,
-               data.goalIndex, data.goalAnchor, cfg);
+  AStar solver(data.gridWidth, data.gridHeight, data.shapes,
+               data.initialAnchors, data.goalIndex, data.goalAnchor, cfg);
   if (engine == "cascade") {
     turns = solveArmsParallel(data.gridWidth, data.gridHeight, data.shapes,
                               data.initialAnchors, data.goalIndex,
@@ -210,8 +211,7 @@ TEST_P(ShiftingMosaicJsonTest, ShouldFindValidSolution) {
     dcfg.partialExpansionWidth = static_cast<uint16_t>(
         envU32("SHIFTING_MOSAIC_PEA", dcfg.partialExpansionWidth));
     DragSolver drag(data.gridWidth, data.gridHeight, data.shapes,
-                    data.initialAnchors, data.goalIndex, data.goalAnchor,
-                    dcfg);
+                    data.initialAnchors, data.goalIndex, data.goalAnchor, dcfg);
     turns = engine == "hier" ? drag.searchHierarchical(budgetMs, maxNodes)
                              : drag.search(budgetMs, maxNodes);
   } else {
@@ -229,8 +229,8 @@ TEST_P(ShiftingMosaicJsonTest, ShouldFindValidSolution) {
   const size_t optMoves = optimized.size();
   const size_t optSteps = countSteps(optimized);
 
-  std::cout << filename << ": " << baseMoves << " -> " << optMoves
-            << " moves, " << baseSteps << " -> " << optSteps << " steps\n";
+  std::cout << filename << ": " << baseMoves << " -> " << optMoves << " moves, "
+            << baseSteps << " -> " << optSteps << " steps\n";
 
   EXPECT_TRUE(validateSolution(data, optimized))
       << "Invalid optimized solution for " << filename;

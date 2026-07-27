@@ -230,9 +230,8 @@ private:
   [[nodiscard]] uint32_t
   countSweepRectangleBlockers(const std::vector<Position> &anchors,
                               Position goal) const;
-  [[nodiscard]] uint32_t
-  countPathBlockers(const std::vector<Position> &anchors,
-                    Position currentGoal) const;
+  [[nodiscard]] uint32_t countPathBlockers(const std::vector<Position> &anchors,
+                                           Position currentGoal) const;
   [[nodiscard]] uint32_t
   boundaryDistanceSum(const std::vector<Position> &anchors) const;
   [[nodiscard]] uint32_t
@@ -243,8 +242,7 @@ private:
   [[nodiscard]] bool isGoalState(const Node &node) const;
   [[nodiscard]] std::vector<bool>
   computeMovableSet(const std::vector<Position> &anchors) const;
-  [[nodiscard]] bool
-  isDeadlocked(const std::vector<Position> &anchors) const;
+  [[nodiscard]] bool isDeadlocked(const std::vector<Position> &anchors) const;
   // Canonical state signatures. Not static: they consult symmetryGroups_ to
   // canonicalise interchangeable same-shape blocks.
   [[nodiscard]] NodeKey nodeSignature(const Node &node) const;

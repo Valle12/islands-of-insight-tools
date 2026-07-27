@@ -25,9 +25,8 @@ AStar::AStar(const uint8_t gridWidth, const uint8_t gridHeight,
              std::vector<Position> initialAnchors, const uint8_t goalIndex,
              const Position goalAnchor, const Config &config)
     : gridWidth_(gridWidth), gridHeight_(gridHeight),
-      shapes_(std::move(shapes)),
-      initialAnchors_(std::move(initialAnchors)), goalIndex_(goalIndex),
-      goalAnchor_(goalAnchor), cfg_(config) {
+      shapes_(std::move(shapes)), initialAnchors_(std::move(initialAnchors)),
+      goalIndex_(goalIndex), goalAnchor_(goalAnchor), cfg_(config) {
   shapeBoxWidth_.reserve(shapes_.size());
   shapeBoxHeight_.reserve(shapes_.size());
   shapeCellSets_.reserve(shapes_.size());
@@ -45,8 +44,8 @@ AStar::AStar(const uint8_t gridWidth, const uint8_t gridHeight,
     std::unordered_set<uint16_t> set;
     set.reserve(shape.size() * 2);
     for (const auto &[cx, cy] : shape) {
-      set.insert(static_cast<uint16_t>(
-          static_cast<uint32_t>(cx) * SHAPE_STRIDE + cy));
+      set.insert(
+          static_cast<uint16_t>(static_cast<uint32_t>(cx) * SHAPE_STRIDE + cy));
     }
     shapeCellSets_.push_back(std::move(set));
   }
@@ -61,12 +60,14 @@ AStar::AStar(const uint8_t gridWidth, const uint8_t gridHeight,
     // heterogeneous hasher would add machinery no call site can use.
     std::unordered_map<std::string, std::vector<uint8_t>> byShape;
     for (size_t i = 0; i < shapes_.size(); i++) {
-      if (i == goalIndex_) continue;
+      if (i == goalIndex_)
+        continue;
       std::vector<Position> cells = shapes_[i];
       // A cell-less shape has no normalisation origin. Leaving it ungrouped
       // only forgoes an optimisation, whereas cells[0] on an empty vector is
       // undefined behaviour.
-      if (cells.empty()) continue;
+      if (cells.empty())
+        continue;
       int8_t minX = cells[0].x;
       int8_t minY = cells[0].y;
       for (const auto &[cx, cy] : cells) {
@@ -89,7 +90,8 @@ AStar::AStar(const uint8_t gridWidth, const uint8_t gridHeight,
       byShape[shapeKey].push_back(static_cast<uint8_t>(i));
     }
     for (auto &group : byShape | std::views::values) {
-      if (group.size() >= 2) symmetryGroups_.push_back(std::move(group));
+      if (group.size() >= 2)
+        symmetryGroups_.push_back(std::move(group));
     }
   }
 
@@ -129,7 +131,7 @@ AStar::AStar(const uint8_t gridWidth, const uint8_t gridHeight,
             << shapes_.size() << " blocks movable from start, move stride="
             << static_cast<int>(moveStride_)
             << (unsolvableAtStart_ ? " (UNSOLVABLE — locked block at goal)"
-                                    : "")
+                                   : "")
             << "\n";
 }
 
@@ -157,9 +159,11 @@ bool isPerimeterRing(const std::vector<Position> &shape, int &w, int &h) {
   }
   w = mx + 1;
   h = my + 1;
-  if (w < 3 || h < 3) return false; // needs a non-empty interior
+  if (w < 3 || h < 3)
+    return false; // needs a non-empty interior
   std::vector<uint8_t> grid(static_cast<size_t>(w) * h, 0);
-  for (const auto &[cx, cy] : shape) grid[cx * h + cy] = 1;
+  for (const auto &[cx, cy] : shape)
+    grid[cx * h + cy] = 1;
   for (int x = 0; x < w; x++) {
     for (int y = 0; y < h; y++) {
       if (const bool onBorder = x == 0 || x == w - 1 || y == 0 || y == h - 1;
@@ -191,27 +195,31 @@ bool isPerimeterRing(const std::vector<Position> &shape, int &w, int &h) {
 // macro move is still a sequence of validated 1-cell hops). The stride-1
 // fallback in search() remains as a final safety net.
 uint8_t AStar::detectStride() const {
-  int g = std::gcd(static_cast<int>(gridWidth_),
-                   static_cast<int>(gridHeight_));
+  int g = std::gcd(static_cast<int>(gridWidth_), static_cast<int>(gridHeight_));
   const auto [goalStartX, goalStartY] = initialAnchors_[goalIndex_];
   g = std::gcd(g, std::abs(static_cast<int>(goalAnchor_.x) - goalStartX));
   g = std::gcd(g, std::abs(static_cast<int>(goalAnchor_.y) - goalStartY));
   for (size_t i = 0; i < shapes_.size(); i++) {
-    if (shapes_[i].size() <= 1) continue; // points don't constrain the stride
+    if (shapes_[i].size() <= 1)
+      continue; // points don't constrain the stride
     if (shapeBoxWidth_[i] > 1)
       g = std::gcd(g, static_cast<int>(shapeBoxWidth_[i]));
     if (shapeBoxHeight_[i] > 1)
       g = std::gcd(g, static_cast<int>(shapeBoxHeight_[i]));
   }
-  if (g <= 1) return 1;
+  if (g <= 1)
+    return 1;
 
   // Largest divisor of g for which every shape is stride-safe.
   for (int cand = g; cand >= 2; cand--) {
-    if (g % cand != 0) continue;
+    if (g % cand != 0)
+      continue;
     bool allSafe = true;
     for (const auto &shape : shapes_) {
-      if (shape.size() == 1) continue; // point
-      if (shapeScaledBy(shape, cand)) continue;
+      if (shape.size() == 1)
+        continue; // point
+      if (shapeScaledBy(shape, cand))
+        continue;
       int w = 0;
       if (int h = 0;
           isPerimeterRing(shape, w, h) && w % cand == 0 && h % cand == 0)
@@ -219,7 +227,8 @@ uint8_t AStar::detectStride() const {
       allSafe = false;
       break;
     }
-    if (allSafe) return static_cast<uint8_t>(cand);
+    if (allSafe)
+      return static_cast<uint8_t>(cand);
   }
   return 1;
 }
@@ -239,7 +248,8 @@ void AStar::computeBlockReachability() {
   std::vector<uint8_t> lockedCell(total, 0);
   auto movable = computeMovableSet(initialAnchors_);
   for (size_t i = 0; i < shapes_.size(); i++) {
-    if (movable[i] || i == goalIndex_) continue;
+    if (movable[i] || i == goalIndex_)
+      continue;
     const auto &[ax, ay] = initialAnchors_[i];
     for (const auto &[cx, cy] : shapes_[i]) {
       lockedCell[(ax + cx) * gridHeight_ + (ay + cy)] = 1;
@@ -249,7 +259,8 @@ void AStar::computeBlockReachability() {
   // 2. Per-block valid-anchor mask.
   blockValidAnchorMask_.assign(shapes_.size(), std::vector<uint8_t>(total, 0));
   for (size_t i = 0; i < shapes_.size(); i++) {
-    if (i == goalIndex_) continue;
+    if (i == goalIndex_)
+      continue;
     const int aw = shapeBoxWidth_[i];
     const int ah = shapeBoxHeight_[i];
     for (int x = 0; x + aw <= gridWidth_; x++) {
@@ -273,19 +284,22 @@ void AStar::computeBlockReachability() {
   //    footprint at any such anchor is part of the "corridor".
   initialGoalPathCells_.assign(total, 0);
   const auto [initGoalX, initGoalY] = initialAnchors_[goalIndex_];
-  if (goalAnchorAt(initGoalX, initGoalY) == UINT16_MAX) return;
+  if (goalAnchorAt(initGoalX, initGoalY) == UINT16_MAX)
+    return;
   const uint16_t dStart = goalAnchorAt(initGoalX, initGoalY);
   const auto &gShape = shapes_[goalIndex_];
   // Collect via reverse BFS: an anchor (x,y) is on some shortest path if
-  //   bfs[x,y] + dist((x,y) → initGoal) = dStart and bfs[x,y] + bfs_back == dStart
+  //   bfs[x,y] + dist((x,y) → initGoal) = dStart and bfs[x,y] + bfs_back ==
+  //   dStart
   // since the anchor graph is undirected we just check
   //   bfs[x,y] + manhattan((x,y), initGoal) == dStart (necessary, not
   //   sufficient — but cheap and acceptable for a fixed reference path).
   for (int x = 0; x < gridWidth_; x++) {
     for (int y = 0; y < gridHeight_; y++) {
-      const uint16_t d = goalAnchorAt(static_cast<int8_t>(x),
-                                       static_cast<int8_t>(y));
-      if (d == UINT16_MAX || d > dStart) continue;
+      const uint16_t d =
+          goalAnchorAt(static_cast<int8_t>(x), static_cast<int8_t>(y));
+      if (d == UINT16_MAX || d > dStart)
+        continue;
       if (const int mh = std::abs(x - initGoalX) + std::abs(y - initGoalY);
           d + mh != dStart)
         continue;
@@ -300,17 +314,18 @@ void AStar::computeBlockReachability() {
   //    fixed (precomputed data only), so a one-shot multi-source BFS gives,
   //    for every cell, the Manhattan distance to the nearest safe anchor —
   //    exactly what lpDisplacementCost needs, in O(1) per lookup.
-  blockSafeAnchorDist_.assign(shapes_.size(),
-                              std::vector<uint16_t>(total, UINT16_MAX));
+  blockSafeAnchorDist_.assign(shapes_.size(), std::vector(total, UINT16_MAX));
   for (size_t i = 0; i < shapes_.size(); i++) {
-    if (i == goalIndex_) continue;
+    if (i == goalIndex_)
+      continue;
     const int aw = shapeBoxWidth_[i];
     const int ah = shapeBoxHeight_[i];
     auto &dist = blockSafeAnchorDist_[i];
     std::deque<std::pair<int, int>> queue;
     for (int x = 0; x + aw <= gridWidth_; x++) {
       for (int y = 0; y + ah <= gridHeight_; y++) {
-        if (!blockValidAnchorMask_[i][x * gridHeight_ + y]) continue;
+        if (!blockValidAnchorMask_[i][x * gridHeight_ + y])
+          continue;
         bool inside = false;
         for (const auto &[cx, cy] : shapes_[i]) {
           if (initialGoalPathCells_[(x + cx) * gridHeight_ + (y + cy)]) {
@@ -318,7 +333,8 @@ void AStar::computeBlockReachability() {
             break;
           }
         }
-        if (inside) continue;
+        if (inside)
+          continue;
         dist[x * gridHeight_ + y] = 0;
         queue.emplace_back(x, y);
       }
@@ -333,7 +349,8 @@ void AStar::computeBlockReachability() {
         if (nx < 0 || ny < 0 || nx >= gridWidth_ || ny >= gridHeight_)
           continue;
         uint16_t &cell = dist[nx * gridHeight_ + ny];
-        if (cell != UINT16_MAX) continue;
+        if (cell != UINT16_MAX)
+          continue;
         cell = d + 1;
         queue.emplace_back(nx, ny);
       }
@@ -348,12 +365,13 @@ void AStar::computeBlockReachability() {
 // entirely outside the corridor. Sum is admissible because each blocker
 // must move at least that far, and we ignore the bipartite-assignment
 // conflict (LP relaxation) which can only decrease the bound.
-uint32_t
-AStar::lpDisplacementCost(const std::vector<Position> &anchors) const {
-  if (initialGoalPathCells_.empty()) return 0;
+uint32_t AStar::lpDisplacementCost(const std::vector<Position> &anchors) const {
+  if (initialGoalPathCells_.empty())
+    return 0;
   uint32_t total = 0;
   for (const uint8_t i : movableBlockIndices_) {
-    if (i == goalIndex_) continue;
+    if (i == goalIndex_)
+      continue;
     const auto &[ax, ay] = anchors[i];
     // Is this block currently inside the corridor?
     bool inCorridor = false;
@@ -363,7 +381,8 @@ AStar::lpDisplacementCost(const std::vector<Position> &anchors) const {
         break;
       }
     }
-    if (!inCorridor) continue;
+    if (!inCorridor)
+      continue;
 
     // Min Manhattan distance from this anchor to a safe one — a precomputed
     // O(1) field lookup. UINT16_MAX means no safe anchor exists, so the
@@ -390,7 +409,8 @@ void AStar::computeGoalAnchorBfs() {
   std::vector<uint8_t> lockedWall(total, 0);
   auto movable = computeMovableSet(initialAnchors_);
   for (size_t i = 0; i < shapes_.size(); i++) {
-    if (movable[i] || i == goalIndex_) continue;
+    if (movable[i] || i == goalIndex_)
+      continue;
     const auto &[ax, ay] = initialAnchors_[i];
     for (const auto &[cx, cy] : shapes_[i]) {
       lockedWall[(ax + cx) * gridHeight_ + (ay + cy)] = 1;
@@ -403,10 +423,13 @@ void AStar::computeGoalAnchorBfs() {
   const int gw = shapeBoxWidth_[goalIndex_];
   const int gh = shapeBoxHeight_[goalIndex_];
   auto anchorValid = [&](const int8_t x, const int8_t y) {
-    if (x < 0 || y < 0) return false;
-    if (x + gw > gridWidth_ || y + gh > gridHeight_) return false;
+    if (x < 0 || y < 0)
+      return false;
+    if (x + gw > gridWidth_ || y + gh > gridHeight_)
+      return false;
     for (const auto &[cx, cy] : gShape) {
-      if (lockedWall[(x + cx) * gridHeight_ + (y + cy)]) return false;
+      if (lockedWall[(x + cx) * gridHeight_ + (y + cy)])
+        return false;
     }
     return true;
   };
@@ -426,16 +449,18 @@ void AStar::computeGoalAnchorBfs() {
     for (int dir = 0; dir < 4; dir++) {
       const auto nx = static_cast<int8_t>(x + DX[dir]);
       const auto ny = static_cast<int8_t>(y + DY[dir]);
-      if (!anchorValid(nx, ny)) continue;
+      if (!anchorValid(nx, ny))
+        continue;
       uint16_t &cell = goalAnchorBfsDist_[nx * gridHeight_ + ny];
-      if (cell != UINT16_MAX) continue;
+      if (cell != UINT16_MAX)
+        continue;
       cell = d + 1;
       queue.emplace_back(nx, ny);
     }
   }
 
   if (goalAnchorAt(initialAnchors_[goalIndex_].x,
-                    initialAnchors_[goalIndex_].y) == UINT16_MAX) {
+                   initialAnchors_[goalIndex_].y) == UINT16_MAX) {
     unsolvableAtStart_ = true;
   }
 }

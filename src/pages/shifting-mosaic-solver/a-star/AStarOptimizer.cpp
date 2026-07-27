@@ -37,8 +37,7 @@
 //                         drag) when no collision forbids it.
 // ===========================================================================
 
-std::vector<AStar::MoveRun>
-AStar::computeRuns(const std::vector<Turn> &turns) {
+std::vector<AStar::MoveRun> AStar::computeRuns(const std::vector<Turn> &turns) {
   std::vector<MoveRun> runs;
   for (size_t i = 0; i < turns.size(); i++) {
     if (!runs.empty() && runs.back().blockId == turns[i].blockId &&
@@ -67,21 +66,24 @@ size_t AStar::countSteps(const std::vector<Turn> &turns) {
 bool AStar::replaySolves(const std::vector<Turn> &turns) const {
   std::vector<Position> anchors = initialAnchors_;
   for (const auto &[blockId, direction] : turns) {
-    if (blockId >= anchors.size()) return false;
+    if (blockId >= anchors.size())
+      return false;
     const auto d = std::to_underlying(direction);
-    const Position next{static_cast<int8_t>(anchors[blockId].x + DX[d]),
-                        static_cast<int8_t>(anchors[blockId].y + DY[d])};
-    if (!inBounds(blockId, next)) return false;
+    const Position next{.x = static_cast<int8_t>(anchors[blockId].x + DX[d]),
+                        .y = static_cast<int8_t>(anchors[blockId].y + DY[d])};
+    if (!inBounds(blockId, next))
+      return false;
     anchors[blockId] = next;
-    if (collidesWithOthers(blockId, next, anchors)) return false;
+    if (collidesWithOthers(blockId, next, anchors))
+      return false;
   }
   return anchors[goalIndex_] == goalAnchor_;
 }
 
-size_t
-AStar::firstSolvingPrefixLen(const std::vector<Turn> &turns) const {
+size_t AStar::firstSolvingPrefixLen(const std::vector<Turn> &turns) const {
   std::vector<Position> anchors = initialAnchors_;
-  if (anchors[goalIndex_] == goalAnchor_) return 0;
+  if (anchors[goalIndex_] == goalAnchor_)
+    return 0;
   for (size_t i = 0; i < turns.size(); i++) {
     const auto &[blockId, direction] = turns[i];
     // Same bounds guard replaySolves() carries. optimizeSolution() calls this
@@ -89,13 +91,15 @@ AStar::firstSolvingPrefixLen(const std::vector<Turn> &turns) const {
     // `turns` straight from caller-supplied JS with no validation, so an
     // out-of-range blockId/direction would otherwise be an out-of-bounds heap
     // write / static-array read inside wasm linear memory.
-    if (blockId >= anchors.size()) return i;
+    if (blockId >= anchors.size())
+      return i;
     // Direction's underlying type is unsigned, so only the upper bound can be
     // violated by a caller-supplied value.
     const auto d = std::to_underlying(direction);
-    if (d > 3) return i;
-    anchors[blockId] = {static_cast<int8_t>(anchors[blockId].x + DX[d]),
-                        static_cast<int8_t>(anchors[blockId].y + DY[d])};
+    if (d > 3)
+      return i;
+    anchors[blockId] = {.x = static_cast<int8_t>(anchors[blockId].x + DX[d]),
+                        .y = static_cast<int8_t>(anchors[blockId].y + DY[d])};
     if (blockId == goalIndex_ && anchors[goalIndex_] == goalAnchor_)
       return i + 1;
   }
@@ -109,7 +113,8 @@ bool AStar::tryRunPairCancellation(std::vector<Turn> &turns) const {
   const auto runs = computeRuns(turns);
   for (size_t a = 0; a < runs.size(); a++) {
     for (size_t b = a + 1; b < runs.size(); b++) {
-      if (runs[a].blockId != runs[b].blockId) continue;
+      if (runs[a].blockId != runs[b].blockId)
+        continue;
       if ((std::to_underlying(runs[a].dir) + 2) % 4 !=
           std::to_underlying(runs[b].dir))
         continue; // not opposite directions
@@ -122,8 +127,10 @@ bool AStar::tryRunPairCancellation(std::vector<Turn> &turns) const {
         std::vector<Turn> cand;
         cand.reserve(turns.size() - 2 * c);
         for (size_t k = 0; k < turns.size(); k++) {
-          if (k >= aLo && k < aHi) continue;
-          if (k >= bLo && k < bHi) continue;
+          if (k >= aLo && k < aHi)
+            continue;
+          if (k >= bLo && k < bHi)
+            continue;
           cand.push_back(turns[k]);
         }
         if (replaySolves(cand)) {
@@ -146,7 +153,8 @@ bool AStar::tryRunRemoval(std::vector<Turn> &turns) const {
     std::vector<Turn> cand;
     cand.reserve(n - r.len);
     for (size_t k = 0; k < n; k++) {
-      if (k >= r.start && k < r.start + r.len) continue;
+      if (k >= r.start && k < r.start + r.len)
+        continue;
       cand.push_back(turns[k]);
     }
     if (replaySolves(cand)) {
@@ -166,7 +174,8 @@ bool AStar::trySingleRemoval(std::vector<Turn> &turns) const {
     std::vector<Turn> cand;
     cand.reserve(n - 1);
     for (size_t m = 0; m < n; m++)
-      if (m != k) cand.push_back(turns[m]);
+      if (m != k)
+        cand.push_back(turns[m]);
     if (replaySolves(cand)) {
       turns = std::move(cand);
       return true;
@@ -187,11 +196,14 @@ bool AStar::tryReorderMerge(std::vector<Turn> &turns) const {
   for (size_t j = 0; j < runs.size(); j++) {
     const int prev = prevRunOfBlock[runs[j].blockId];
     prevRunOfBlock[runs[j].blockId] = static_cast<int>(j);
-    if (prev < 0) continue;
+    if (prev < 0)
+      continue;
     const auto &ri = runs[static_cast<size_t>(prev)];
     const auto &rj = runs[j];
-    if (ri.dir != rj.dir) continue; // different dir → cannot merge cleanly
-    if (static_cast<size_t>(prev) + 1 == j) continue; // already adjacent
+    if (ri.dir != rj.dir)
+      continue; // different dir → cannot merge cleanly
+    if (static_cast<size_t>(prev) + 1 == j)
+      continue; // already adjacent
     const size_t riEnd = ri.start + ri.len;
 
     // Candidate 1: pull run j left, right after run i.
@@ -199,10 +211,14 @@ bool AStar::tryReorderMerge(std::vector<Turn> &turns) const {
       const size_t rjEnd = rj.start + rj.len;
       std::vector<Turn> cand;
       cand.reserve(turns.size());
-      for (size_t k = 0; k < riEnd; k++) cand.push_back(turns[k]);
-      for (size_t k = rj.start; k < rjEnd; k++) cand.push_back(turns[k]);
-      for (size_t k = riEnd; k < rj.start; k++) cand.push_back(turns[k]);
-      for (size_t k = rjEnd; k < turns.size(); k++) cand.push_back(turns[k]);
+      for (size_t k = 0; k < riEnd; k++)
+        cand.push_back(turns[k]);
+      for (size_t k = rj.start; k < rjEnd; k++)
+        cand.push_back(turns[k]);
+      for (size_t k = riEnd; k < rj.start; k++)
+        cand.push_back(turns[k]);
+      for (size_t k = rjEnd; k < turns.size(); k++)
+        cand.push_back(turns[k]);
       if (countSteps(cand) < baseSteps && replaySolves(cand)) {
         turns = std::move(cand);
         return true;
@@ -212,10 +228,14 @@ bool AStar::tryReorderMerge(std::vector<Turn> &turns) const {
     {
       std::vector<Turn> cand;
       cand.reserve(turns.size());
-      for (size_t k = 0; k < ri.start; k++) cand.push_back(turns[k]);
-      for (size_t k = riEnd; k < rj.start; k++) cand.push_back(turns[k]);
-      for (size_t k = ri.start; k < riEnd; k++) cand.push_back(turns[k]);
-      for (size_t k = rj.start; k < turns.size(); k++) cand.push_back(turns[k]);
+      for (size_t k = 0; k < ri.start; k++)
+        cand.push_back(turns[k]);
+      for (size_t k = riEnd; k < rj.start; k++)
+        cand.push_back(turns[k]);
+      for (size_t k = ri.start; k < riEnd; k++)
+        cand.push_back(turns[k]);
+      for (size_t k = rj.start; k < turns.size(); k++)
+        cand.push_back(turns[k]);
       if (countSteps(cand) < baseSteps && replaySolves(cand)) {
         turns = std::move(cand);
         return true;
@@ -242,13 +262,12 @@ AStar::optimizeSolution(const std::vector<Turn> &input) const {
       break;
     if (cfg_.cancel && cfg_.cancel->load(std::memory_order_relaxed))
       break;
-    if (const bool improved =
-            tryRunPairCancellation(cur) || tryRunRemoval(cur) ||
-            trySingleRemoval(cur) || tryReorderMerge(cur);
+    if (const bool improved = tryRunPairCancellation(cur) ||
+                              tryRunRemoval(cur) || trySingleRemoval(cur) ||
+                              tryReorderMerge(cur);
         !improved)
       break;
     cur.resize(firstSolvingPrefixLen(cur));
   }
   return cur;
 }
-

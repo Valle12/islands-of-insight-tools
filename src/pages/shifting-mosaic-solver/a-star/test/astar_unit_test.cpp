@@ -12,13 +12,15 @@ namespace {
 // here for unit-level checks.
 
 TEST(SearchSmall, EmptyPathWhenStartEqualsGoal) {
-  AStar a(3, 3, {{{0, 0}}}, {{1, 1}}, 0, Position{1, 1});
+  AStar a(3, 3, {{{.x = 0, .y = 0}}}, {{.x = 1, .y = 1}}, 0,
+          Position{.x = 1, .y = 1});
   const auto turns = a.search();
   EXPECT_TRUE(turns.empty());
 }
 
 TEST(SearchSmall, TrivialOneStepRight) {
-  AStar a(3, 3, {{{0, 0}}}, {{0, 0}}, 0, Position{1, 0});
+  AStar a(3, 3, {{{.x = 0, .y = 0}}}, {{.x = 0, .y = 0}}, 0,
+          Position{.x = 1, .y = 0});
   const auto turns = a.search();
   ASSERT_EQ(turns.size(), 1);
   EXPECT_EQ(turns[0].blockId, 0);
@@ -30,8 +32,9 @@ TEST(SearchSmall, TwoBlockDetour) {
   // goal block (id 1) must reach (0,0).
   // `anchors` doubles as the initial state and the replay accumulator, so it
   // is the one board literal that cannot be inlined into the constructor.
-  std::vector<Position> anchors = {{2, 0}, {3, 0}};
-  AStar a(4, 2, {{{0, 0}}, {{0, 0}}}, anchors, 1, Position{0, 0});
+  std::vector<Position> anchors = {{.x = 2, .y = 0}, {.x = 3, .y = 0}};
+  AStar a(4, 2, {{{.x = 0, .y = 0}}, {{.x = 0, .y = 0}}}, anchors, 1,
+          Position{.x = 0, .y = 0});
   const auto turns = a.search();
   ASSERT_FALSE(turns.empty());
 
@@ -39,16 +42,17 @@ TEST(SearchSmall, TwoBlockDetour) {
   for (const auto &[blockId, direction] : turns) {
     auto &[px, py] = anchors[blockId];
     switch (direction) {
-    case Direction::UP:
+      using enum Direction;
+    case UP:
       py--;
       break;
-    case Direction::RIGHT:
+    case RIGHT:
       px++;
       break;
-    case Direction::DOWN:
+    case DOWN:
       py++;
       break;
-    case Direction::LEFT:
+    case LEFT:
       px--;
       break;
     }
@@ -59,7 +63,8 @@ TEST(SearchSmall, TwoBlockDetour) {
 
 TEST(BoundingBox, ManhattanReturnedWhenNoBlockers) {
   // 3x3 grid, single block. Heuristic should equal Manhattan distance.
-  AStar a(5, 5, {{{0, 0}}}, {{0, 0}}, 0, Position{3, 4});
+  AStar a(5, 5, {{{.x = 0, .y = 0}}}, {{.x = 0, .y = 0}}, 0,
+          Position{.x = 3, .y = 4});
   // Verify by checking that a search to that anchor takes exactly 7 moves.
   const auto turns = a.search();
   EXPECT_EQ(turns.size(), 7u);
@@ -70,7 +75,8 @@ TEST(Deadlock, DoesNotBlockReachableGoal) {
   //  A . . *
   //  . . . .
   // Goal block target (0,0).
-  AStar a(4, 2, {{{0, 0}}, {{0, 0}}}, {{0, 0}, {3, 0}}, 1, Position{0, 0},
+  AStar a(4, 2, {{{.x = 0, .y = 0}}, {{.x = 0, .y = 0}}},
+          {{.x = 0, .y = 0}, {.x = 3, .y = 0}}, 1, Position{.x = 0, .y = 0},
           AStar::Config{});
   const auto turns = a.search();
   ASSERT_FALSE(turns.empty());
@@ -79,8 +85,10 @@ TEST(Deadlock, DoesNotBlockReachableGoal) {
 
 TEST(Collision, AllowsDetourAroundOtherBlock) {
   // Two 2x1 blocks on the same row, with a second row free for detour.
-  AStar a(5, 2, {{{0, 0}, {1, 0}}, {{0, 0}, {1, 0}}}, {{0, 0}, {3, 0}}, 1,
-          Position{0, 0});
+  AStar a(5, 2,
+          {{{.x = 0, .y = 0}, {.x = 1, .y = 0}},
+           {{.x = 0, .y = 0}, {.x = 1, .y = 0}}},
+          {{.x = 0, .y = 0}, {.x = 3, .y = 0}}, 1, Position{.x = 0, .y = 0});
   const auto turns = a.search();
   EXPECT_FALSE(turns.empty());
 }

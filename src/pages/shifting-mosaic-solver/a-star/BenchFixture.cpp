@@ -10,9 +10,9 @@
 
 #include <nlohmann/json.hpp>
 #include <stdexcept>
+#include <utility>
 
 using json = nlohmann::json;
-
 
 Fixture loadFixture(const std::string &path) {
   std::ifstream f(path);
@@ -27,16 +27,17 @@ Fixture loadFixture(const std::string &path) {
     std::vector<Position> cells;
     cells.reserve(shape.size());
     for (const auto &c : shape)
-      cells.push_back({static_cast<int8_t>(c["x"].get<int>()),
-                       static_cast<int8_t>(c["y"].get<int>())});
+      cells.push_back({.x = static_cast<int8_t>(c["x"].get<int>()),
+                       .y = static_cast<int8_t>(c["y"].get<int>())});
     data.shapes.push_back(std::move(cells));
   }
   for (const auto &a : j["initialAnchors"])
-    data.initialAnchors.push_back({static_cast<int8_t>(a["x"].get<int>()),
-                                   static_cast<int8_t>(a["y"].get<int>())});
+    data.initialAnchors.push_back(
+        {.x = static_cast<int8_t>(a["x"].get<int>()),
+         .y = static_cast<int8_t>(a["y"].get<int>())});
   data.goalIndex = j["goalIndex"].get<uint8_t>();
-  data.goalAnchor = {static_cast<int8_t>(j["goalAnchor"]["x"].get<int>()),
-                     static_cast<int8_t>(j["goalAnchor"]["y"].get<int>())};
+  data.goalAnchor = {.x = static_cast<int8_t>(j["goalAnchor"]["x"].get<int>()),
+                     .y = static_cast<int8_t>(j["goalAnchor"]["y"].get<int>())};
   return data;
 }
 
@@ -57,12 +58,12 @@ size_t firstIllegalMove(const Fixture &data, const std::vector<Turn> &turns,
     const uint8_t b = turns[i].blockId;
     if (b >= anchors.size())
       return i;
-    const int d = static_cast<int>(turns[i].direction);
+    const auto d = static_cast<int>(std::to_underlying(turns[i].direction));
     if (d < 0 || d > 3)
       return i;
     const Position from = anchors[b];
-    const Position to{static_cast<int8_t>(from.x + BitGrid::DX[d]),
-                      static_cast<int8_t>(from.y + BitGrid::DY[d])};
+    const Position to{.x = static_cast<int8_t>(from.x + BitGrid::DX[d]),
+                      .y = static_cast<int8_t>(from.y + BitGrid::DY[d])};
     grid.removeBlock(b, from);
     if (!grid.canPlace(b, to.x, to.y)) {
       grid.addBlock(b, from);
@@ -138,7 +139,8 @@ void writeTurnsFile(const std::vector<Turn> &turns, const std::string &path) {
   json tj = json::array();
   for (const auto &[blockId, direction] : turns)
     tj.push_back(
-        {{"blockId", blockId}, {"direction", static_cast<int>(direction)}});
+        {{"blockId", blockId},
+         {"direction", static_cast<int>(std::to_underlying(direction))}});
   std::ofstream f(path);
   f << tj.dump();
 }

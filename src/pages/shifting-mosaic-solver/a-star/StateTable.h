@@ -47,19 +47,19 @@ public:
   void reserve(const size_t n) {
     size_t cap = 1024;
     while (cap * 7 < n * 10)
-      cap <<= 1;
+      cap <<= 1u;
     if (cap > slots_.size())
       rehash(cap);
   }
 
   Entry *find(const NodeKey &k) {
     const size_t mask = slots_.size() - 1;
-    size_t i = NodeKeyHash{}(k) & mask;
+    size_t i = NodeKeyHash{}(k)&mask;
     while (const uint32_t s = slots_[i]) {
       Entry &e = at(s - 1);
       if (e.key == k)
         return &e;
-      i = (i + 1) & mask;
+      i = i + 1 & mask;
     }
     return nullptr;
   }
@@ -69,14 +69,14 @@ public:
   // try_emplace(key) shape the callers previously used.
   std::pair<Entry *, bool> emplace(const NodeKey &k) {
     if (count_ * 10 >= slots_.size() * 7)
-      rehash(slots_.size() << 1);
+      rehash(slots_.size() << 1u);
     const size_t mask = slots_.size() - 1;
-    size_t i = NodeKeyHash{}(k) & mask;
+    size_t i = NodeKeyHash{}(k)&mask;
     while (const uint32_t s = slots_[i]) {
       Entry &e = at(s - 1);
       if (e.key == k)
         return {&e, false};
-      i = (i + 1) & mask;
+      i = i + 1 & mask;
     }
     const auto idx = static_cast<uint32_t>(count_);
     ensureBlock(idx);
@@ -116,7 +116,7 @@ private:
     for (size_t n = 0; n < count_; n++) {
       size_t i = NodeKeyHash{}(at(static_cast<uint32_t>(n)).key) & mask;
       while (next[i])
-        i = (i + 1) & mask;
+        i = i + 1 & mask;
       next[i] = static_cast<uint32_t>(n) + 1;
     }
     slots_.swap(next);

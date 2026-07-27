@@ -4,9 +4,9 @@
 // diversified restart lottery built on top of it. The breadth-first arms
 // (guided beam, hierarchical) live in DragSolverBeam.cpp.
 #include "DragSolver.h"
+#include "MemoryProbe.h"
 #include "Node.h"
 #include "SolverClock.h"
-#include "MemoryProbe.h"
 
 #include <algorithm>
 #include <array>
@@ -37,12 +37,10 @@ std::vector<Turn> DragSolver::search(const uint32_t maxMs,
     for (relevantRing_ = 1; relevantRing_ <= 4; relevantRing_++) {
       res = runAStarDrag(initialAnchors_, middleCuts_ + 1, nullptr, deadline,
                          maxNodes);
-      if (res.found || !res.exhausted ||
-          (deadline != 0 && nowMs() >= deadline))
+      if (res.found || !res.exhausted || (deadline != 0 && nowMs() >= deadline))
         break;
       std::cout << "DragSolver: relevance ring "
-                << static_cast<int>(relevantRing_)
-                << " exhausted — widening\n";
+                << static_cast<int>(relevantRing_) << " exhausted — widening\n";
     }
     relevantRing_ = 1;
   } else {
@@ -101,14 +99,72 @@ std::vector<Turn> DragSolver::searchJamRestarts(const uint32_t maxMs,
   // wide-board diversification (multiple competing routes destabilize the
   // plain guide).
   static constexpr Round ROUNDS[] = {
-      {4, true, 64, 8, 4, false, false, 1500000},
-      {6, true, 64, 16, 4, false, false, 1500000},
-      {4, true, 64, 0, 4, false, false, 1500000},
-      {4, true, 64, 8, 8, false, false, 1500000, true},
-      {6, true, 64, 16, 8, false, false, 1500000},
-      {4, true, 64, 8, 4, true, true, 1500000},
-      {2, true, 64, 8, 32, false, false, 1000000, true},
-      {3, false, 64, 8, 4, false, false, 1000000},
+      {.weight = 4,
+       .settled = true,
+       .pea = 64,
+       .jamGuide = 8,
+       .jamPenalty = 4,
+       .por = false,
+       .relevant = false,
+       .nodeCap = 1500000},
+      {.weight = 6,
+       .settled = true,
+       .pea = 64,
+       .jamGuide = 16,
+       .jamPenalty = 4,
+       .por = false,
+       .relevant = false,
+       .nodeCap = 1500000},
+      {.weight = 4,
+       .settled = true,
+       .pea = 64,
+       .jamGuide = 0,
+       .jamPenalty = 4,
+       .por = false,
+       .relevant = false,
+       .nodeCap = 1500000},
+      {.weight = 4,
+       .settled = true,
+       .pea = 64,
+       .jamGuide = 8,
+       .jamPenalty = 8,
+       .por = false,
+       .relevant = false,
+       .nodeCap = 1500000,
+       .pin = true},
+      {.weight = 6,
+       .settled = true,
+       .pea = 64,
+       .jamGuide = 16,
+       .jamPenalty = 8,
+       .por = false,
+       .relevant = false,
+       .nodeCap = 1500000},
+      {.weight = 4,
+       .settled = true,
+       .pea = 64,
+       .jamGuide = 8,
+       .jamPenalty = 4,
+       .por = true,
+       .relevant = true,
+       .nodeCap = 1500000},
+      {.weight = 2,
+       .settled = true,
+       .pea = 64,
+       .jamGuide = 8,
+       .jamPenalty = 32,
+       .por = false,
+       .relevant = false,
+       .nodeCap = 1000000,
+       .pin = true},
+      {.weight = 3,
+       .settled = false,
+       .pea = 64,
+       .jamGuide = 8,
+       .jamPenalty = 4,
+       .por = false,
+       .relevant = false,
+       .nodeCap = 1000000},
   };
   const Config saved = cfg_;
 
@@ -152,13 +208,11 @@ std::vector<Turn> DragSolver::searchJamRestarts(const uint32_t maxMs,
     jamPinned_ = false; // each round pins its own start's route
     // Round 0 of each config keeps the deterministic tie-break; later cycles
     // jitter it so plateaus break differently every time around.
-    cfg_.tieBreakSeed =
-        r < std::size(ROUNDS) ? 0 : 0x9E3779B9u * r + 1;
+    cfg_.tieBreakSeed = r < std::size(ROUNDS) ? 0 : 0x9E3779B9u * r + 1;
     restarts++;
     uint32_t cap = rNodeCap;
     if (saved.jamRoundNodeCap != 0) {
-      const uint64_t unit =
-          saved.jamLubyRestarts ? lubyUnit(restarts) : 1;
+      const uint64_t unit = saved.jamLubyRestarts ? lubyUnit(restarts) : 1;
       const uint64_t scaled =
           static_cast<uint64_t>(saved.jamRoundNodeCap) * unit;
       cap = static_cast<uint32_t>(
@@ -169,8 +223,8 @@ std::vector<Turn> DragSolver::searchJamRestarts(const uint32_t maxMs,
     // Alternate root rounds and elite warm-starts (elite rounds need the
     // guide on to keep producing partials; force it for the bands round).
     const Elite *from = nullptr;
-    if (!elites.empty() && (r & 1) != 0) {
-      from = &elites[(r >> 1) % elites.size()];
+    if (!elites.empty() && (r & 1u) != 0) {
+      from = &elites[(r >> 1u) % elites.size()];
       if (cfg_.jamGuideWeight == 0)
         cfg_.jamGuideWeight = 8;
     }
@@ -184,10 +238,10 @@ std::vector<Turn> DragSolver::searchJamRestarts(const uint32_t maxMs,
     if (from != nullptr) {
       if (const uint32_t hops = r / 2 % 4 * 3; hops > 0) { // 0,3,6,9 drags
         pertAnchors = from->anchors;
-        uint32_t rng = 0x243F6A88u ^ (r * 0x9E3779B9u);
+        uint32_t rng = 0x243F6A88u ^ r * 0x9E3779B9u;
         const auto rnd = [&rng](const size_t n) {
           rng = rng * 1664525u + 1013904223u;
-          return (rng >> 8) % n;
+          return (rng >> 8u) % n;
         };
         for (uint32_t p = 0; p < hops; p++) {
           grid_.buildOccupancy(pertAnchors);
@@ -199,18 +253,17 @@ std::vector<Turn> DragSolver::searchJamRestarts(const uint32_t maxMs,
               !reached.empty()) {
             const uint16_t to = reached[rnd(reached.size())];
             pertAnchors[b] = grid_.anchorFromIndex(to);
-            pert.push_back({b, to});
+            pert.push_back({.blockId = b, .toIdx = to});
           }
           grid_.addBlock(b, pertAnchors[b]);
         }
       }
     }
-    const std::vector<Position> &startAnchors =
-        !pert.empty() ? pertAnchors
-        : from        ? from->anchors
-                      : initialAnchors_;
-    const SegmentResult res = runAStarDrag(startAnchors, middleCuts_ + 1,
-                                           nullptr, deadline, cap);
+    const std::vector<Position> &startAnchors = !pert.empty() ? pertAnchors
+                                                : from        ? from->anchors
+                                                              : initialAnchors_;
+    const SegmentResult res =
+        runAStarDrag(startAnchors, middleCuts_ + 1, nullptr, deadline, cap);
     const auto stitched = [&](const std::vector<DragMove> &suffix) {
       std::vector<DragMove> full;
       if (from != nullptr)
@@ -225,8 +278,8 @@ std::vector<Turn> DragSolver::searchJamRestarts(const uint32_t maxMs,
         std::cout << "DragSolver(jam): retrying without symmetry "
                      "canonicalization\n";
         cfg_.canonicalizeSymmetry = false;
-        const SegmentResult res2 = runAStarDrag(startAnchors, middleCuts_ + 1,
-                                                nullptr, deadline, cap);
+        const SegmentResult res2 =
+            runAStarDrag(startAnchors, middleCuts_ + 1, nullptr, deadline, cap);
         cfg_.canonicalizeSymmetry = true;
         if (res2.found)
           turns = finalizePlan(stitched(res2.drags));
@@ -237,20 +290,21 @@ std::vector<Turn> DragSolver::searchJamRestarts(const uint32_t maxMs,
                !res.bestPartialDrags.empty()) {
       // Bank this round's deepest partial as an elite (crude diversity: one
       // elite per jam value; prefixes capped against runaway stitching).
-      Elite e{applyDrags(startAnchors, res.bestPartialDrags),
-              stitched(res.bestPartialDrags), res.bestPartialJam};
+      Elite e{.anchors = applyDrags(startAnchors, res.bestPartialDrags),
+              .prefix = stitched(res.bestPartialDrags),
+              .jam = res.bestPartialJam};
       if (e.prefix.size() <= 220 &&
-          std::ranges::none_of(elites, [&](const Elite &x) {
-            return x.jam == e.jam;
-          })) {
+          std::ranges::none_of(
+              elites, [&](const Elite &x) { return x.jam == e.jam; })) {
         elites.push_back(std::move(e));
-        std::ranges::sort(elites,
-                  [](const Elite &a, const Elite &b) { return a.jam < b.jam; });
+        std::ranges::sort(elites, [](const Elite &a, const Elite &b) {
+          return a.jam < b.jam;
+        });
         if (elites.size() > MAX_ELITES)
           elites.resize(MAX_ELITES);
-        std::cout << "DragSolver(jam): elite banked (jam "
-                  << elites.front().jam << ".." << elites.back().jam << ", "
-                  << elites.size() << " in pool)\n";
+        std::cout << "DragSolver(jam): elite banked (jam " << elites.front().jam
+                  << ".." << elites.back().jam << ", " << elites.size()
+                  << " in pool)\n";
       }
     }
   }

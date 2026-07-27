@@ -26,7 +26,7 @@ std::vector<std::vector<Position>> parseShapes(val shapesJs) {
     for (unsigned j = 0; j < numCells; j++) {
       val cell = shape[j];
       shapes[i].push_back({static_cast<int8_t>(cell["x"].as<int>()),
-                            static_cast<int8_t>(cell["y"].as<int>())});
+                           static_cast<int8_t>(cell["y"].as<int>())});
     }
   }
   return shapes;
@@ -39,7 +39,7 @@ std::vector<Position> parseAnchors(val anchorsJs) {
   for (unsigned i = 0; i < n; i++) {
     val a = anchorsJs[i];
     anchors.push_back({static_cast<int8_t>(a["x"].as<int>()),
-                        static_cast<int8_t>(a["y"].as<int>())});
+                       static_cast<int8_t>(a["y"].as<int>())});
   }
   return anchors;
 }
@@ -127,7 +127,8 @@ val solve(val puzzleVal, val configValIn) {
   const auto runDrag = [&](const bool hierarchical,
                            const bool assembly = false) {
     DragSolver::Config cfg;
-    cfg.weight = static_cast<uint8_t>(opt<unsigned>(configVal, "dragWeight", 3));
+    cfg.weight =
+        static_cast<uint8_t>(opt<unsigned>(configVal, "dragWeight", 3));
     cfg.deadlockPruning = deadlockPruning;
     cfg.settledOnly = opt<bool>(configVal, "settledOnly", true);
     cfg.partialExpansionWidth =
@@ -266,16 +267,13 @@ val solve(val puzzleVal, val configValIn) {
       // 90% leaves headroom for the coarse checkpoint cadence and for the
       // allocations the module itself needs to report a result.
       const uint64_t seqHeapCap = heapMax == 0 ? 0 : (heapMax / 100) * 90;
-      turns = solveArmsSequential(gridWidth, gridHeight, shapes, initialAnchors,
-                                  goalIndex, goalAnchor, maxMs, seqTotalMs,
-                                  maxNodes, postProcess, postProgress,
-                                  seqHeapCap, /*cancel=*/nullptr,
-                                  DragSolver::Config{}.jamAspect16,
-                                  DragSolver::Config{}.jamDensityPct,
-                                  /*outcomes=*/nullptr,
-                                  [](const char *arm) {
-                                    postPhase("sequential", arm);
-                                  });
+      turns = solveArmsSequential(
+          gridWidth, gridHeight, shapes, initialAnchors, goalIndex, goalAnchor,
+          maxMs, seqTotalMs, maxNodes, postProcess, postProgress, seqHeapCap,
+          /*cancel=*/nullptr, DragSolver::Config{}.jamAspect16,
+          DragSolver::Config{}.jamDensityPct,
+          /*outcomes=*/nullptr,
+          [](const char *arm) { postPhase("sequential", arm); });
     }
 #else
     // Pack-then-slide puzzles fall to the assembly pipeline in about a
@@ -335,16 +333,15 @@ val optimize(unsigned int gridWidth, unsigned int gridHeight, val shapesJs,
   std::vector<std::vector<Position>> shapes = parseShapes(shapesJs);
   std::vector<Position> initialAnchors = parseAnchors(initialAnchorsJs);
   const Position goalAnchor{static_cast<int8_t>(goalAnchorJs["x"].as<int>()),
-                             static_cast<int8_t>(goalAnchorJs["y"].as<int>())};
+                            static_cast<int8_t>(goalAnchorJs["y"].as<int>())};
 
   const auto numTurns = turnsJs["length"].as<unsigned>();
   std::vector<Turn> turns;
   turns.reserve(numTurns);
   for (unsigned i = 0; i < numTurns; i++) {
     val t = turnsJs[i];
-    turns.push_back(
-        {static_cast<uint8_t>(t["blockId"].as<unsigned>()),
-         static_cast<Direction>(t["direction"].as<unsigned>())});
+    turns.push_back({static_cast<uint8_t>(t["blockId"].as<unsigned>()),
+                     static_cast<Direction>(t["direction"].as<unsigned>())});
   }
 
   AStar aStar(static_cast<uint8_t>(gridWidth), static_cast<uint8_t>(gridHeight),
