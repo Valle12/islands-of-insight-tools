@@ -310,10 +310,6 @@ h2 {
   font-size: 13px;
 }
 
-.hidden {
-  display: none !important;
-}
-
 #solution-panel {
   display: flex;
   flex-direction: column;

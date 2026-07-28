@@ -18,7 +18,10 @@ const defaultExe = resolve(
   "src/pages/shifting-mosaic-solver/a-star/build-native/Release",
   process.platform === "win32" ? "shifting_mosaic_a_star.exe" : "shifting_mosaic_a_star",
 );
-const fixturesDir = resolve(projectRoot, "test/resources");
+const fixturesDir = resolve(
+  projectRoot,
+  "test/resources/shifting-mosaic-solver",
+);
 
 interface BenchResult {
   fixture: string;

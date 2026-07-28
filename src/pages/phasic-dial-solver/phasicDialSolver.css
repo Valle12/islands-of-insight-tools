@@ -44,6 +44,24 @@ body {
   }
 }
 
+#config-io {
+  display: flex;
+  align-items: center;
+}
+
+#solve-spinner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  font-size: 13px;
+  color: var(--md-sys-color-on-surface-variant);
+
+  md-circular-progress {
+    --md-circular-progress-size: 28px;
+  }
+}
+
 #dials-list {
   display: flex;
   flex-direction: column;

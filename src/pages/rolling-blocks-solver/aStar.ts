@@ -1,4 +1,4 @@
-import type { BFSTest, Tile } from "../../util/types";
+import type { RollingBlocksTest, Tile } from "../../util/types";
 import { extractBit, positionToIndex } from "../../util/utilMethods";
 import { MinHeap } from "../../util/minHeap";
 import {
@@ -71,7 +71,7 @@ export class AStar {
       );
     }
 
-    const bfsTest: BFSTest = {
+    const rollingBlocksTest: RollingBlocksTest = {
       gridWidth: this.gridWidth,
       gridHeight: this.gridHeight,
       cells: this.cells,
@@ -79,16 +79,17 @@ export class AStar {
       turns: undefined,
     };
 
-    // Serialize and download bfsTest as a pretty-printed JSON file in the browser.
+    // Serialize and download rollingBlocksTest as a pretty-printed JSON file
+    // in the browser.
     try {
-      const json = JSON.stringify(bfsTest, null, 2);
+      const json = JSON.stringify(rollingBlocksTest, null, 2);
       const blob = new Blob([json], { type: "application/json" });
       this.onDownload?.(blob);
     } catch (e) {
       // If serialization or download fails, log the error but continue the search.
       // e may be e.g. circular structure or unsupported types.
       // eslint-disable-next-line no-console
-      console.error("Failed to download bfsTest:", e);
+      console.error("Failed to download rollingBlocksTest:", e);
     }
 
     this.blockGoalAssignment = this.assignBlocksToGoals(root.blocks);

@@ -3,6 +3,15 @@ import { resolve } from "node:path";
 import "./buildWasm";
 import { pngDataUrl, sassCompiler } from "./plugins";
 
+// NOTE: this file must be launched with NODE_ENV=production — the `build`
+// script does it, and CI runs `bun run build`. Material Web pulls in Lit, whose
+// package exports carry a `development` condition that Bun's bundler selects
+// unless NODE_ENV says otherwise; that ships the development build of Lit, which
+// warns on every page load in production.
+//
+// It cannot be set from inside this file: Bun.build does not read
+// process.env.NODE_ENV at call time (measured — assigning it here left all 20
+// dev-mode sites in the bundle), so it has to be on the process from the start.
 await Bun.build({
   entrypoints: [
     "./src/pages/index.html",

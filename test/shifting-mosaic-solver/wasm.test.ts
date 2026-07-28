@@ -220,7 +220,7 @@ describe("WASM solver (shifting-mosaic)", () => {
   async function solveFixture(filename: string, budgetMs: number) {
     const module = await loadWasmModule(); // main-thread instance: optimizer
     const data: ShiftingMosaicTest = await Bun.file(
-      `${import.meta.dir}/../resources/${filename}`,
+      `${import.meta.dir}/../resources/shifting-mosaic-solver/${filename}`,
     ).json();
 
     // postProcess is off in the arms so the raw solution can serve as the

@@ -171,12 +171,9 @@ bool AStar::blockCompatibleWithCluster(const Block &block,
   // hashed (w, d) down to 5 bits, where the width dropped out entirely and
   // distinct pairs with congruent depths aliased onto one another — skipping
   // a genuine match. Deduplicating six comparisons was never worth that.
-  for (const auto &[w, d] : dims) {
-    if (w == cluster.width && d == cluster.depth) {
-      return true;
-    }
-  }
-  return false;
+  return std::ranges::any_of(dims, [&cluster](const auto &wd) {
+    return wd[0] == cluster.width && wd[1] == cluster.depth;
+  });
 }
 
 // ---------------------------------------------------------------------------

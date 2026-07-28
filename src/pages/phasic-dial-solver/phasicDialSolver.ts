@@ -1,14 +1,34 @@
 import blueDial from "./../../../images/blue-dial.png";
 import cyanDial from "./../../../images/cyan-dial.png";
 import greenDial from "./../../../images/green-dial.png";
+import purpleDial from "./../../../images/purple-dial.png";
 import redDial from "./../../../images/red-dial.png";
 import yellowDial from "./../../../images/yellow-dial.png";
+import {
+  downloadJson,
+  readJsonFile,
+  setupDragAndDrop,
+} from "../../util/configFile";
+import type { PhasicDialTest } from "../../util/types";
 import { Button } from "./button";
+import { validateConfig } from "./config";
 import { TurnSolver } from "./turnSolver";
 
 export class PhasicDialSolver {
   private dialCount = 2;
   private buttonCount = 1;
+
+  // The last solution and the inputs it was computed from. A downloaded config
+  // only carries a `result` while it still describes the puzzle that produced
+  // it — solving on download instead is not an option, because TurnSolver
+  // brute-forces a cartesian product and must not run behind a button that
+  // looks free.
+  private lastResult: number[] | null = null;
+  private lastResultKey: string | null = null;
+  private warningTimeoutId: number | null = null;
+  // Bumped whenever a search starts or the board changes, so an answer that
+  // arrives after either is discarded.
+  private solveGeneration = 0;
 
   private dialImages: Record<string, string> = {
     blue: blueDial,
@@ -16,9 +36,18 @@ export class PhasicDialSolver {
     green: greenDial,
     yellow: yellowDial,
     cyan: cyanDial,
+    purple: purpleDial,
   };
 
-  private dialOrder = ["blue", "red", "green", "yellow", "cyan"] as const;
+  // The order the game unlocks dials in; purple is the sixth and last.
+  private dialOrder = [
+    "blue",
+    "red",
+    "green",
+    "yellow",
+    "cyan",
+    "purple",
+  ] as const;
 
   constructor() {
     document.getElementById("add-dial")!.addEventListener("click", () => {
@@ -30,7 +59,7 @@ export class PhasicDialSolver {
     });
 
     document.getElementById("calculate")!.addEventListener("click", () => {
-      this.calculate();
+      void this.calculate();
     });
 
     document.getElementById("reset")!.addEventListener("click", () => {
@@ -44,6 +73,32 @@ export class PhasicDialSolver {
     document.getElementById("help-close")!.addEventListener("click", () => {
       (document.getElementById("help-dialog") as HTMLDialogElement).close();
     });
+
+    document
+      .getElementById("download-config")
+      ?.addEventListener("click", () => this.downloadCurrentConfig());
+
+    const fileInput = document.getElementById(
+      "config-file-input",
+    ) as HTMLInputElement | null;
+
+    document.getElementById("upload-config")?.addEventListener("click", () => {
+      fileInput?.click();
+    });
+
+    fileInput?.addEventListener("change", () => {
+      const file = fileInput.files?.[0];
+      if (file) void this.loadConfigFromFile(file);
+      // Clear the value so re-selecting the same file fires "change" again.
+      fileInput.value = "";
+    });
+
+    const dropOverlay = document.getElementById("drop-overlay");
+    if (dropOverlay) {
+      setupDragAndDrop(dropOverlay, file => {
+        void this.loadConfigFromFile(file);
+      });
+    }
 
     this.rebuildDialsList();
     this.rebuildTable();
@@ -120,12 +175,17 @@ export class PhasicDialSolver {
   private reset() {
     this.dialCount = 2;
     this.buttonCount = 1;
+    this.lastResult = null;
+    this.lastResultKey = null;
+    this.solveGeneration++;
+    this.setSolving(false);
     this.rebuildDialsList();
     this.rebuildTable();
     document.getElementById("result")!.hidden = true;
   }
 
-  private calculate() {
+  /** Harvests the puzzle currently entered in the DOM. */
+  private readConfig(): PhasicDialTest {
     const dialRows = document.querySelectorAll(".dial-row");
     const maxValues: number[] = [];
     const initialValues: number[] = [];
@@ -147,8 +207,125 @@ export class PhasicDialSolver {
       buttons.push(new Button(values));
     });
 
-    const solver = new TurnSolver(maxValues, initialValues, buttons);
-    const result = solver.calculateTurns();
+    return { maxValues, initialValues, buttons };
+  }
+
+  /** Identity of a puzzle's inputs; tells a stale solution from a live one. */
+  private configKey(config: PhasicDialTest): string {
+    return JSON.stringify([
+      config.maxValues,
+      config.initialValues,
+      config.buttons.map(button => button.getTurns()),
+    ]);
+  }
+
+  private downloadCurrentConfig() {
+    const config = this.readConfig();
+    if (
+      this.lastResult !== null &&
+      this.configKey(config) === this.lastResultKey
+    ) {
+      config.result = this.lastResult;
+    }
+    downloadJson(config, "phasicDialTest.json");
+  }
+
+  /** Reads a dropped/picked file, validates it, and populates the page. */
+  private async loadConfigFromFile(file: File) {
+    const read = await readJsonFile(file);
+    if (!read.ok) {
+      this.showWarning(read.error);
+      return;
+    }
+
+    const result = validateConfig(read.data);
+    if (!result.ok) {
+      this.showWarning(`Invalid config: ${result.error}`);
+      return;
+    }
+
+    this.applyLoadedConfig(result.config);
+  }
+
+  /** Applies a validated config to the dial rows and the button table. */
+  private applyLoadedConfig(config: PhasicDialTest) {
+    this.dialCount = config.maxValues.length;
+    this.buttonCount = config.buttons.length;
+    this.rebuildDialsList();
+    this.rebuildTable();
+
+    document.querySelectorAll(".dial-row").forEach((row, index) => {
+      row.querySelector<HTMLInputElement>(".dial-max")!.value = String(
+        config.maxValues[index],
+      );
+      row.querySelector<HTMLInputElement>(".dial-value")!.value = String(
+        config.initialValues[index],
+      );
+    });
+
+    document.querySelectorAll("#table-body tr").forEach((row, index) => {
+      const turns = config.buttons[index]!.getTurns();
+      row.querySelectorAll("md-outlined-text-field").forEach((field, dial) => {
+        field.value = String(turns[dial]);
+      });
+    });
+
+    // A loaded config describes a puzzle that has not been solved on this page
+    // yet, so any displayed solution — or one still being searched for —
+    // belongs to a different board.
+    this.lastResult = null;
+    this.lastResultKey = null;
+    this.solveGeneration++;
+    this.setSolving(false);
+    document.getElementById("result")!.hidden = true;
+  }
+
+  /** Swaps the Calculate button for a spinner while the search runs. */
+  private setSolving(solving: boolean) {
+    document
+      .getElementById("solve-spinner")!
+      .classList.toggle("hidden", !solving);
+    const calculateBtn = document.getElementById("calculate")!;
+    calculateBtn.toggleAttribute("disabled", solving);
+    if (solving) document.getElementById("result")!.hidden = true;
+  }
+
+  private showWarning(message: string) {
+    const banner = document.getElementById("warning-banner")!;
+    banner.textContent = message;
+    banner.classList.remove("hidden");
+    if (this.warningTimeoutId !== null) {
+      window.clearTimeout(this.warningTimeoutId);
+    }
+    this.warningTimeoutId = window.setTimeout(() => {
+      banner.classList.add("hidden");
+      this.warningTimeoutId = null;
+    }, 3500);
+  }
+
+  private async calculate() {
+    const config = this.readConfig();
+    const solver = new TurnSolver(
+      config.maxValues,
+      config.initialValues,
+      config.buttons,
+    );
+
+    const generation = ++this.solveGeneration;
+    this.setSolving(true);
+    let result: number[] | null;
+    try {
+      result = await solver.calculateTurnsAsync();
+    } finally {
+      if (generation === this.solveGeneration) this.setSolving(false);
+    }
+    // The board can be reset or replaced by an upload while the search runs;
+    // rendering this answer against it would attribute presses to the wrong
+    // buttons.
+    if (generation !== this.solveGeneration) return;
+
+    this.lastResult = result;
+    this.lastResultKey = result === null ? null : this.configKey(config);
 
     const resultEl = document.getElementById("result")!;
     if (result === null) {

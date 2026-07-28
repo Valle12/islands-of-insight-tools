@@ -77,6 +77,14 @@ const server = Bun.serve({
     console.log(`No route found for ${url.pathname}`);
     return new Response("Not found", { status: 404 });
   },
+  // Hot-module reloading and Bun's error overlay. This also makes the bundler
+  // select Lit's `development` export condition, so every page here logs Lit's
+  // "in dev mode" warning — expected locally, and the reason `bun run build`
+  // pins NODE_ENV=production so it cannot reach the deployed bundle.
+  //
+  // Setting it to `false` is the only way to silence the warning here:
+  // measured, NODE_ENV=production on the process and the object form
+  // (`{ hmr: true }`) both leave dev-mode Lit in place. Not worth losing HMR.
   development: true,
 });
 

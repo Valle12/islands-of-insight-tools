@@ -1,12 +1,13 @@
 import { registerCoiShim } from "../../common/coiRegister";
+import {
+  downloadJson,
+  readJsonFile,
+  setupDragAndDrop,
+} from "../../util/configFile";
 import type { ShiftingMosaicTest, ShiftingMosaicTool } from "../../util/types";
 import { Board } from "./board";
 import { validateConfig } from "./config";
-import {
-  computeGoalAnchor,
-  downloadConfig,
-  parsePositiveInt,
-} from "./editorHelpers";
+import { computeGoalAnchor, parsePositiveInt } from "./editorHelpers";
 import { cardWidthPx } from "./layout";
 import { SolutionView } from "./solutionView";
 import type { Turn } from "./turn";
@@ -153,7 +154,9 @@ export class ShiftingMosaicSolverEditor {
       this.fileInput.value = "";
     });
 
-    this.setupDragAndDrop();
+    setupDragAndDrop(this.dropOverlay, file => {
+      void this.loadConfigFromFile(file);
+    });
 
     document
       .getElementById("solution-exit")
@@ -498,43 +501,28 @@ export class ShiftingMosaicSolverEditor {
   private downloadCurrentConfig() {
     const puzzle = this.buildPuzzle();
     if (!puzzle) return;
-    downloadConfig({
-      gridWidth: puzzle.gridWidth,
-      gridHeight: puzzle.gridHeight,
-      shapes: puzzle.shapes,
-      initialAnchors: puzzle.initialAnchors,
-      goalIndex: puzzle.goalIndex,
-      goalAnchor: puzzle.goalAnchor,
-    });
+    downloadJson(
+      {
+        gridWidth: puzzle.gridWidth,
+        gridHeight: puzzle.gridHeight,
+        shapes: puzzle.shapes,
+        initialAnchors: puzzle.initialAnchors,
+        goalIndex: puzzle.goalIndex,
+        goalAnchor: puzzle.goalAnchor,
+      },
+      "shiftingMosaicTest.json",
+    );
   }
 
   /** Reads a dropped/picked file, validates it, and populates the editor. */
   private async loadConfigFromFile(file: File) {
-    if (
-      !file.name.toLowerCase().endsWith(".json") &&
-      file.type !== "application/json"
-    ) {
-      this.showWarning("Please choose a JSON config file.");
+    const read = await readJsonFile(file);
+    if (!read.ok) {
+      this.showWarning(read.error);
       return;
     }
 
-    let text: string;
-    try {
-      text = await file.text();
-    } catch {
-      this.showWarning("Could not read the selected file.");
-      return;
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      this.showWarning("The file is not valid JSON.");
-      return;
-    }
-
-    const result = validateConfig(parsed);
+    const result = validateConfig(read.data);
     if (!result.ok) {
       this.showWarning(`Invalid config: ${result.error}`);
       return;
@@ -562,43 +550,6 @@ export class ShiftingMosaicSolverEditor {
     this.solutionViewEl.classList.add("hidden");
     this.editorSection.classList.remove("hidden");
     this.render();
-  }
-
-  /** Lets the user drop a config JSON anywhere on the page to load it. */
-  private setupDragAndDrop() {
-    let dragDepth = 0;
-    const hasFiles = (event: DragEvent) =>
-      event.dataTransfer != null &&
-      Array.from(event.dataTransfer.types).includes("Files");
-
-    window.addEventListener("dragenter", event => {
-      if (!hasFiles(event)) return;
-      event.preventDefault();
-      dragDepth++;
-      this.dropOverlay.classList.remove("hidden");
-    });
-    window.addEventListener("dragover", event => {
-      if (!hasFiles(event)) return;
-      event.preventDefault();
-    });
-    window.addEventListener("dragleave", event => {
-      if (!hasFiles(event)) return;
-      event.preventDefault();
-      dragDepth = Math.max(0, dragDepth - 1);
-      if (dragDepth === 0) this.dropOverlay.classList.add("hidden");
-    });
-    window.addEventListener("drop", event => {
-      if (!hasFiles(event)) return;
-      // dragover already accepted this drop, so the default action (the
-      // browser navigating to the dropped file) must be cancelled even when
-      // the payload turns out to hold no readable file.
-      event.preventDefault();
-      dragDepth = 0;
-      this.dropOverlay.classList.add("hidden");
-      const file = event.dataTransfer?.files?.[0];
-      if (!file) return;
-      void this.loadConfigFromFile(file);
-    });
   }
 
   hideSolution() {

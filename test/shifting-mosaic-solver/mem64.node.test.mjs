@@ -71,7 +71,10 @@ test("MEMORY64 build solves a real fixture with a valid plan", { skip: !memory64
   });
 
   const fixture = JSON.parse(
-    readFileSync(join(here, "../resources/shiftingMosaicTest2.json"), "utf8"),
+    readFileSync(
+      join(here, "../resources/shifting-mosaic-solver/shiftingMosaicTest2.json"),
+      "utf8",
+    ),
   );
 
   const result = module.solve(

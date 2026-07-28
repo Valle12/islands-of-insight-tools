@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "fs";
-import { gotoIsolated } from "./coi";
+import { gotoIsolated } from "../coi";
 
 // A small, structurally valid config in the editor's download format.
 const SAMPLE_CONFIG = {

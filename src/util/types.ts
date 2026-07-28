@@ -2,12 +2,21 @@ import type { Button } from "../pages/phasic-dial-solver/button";
 import type { Block } from "../pages/rolling-blocks-solver/block";
 import type { Turn } from "../pages/rolling-blocks-solver/turn";
 
-export type SolverTest = {
+/**
+ * A phasic dial puzzle as downloaded from / uploaded to the solver page.
+ * `Button` serialises to `{ "turns": [...] }`, so a downloaded file round-trips
+ * through `new Button(raw.turns)`. `result` is present once the puzzle has been
+ * solved, which is what makes a downloaded file usable as a test fixture.
+ */
+export type PhasicDialTest = {
   maxValues: number[];
   initialValues: number[];
   buttons: Button[];
-  result: number[];
+  result?: number[];
 };
+
+/** A phasic dial fixture with its expected solution — the test-case shape. */
+export type SolverTest = PhasicDialTest & { result: number[] };
 
 export type LcmTest = {
   values: number[];
@@ -44,7 +53,7 @@ export type IndexToPositionTest = {
   result: Position;
 };
 
-export type BFSTest = {
+export type RollingBlocksTest = {
   gridWidth: number;
   gridHeight: number;
   cells: Tile[][];

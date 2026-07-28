@@ -31,7 +31,7 @@ export function registerCoiShim(): void {
       // COOP/COEP, so it is still not isolated. Keying the reload off the
       // controller therefore skipped it exactly when it was needed, and the
       // page silently fell back to the non-threaded portfolio. (Caught by
-      // e2e/shiftingMosaicWasmVariants.test.ts, which asserts isolation on a
+      // e2e/shifting-mosaic-solver/wasmVariants.test.ts, which asserts isolation on a
       // fresh browser context; a warm context hides it because the worker is
       // already installed and the very first load comes back isolated.)
       // Guard against loops on browsers that can never isolate.

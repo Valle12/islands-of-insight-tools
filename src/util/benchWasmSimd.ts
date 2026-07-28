@@ -40,7 +40,10 @@ const REPS = 3;
 
 for (const c of CASES) {
   const data = JSON.parse(
-    readFileSync(join(here, "../../test/resources", c.fixture), "utf8"),
+    readFileSync(
+      join(here, "../../test/resources/shifting-mosaic-solver", c.fixture),
+      "utf8",
+    ),
   );
   const puzzle = {
     gridWidth: data.gridWidth,
