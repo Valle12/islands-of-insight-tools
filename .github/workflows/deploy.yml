@@ -2,22 +2,65 @@ name: Deploy
 
 on:
   workflow_dispatch:
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+    inputs:
+      version:
+        description: "What version part do you want to change?"
+        required: true
+        type: choice
+        default: "patch"
+        options:
+          - major
+          - minor
+          - patch
 
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
-  build:
+  update-version:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
+
+      - name: Create version branch
+        run: git checkout -b version
+
+      - name: Bump version
+        uses: phips28/gh-action-bump-version@v11.0.7
+        with:
+          version-type: ${{ inputs.version }}
+          skip-tag: true
+          commit-message: "Bump ${{ inputs.version }} version"
+          bump-policy: "ignore"
+          target-branch: "version"
+
+      - name: PR to main
+        run: gh pr create -B main -H version -t "Bump version" -b "New version" --no-maintainer-edit
+
+      - name: Merge PR
+        run: gh pr merge version -d -m
+
+  build:
+    needs: update-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    outputs:
+      version: ${{ steps.extract-version.outputs.VERSION }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: main
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
@@ -42,14 +85,34 @@ jobs:
       - name: Build
         run: bun run build
 
+      - name: Extract version
+        id: extract-version
+        run: echo "VERSION=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
         with:
           path: dist
 
+      - name: Create zip file
+        run: |
+          cd dist
+          zip -r ../islands-of-insight-tools-v${{ steps.extract-version.outputs.VERSION }}.zip .
+
+      - name: Upload zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: islands-of-insight-tools-v${{ steps.extract-version.outputs.VERSION }}.zip
+          path: islands-of-insight-tools-v${{ steps.extract-version.outputs.VERSION }}.zip
+          if-no-files-found: error
+          overwrite: true
+
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -57,3 +120,25 @@ jobs:
       - name: Deploy to Github Pages
         id: deployment
         uses: actions/deploy-pages@v5
+
+  release:
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download zip
+        uses: actions/download-artifact@v8
+        with:
+          name: islands-of-insight-tools-v${{ needs.build.outputs.version }}.zip
+          path: .
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: islands-of-insight-tools-v${{ needs.build.outputs.version }}.zip
+          name: Islands of Insight Tools v${{ needs.build.outputs.version }}
+          tag_name: v${{ needs.build.outputs.version }}
+          target_commitish: main
+          fail_on_unmatched_files: true
+          generate_release_notes: true
