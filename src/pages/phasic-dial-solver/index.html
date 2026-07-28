@@ -40,7 +40,31 @@
           <md-icon-button id="help">
             <md-icon>question_mark</md-icon>
           </md-icon-button>
+          <span id="config-io">
+            <md-icon-button
+              id="upload-config"
+              title="Load config from disk"
+              aria-label="Load config from disk"
+            >
+              <md-icon>upload</md-icon>
+            </md-icon-button>
+            <md-icon-button
+              id="download-config"
+              title="Download config"
+              aria-label="Download config"
+            >
+              <md-icon>download</md-icon>
+            </md-icon-button>
+          </span>
+          <input
+            id="config-file-input"
+            type="file"
+            accept="application/json,.json"
+            aria-label="Upload config"
+            hidden
+          />
         </div>
+        <div id="warning-banner" class="hidden"></div>
         <div id="dials-list"></div>
         <md-icon-button id="add-dial">
           <md-icon>add</md-icon>
@@ -85,7 +109,19 @@
 
       <md-filled-button id="calculate">Calculate Turns</md-filled-button>
 
+      <div id="solve-spinner" class="hidden">
+        <md-circular-progress indeterminate></md-circular-progress>
+        <span>Searching...</span>
+      </div>
+
       <div id="result" hidden></div>
+    </div>
+
+    <div id="drop-overlay" class="hidden">
+      <div id="drop-overlay-content">
+        <md-icon>upload_file</md-icon>
+        <span>Drop a config JSON to load it</span>
+      </div>
     </div>
   </body>
 </html>

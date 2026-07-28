@@ -147,7 +147,7 @@ jobs:
           node-version: 24
 
       - name: Run MEMORY64 wasm test (node)
-        run: node --test test/shiftingMosaicSolver/mem64.node.test.mjs
+        run: node --test test/shifting-mosaic-solver/mem64.node.test.mjs
 
       - name: Install Playwright browsers
         run: bunx playwright install --with-deps

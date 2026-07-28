@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "fs";
-import { gotoIsolated } from "./coi";
+import { gotoIsolated } from "../coi";
 
 // A small, structurally valid config in the editor's download format.
 const SAMPLE_CONFIG = {
@@ -114,7 +114,10 @@ test.describe("Shifting Mosaic Solver", () => {
     // A real (small) fixture exercises the multi-worker portfolio end to
     // end: several racing solver arms, first-win termination, progress
     // aggregation, and the step-through view on a multi-block solution.
-    const json = readFileSync("test/resources/shiftingMosaicTest2.json", "utf8");
+    const json = readFileSync(
+      "test/resources/shifting-mosaic-solver/shiftingMosaicTest2.json",
+      "utf8",
+    );
     await page.locator("#config-file-input").setInputFiles({
       name: "shiftingMosaicTest2.json",
       mimeType: "application/json",

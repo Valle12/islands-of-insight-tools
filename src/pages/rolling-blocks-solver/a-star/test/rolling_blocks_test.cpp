@@ -41,7 +41,7 @@ static Tile parseTile(const std::string_view s) {
   return Regular;
 }
 
-struct BFSTestData {
+struct RollingBlocksTestData {
   uint8_t gridWidth{};
   uint8_t gridHeight{};
   std::vector<Tile> cells; // flat: cells[x + y * gridWidth]
@@ -49,7 +49,7 @@ struct BFSTestData {
   std::string filename;
 };
 
-static BFSTestData loadTestData(const std::string &filename) {
+static RollingBlocksTestData loadTestData(const std::string &filename) {
   const std::filesystem::path p =
       std::filesystem::path(TEST_RESOURCES_DIR) / filename;
   std::ifstream f(p);
@@ -58,7 +58,7 @@ static BFSTestData loadTestData(const std::string &filename) {
   }
   json j = json::parse(f);
 
-  BFSTestData data;
+  RollingBlocksTestData data;
   data.gridWidth = j["gridWidth"].get<uint8_t>();
   data.gridHeight = j["gridHeight"].get<uint8_t>();
   data.filename = filename;
@@ -86,7 +86,7 @@ static BFSTestData loadTestData(const std::string &filename) {
 
 // Check all mustTouch cells are satisfied
 static bool
-allMustTouchSatisfied(const BFSTestData &data,
+allMustTouchSatisfied(const RollingBlocksTestData &data,
                       const boost::dynamic_bitset<> &mustTouchSatisfied) {
   for (int8_t x = 0; x < static_cast<int8_t>(data.gridWidth); x++) {
     for (int8_t y = 0; y < static_cast<int8_t>(data.gridHeight); y++) {
@@ -130,7 +130,7 @@ static void collectBlockGoalCells(const Block &block, const uint8_t gridWidth,
 }
 
 // Check all goal cells are covered
-static bool allGoalsCovered(const BFSTestData &data,
+static bool allGoalsCovered(const RollingBlocksTestData &data,
                             const std::vector<Block> &blocks) {
   std::set<uint16_t> goalIndices;
   for (int8_t x = 0; x < static_cast<int8_t>(data.gridWidth); x++) {
@@ -155,7 +155,7 @@ static bool allGoalsCovered(const BFSTestData &data,
 }
 
 // Validate that a sequence of turns solves the puzzle.
-static bool validateSolution(const BFSTestData &data,
+static bool validateSolution(const RollingBlocksTestData &data,
                              const std::vector<Turn> &turns) {
   std::vector<Block> blocks = data.blocks;
   const size_t totalCells =
@@ -195,18 +195,18 @@ static bool validateSolution(const BFSTestData &data,
          allGoalsCovered(data, blocks);
 }
 
-class BFSSearchTest : public testing::TestWithParam<std::string> {};
+class RollingBlocksSearchTest : public testing::TestWithParam<std::string> {};
 
 static std::vector<std::string> allTestFiles() {
   std::vector<std::string> files;
-  files.emplace_back("bfsTest.json");
+  files.emplace_back("rollingBlocksTest.json");
   for (int i = 1; i <= 39; i++) {
-    files.push_back(std::format("bfsTest{}.json", i));
+    files.push_back(std::format("rollingBlocksTest{}.json", i));
   }
   return files;
 }
 
-INSTANTIATE_TEST_SUITE_P(BFS, BFSSearchTest,
+INSTANTIATE_TEST_SUITE_P(RollingBlocks, RollingBlocksSearchTest,
                          ::testing::ValuesIn(allTestFiles()),
                          [](const auto &info) {
                            std::string name = info.param;
@@ -216,9 +216,9 @@ INSTANTIATE_TEST_SUITE_P(BFS, BFSSearchTest,
                            return name;
                          });
 
-TEST_P(BFSSearchTest, ShouldFindValidSolution) {
+TEST_P(RollingBlocksSearchTest, ShouldFindValidSolution) {
   const auto &filename = GetParam();
-  BFSTestData data;
+  RollingBlocksTestData data;
   try {
     data = loadTestData(filename);
   } catch (const TestDataError &e) {

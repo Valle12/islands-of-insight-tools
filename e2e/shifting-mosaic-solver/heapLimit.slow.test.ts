@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { gotoIsolated } from "./coi";
+import { gotoIsolated } from "../coi";
 
 // An unsolvable board must end with "no solution", never `RuntimeError:
 // Aborted()`. Under wasm a heap that cannot grow ABORTS the whole module

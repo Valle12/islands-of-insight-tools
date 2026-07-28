@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Block } from "../../src/pages/rolling-blocks-solver/block";
 import { Direction } from "../../src/pages/rolling-blocks-solver/directions";
 import type { Turn } from "../../src/pages/rolling-blocks-solver/turn";
-import type { BFSTest, Tile } from "../../src/util/types";
+import type { RollingBlocksTest, Tile } from "../../src/util/types";
 import { extractBit, positionToIndex } from "../../src/util/utilMethods";
 
 const TILE_MAP: Record<Tile, number> = {
@@ -33,45 +33,45 @@ async function loadWasmModule() {
   return createModule(instantiateFromDisk(wasmBinPath));
 }
 
-describe.if(Bun.env.ROLLING_BLOCKS_TEST === "true")("BFS", () => {
+describe.if(Bun.env.ROLLING_BLOCKS_TEST === "true")("Rolling Blocks A*", () => {
   const solvableCases = [
-    ["bfsTest.json"],
-    ["bfsTest1.json"],
-    ["bfsTest2.json"],
-    ["bfsTest3.json"],
-    ["bfsTest4.json"],
-    ["bfsTest5.json"],
-    ["bfsTest6.json"],
-    ["bfsTest7.json"],
-    ["bfsTest8.json"],
-    ["bfsTest9.json"],
-    ["bfsTest10.json"],
-    ["bfsTest11.json"],
-    ["bfsTest12.json"],
-    ["bfsTest13.json"],
-    ["bfsTest14.json"],
-    ["bfsTest15.json"],
-    ["bfsTest16.json"],
-    ["bfsTest17.json"],
-    ["bfsTest18.json"],
-    ["bfsTest19.json"],
-    ["bfsTest20.json"],
-    ["bfsTest21.json"],
-    ["bfsTest22.json"],
-    ["bfsTest23.json"],
-    ["bfsTest24.json"],
-    ["bfsTest25.json"],
-    ["bfsTest26.json"],
-    ["bfsTest27.json"],
-    ["bfsTest28.json"],
-    ["bfsTest29.json"],
-    ["bfsTest30.json"],
+    ["rollingBlocksTest.json"],
+    ["rollingBlocksTest1.json"],
+    ["rollingBlocksTest2.json"],
+    ["rollingBlocksTest3.json"],
+    ["rollingBlocksTest4.json"],
+    ["rollingBlocksTest5.json"],
+    ["rollingBlocksTest6.json"],
+    ["rollingBlocksTest7.json"],
+    ["rollingBlocksTest8.json"],
+    ["rollingBlocksTest9.json"],
+    ["rollingBlocksTest10.json"],
+    ["rollingBlocksTest11.json"],
+    ["rollingBlocksTest12.json"],
+    ["rollingBlocksTest13.json"],
+    ["rollingBlocksTest14.json"],
+    ["rollingBlocksTest15.json"],
+    ["rollingBlocksTest16.json"],
+    ["rollingBlocksTest17.json"],
+    ["rollingBlocksTest18.json"],
+    ["rollingBlocksTest19.json"],
+    ["rollingBlocksTest20.json"],
+    ["rollingBlocksTest21.json"],
+    ["rollingBlocksTest22.json"],
+    ["rollingBlocksTest23.json"],
+    ["rollingBlocksTest24.json"],
+    ["rollingBlocksTest25.json"],
+    ["rollingBlocksTest26.json"],
+    ["rollingBlocksTest27.json"],
+    ["rollingBlocksTest28.json"],
+    ["rollingBlocksTest29.json"],
+    ["rollingBlocksTest30.json"],
   ];
 
   describe("Search", () => {
     test.each(solvableCases)("should solve %s", async filename => {
-      const data: BFSTest = await Bun.file(
-        `${import.meta.dir}/../resources/${filename}`,
+      const data: RollingBlocksTest = await Bun.file(
+        `${import.meta.dir}/../resources/rolling-blocks-solver/${filename}`,
       ).json();
 
       const flatCells: number[] = new Array(data.gridWidth * data.gridHeight);

@@ -30,7 +30,7 @@ target_link_libraries(shifting_mosaic_a_star_tests PRIVATE
 target_include_directories(shifting_mosaic_a_star_tests PRIVATE ${CMAKE_SOURCE_DIR})
 
 target_compile_definitions(shifting_mosaic_a_star_tests PRIVATE
-    TEST_RESOURCES_DIR="${CMAKE_SOURCE_DIR}/../../../../test/resources"
+    TEST_RESOURCES_DIR="${CMAKE_SOURCE_DIR}/../../../../test/resources/shifting-mosaic-solver"
 )
 
 # 1200s absorbs shiftingMosaicTest37 on slow CI runners: its winning arm

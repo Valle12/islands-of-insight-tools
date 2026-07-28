@@ -1,9 +1,9 @@
-import type { Position, ShiftingMosaicTest } from "../../util/types";
+import type { Position } from "../../util/types";
 import { MAX_GRID_SIDE } from "./config";
 
-// Pure helpers for ShiftingMosaicSolverEditor, plus the config download.
-// Split out of shiftingMosaicSolver.ts for size; none of them read editor
-// state, so they take what they need as arguments.
+// Pure helpers for ShiftingMosaicSolverEditor. Split out of
+// shiftingMosaicSolver.ts for size; none of them read editor state, so they
+// take what they need as arguments.
 
 export function parsePositiveInt(value: string): number | null {
   const parsed = Number(value);
@@ -26,19 +26,4 @@ export function computeGoalAnchor(cells: Position[]): Position {
     if (cell.y < minY) minY = cell.y;
   }
   return { x: minX, y: minY };
-}
-
-
-/** Serialises a puzzle to JSON and triggers a browser download. */
-export function downloadConfig(config: ShiftingMosaicTest) {
-  const json = JSON.stringify(config, null, 2);
-  const blob = new Blob([json], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "shiftingMosaicTest.json";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
 }

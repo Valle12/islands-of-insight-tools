@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { gotoIsolated } from "./coi";
+import { gotoIsolated } from "../coi";
 
 // The threaded wasm builds (astar.threads.wasm / astar.threads.mem64.wasm) are
 // what a cross-origin-isolated page actually runs — their cascade is

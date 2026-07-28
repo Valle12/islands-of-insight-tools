@@ -12,6 +12,12 @@ if(MSVC)
     string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
 endif()
 
+# Runs .clang-tidy on every TU and fails the build on any finding. Shared with
+# the other solvers — see cmake/ClangTidyGate.cmake for what each gate inside it
+# is guarding against, and add the same two lines to any new solver.
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../../../cmake/ClangTidyGate.cmake")
+clang_tidy_gate(OPTION RB_CLANG_TIDY PROFILE_LLVM 23)
+
 add_executable(a_star main.cpp Block.cpp AStar.cpp AStarGoals.cpp)
 
 find_package(Boost CONFIG REQUIRED)

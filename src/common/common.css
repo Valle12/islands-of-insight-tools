@@ -112,3 +112,76 @@ body {
   height: 100vh;
   margin: 0;
 }
+
+.hidden {
+  display: none !important;
+}
+
+/* Config file I/O, shared by every solver page that can load/save a puzzle
+   (see src/util/configFile.ts): the transient error banner and the overlay
+   shown while a file is being dragged over the page. */
+
+#warning-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: color-mix(
+    in srgb,
+    var(--md-sys-color-error) 18%,
+    var(--md-sys-color-surface-container)
+  );
+  border: 1px solid color-mix(
+    in srgb,
+    var(--md-sys-color-error) 60%,
+    transparent
+  );
+  font-size: 14px;
+  color: var(--md-sys-color-error);
+  animation: warning-fade-in 180ms ease-out;
+}
+
+@keyframes warning-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+#drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Purely visual — let drag events pass through to the window listeners. */
+  pointer-events: none;
+  background: color-mix(in srgb, #000 45%, transparent);
+  animation: warning-fade-in 120ms ease-out;
+}
+
+#drop-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px 48px;
+  border-radius: 18px;
+  border: 3px dashed var(--md-sys-color-primary);
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  font-size: 16px;
+  font-weight: 500;
+
+  md-icon {
+    --md-icon-size: 48px;
+
+    color: var(--md-sys-color-primary);
+  }
+}
