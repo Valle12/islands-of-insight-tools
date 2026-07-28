@@ -242,6 +242,29 @@ private:
   // distance may not enter the admissible h). UINT16_MAX = no such anchor.
   std::vector<std::vector<uint16_t>> dispField_;
   void computeDisplacementFields(uint32_t maskIndex);
+  // Row masks of every locked (non-movable) block at its initial anchor — the
+  // only walls the per-block displacement BFS and the relevance BFS see. Both
+  // built this identically before it was hoisted here.
+  [[nodiscard]] std::vector<uint64_t> lockedWallRows() const;
+  // Per-block geometry for one displacement BFS: its shape rows, the wall mask
+  // and the anchor bounds, all fixed for the whole BFS.
+  struct DispGeometry {
+    const std::vector<uint64_t> &rows;
+    const std::vector<uint64_t> &lockedRows;
+    int maxX;
+    int maxY;
+  };
+  [[nodiscard]] static bool anchorClearOfWalls(int x, int y,
+                                               const DispGeometry &geo);
+  [[nodiscard]] static bool
+  footprintClearsMask(const std::vector<uint64_t> &rows, int x, int y,
+                      const std::vector<uint64_t> &mask);
+  void seedDisplacementQueue(uint8_t i, const DispGeometry &geo,
+                             const std::vector<uint64_t> &mask,
+                             std::vector<uint16_t> &field,
+                             std::vector<uint16_t> &queue) const;
+  void runDisplacementBfs(const DispGeometry &geo, std::vector<uint16_t> &field,
+                          std::vector<uint16_t> &queue) const;
   // Feasible final anchors, one per non-goal movable block (empty when no
   // packing was found). Computed once at construction when packingGuide is
   // on; dispField_ then measures distance to the assigned slot.
@@ -301,6 +324,16 @@ private:
                                          size_t statesStored, bool verbose);
   [[nodiscard]] std::vector<bool>
   computeMovableSet(const std::vector<Position> &anchors) const;
+  // occupancy[cell] = block id occupying it, or -1.
+  [[nodiscard]] std::vector<int16_t>
+  buildOccupancyIndex(const std::vector<Position> &anchors) const;
+  [[nodiscard]] bool inBoundsBox(size_t i, Position p) const;
+  [[nodiscard]] bool canFreeSomeDirection(size_t i, Position from,
+                                          const std::vector<int16_t> &occupancy,
+                                          const std::vector<bool> &movable) const;
+  [[nodiscard]] bool allBlockersMovable(size_t i, Position to,
+                                        const std::vector<int16_t> &occupancy,
+                                        const std::vector<bool> &movable) const;
   [[nodiscard]] bool isDeadlocked(const std::vector<Position> &anchors) const;
   [[nodiscard]] NodeKey
   signatureFromAnchors(const std::vector<Position> &anchors) const;
@@ -339,6 +372,28 @@ private:
   // Rebuilds jamField_/jamSweepRows_ for `anchors`. Returns the goal's own
   // term, UINT32_MAX when the target is unreachable even through walls-only.
   uint32_t computeJamField(const std::vector<Position> &anchors);
+  // Goal-block geometry for one jam Dijkstra: its shape rows plus the anchor
+  // bounds and pin state, all fixed for the whole run.
+  struct JamGeometry {
+    const std::vector<uint64_t> &gRows;
+    int maxX;
+    int maxY;
+    bool pinActive;
+  };
+  // Splits jamMovRows_ / jamLockRows_ out of `anchors` (goal block excluded).
+  void buildJamOccupancy(const std::vector<Position> &anchors);
+  [[nodiscard]] bool jamAnchorValid(int x, int y, const JamGeometry &geo) const;
+  // Movable-occupied cells the goal footprint at (nx, ny) covers that the
+  // footprint at (cx, cy) did not — the newly swept cells of one step.
+  [[nodiscard]] uint32_t jamNewlyBlocked(int cx, int cy, int nx, int ny,
+                                         const JamGeometry &geo) const;
+  void runJamDijkstra(uint16_t targetIdx, uint16_t goalIdx,
+                      const JamGeometry &geo);
+  void buildJamSweepRows(uint16_t goalIdx, const JamGeometry &geo);
+  [[nodiscard]] uint64_t dilateRow(const std::vector<uint64_t> &rows,
+                                   int y) const;
+  // Freezes jamSweepRows_' 2-dilated footprint as jamPinRows_.
+  void pinJamRoute();
 
   // Successor candidate before any map/heap work is spent on it.
   struct Cand {

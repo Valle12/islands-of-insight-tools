@@ -93,20 +93,8 @@ void DragSolver::initSearchScratch(DragScratch &scratch) const {
                            std::vector<uint64_t>(gridHeight_, 0));
     scratch.sleptMaskOf.assign(shapes_.size(), 0);
   }
-  if (!cfg_.relevantOnly)
-    return;
-  scratch.relevanceLocked.assign(gridHeight_, 0);
-  std::vector isMov(shapes_.size(), false);
-  for (const uint8_t i : movableBlockIndices_)
-    isMov[i] = true;
-  for (size_t i = 0; i < shapes_.size(); i++) {
-    if (isMov[i])
-      continue;
-    const auto &rows = grid_.shapeRows(static_cast<uint8_t>(i));
-    for (size_t r = 0; r < rows.size(); r++)
-      scratch.relevanceLocked[initialAnchors_[i].y + r] |=
-          rows[r] << static_cast<unsigned>(initialAnchors_[i].x);
-  }
+  if (cfg_.relevantOnly)
+    scratch.relevanceLocked = lockedWallRows();
 }
 
 bool DragSolver::dragCapReached(const uint32_t nodeCap,
