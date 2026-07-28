@@ -30,6 +30,11 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # IntelliJ based IDEs
 .idea
 
+# Claude Code per-machine permissions. Only the ".local" file: a shared
+# .claude/settings.json is meant to be tracked, so the directory is not ignored
+# wholesale.
+.claude/settings.local.json
+
 # Finder (MacOS) folder config
 .DS_Store
 
