@@ -381,6 +381,109 @@ private:
     std::vector<Position> endAnchors;
   };
   using BannedSet = std::unordered_set<NodeKey, NodeKeyHash>;
+
+  // ---- runAStarDrag phases -------------------------------------------------
+  // runAStarDrag was one 460-line function; these carry its phases. Every one
+  // is defined in DragSolverSearch.cpp beside its only caller, so the compiler
+  // still sees the definitions and inlines the hot ones as before — the split
+  // is for readability, not linkage.
+
+  // Search-lifetime scratch: the sleep-set envelopes and the locked-only wall
+  // mask the per-state relevance BFS runs against.
+  struct DragScratch {
+    std::vector<std::vector<uint64_t>> envRows;
+    std::vector<uint32_t> sleptMaskOf;
+    std::vector<uint64_t> relevanceLocked;
+    bool por = false;
+  };
+  // Everything one expansion's candidate scoring reads: the popped state plus
+  // the base heuristic and displacement terms computed once for it. `anchors`
+  // and `maskP` are references into runAStarDrag's frame, and no instance
+  // outlives the iteration that built it.
+  struct DragExpansion {
+    const std::vector<Position> &anchors;
+    const std::vector<uint64_t> &maskP;
+    uint32_t baseCount;
+    uint32_t dispBase;
+    uint32_t jamBase;
+    uint32_t g;     // popped state's g
+    uint32_t cells; // popped state's cumulative cells traveled
+    uint32_t slept;
+    uint16_t gProg;
+    bool useSlotH;
+  };
+  // The collect-ends bookkeeping recordEnd needs beyond the solver's members.
+  struct EndContext {
+    const BannedSet *bannedEnds;
+    BannedSet &seenEnds;
+    SegmentResult &result;
+    uint8_t collectEnds;
+    bool verbose;
+  };
+
+  void initSearchScratch(DragScratch &scratch) const;
+  [[nodiscard]] static bool dragCapReached(uint32_t nodeCap,
+                                           uint32_t nodesExpanded,
+                                           bool verbose);
+  [[nodiscard]] static bool isStaleDragEntry(const StateInfo *info, uint32_t g,
+                                             uint32_t cells);
+  [[nodiscard]] bool qualifiesAsEnd(const std::vector<Position> &anchors,
+                                    uint32_t g, uint32_t targetProgress,
+                                    uint32_t consolidationBelow) const;
+  // Records one qualifying end unless it is banned or coarse-duplicate.
+  // Returns true once `collectEnds` distinct ends have been collected. `ctx` is
+  // const because its two mutable targets are references — the struct itself is
+  // never reseated.
+  [[nodiscard]] bool recordEnd(const std::vector<Position> &anchors,
+                               const StateInfo *state, uint32_t g,
+                               uint32_t nodesExpanded,
+                               const EndContext &ctx) const;
+  // First visit of a state: counts it, reports progress, prunes deadlocks.
+  // Returns false when the state must be closed instead of expanded.
+  [[nodiscard]] bool prepareExpansion(const StateInfo &info,
+                                      const std::vector<Position> &anchors,
+                                      uint32_t g, uint32_t &nodesExpanded,
+                                      size_t heapSize, size_t statesStored) const;
+  void computeBaseScratch(const std::vector<Position> &anchors, bool useSlotH,
+                          const std::vector<uint64_t> &maskP,
+                          uint32_t &baseCount, uint32_t &dispBase);
+  [[nodiscard]] uint32_t dispContribution(uint8_t b, size_t idx) const;
+  // Rebuilds the jam field for `anchors` and tracks the best jam-term state.
+  // Returns the state's own jam term, or 0 when the guide is off.
+  uint32_t updateJamGuide(const std::vector<Position> &anchors,
+                          const StateInfo *state,
+                          const StateInfo *&bestJamState, uint32_t &bestJamVal);
+  [[nodiscard]] uint32_t jamAdd(uint32_t term) const;
+  [[nodiscard]] uint32_t jitterTie(uint8_t block, uint16_t toIdx,
+                                   uint32_t g) const;
+  [[nodiscard]] bool blockIsParked(uint8_t i, Position from,
+                                   uint32_t relevantMask, uint32_t slept,
+                                   bool por) const;
+  [[nodiscard]] bool isSettledDrag(uint8_t i, Position t, uint16_t toIdx,
+                                   uint16_t gProg) const;
+  [[nodiscard]] uint32_t goalDragH(Position t, uint16_t toIdx,
+                                   const DragExpansion &exp) const;
+  [[nodiscard]] uint32_t offGoalDragH(uint8_t i, Position t, uint16_t toIdx,
+                                      const DragExpansion &exp) const;
+  [[nodiscard]] uint32_t jamChildTerm(uint8_t i, Position t, uint16_t toIdx,
+                                      const DragExpansion &exp,
+                                      uint32_t jamOldOverlap) const;
+  void scoreDrags(uint8_t i, const std::vector<uint16_t> &reached,
+                  uint32_t jamOldOverlap, const DragExpansion &exp);
+  void generateCandidates(const DragExpansion &exp, DragScratch &scratch);
+  [[nodiscard]] static bool isBetterChild(const StateInfo &child, bool inserted,
+                                          uint32_t newG, uint32_t cells);
+  // Templated on the node store, open heap and heap entry: DragHeapEntry is
+  // file-scope in DragSolverSearch.cpp and this header must not name it.
+  template <typename NodeStoreT, typename OpenHeapT, typename EntryT>
+  void emitBatch(const DragExpansion &exp, const DragScratch &scratch,
+                 const EntryT &current, StateMap &states, NodeStoreT &nodeStore,
+                 OpenHeapT &openHeap);
+  void finishDragStats(SegmentResult &result, uint32_t nodesExpanded,
+                       size_t statesStored, const StateInfo *bestJamState,
+                       uint32_t bestJamVal);
+  static SegmentResult &finishSegment(SegmentResult &result, bool exhausted);
+
   // Weighted A* over drags from `startAnchors` until progressOf(state) >=
   // targetProgress (and the state's coarse signature is not in
   // `bannedEnds`). Collects up to `collectEnds` coarse-distinct qualifying
