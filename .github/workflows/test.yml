@@ -63,6 +63,7 @@ jobs:
             -sENVIRONMENT=web,worker \
             -sALLOW_MEMORY_GROWTH=1 \
             -sINITIAL_MEMORY=16777216 \
+            -sMAXIMUM_MEMORY=4GB \
             --bind \
             -flto \
             -fno-exceptions
