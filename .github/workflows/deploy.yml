@@ -28,12 +28,14 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          ref: main
 
       - name: Create version branch
         run: git checkout -b version
 
       - name: Bump version
-        uses: phips28/gh-action-bump-version@v11.0.7
+        uses: phips28/gh-action-bump-version@fdad52b3b3bbe8fad96b8ca18c56127a96f603db
         with:
           version-type: ${{ inputs.version }}
           skip-tag: true
@@ -134,7 +136,7 @@ jobs:
           path: .
 
       - name: Create Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
         with:
           files: islands-of-insight-tools-v${{ needs.build.outputs.version }}.zip
           name: Islands of Insight Tools v${{ needs.build.outputs.version }}
