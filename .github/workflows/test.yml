@@ -46,9 +46,12 @@ jobs:
           BOOST_DIR=/tmp/boost-headers
           mkdir -p "$OUT_DIR" "$BOOST_DIR"
           cp -r /usr/include/boost "$BOOST_DIR/"
+          # Keep in sync with the rolling-blocks `sources` in
+          # src/util/buildWasm.ts; a missing TU fails at link time.
           em++ \
             "$ASTAR_DIR/wasm_bindings.cpp" \
             "$ASTAR_DIR/AStar.cpp" \
+            "$ASTAR_DIR/AStarGoals.cpp" \
             "$ASTAR_DIR/Block.cpp" \
             -o "$OUT_DIR/astar.mjs" \
             -I "$BOOST_DIR" \
@@ -69,12 +72,30 @@ jobs:
           ASTAR_DIR=src/pages/shifting-mosaic-solver/a-star
           OUT_DIR=src/pages/shifting-mosaic-solver/wasm
           mkdir -p "$OUT_DIR"
+          # AStar and DragSolver are each split across several .cpp files purely
+          # for file size; every one of them is part of the same class, so
+          # omitting any of them fails at link time with undefined symbols.
+          # Keep in sync with the shifting-mosaic `sources` in
+          # src/util/buildWasm.ts, which is what local builds use.
+          SOURCES=(
+            "$ASTAR_DIR/wasm_bindings.cpp"
+            "$ASTAR_DIR/SolverClock.cpp"
+            "$ASTAR_DIR/AStar.cpp"
+            "$ASTAR_DIR/AStarHeuristics.cpp"
+            "$ASTAR_DIR/AStarSearch.cpp"
+            "$ASTAR_DIR/AStarOptimizer.cpp"
+            "$ASTAR_DIR/DragSolver.cpp"
+            "$ASTAR_DIR/DragSolverHeuristics.cpp"
+            "$ASTAR_DIR/DragSolverSearch.cpp"
+            "$ASTAR_DIR/DragSolverExpand.cpp"
+            "$ASTAR_DIR/DragSolverAssembly.cpp"
+            "$ASTAR_DIR/DragSolverArms.cpp"
+            "$ASTAR_DIR/DragSolverBeam.cpp"
+          )
           # $1 output name, $2 extra flags, $3 MAXIMUM_MEMORY (default 4GB).
           build_variant() {
             em++ \
-              "$ASTAR_DIR/wasm_bindings.cpp" \
-              "$ASTAR_DIR/AStar.cpp" \
-              "$ASTAR_DIR/DragSolver.cpp" \
+              "${SOURCES[@]}" \
               -o "$OUT_DIR/$1" \
               $2 \
               -std=c++23 \
