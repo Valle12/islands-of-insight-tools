@@ -1,7 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "fs";
-
-const SHIFTING_MOSAIC_URL = "/shifting-mosaic-solver";
+import { gotoIsolated } from "./coi";
 
 // A small, structurally valid config in the editor's download format.
 const SAMPLE_CONFIG = {
@@ -61,7 +60,7 @@ test.describe("Shifting Mosaic Solver", () => {
   test("Calculate Solution warns when no goal block is defined", async ({
     page,
   }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
     await page.getByRole("button", { name: "Calculate Solution" }).click();
     await expect(page.locator("#warning-banner")).toBeVisible();
     await expect(page.locator("#warning-banner")).toContainText(
@@ -73,7 +72,7 @@ test.describe("Shifting Mosaic Solver", () => {
   test("solves a trivial puzzle and shows the step-by-step solution view", async ({
     page,
   }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
 
     // A single 1x1 goal block at (0,0) with its goal zone two cells right.
     await page.getByRole("button", { name: "Goal Block", exact: true }).click();
@@ -107,7 +106,7 @@ test.describe("Shifting Mosaic Solver", () => {
   test("groups a multi-direction block move into one path step", async ({
     page,
   }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
 
     // A single goal block at (0,2) whose goal zone sits up-and-right at (2,0).
     // The only solution slides it right then up — all consecutive moves of one
@@ -142,7 +141,7 @@ test.describe("Shifting Mosaic Solver", () => {
   });
 
   test("rejects a block that overlaps an existing block", async ({ page }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
     await paintShape(page, [
       { x: 1, y: 1 },
       { x: 2, y: 1 },
@@ -173,7 +172,7 @@ test.describe("Shifting Mosaic Solver", () => {
   test("commits a contiguous block even when the drag ended on an existing block", async ({
     page,
   }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
     await paintShape(page, [{ x: 2, y: 1 }]);
     await expect(page.locator(".block-row")).toHaveCount(1);
 
@@ -194,7 +193,7 @@ test.describe("Shifting Mosaic Solver", () => {
   });
 
   test("rejects a non-contiguous block from a fast drag", async ({ page }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
 
     // Mouse moves with default steps fire only one pointermove at the destination,
     // so dragging from (0,0) directly to (5,0) skips the cells in between.
@@ -218,7 +217,7 @@ test.describe("Shifting Mosaic Solver", () => {
   test("clicking directly on an existing block triggers the overlap warning", async ({
     page,
   }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
     await paintShape(page, [{ x: 2, y: 2 }]);
     await expect(page.locator(".block-row")).toHaveCount(1);
 
@@ -231,7 +230,7 @@ test.describe("Shifting Mosaic Solver", () => {
   test("does not falsely report overlap after a grid resize", async ({
     page,
   }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
     await cellAt(page, 0, 0).click();
     await expect(page.locator(".block-row")).toHaveCount(1);
 

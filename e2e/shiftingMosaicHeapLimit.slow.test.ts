@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { gotoIsolated } from "./coi";
 
 // An unsolvable board must end with "no solution", never `RuntimeError:
 // Aborted()`. Under wasm a heap that cannot grow ABORTS the whole module
@@ -17,12 +18,7 @@ test("unsolvable board reports no-solution instead of aborting", async ({
 }) => {
   test.skip(!process.env.SM_SLOW_E2E, "slow (~4min): set SM_SLOW_E2E=1");
   test.setTimeout(420_000);
-  await page.goto("/shifting-mosaic-solver");
-  await page.waitForFunction(
-    () => typeof crossOriginIsolated !== "undefined" && crossOriginIsolated,
-    null,
-    { timeout: 30_000 },
-  );
+  await gotoIsolated(page);
 
   const result = await page.evaluate(async () => {
     const puzzle = {

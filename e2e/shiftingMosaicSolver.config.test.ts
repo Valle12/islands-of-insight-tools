@@ -1,7 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "fs";
-
-const SHIFTING_MOSAIC_URL = "/shifting-mosaic-solver";
+import { gotoIsolated } from "./coi";
 
 // A small, structurally valid config in the editor's download format.
 const SAMPLE_CONFIG = {
@@ -59,7 +58,7 @@ async function paintWithGap(page: Page, start: Cell, end: Cell) {
 
 test.describe("Shifting Mosaic Solver", () => {
   test("uploads a config file and populates the editor", async ({ page }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
 
     await page.locator("#config-file-input").setInputFiles({
       name: "puzzle.json",
@@ -89,7 +88,7 @@ test.describe("Shifting Mosaic Solver", () => {
   });
 
   test("loads a config dropped onto the page", async ({ page }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
 
     const dataTransfer = await page.evaluateHandle(json => {
       const dt = new DataTransfer();
@@ -110,7 +109,7 @@ test.describe("Shifting Mosaic Solver", () => {
   test("solves a real fixture through the portfolio bridge", async ({
     page,
   }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
 
     // A real (small) fixture exercises the multi-worker portfolio end to
     // end: several racing solver arms, first-win termination, progress
@@ -133,7 +132,7 @@ test.describe("Shifting Mosaic Solver", () => {
   });
 
   test("rejects an invalid dropped file", async ({ page }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
 
     const dataTransfer = await page.evaluateHandle(() => {
       const dt = new DataTransfer();
@@ -152,7 +151,7 @@ test.describe("Shifting Mosaic Solver", () => {
   });
 
   test("downloads the current configuration as JSON", async ({ page }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
 
     // A single goal block plus its goal zone — the minimum for a download.
     await page.getByRole("button", { name: "Goal Block", exact: true }).click();
@@ -177,7 +176,7 @@ test.describe("Shifting Mosaic Solver", () => {
   test("round-trips a downloaded config back through upload", async ({
     page,
   }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
 
     await page.getByRole("button", { name: "Goal Block", exact: true }).click();
     await cellAt(page, 0, 0).click();

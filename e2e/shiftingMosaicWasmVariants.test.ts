@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { gotoIsolated } from "./coi";
 
 // The threaded wasm builds (astar.threads.wasm / astar.threads.mem64.wasm) are
 // what a cross-origin-isolated page actually runs — their cascade is
@@ -126,28 +127,6 @@ async function solveWith(
   return { loadMs, solveMs, turns };
 }
 
-// coi-serviceworker registers a service worker and then RELOADS the page to
-// obtain COOP/COEP. That reload destroys the first execution context, so a
-// page.evaluate racing it dies with "Execution context was destroyed". Wait for
-// the reloaded, isolated document before touching the page. Every test here
-// needs isolation anyway — SharedArrayBuffer is required by BOTH threaded
-// builds, not just the MEMORY64 one.
-async function gotoIsolated(page: import("@playwright/test").Page) {
-  const isolated = () =>
-    typeof crossOriginIsolated !== "undefined" && crossOriginIsolated;
-  await page.goto("/shifting-mosaic-solver");
-  try {
-    await page.waitForFunction(isolated, null, { timeout: 30000 });
-    return;
-  } catch {
-    // Registration can miss its self-reload when the dev server is saturated by
-    // the rest of the suite running in parallel. One explicit reload picks up
-    // the now-registered worker; only a genuine failure survives both attempts.
-    await page.reload();
-    await page.waitForFunction(isolated, null, { timeout: 30000 });
-  }
-}
-
 test.describe("Shifting Mosaic wasm variants", () => {
   test("page is cross-origin isolated so the threaded build is reachable", async ({
     page,
@@ -199,9 +178,11 @@ test.describe("Shifting Mosaic wasm variants", () => {
   test("MEMORY64 threads build declares an 8GB shared 64-bit heap", async ({
     page,
   }) => {
-    // Plain goto: this case only fetches a static asset, so it does not need
-    // cross-origin isolation and should not wait for the service worker.
-    await page.goto("/shifting-mosaic-solver");
+    // This case only fetches a static asset and has no use for isolation, but
+    // it still has to wait for the shim's reload: the page reloads regardless
+    // of what the test wants, and the page.evaluate below was being destroyed
+    // by it. A plain goto here was an intermittent failure, not an optimisation.
+    await gotoIsolated(page);
     // The threaded builds IMPORT their memory, so the ceiling lives in the JS
     // glue rather than the wasm memory section — asserting on the descriptor is
     // the only way to catch a rebuild that quietly loses MAXIMUM_MEMORY=8GB.

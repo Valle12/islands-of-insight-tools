@@ -12,12 +12,16 @@ const boostInclude =
 // Resolved, not hardcoded: emscripten 6.0 replaced the Windows `.bat` wrappers
 // with `.exe`, so the old `em++.bat` literal stopped existing on an emsdk
 // upgrade. Bun.which applies PATHEXT, so the bare name finds either one.
-const emcc = Bun.which("em++");
-if (!emcc) {
-  throw new Error(
-    "em++ not found on PATH — activate emsdk first (emsdk activate latest).",
-  );
+function resolveEmcc(): string {
+  const found = Bun.which("em++");
+  if (!found) {
+    throw new Error(
+      "em++ not found on PATH — activate emsdk first (emsdk activate latest).",
+    );
+  }
+  return found;
 }
+const emcc = resolveEmcc();
 
 async function build({
   aStarDir,

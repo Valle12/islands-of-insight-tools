@@ -17,13 +17,26 @@ const wasmDir = join(here, "../../src/pages/shifting-mosaic-solver/wasm");
 const mjsPath = join(wasmDir, "astar.mem64.mjs");
 const wasmPath = join(wasmDir, "astar.mem64.wasm");
 
-// Same 13-byte probe the bridge uses. If this runtime can't validate a 64-bit
-// memory it also can't load astar.mem64 — skip rather than fail.
+// The same probes the bridge uses. If this runtime can't validate them it also
+// can't load astar.mem64 — skip rather than fail.
+//
+// A 64-bit MEMORY is not sufficient on its own: emscripten 6.x also emits a
+// 64-bit TABLE for every wasm64 build, and a runtime can have one without the
+// other — the ubuntu-24.04 runner's node does exactly that. Probing memory
+// alone let the test run anyway and die on an opaque CompileError, "invalid
+// table elements limits flags", instead of skipping.
 const MEMORY64_PROBE = new Uint8Array([
   0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x05, 0x03, 0x01, 0x04, 0x00,
 ]);
+// Section 4 (tables), one funcref (0x70) table, limits flags 0x04 = is64.
+const TABLE64_PROBE = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x04, 0x04, 0x01, 0x70, 0x04,
+  0x00,
+]);
 const memory64 =
-  typeof WebAssembly !== "undefined" && WebAssembly.validate(MEMORY64_PROBE);
+  typeof WebAssembly !== "undefined" &&
+  WebAssembly.validate(MEMORY64_PROBE) &&
+  WebAssembly.validate(TABLE64_PROBE);
 
 // The wasm posts progress via emscripten val::global("self").postMessage,
 // absent outside a browser/worker — a no-op sink keeps the search happy.

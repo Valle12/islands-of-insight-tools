@@ -112,6 +112,16 @@ const SHARED_MEMORY64_PROBE = new Uint8Array([
   0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x05, 0x04, 0x01, 0x07, 0x00,
   0x01,
 ]);
+// A 64-bit memory is necessary but NOT sufficient: emscripten 6.x emits a
+// 64-bit TABLE (section 4, funcref 0x70, limits flags 0x04 = is64) in every
+// wasm64 build, and an engine can validate a 64-bit memory while still
+// rejecting that table — the ubuntu-24.04 runner's node does. Handing such an
+// engine a mem64 build costs a failed compile before the worker's fallback
+// catches it, so both gates below require the table too.
+const TABLE64_PROBE = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x04, 0x04, 0x01, 0x70, 0x04,
+  0x00,
+]);
 function validates(bytes: Uint8Array): boolean {
   try {
     return typeof WebAssembly !== "undefined" && WebAssembly.validate(bytes);
@@ -119,8 +129,10 @@ function validates(bytes: Uint8Array): boolean {
     return false;
   }
 }
-const supportsMemory64 = () => validates(MEMORY64_PROBE);
-const supportsSharedMemory64 = () => validates(SHARED_MEMORY64_PROBE);
+const supportsMemory64 = () =>
+  validates(MEMORY64_PROBE) && validates(TABLE64_PROBE);
+const supportsSharedMemory64 = () =>
+  validates(SHARED_MEMORY64_PROBE) && validates(TABLE64_PROBE);
 
 /**
  * Spawns a portfolio of WASM solver workers racing diverse engine configs

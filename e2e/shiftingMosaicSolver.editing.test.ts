@@ -1,7 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "fs";
-
-const SHIFTING_MOSAIC_URL = "/shifting-mosaic-solver";
+import { gotoIsolated } from "./coi";
 
 // A small, structurally valid config in the editor's download format.
 const SAMPLE_CONFIG = {
@@ -59,7 +58,7 @@ async function paintWithGap(page: Page, start: Cell, end: Cell) {
 
 test.describe("Shifting Mosaic Solver", () => {
   test("renders default UI and allows grid resize", async ({ page }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
 
     await expect(
       page.getByRole("heading", { name: "Shifting Mosaic Solver" }),
@@ -95,7 +94,7 @@ test.describe("Shifting Mosaic Solver", () => {
   });
 
   test("renders a large grid without overlapping cells", async ({ page }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
 
     await page.getByRole("spinbutton", { name: "Grid Width" }).fill("43");
     await page.getByRole("spinbutton", { name: "Grid Width" }).press("Tab");
@@ -146,7 +145,7 @@ test.describe("Shifting Mosaic Solver", () => {
   test("switches between Obstruction and Goal Block tools", async ({
     page,
   }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
     await expect(page.locator("#tool-status")).toContainText("Obstruction");
     await page.getByRole("button", { name: "Goal Block", exact: true }).click();
     await expect(page.locator("#tool-status")).toContainText("Goal Block");
@@ -157,7 +156,7 @@ test.describe("Shifting Mosaic Solver", () => {
   test("creates a single-cell obstruction block via click", async ({
     page,
   }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
     await cellAt(page, 1, 1).click();
     await expect(page.locator(".block-row")).toHaveCount(1);
     await expect(page.locator(".block-chip-obstruction")).toContainText(
@@ -173,7 +172,7 @@ test.describe("Shifting Mosaic Solver", () => {
   test("creates a multi-cell obstruction block via freeform drag", async ({
     page,
   }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
     await paintShape(page, [
       { x: 1, y: 1 },
       { x: 2, y: 1 },
@@ -205,7 +204,7 @@ test.describe("Shifting Mosaic Solver", () => {
   test("draws goal block, places goal zone, locks Goal tool", async ({
     page,
   }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
     await page.getByRole("button", { name: "Goal Block", exact: true }).click();
     await paintShape(page, [
       { x: 0, y: 0 },

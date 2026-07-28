@@ -1,7 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "fs";
-
-const SHIFTING_MOSAIC_URL = "/shifting-mosaic-solver";
+import { gotoIsolated } from "./coi";
 
 // A small, structurally valid config in the editor's download format.
 const SAMPLE_CONFIG = {
@@ -61,7 +60,7 @@ test.describe("Shifting Mosaic Solver", () => {
   test("hologram shows invalid styling when out of bounds and refuses to place", async ({
     page,
   }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
     await page.getByRole("button", { name: "Goal Block", exact: true }).click();
     await paintShape(page, [
       { x: 0, y: 0 },
@@ -79,7 +78,7 @@ test.describe("Shifting Mosaic Solver", () => {
   });
 
   test("re-places goal zone via the list button", async ({ page }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
     await page.getByRole("button", { name: "Goal Block", exact: true }).click();
     await cellAt(page, 0, 0).click();
     await cellAt(page, 3, 3).click();
@@ -98,7 +97,7 @@ test.describe("Shifting Mosaic Solver", () => {
   test("deletes an obstruction block and clears its cells", async ({
     page,
   }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
     await paintShape(page, [
       { x: 0, y: 0 },
       { x: 1, y: 0 },
@@ -118,7 +117,7 @@ test.describe("Shifting Mosaic Solver", () => {
   });
 
   test("deletes the goal block and clears the goal zone", async ({ page }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
     await page.getByRole("button", { name: "Goal Block", exact: true }).click();
     await cellAt(page, 0, 0).click();
     await cellAt(page, 3, 3).click();
@@ -133,7 +132,7 @@ test.describe("Shifting Mosaic Solver", () => {
   });
 
   test("renumbers blocks after a non-trailing delete", async ({ page }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
     await paintShape(page, [{ x: 0, y: 0 }]);
     await paintShape(page, [{ x: 2, y: 0 }]);
     await paintShape(page, [{ x: 4, y: 0 }]);
@@ -158,7 +157,7 @@ test.describe("Shifting Mosaic Solver", () => {
   test("hovering a block row highlights its cells in the grid", async ({
     page,
   }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
     await paintShape(page, [
       { x: 0, y: 0 },
       { x: 1, y: 0 },
@@ -182,7 +181,7 @@ test.describe("Shifting Mosaic Solver", () => {
   test("reset clears blocks and restores default grid size", async ({
     page,
   }) => {
-    await page.goto(SHIFTING_MOSAIC_URL);
+    await gotoIsolated(page);
     await page.getByRole("spinbutton", { name: "Grid Width" }).click();
     await page.getByRole("spinbutton", { name: "Grid Width" }).fill("8");
     await page.getByRole("spinbutton", { name: "Grid Width" }).press("Tab");

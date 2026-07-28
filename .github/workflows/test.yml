@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install C++ dependencies
         run: sudo apt-get update && sudo apt-get install -y libboost-dev nlohmann-json3-dev libgtest-dev cmake
@@ -132,7 +132,20 @@ jobs:
         run: ROLLING_BLOCKS_TEST=true bun test
 
       # bun cannot instantiate a Memory64 module, so the mem64 build is tested
-      # under node (preinstalled on the runner) instead of in `bun test`.
+      # under node instead of in `bun test`.
+      #
+      # The node version is PINNED rather than taken from the runner image: the
+      # ubuntu-24.04 default validates a 64-bit MEMORY but rejects the 64-bit
+      # TABLE that emscripten 6.x emits for every wasm64 build, so the module
+      # fails to compile with "invalid table elements limits flags". The test's
+      # own probe now covers tables too, so an under-capable runtime SKIPS —
+      # which means without this pin the gate would quietly stop testing
+      # anything at all.
+      - name: Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
       - name: Run MEMORY64 wasm test (node)
         run: node --test test/shiftingMosaicSolver/mem64.node.test.mjs
 

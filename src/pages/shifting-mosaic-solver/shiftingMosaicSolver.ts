@@ -78,6 +78,11 @@ export class ShiftingMosaicSolverEditor {
   private selectedTool: ShiftingMosaicTool = "obstruction";
   private board: Board;
   private currentWorker: SolverHandle | null = null;
+  // Bumped by stopCurrentWorker, captured by each solve. A callback whose
+  // generation is stale belongs to a run the user has already cancelled or
+  // replaced, and must touch neither the DOM nor currentWorker — nulling the
+  // field would orphan the CANCEL path of the run that superseded it.
+  private solveGeneration = 0;
   private solutionView: SolutionView | null = null;
 
   constructor() {
@@ -380,15 +385,20 @@ export class ShiftingMosaicSolverEditor {
     this.stopCurrentWorker();
     this.showSolving();
 
+    // stopCurrentWorker just invalidated every earlier run; this is ours.
+    const generation = this.solveGeneration;
+    const isCurrent = () => generation === this.solveGeneration;
+
     // Set by onPhase; prefixes the progress line so the slower second attempt
     // is visible rather than looking like the first one has stalled.
     let phaseLabel = "Searching…";
     this.currentWorker = searchShiftingMosaicWasm(puzzle, {
       onProgress: nodesExpanded => {
+        if (!isCurrent()) return;
         this.solutionProgressText.textContent = `${phaseLabel} (${nodesExpanded.toLocaleString()} nodes explored)`;
       },
       onPhase: (phase, arm) => {
-        if (phase !== "sequential") return;
+        if (!isCurrent() || phase !== "sequential") return;
         // The sequential phase can run for minutes. Naming the current strategy
         // is the one piece of solver internals worth showing: it is the only
         // visible sign that a long wait is progressing rather than hung.
@@ -398,10 +408,12 @@ export class ShiftingMosaicSolverEditor {
         this.solutionProgressText.textContent = phaseLabel;
       },
       onDone: turns => {
+        if (!isCurrent()) return;
         this.currentWorker = null;
         this.handleSolution(puzzle, turns);
       },
       onError: error => {
+        if (!isCurrent()) return;
         this.currentWorker = null;
         this.showSolverError(error);
       },
@@ -475,6 +487,7 @@ export class ShiftingMosaicSolverEditor {
   }
 
   private stopCurrentWorker() {
+    this.solveGeneration++;
     if (this.currentWorker) {
       this.currentWorker.terminate();
       this.currentWorker = null;
@@ -532,6 +545,12 @@ export class ShiftingMosaicSolverEditor {
 
   /** Applies a validated config to the board and returns to the editor. */
   private applyLoadedConfig(config: ShiftingMosaicTest) {
+    // Drag-and-drop is bound to `window`, so a config can land while the
+    // solution view is open. Hiding it is not enough: SolutionView holds a
+    // window resize listener that only dispose() removes, and every load would
+    // otherwise strand another one re-rendering a board that no longer exists.
+    this.solutionView?.dispose();
+    this.solutionView = null;
     this.gridWidth = config.gridWidth;
     this.gridHeight = config.gridHeight;
     this.widthField.value = String(this.gridWidth);
