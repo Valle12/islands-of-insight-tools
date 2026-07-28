@@ -48,9 +48,12 @@ TEST(BitGrid, FloodFillMatchesReferenceBfs) {
     const Puzzle p = randomPuzzle(rng);
     BitGrid grid(p.w, p.h, p.shapes);
     for (size_t i = 0; i < p.shapes.size(); i++) {
+      // The loop counter is size_t so it cannot be too small for the bound;
+      // block ids are uint8_t, so the narrowing happens here, at the use.
+      const auto blockId = static_cast<uint8_t>(i);
       grid.buildOccupancy(p.anchors);
-      grid.removeBlock(i, p.anchors[i]);
-      const auto &reached = grid.floodFill(i, p.anchors[i]);
+      grid.removeBlock(blockId, p.anchors[i]);
+      const auto &reached = grid.floodFill(blockId, p.anchors[i]);
       const auto want = oracleFloodFill(p, i, p.anchors);
       ASSERT_EQ(reached.size(), want.size() - 1)
           << "round " << round << " block " << static_cast<int>(i);
