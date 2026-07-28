@@ -71,8 +71,15 @@ int randInt(std::mt19937 &rng, const int lo, const int hi) {
 std::vector<Position> randomShape(std::mt19937 &rng, const int maxCells) {
   const int want = randInt(rng, 1, maxCells);
   std::vector<std::pair<int, int>> cells{{0, 0}};
+  // guard bounds the retries for a shape that cannot grow, when the cell drawn
+  // keeps having its neighbour already occupied. Decremented as the first
+  // statement of the body, not as `guard-- > 0` in the condition: there it is
+  // a side effect in the right-hand operand of &&, evaluated only when the
+  // left side holds, so the count can only be read correctly by reasoning
+  // about short-circuiting.
   int guard = want * 25;
-  while (static_cast<int>(cells.size()) < want && guard-- > 0) {
+  while (static_cast<int>(cells.size()) < want && guard > 0) {
+    guard--;
     const auto &[bx, by] =
         cells[randInt(rng, 0, static_cast<int>(cells.size()) - 1)];
     const int d = randInt(rng, 0, 3);
