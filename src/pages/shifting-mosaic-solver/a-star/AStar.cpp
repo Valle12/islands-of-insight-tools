@@ -314,7 +314,12 @@ void AStar::computeBlockReachability() {
   //    fixed (precomputed data only), so a one-shot multi-source BFS gives,
   //    for every cell, the Manhattan distance to the nearest safe anchor —
   //    exactly what lpDisplacementCost needs, in O(1) per lookup.
-  blockSafeAnchorDist_.assign(shapes_.size(), std::vector(total, UINT16_MAX));
+  // Element type spelled out, NOT deduced: UINT16_MAX is an int, so
+  // std::vector(total, UINT16_MAX) deduces vector<int> and does not match this
+  // member. Clang rejects it; MSVC accepts it, so the native build is not
+  // enough to catch the mistake.
+  blockSafeAnchorDist_.assign(shapes_.size(),
+                              std::vector<uint16_t>(total, UINT16_MAX));
   for (size_t i = 0; i < shapes_.size(); i++) {
     if (i == goalIndex_)
       continue;
