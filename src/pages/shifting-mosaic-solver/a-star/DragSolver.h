@@ -576,6 +576,116 @@ private:
                              const BannedSet *bannedEnds, uint64_t deadline,
                              uint32_t nodeCap, uint8_t collectEnds = 1,
                              uint32_t consolidationBelow = 0);
+
+  // ---- searchBeamJam phases -----------------------------------------------
+  // Arena of every kept state across the current round's layers; parent is a
+  // global arena index (-1 for the root).
+  struct BeamState {
+    NodeKey key;
+    int32_t parent;
+    DragMove move;
+  };
+  // Candidate before selection. Bounded selection: the scratch vector is
+  // truncated to the best W by nth_element whenever it hits 2W, so peak
+  // memory stays ~2W regardless of branching.
+  struct BeamCand {
+    // (jamTerm << 14 | h << 10) low bits jittered — smaller = better
+    uint64_t score = 0;
+    NodeKey key;
+    int32_t parent = -1;
+    DragMove move;
+  };
+  // Everything one beam round carries across its depth layers.
+  struct BeamRound {
+    std::vector<BeamState> arena;
+    std::vector<int32_t> layer; // arena indices of the current layer
+    std::vector<BeamCand> cands;
+    std::unordered_set<NodeKey, NodeKeyHash> visited;
+    std::vector<Position> anchors; // decode scratch for the popped state
+    std::vector<bool> frozen;
+    uint32_t width = 0;
+    uint32_t seed = 0;
+    int32_t goalArena = -1;
+  };
+  // The state being expanded, as its children need to see it.
+  struct BeamParent {
+    const NodeKey &key;
+    int32_t arenaIndex;
+    uint32_t jamBase;
+  };
+
+  [[nodiscard]] uint32_t beamWidth() const;
+  // Decodes per-block anchors straight out of a NodeKey. Only valid while
+  // canonicalizeSymmetry is off — see the note in searchBeamJam.
+  void decodeAnchors(const NodeKey &key, std::vector<Position> &out) const;
+  [[nodiscard]] uint32_t beamJitter(const NodeKey &key, uint32_t seed) const;
+  [[nodiscard]] bool beamRoundBudgetSpent(uint64_t deadline,
+                                          uint32_t maxNodes) const;
+  // Deadline, cancellation and the heap ceiling, checked once per depth.
+  [[nodiscard]] bool beamRoundExhausted(uint64_t deadline);
+  static void keepBestBeamCands(BeamRound &rd);
+  static void selectNextBeamLayer(BeamRound &rd);
+  void scoreBeamChildren(uint8_t i, const BeamParent &parent,
+                         uint32_t jamOldOverlap,
+                         const std::vector<uint16_t> &reached,
+                         BeamRound &rd) const;
+  void expandBeamState(int32_t ai, BeamRound &rd);
+  void expandBeamLayer(BeamRound &rd);
+  void runBeamRound(BeamRound &rd, uint64_t deadline);
+  std::vector<Turn> finalizeBeamPlan(const BeamRound &rd, uint32_t round);
+
+  // ---- searchHierarchical phases -------------------------------------------
+  struct Frame {
+    std::vector<Position> anchors;
+    std::vector<DragMove> drags;  // segment that produced this frame
+    BannedSet banned;             // coarse keys of failed/consumed end states
+    std::vector<SegmentAlt> alts; // prefetched alternative next-segments
+    size_t nextAlt = 0;
+    // Consecutive consolidation commits without cut progress leading here.
+    // Bounded so micro-consolidations cannot stack into a bottomless spiral
+    // (observed with small gains: thousands of frames oscillating at one
+    // cut) — after the cap the next segment must advance the goal.
+    uint8_t consolidationRun = 0;
+
+    Frame(std::vector<Position> a, std::vector<DragMove> d, const uint8_t run)
+        : anchors(std::move(a)), drags(std::move(d)), consolidationRun(run) {}
+    Frame(const Frame &) = delete;
+    Frame &operator=(const Frame &) = delete;
+    Frame &operator=(Frame &&) = delete;
+    ~Frame() = default;
+    // Spelled out only to promise noexcept. std::unordered_set's move
+    // constructor is not noexcept, so the implicit one here would not be
+    // either — and std::vector then deep-COPIES every frame, banned set
+    // included, on each reallocation rather than moving it. Moving a set
+    // whose allocator is std::allocator merely steals its buckets and cannot
+    // throw, so the promise holds for every instantiation in this program.
+    Frame(Frame &&o) noexcept
+        : anchors(std::move(o.anchors)), drags(std::move(o.drags)),
+          banned(std::move(o.banned)), alts(std::move(o.alts)),
+          nextAlt(o.nextAlt), consolidationRun(o.consolidationRun) {}
+  };
+  // What the driver needs back from one segment search.
+  struct HierStep {
+    bool found;
+    bool exhausted;
+    bool relaxSettled;
+  };
+
+  [[nodiscard]] bool hierPreconditionsOk() const;
+  [[nodiscard]] bool hierBudgetSpent(uint64_t deadline, uint32_t maxNodes,
+                                     uint32_t segments,
+                                     uint32_t backtracks) const;
+  [[nodiscard]] static std::vector<DragMove>
+  concatDrags(const std::vector<Frame> &stack);
+  void pushAltFrame(std::vector<Frame> &stack, uint32_t p, size_t depth) const;
+  [[nodiscard]] uint32_t consolidationTargetFor(const Frame &cur) const;
+  HierStep searchHierSegment(Frame &cur, std::vector<uint32_t> &failsAtDepth,
+                             size_t depth, uint32_t p, uint64_t deadline);
+  // Root frame failed: true when that verdict is final and the search returns.
+  [[nodiscard]] bool hierRootIsFinal(const HierStep &step,
+                                     const BannedSet &banned) const;
+  void backjumpFrames(std::vector<Frame> &stack,
+                      std::vector<uint32_t> &failsAtDepth, size_t depth) const;
   // Expands the drag plan into unit-move turns by replaying each drag's flood
   // fill from the initial state. Returns an empty vector if any drag turns
   // out inconsistent (symmetry label mix-up) — the caller then retries.
