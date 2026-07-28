@@ -249,7 +249,46 @@ private:
   [[nodiscard]] NodeKey
   signatureFromAnchors(const std::vector<Position> &anchors) const;
 
+  // Slides `blockId` in direction `dir` from node.anchors until it leaves the
+  // board, hits something, or reaches the first stride-aligned cell — the only
+  // cell in that direction that is a real search state. `slid` comes in holding
+  // node.anchors and comes out holding the reached position. Returns the cells
+  // moved, or 0 when the slide was blocked before any stride-aligned cell.
+  //
+  // Split out of runAStar because it is the third nested loop there, and its
+  // three exits read as one condition here.
+  [[nodiscard]] uint8_t slideToNextState(const Node &node, uint8_t blockId,
+                                         int dir,
+                                         std::vector<Position> &slid) const;
+
+  // Every budget and ceiling guard except the node cap, which stays inline at
+  // the call site because it is the only one tested every iteration. The rest
+  // share a 1-in-256 cadence, so this is reached once per 256 loops and its
+  // argument list costs nothing — hoisting the whole set into a per-iteration
+  // call is what made an earlier attempt at this 8% slower.
+  [[nodiscard]] bool searchLimitReached(uint64_t deadline, uint32_t maxMs,
+                                        uint64_t loopIters,
+                                        uint32_t nodesExpanded,
+                                        size_t statesStored, size_t storeSize);
+
+  // True when a popped heap entry is stale — its state is already closed, or a
+  // better path to it was recorded after the entry was queued.
+  [[nodiscard]] static bool isStaleEntry(const StateInfo *info, uint32_t g);
+
   using StateMap = StateTable<StateInfo>;
+
+  // Generates every successor of `node`: each movable block slid in each of the
+  // four directions, relaxing the ones that improve on what is already known.
+  //
+  // Templated on the store and heap types so this header need not name
+  // HeapEntry or the node store, both of which are local to AStarSearch.cpp —
+  // it is instantiated only there. Lifting it out of runAStar's while loop is
+  // also what brings the expansion back within the nesting limit: inside the
+  // loop, the two `for`s and any `if` in them are already four deep.
+  template <typename NodeStoreT, typename OpenHeapT>
+  void expandNode(const Node &node, uint32_t g, const StateInfo *parent,
+                  StateMap &states, NodeStoreT &nodeStore,
+                  OpenHeapT &openHeap) const;
 
   // Walks the parent chain from the goal state. Takes the state itself rather
   // than (map, key): the walk only ever reads `move`, so it needs no lookups.

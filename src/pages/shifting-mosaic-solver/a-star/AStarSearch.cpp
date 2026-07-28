@@ -134,6 +134,128 @@ std::vector<Turn> AStar::search(const uint32_t maxMs, const uint32_t maxNodes) {
   return result;
 }
 
+uint8_t AStar::slideToNextState(const Node &node, const uint8_t blockId,
+                                const int dir,
+                                std::vector<Position> &slid) const {
+  Position cursor = node.anchors[blockId];
+  uint8_t k = 1;
+  // The blocked exits return rather than break, so the loop keeps a single
+  // break: the one that means "a real successor was reached".
+  while (true) {
+    const Position next = {.x = static_cast<int8_t>(cursor.x + DX[dir]),
+                           .y = static_cast<int8_t>(cursor.y + DY[dir])};
+    if (!inBounds(blockId, next))
+      return 0;
+    // Restore previous slot then test collision against the rest.
+    slid[blockId] = next;
+    if (collidesWithOthers(blockId, next, slid))
+      return 0;
+    cursor = next;
+    // Only stride-aligned cells are real search states; the cells in between
+    // are valid 1-cell hops but never branched on.
+    if (k % moveStride_ == 0)
+      break;
+    k++;
+  }
+  return k;
+}
+
+bool AStar::isStaleEntry(const StateInfo *const info, const uint32_t g) {
+  return info == nullptr || info->closed || info->gScore < g;
+}
+
+template <typename NodeStoreT, typename OpenHeapT>
+void AStar::expandNode(const Node &node, const uint32_t g,
+                       const StateInfo *const parent, StateMap &states,
+                       NodeStoreT &nodeStore, OpenHeapT &openHeap) const {
+  for (const uint8_t i : movableBlockIndices_) {
+    for (int d = 0; d < 4; d++) {
+      // Slide block i in direction d until the first stride-aligned cell,
+      // which is the only real search state in that direction; the cells
+      // skipped on the way are valid 1-cell hops but never branched on.
+      std::vector<Position> newAnchors = node.anchors;
+      const uint8_t k = slideToNextState(node, i, d, newAnchors);
+      if (k == 0)
+        continue;
+
+      Node newNode(newAnchors);
+      const NodeKey newSig = signatureFromAnchors(newAnchors);
+
+      const uint32_t newG = g + k;
+
+      auto [newEntry, inserted] = states.emplace(newSig);
+      if (StateInfo &child = newEntry->value;
+          inserted || (!child.closed && newG < child.gScore)) {
+        child = {.gScore = newG,
+                 .parent = parent,
+                 .move = {.blockId = i,
+                          .direction = DIRS[d],
+                          .slideDistance = k},
+                 .hasParent = true,
+                 .closed = false};
+        // Reuse insert_or_assign's iterator instead of a second find():
+        // NodeKeyHash is a byte-at-a-time FNV-1a over 2*nBlocks bytes, so the
+        // discarded lookup was a full re-hash plus a bucket probe on every
+        // generated successor.
+        const auto [storedIt, storedInserted] =
+            nodeStore.insert_or_assign(newSig, std::move(newNode));
+        openHeap.emplace(newG + cfg_.weight * heuristic(storedIt->second), newG,
+                         &newEntry->key, &child);
+      }
+    }
+  }
+}
+
+bool AStar::searchLimitReached(const uint64_t deadline, const uint32_t maxMs,
+                               const uint64_t loopIters,
+                               const uint32_t nodesExpanded,
+                               const size_t statesStored,
+                               const size_t storeSize) {
+  if (cfg_.cancel && cfg_.cancel->load(std::memory_order_relaxed)) {
+    std::cout << "A* cancelled after " << nodesExpanded << " nodes\n";
+    return true;
+  }
+  // A multiple of 4096 is also a multiple of 256, so gating this behind the
+  // caller's 1-in-256 test leaves the deadline's own cadence unchanged.
+  if (deadline != 0 && (loopIters & 0xFFFu) == 0 && nowMs() > deadline) {
+    std::cout << "A* timed out after " << nodesExpanded << " nodes (budget "
+              << maxMs << "ms)\n";
+    return true;
+  }
+  // Graceful memory stop — see Config::maxStatesStored. maxNodes at the call
+  // site bounds EXPANSIONS, which is not what fills the heap; this bounds the
+  // live set.
+  if (cfg_.maxStatesStored != 0 && statesStored >= cfg_.maxStatesStored) {
+    std::cout << "A* hit state ceiling of " << cfg_.maxStatesStored
+              << " (states=" << statesStored << ", store=" << storeSize
+              << ") after " << nodesExpanded << " nodes\n";
+    return true;
+  }
+  // Last-resort abort tripwire. Only wasm has a ceiling that kills the module
+  // rather than failing an allocation, so this exists only there — a real #if,
+  // not `if constexpr`, because natively nearHeapLimit() is `return false;` and
+  // every analyser correctly reports the guarded block as dead code.
+#if defined(__EMSCRIPTEN__)
+  if (memprobe::nearHeapLimit()) {
+    std::cout << "A* stopped at the heap limit after " << nodesExpanded
+              << " nodes\n";
+    stats_.stoppedOnMemory = true;
+    return true;
+  }
+#endif
+  if (cfg_.maxHeapBytes != 0) {
+    if (const uint64_t used = memprobe::liveAllocatedBytes();
+        used != 0 && used >= cfg_.maxHeapBytes) {
+      std::cout << "A* hit memory ceiling (" << (used >> 20u) << " MB of "
+                << (cfg_.maxHeapBytes >> 20u) << " MB) after " << nodesExpanded
+                << " nodes\n";
+      stats_.stoppedOnMemory = true;
+      return true;
+    }
+  }
+  return false;
+}
+
 std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
                                   const uint32_t maxNodes) {
   searchExhausted_ = false;
@@ -187,61 +309,24 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
 
   while (!openHeap.empty()) {
     loopIters++;
-    if (cfg_.cancel && (loopIters & 0xFFu) == 0 &&
-        cfg_.cancel->load(std::memory_order_relaxed)) {
-      std::cout << "A* cancelled after " << nodesExpanded << " nodes\n";
-      return {};
-    }
-    if (deadline != 0 && (loopIters & 0xFFFu) == 0 && nowMs() > deadline) {
-      std::cout << "A* timed out after " << nodesExpanded << " nodes (budget "
-                << maxMs << "ms)\n";
-      return {};
-    }
     if (maxNodes != 0 && nodesExpanded >= maxNodes) {
       std::cout << "A* hit node cap of " << maxNodes
                 << " (open=" << openHeap.size() << ", states=" << states.size()
                 << ", store=" << nodeStore.size() << ")\n";
       return {};
     }
-    // Graceful memory stop — see Config::maxStatesStored. maxNodes above bounds
-    // EXPANSIONS, which is not what fills the heap; this bounds the live set.
-    if (cfg_.maxStatesStored != 0 && (loopIters & 0xFFu) == 0 &&
-        states.size() >= cfg_.maxStatesStored) {
-      std::cout << "A* hit state ceiling of " << cfg_.maxStatesStored
-                << " (states=" << states.size()
-                << ", store=" << nodeStore.size() << ") after " << nodesExpanded
-                << " nodes\n";
+    // Everything else shares a 1-in-256 cadence, so the mask test stays here
+    // and the guards themselves live in searchLimitReached.
+    if ((loopIters & 0xFFu) == 0 &&
+        searchLimitReached(deadline, maxMs, loopIters, nodesExpanded,
+                           states.size(), nodeStore.size()))
       return {};
-    }
-    // Last-resort abort tripwire. Only wasm has a ceiling that kills the
-    // module rather than failing an allocation, so this exists only there —
-    // a real #if, not `if constexpr`, because natively nearHeapLimit() is
-    // `return false;` and every analyser correctly reports the guarded block
-    // as dead code (2 findings that `if constexpr` did not silence).
-#if defined(__EMSCRIPTEN__)
-    if ((loopIters & 0xFF) == 0 && memprobe::nearHeapLimit()) {
-      std::cout << "A* stopped at the heap limit after " << nodesExpanded
-                << " nodes\n";
-      stats_.stoppedOnMemory = true;
-      return {};
-    }
-#endif
-    if (cfg_.maxHeapBytes != 0 && (loopIters & 0xFFu) == 0) {
-      if (const uint64_t used = memprobe::liveAllocatedBytes();
-          used != 0 && used >= cfg_.maxHeapBytes) {
-        std::cout << "A* hit memory ceiling (" << (used >> 20u) << " MB of "
-                  << (cfg_.maxHeapBytes >> 20u) << " MB) after "
-                  << nodesExpanded << " nodes\n";
-        stats_.stoppedOnMemory = true;
-        return {};
-      }
-    }
     const HeapEntry current = openHeap.top();
     openHeap.pop();
 
     // The heap entry carries the map node, so no states.find() per pop.
     StateInfo *const sit = current.info;
-    if (sit == nullptr || sit->closed || sit->gScore < current.g)
+    if (isStaleEntry(sit, current.g))
       continue;
 
     sit->closed = true;
@@ -271,57 +356,7 @@ std::vector<Turn> AStar::runAStar(const uint32_t maxMs,
     if (cfg_.deadlockPruning && isDeadlocked(node.anchors))
       continue;
 
-    for (const uint8_t i : movableBlockIndices_) {
-      for (int d = 0; d < 4; d++) {
-        // Slide block i in direction d until the first stride-aligned cell,
-        // which is the only real search state in that direction; the cells
-        // skipped on the way are valid 1-cell hops but never branched on.
-        Position cursor = node.anchors[i];
-        std::vector<Position> newAnchors = node.anchors;
-        for (uint8_t k = 1;; k++) {
-          const Position next = {.x = static_cast<int8_t>(cursor.x + DX[d]),
-                                 .y = static_cast<int8_t>(cursor.y + DY[d])};
-          if (!inBounds(i, next))
-            break;
-          // Restore previous slot then test collision against the rest.
-          newAnchors[i] = next;
-          if (collidesWithOthers(i, next, newAnchors))
-            break;
-          cursor = next;
-          // Only stride-aligned cells are real search states; the cells in
-          // between are valid 1-cell hops but never branched on.
-          if (k % moveStride_ != 0)
-            continue;
-
-          Node newNode(newAnchors);
-          const NodeKey newSig = signatureFromAnchors(newAnchors);
-
-          const uint32_t newG = current.g + k;
-
-          auto [newEntry, inserted] = states.emplace(newSig);
-          if (StateInfo &child = newEntry->value;
-              inserted || (!child.closed && newG < child.gScore)) {
-            child = {.gScore = newG,
-                     .parent = current.info,
-                     .move = {.blockId = i,
-                              .direction = DIRS[d],
-                              .slideDistance = k},
-                     .hasParent = true,
-                     .closed = false};
-            // Reuse insert_or_assign's iterator instead of a second find():
-            // NodeKeyHash is a byte-at-a-time FNV-1a over 2*nBlocks bytes, so
-            // the discarded lookup was a full re-hash plus a bucket probe on
-            // every generated successor.
-            const auto [storedIt, storedInserted] =
-                nodeStore.insert_or_assign(newSig, std::move(newNode));
-            openHeap.emplace(newG + cfg_.weight * heuristic(storedIt->second),
-                             newG, &newEntry->key, &child);
-          }
-
-          break;
-        }
-      }
-    }
+    expandNode(node, current.g, current.info, states, nodeStore, openHeap);
   }
 
   std::cout << "A* found no solution, expanded " << nodesExpanded << " nodes\n";
