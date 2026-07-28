@@ -11,103 +11,112 @@
 #include "SolverClock.h"
 
 #include <iostream>
+#include <tuple>
 #include <vector>
+
+std::vector<int32_t>
+DragSolver::goalRoutePredecessors(const uint16_t startIdx,
+                                  const uint16_t targetIdx,
+                                  const DispGeometry &geo) const {
+  const int H = gridHeight_;
+  std::vector<int32_t> par(static_cast<size_t>(gridWidth_) * H, -2);
+  std::vector q{startIdx};
+  par[startIdx] = -1;
+  // Worklist BFS: the body pushes onto `q` while it is being walked, so this
+  // is an index walk rather than a range-for.
+  size_t head = 0;
+  while (head < q.size()) {
+    const uint16_t cur = q[head];
+    head++;
+    const int cx = cur / H;
+    const int cy = cur % H;
+    for (int d = 0; d < 4; d++) {
+      const int nx = cx + BitGrid::DX[d];
+      const int ny = cy + BitGrid::DY[d];
+      if (!anchorClearOfWalls(nx, ny, geo))
+        continue;
+      const auto nIdx = static_cast<uint16_t>(nx * H + ny);
+      if (par[nIdx] != -2)
+        continue;
+      par[nIdx] = cur;
+      if (nIdx == targetIdx)
+        return par;
+      q.push_back(nIdx);
+    }
+  }
+  return {}; // no walls-only route to the target
+}
+
+void DragSolver::accumulatePathFootprint(const int32_t from,
+                                         const std::vector<int32_t> &parent,
+                                         const std::vector<uint64_t> &rows,
+                                         std::vector<uint64_t> &out) const {
+  const int H = gridHeight_;
+  for (int32_t cur = from; cur != -1; cur = parent[cur]) {
+    const int cx = cur / H;
+    const int cy = cur % H;
+    for (size_t r = 0; r < rows.size(); r++)
+      out[cy + r] |= rows[r] << static_cast<unsigned>(cx);
+  }
+}
+
+bool DragSolver::absorbBlocksOnMask(const std::vector<Position> &anchors,
+                                    const std::vector<uint64_t> &probe,
+                                    uint32_t &mask,
+                                    std::vector<uint64_t> &accum) const {
+  bool grew = false;
+  for (const uint8_t b : movableBlockIndices_) {
+    // The goal's own bit is pre-set by the caller, so this subsumes the
+    // explicit `b == goalIndex_` skip the ring-0 pass used to carry.
+    if (mask >> b & 1u)
+      continue;
+    if (!blockOnMask(b, anchors[b], probe))
+      continue;
+    mask |= uint32_t{1} << b;
+    const auto &rows = grid_.shapeRows(b);
+    for (size_t r = 0; r < rows.size(); r++)
+      accum[anchors[b].y + r] |= rows[r] << static_cast<unsigned>(anchors[b].x);
+    grew = true;
+  }
+  return grew;
+}
 
 uint32_t
 DragSolver::relevanceMaskOf(const std::vector<Position> &anchors,
                             const std::vector<uint64_t> &lockedRows) const {
   const int H = gridHeight_;
-  const int total = gridWidth_ * H;
-  const auto &grows = grid_.shapeRows(goalIndex_);
-  const int maxX = gridWidth_ - grid_.boxWidth(goalIndex_);
-  const int maxY = gridHeight_ - grid_.boxHeight(goalIndex_);
-  const auto valid = [&](const int x, const int y) {
-    if (x < 0 || y < 0 || x > maxX || y > maxY)
-      return false;
-    for (size_t r = 0; r < grows.size(); r++)
-      if (grows[r] << static_cast<unsigned>(x) & lockedRows[y + r])
-        return false;
-    return true;
-  };
+  const DispGeometry geo{.rows = grid_.shapeRows(goalIndex_),
+                         .lockedRows = lockedRows,
+                         .maxX = gridWidth_ - grid_.boxWidth(goalIndex_),
+                         .maxY = gridHeight_ - grid_.boxHeight(goalIndex_)};
   const auto &[gx, gy] = anchors[goalIndex_];
   const auto startIdx = static_cast<uint16_t>(gx * H + gy);
   const auto targetIdx =
       static_cast<uint16_t>(goalAnchor_.x * H + goalAnchor_.y);
   if (startIdx == targetIdx)
     return UINT32_MAX;
-  std::vector par(total, -2);
-  std::vector q{startIdx};
-  par[startIdx] = -1;
-  bool found = false;
-  for (size_t head = 0; head < q.size() && !found; head++) {
-    const uint16_t cur = q[head];
-    const int cx = cur / H;
-    const int cy = cur % H;
-    for (int d = 0; d < 4; d++) {
-      const int nx = cx + BitGrid::DX[d];
-      const int ny = cy + BitGrid::DY[d];
-      if (!valid(nx, ny))
-        continue;
-      const auto nIdx = static_cast<uint16_t>(nx * H + ny);
-      if (par[nIdx] != -2)
-        continue;
-      par[nIdx] = cur;
-      if (nIdx == targetIdx) {
-        found = true;
-        break;
-      }
-      q.push_back(nIdx);
-    }
-  }
-  if (!found)
+
+  const std::vector<int32_t> par =
+      goalRoutePredecessors(startIdx, targetIdx, geo);
+  if (par.empty())
     return UINT32_MAX;
+
   std::vector<uint64_t> sweep(gridHeight_, 0);
-  for (int32_t cur = targetIdx; cur != -1; cur = par[cur]) {
-    const int cx = cur / H;
-    const int cy = cur % H;
-    for (size_t r = 0; r < grows.size(); r++)
-      sweep[cy + r] |= grows[r] << static_cast<unsigned>(cx);
-  }
+  accumulatePathFootprint(targetIdx, par, geo.rows, sweep);
+
   uint32_t mask = uint32_t{1} << goalIndex_;
   std::vector<uint64_t> accum(gridHeight_, 0); // cells of relevant blocks
-  for (const uint8_t b : movableBlockIndices_) {
-    if (b == goalIndex_)
-      continue;
-    if (blockOnMask(b, anchors[b], sweep)) {
-      mask |= uint32_t{1} << b;
-      const auto &rows = grid_.shapeRows(b);
-      for (size_t r = 0; r < rows.size(); r++)
-        accum[anchors[b].y + r] |= rows[r]
-                                   << static_cast<unsigned>(anchors[b].x);
-    }
-  }
+  // Ring 0 only seeds `accum`; whether it grew is irrelevant, because an empty
+  // seed dilates to nothing and the ring loop below breaks on its own test.
+  std::ignore = absorbBlocksOnMask(anchors, sweep, mask, accum);
   // Ring k: dilate the accumulated relevant cells and absorb touching
   // blocks; repeat relevantRing_ times (the escalation search() drives
   // when a tighter ring's space exhausts without a solution).
   for (uint8_t ring = 0; ring < relevantRing_; ring++) {
     std::vector<uint64_t> dil(gridHeight_, 0);
-    for (int y = 0; y < gridHeight_; y++) {
-      uint64_t m = accum[y] | accum[y] << 1u | accum[y] >> 1u;
-      if (y > 0)
-        m |= accum[y - 1];
-      if (y + 1 < gridHeight_)
-        m |= accum[y + 1];
-      dil[y] = m;
-    }
-    bool grew = false;
-    for (const uint8_t b : movableBlockIndices_) {
-      if (mask >> b & 1u)
-        continue;
-      if (blockOnMask(b, anchors[b], dil)) {
-        mask |= uint32_t{1} << b;
-        const auto &rows = grid_.shapeRows(b);
-        for (size_t r = 0; r < rows.size(); r++)
-          accum[anchors[b].y + r] |= rows[r]
-                                     << static_cast<unsigned>(anchors[b].x);
-        grew = true;
-      }
-    }
-    if (!grew)
+    for (int y = 0; y < gridHeight_; y++)
+      dil[y] = dilateRow(accum, y);
+    if (!absorbBlocksOnMask(anchors, dil, mask, accum))
       break;
   }
   return mask;
@@ -132,31 +141,36 @@ void DragSolver::updateSleepEnvelope(
     for (size_t r = 0; r < rows.size(); r++)
       env[ty + r] |= rows[r] << static_cast<unsigned>(tx);
   }
-  uint32_t sm = 0;
-  if (i > 0 && iterated != 0) {
-    std::vector<uint64_t> dil(gridHeight_);
-    for (uint8_t y = 0; y < gridHeight_; y++) {
-      uint64_t m = env[y] | env[y] << 1u | env[y] >> 1u;
-      if (y > 0)
-        m |= env[y - 1];
-      if (y + 1 < gridHeight_)
-        m |= env[y + 1];
-      dil[y] = m;
-    }
-    for (const uint8_t j : movableBlockIndices_) {
-      if (j >= i)
-        break;
-      if (!(iterated >> j & 1u))
-        continue; // j generated nothing here — no (j, i) twin branch
-      bool overlap = false;
-      for (uint8_t y = 0; y < gridHeight_ && !overlap; y++)
-        overlap = (dil[y] & envRows[j][y]) != 0;
-      if (!overlap)
-        sm |= uint32_t{1} << j;
-    }
-  }
-  sleptMaskOf[i] = sm;
+  sleptMaskOf[i] = commutingBlocks(i, envRows, iterated);
   iterated |= uint32_t{1} << i;
+}
+
+bool DragSolver::envelopesOverlap(const std::vector<uint64_t> &a,
+                                  const std::vector<uint64_t> &b) const {
+  for (int y = 0; y < gridHeight_; y++)
+    if ((a[y] & b[y]) != 0)
+      return true;
+  return false;
+}
+
+uint32_t DragSolver::commutingBlocks(
+    const uint8_t i, const std::vector<std::vector<uint64_t>> &envRows,
+    const uint32_t iterated) const {
+  if (i == 0 || iterated == 0)
+    return 0;
+  std::vector<uint64_t> dil(gridHeight_);
+  for (int y = 0; y < gridHeight_; y++)
+    dil[y] = dilateRow(envRows[i], y);
+  uint32_t sm = 0;
+  for (const uint8_t j : movableBlockIndices_) {
+    if (j >= i)
+      break;
+    if (!(iterated >> j & 1u))
+      continue; // j generated nothing here — no (j, i) twin branch
+    if (!envelopesOverlap(dil, envRows[j]))
+      sm |= uint32_t{1} << j;
+  }
+  return sm;
 }
 
 // Only reached on the caller's 1-in-256 cadence — see the call site, which

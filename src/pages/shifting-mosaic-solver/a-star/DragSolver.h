@@ -304,6 +304,25 @@ private:
   [[nodiscard]] uint32_t
   relevanceMaskOf(const std::vector<Position> &anchors,
                   const std::vector<uint64_t> &lockedRows) const;
+  // BFS over goal-block anchors from `startIdx` to `targetIdx` against
+  // locked-only walls. Returns the predecessor map (-2 unvisited, -1 root), or
+  // an EMPTY vector when no walls-only route exists.
+  [[nodiscard]] std::vector<int32_t>
+  goalRoutePredecessors(uint16_t startIdx, uint16_t targetIdx,
+                        const DispGeometry &geo) const;
+  // ORs the goal footprint along a predecessor chain into `out`. Shared with
+  // the jam sweep, which walks jamNextHop_ the same way.
+  void accumulatePathFootprint(int32_t from,
+                               const std::vector<int32_t> &parent,
+                               const std::vector<uint64_t> &rows,
+                               std::vector<uint64_t> &out) const;
+  // Adds every not-yet-selected movable block touching `probe` to `mask` and
+  // ORs its cells into `accum`. Returns whether anything was added, which is
+  // the ring loop's fixpoint test.
+  [[nodiscard]] bool absorbBlocksOnMask(const std::vector<Position> &anchors,
+                                        const std::vector<uint64_t> &probe,
+                                        uint32_t &mask,
+                                        std::vector<uint64_t> &accum) const;
 
   // sleepSets bookkeeping for one expanded block: records its interaction
   // envelope (its cells at `from` plus at every reachable anchor) into
@@ -314,6 +333,12 @@ private:
                            std::vector<std::vector<uint64_t>> &envRows,
                            std::vector<uint32_t> &sleptMaskOf,
                            uint32_t &iterated) const;
+  // Bit j set = block j provably commutes with block i at this state.
+  [[nodiscard]] uint32_t
+  commutingBlocks(uint8_t i, const std::vector<std::vector<uint64_t>> &envRows,
+                  uint32_t iterated) const;
+  [[nodiscard]] bool envelopesOverlap(const std::vector<uint64_t> &a,
+                                      const std::vector<uint64_t> &b) const;
 
   // One combined budget checkpoint for the drag search: cancellation, wall
   // clock, state ceiling, measured heap and node cap. Reports the reason on
