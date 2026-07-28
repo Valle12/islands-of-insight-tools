@@ -274,6 +274,20 @@ private:
   // goalAnchor — anything past it is dead weight.
   [[nodiscard]] size_t
   firstSolvingPrefixLen(const std::vector<Turn> &turns) const;
+  // Candidate generators for the rewrites below. Each returns the plan with a
+  // section deleted or relocated and judges nothing: replaySolves() is the
+  // single source of truth for whether a candidate is acceptable.
+  static std::vector<Turn> withRangesRemoved(const std::vector<Turn> &turns,
+                                             size_t aLo, size_t aHi, size_t bLo,
+                                             size_t bHi);
+  static std::vector<Turn> runPulledEarlier(const std::vector<Turn> &turns,
+                                            const MoveRun &ri,
+                                            const MoveRun &rj);
+  static std::vector<Turn> runPushedLater(const std::vector<Turn> &turns,
+                                          const MoveRun &ri, const MoveRun &rj);
+  // One (a, b) candidate pair for tryRunPairCancellation.
+  [[nodiscard]] bool tryCancelPair(std::vector<Turn> &turns, const MoveRun &ra,
+                                   const MoveRun &rb) const;
   // Each rewrites `turns` in place and returns true when it found a strictly
   // improving, still-valid candidate; false (turns untouched) otherwise.
   [[nodiscard]] bool tryRunPairCancellation(std::vector<Turn> &turns) const;

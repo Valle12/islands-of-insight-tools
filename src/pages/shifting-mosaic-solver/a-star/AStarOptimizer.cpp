@@ -106,40 +106,51 @@ size_t AStar::firstSolvingPrefixLen(const std::vector<Turn> &turns) const {
   return turns.size();
 }
 
-// A block slides `dir` for `runA` turns and later slides the opposite way for
-// `runB` turns. The overlapping min(lenA, lenB) cells are a pure detour: try
-// to delete that many turns from each run (largest overlap first).
-bool AStar::tryRunPairCancellation(std::vector<Turn> &turns) const {
-  const auto runs = computeRuns(turns);
-  for (size_t a = 0; a < runs.size(); a++) {
-    for (size_t b = a + 1; b < runs.size(); b++) {
-      if (runs[a].blockId != runs[b].blockId)
-        continue;
-      if ((std::to_underlying(runs[a].dir) + 2) % 4 !=
-          std::to_underlying(runs[b].dir))
-        continue; // not opposite directions
-      const size_t maxC = std::min(runs[a].len, runs[b].len);
-      for (size_t c = maxC; c >= 1; c--) {
-        const size_t aLo = runs[a].start + runs[a].len - c;
-        const size_t aHi = runs[a].start + runs[a].len;
-        const size_t bLo = runs[b].start;
-        const size_t bHi = runs[b].start + c;
-        std::vector<Turn> cand;
-        cand.reserve(turns.size() - 2 * c);
-        for (size_t k = 0; k < turns.size(); k++) {
-          if (k >= aLo && k < aHi)
-            continue;
-          if (k >= bLo && k < bHi)
-            continue;
-          cand.push_back(turns[k]);
-        }
-        if (replaySolves(cand)) {
-          turns = std::move(cand);
-          return true;
-        }
-      }
+// The plan with the half-open ranges [aLo, aHi) and [bLo, bHi) deleted.
+std::vector<Turn> AStar::withRangesRemoved(const std::vector<Turn> &turns,
+                                           const size_t aLo, const size_t aHi,
+                                           const size_t bLo, const size_t bHi) {
+  std::vector<Turn> cand;
+  cand.reserve(turns.size() - (aHi - aLo) - (bHi - bLo));
+  for (size_t k = 0; k < turns.size(); k++) {
+    if (k >= aLo && k < aHi)
+      continue;
+    if (k >= bLo && k < bHi)
+      continue;
+    cand.push_back(turns[k]);
+  }
+  return cand;
+}
+
+// Two runs of one block in opposite directions: the overlapping
+// min(lenA, lenB) cells are a pure detour, so try deleting that many turns
+// from each, largest overlap first.
+bool AStar::tryCancelPair(std::vector<Turn> &turns, const MoveRun &ra,
+                          const MoveRun &rb) const {
+  if (ra.blockId != rb.blockId)
+    return false;
+  if ((std::to_underlying(ra.dir) + 2) % 4 != std::to_underlying(rb.dir))
+    return false; // not opposite directions
+  for (size_t c = std::min(ra.len, rb.len); c >= 1; c--) {
+    std::vector<Turn> cand = withRangesRemoved(
+        turns, ra.start + ra.len - c, ra.start + ra.len, rb.start, rb.start + c);
+    if (replaySolves(cand)) {
+      turns = std::move(cand);
+      return true;
     }
   }
+  return false;
+}
+
+// A block slides `dir` for `runA` turns and later slides the opposite way for
+// `runB` turns. Each candidate pair is tried by tryCancelPair above; keeping
+// the pair loop separate is what stops this being five levels of nesting.
+bool AStar::tryRunPairCancellation(std::vector<Turn> &turns) const {
+  const auto runs = computeRuns(turns);
+  for (size_t a = 0; a < runs.size(); a++)
+    for (size_t b = a + 1; b < runs.size(); b++)
+      if (tryCancelPair(turns, runs[a], runs[b]))
+        return true;
   return false;
 }
 
@@ -184,6 +195,42 @@ bool AStar::trySingleRemoval(std::vector<Turn> &turns) const {
   return false;
 }
 
+// Run j pulled left, to sit immediately after run i.
+std::vector<Turn> AStar::runPulledEarlier(const std::vector<Turn> &turns,
+                                          const MoveRun &ri,
+                                          const MoveRun &rj) {
+  const size_t riEnd = ri.start + ri.len;
+  const size_t rjEnd = rj.start + rj.len;
+  std::vector<Turn> cand;
+  cand.reserve(turns.size());
+  for (size_t k = 0; k < riEnd; k++)
+    cand.push_back(turns[k]);
+  for (size_t k = rj.start; k < rjEnd; k++)
+    cand.push_back(turns[k]);
+  for (size_t k = riEnd; k < rj.start; k++)
+    cand.push_back(turns[k]);
+  for (size_t k = rjEnd; k < turns.size(); k++)
+    cand.push_back(turns[k]);
+  return cand;
+}
+
+// Run i pushed right, to sit immediately before run j.
+std::vector<Turn> AStar::runPushedLater(const std::vector<Turn> &turns,
+                                        const MoveRun &ri, const MoveRun &rj) {
+  const size_t riEnd = ri.start + ri.len;
+  std::vector<Turn> cand;
+  cand.reserve(turns.size());
+  for (size_t k = 0; k < ri.start; k++)
+    cand.push_back(turns[k]);
+  for (size_t k = riEnd; k < rj.start; k++)
+    cand.push_back(turns[k]);
+  for (size_t k = ri.start; k < riEnd; k++)
+    cand.push_back(turns[k]);
+  for (size_t k = rj.start; k < turns.size(); k++)
+    cand.push_back(turns[k]);
+  return cand;
+}
+
 // "A slides, B slides, A slides the same way again." If nothing forbids it,
 // run both of A's slides back-to-back so the player performs a single drag.
 // Turn count is unchanged; the player-step count drops by one. Only A's two
@@ -204,42 +251,15 @@ bool AStar::tryReorderMerge(std::vector<Turn> &turns) const {
       continue; // different dir → cannot merge cleanly
     if (static_cast<size_t>(prev) + 1 == j)
       continue; // already adjacent
-    const size_t riEnd = ri.start + ri.len;
-
-    // Candidate 1: pull run j left, right after run i.
-    {
-      const size_t rjEnd = rj.start + rj.len;
-      std::vector<Turn> cand;
-      cand.reserve(turns.size());
-      for (size_t k = 0; k < riEnd; k++)
-        cand.push_back(turns[k]);
-      for (size_t k = rj.start; k < rjEnd; k++)
-        cand.push_back(turns[k]);
-      for (size_t k = riEnd; k < rj.start; k++)
-        cand.push_back(turns[k]);
-      for (size_t k = rjEnd; k < turns.size(); k++)
-        cand.push_back(turns[k]);
-      if (countSteps(cand) < baseSteps && replaySolves(cand)) {
-        turns = std::move(cand);
-        return true;
-      }
+    if (std::vector<Turn> cand = runPulledEarlier(turns, ri, rj);
+        countSteps(cand) < baseSteps && replaySolves(cand)) {
+      turns = std::move(cand);
+      return true;
     }
-    // Candidate 2: push run i right, just before run j.
-    {
-      std::vector<Turn> cand;
-      cand.reserve(turns.size());
-      for (size_t k = 0; k < ri.start; k++)
-        cand.push_back(turns[k]);
-      for (size_t k = riEnd; k < rj.start; k++)
-        cand.push_back(turns[k]);
-      for (size_t k = ri.start; k < riEnd; k++)
-        cand.push_back(turns[k]);
-      for (size_t k = rj.start; k < turns.size(); k++)
-        cand.push_back(turns[k]);
-      if (countSteps(cand) < baseSteps && replaySolves(cand)) {
-        turns = std::move(cand);
-        return true;
-      }
+    if (std::vector<Turn> cand = runPushedLater(turns, ri, rj);
+        countSteps(cand) < baseSteps && replaySolves(cand)) {
+      turns = std::move(cand);
+      return true;
     }
   }
   return false;
