@@ -40,6 +40,18 @@ interface Step {
   segments: PathSegment[];
 }
 
+/** Everything a single grid cell needs to know about the step being shown. */
+interface CellZones {
+  /** occupant[x][y] = block index, or -1 for empty. */
+  occupant: number[][];
+  /** The step being previewed, or null at the end of the solution. */
+  step: Step | null;
+  /** Cells the moving block will occupy after this step. */
+  destSet: Set<string>;
+  /** Cells the goal block must finish on. */
+  goalSet: Set<string>;
+}
+
 export interface SolutionViewData {
   gridWidth: number;
   gridHeight: number;
@@ -174,13 +186,9 @@ export class SolutionView {
     return points;
   }
 
-  render() {
-    const { gridWidth, gridHeight, goalIndex } = this.data;
-    const atEnd = this.viewIndex >= this.steps.length;
-    const anchors = this.snapshots[this.viewIndex]!;
-    const step = atEnd ? null : this.steps[this.viewIndex]!;
-
-    // occupant[x][y] = block index, or -1 for empty.
+  /** occupant[x][y] = block index, or -1 for empty. */
+  private buildOccupancy(anchors: Position[]): number[][] {
+    const { gridWidth, gridHeight } = this.data;
     const occupant: number[][] = Array.from({ length: gridWidth }, () =>
       Array.from({ length: gridHeight }, () => -1),
     );
@@ -196,21 +204,89 @@ export class SolutionView {
         }
       }
     }
+    return occupant;
+  }
 
-    // Destination zone — the moving block's footprint after this step.
-    const destSet = new Set<string>();
-    if (step) {
-      const after = this.snapshots[this.viewIndex + 1]![step.blockId]!;
-      for (const cell of this.cellsOf(step.blockId, after)) {
-        destSet.add(`${cell.x},${cell.y}`);
+  /** The "x,y" keys a block placed at the given anchor covers. */
+  private footprintKeys(blockId: number, anchor: Position): Set<string> {
+    return new Set(this.cellsOf(blockId, anchor).map(c => `${c.x},${c.y}`));
+  }
+
+  /** Outlines a block: an edge class wherever the neighbour is a different block. */
+  private static markBlockEdges(
+    cell: HTMLElement,
+    x: number,
+    y: number,
+    block: number,
+    occupant: number[][],
+  ) {
+    const sameBlock = (nx: number, ny: number) => occupant[nx]?.[ny] === block;
+    if (!sameBlock(x, y - 1)) cell.classList.add("block-edge-top");
+    if (!sameBlock(x + 1, y)) cell.classList.add("block-edge-right");
+    if (!sameBlock(x, y + 1)) cell.classList.add("block-edge-bottom");
+    if (!sameBlock(x - 1, y)) cell.classList.add("block-edge-left");
+  }
+
+  /**
+   * Outlines a zone (destination, goal): `prefix` on every cell in it, plus
+   * `prefix-edge-*` wherever the neighbour is outside it.
+   */
+  private static markZoneEdges(
+    cell: HTMLElement,
+    x: number,
+    y: number,
+    zone: Set<string>,
+    prefix: string,
+  ) {
+    if (!zone.has(`${x},${y}`)) return;
+    cell.classList.add(prefix);
+    if (!zone.has(`${x},${y - 1}`)) cell.classList.add(`${prefix}-edge-top`);
+    if (!zone.has(`${x + 1},${y}`)) cell.classList.add(`${prefix}-edge-right`);
+    if (!zone.has(`${x},${y + 1}`)) cell.classList.add(`${prefix}-edge-bottom`);
+    if (!zone.has(`${x - 1},${y}`)) cell.classList.add(`${prefix}-edge-left`);
+  }
+
+  private buildCell(x: number, y: number, zones: CellZones): HTMLDivElement {
+    const { occupant, step, destSet, goalSet } = zones;
+    const cell = document.createElement("div");
+    cell.className = "grid-cell";
+    cell.dataset.x = String(x);
+    cell.dataset.y = String(y);
+
+    const block = occupant[x]![y]!;
+    if (block !== -1) {
+      cell.dataset.blockType =
+        block === this.data.goalIndex ? "goal" : "obstruction";
+      SolutionView.markBlockEdges(cell, x, y, block, occupant);
+      if (step && block === step.blockId) {
+        cell.classList.add("sm-moving");
       }
     }
 
-    // Goal zone — where the goal block must finish.
-    const goalSet = new Set<string>();
-    for (const cell of this.cellsOf(goalIndex, this.data.goalAnchor)) {
-      goalSet.add(`${cell.x},${cell.y}`);
-    }
+    SolutionView.markZoneEdges(cell, x, y, destSet, "sm-dest");
+    SolutionView.markZoneEdges(cell, x, y, goalSet, "sm-goal");
+    return cell;
+  }
+
+  render() {
+    const { gridWidth, gridHeight, goalIndex } = this.data;
+    const atEnd = this.viewIndex >= this.steps.length;
+    const anchors = this.snapshots[this.viewIndex]!;
+    const step = atEnd ? null : this.steps[this.viewIndex]!;
+
+    const zones: CellZones = {
+      occupant: this.buildOccupancy(anchors),
+      step,
+      // Destination zone — the moving block's footprint after this step.
+      destSet: step
+        ? this.footprintKeys(
+            step.blockId,
+            this.snapshots[this.viewIndex + 1]![step.blockId]!,
+          )
+        : new Set<string>(),
+      // Goal zone — where the goal block must finish.
+      goalSet: this.footprintKeys(goalIndex, this.data.goalAnchor),
+    };
 
     this.grid.style.gridTemplateColumns = `repeat(${gridWidth}, minmax(0, 1fr))`;
     this.grid.style.maxWidth = `${gridMaxWidthPx(gridWidth)}px`;
@@ -218,51 +294,7 @@ export class SolutionView {
 
     for (let y = 0; y < gridHeight; y++) {
       for (let x = 0; x < gridWidth; x++) {
-        const cell = document.createElement("div");
-        cell.className = "grid-cell";
-        cell.dataset.x = String(x);
-        cell.dataset.y = String(y);
-
-        const block = occupant[x]![y]!;
-        if (block !== -1) {
-          cell.dataset.blockType =
-            block === goalIndex ? "goal" : "obstruction";
-          const sameBlock = (nx: number, ny: number) =>
-            occupant[nx]?.[ny] === block;
-          if (!sameBlock(x, y - 1)) cell.classList.add("block-edge-top");
-          if (!sameBlock(x + 1, y)) cell.classList.add("block-edge-right");
-          if (!sameBlock(x, y + 1)) cell.classList.add("block-edge-bottom");
-          if (!sameBlock(x - 1, y)) cell.classList.add("block-edge-left");
-          if (step && block === step.blockId) {
-            cell.classList.add("sm-moving");
-          }
-        }
-
-        if (destSet.has(`${x},${y}`)) {
-          cell.classList.add("sm-dest");
-          if (!destSet.has(`${x},${y - 1}`))
-            cell.classList.add("sm-dest-edge-top");
-          if (!destSet.has(`${x + 1},${y}`))
-            cell.classList.add("sm-dest-edge-right");
-          if (!destSet.has(`${x},${y + 1}`))
-            cell.classList.add("sm-dest-edge-bottom");
-          if (!destSet.has(`${x - 1},${y}`))
-            cell.classList.add("sm-dest-edge-left");
-        }
-
-        if (goalSet.has(`${x},${y}`)) {
-          cell.classList.add("sm-goal");
-          if (!goalSet.has(`${x},${y - 1}`))
-            cell.classList.add("sm-goal-edge-top");
-          if (!goalSet.has(`${x + 1},${y}`))
-            cell.classList.add("sm-goal-edge-right");
-          if (!goalSet.has(`${x},${y + 1}`))
-            cell.classList.add("sm-goal-edge-bottom");
-          if (!goalSet.has(`${x - 1},${y}`))
-            cell.classList.add("sm-goal-edge-left");
-        }
-
-        this.grid.appendChild(cell);
+        this.grid.appendChild(this.buildCell(x, y, zones));
       }
     }
 

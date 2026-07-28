@@ -113,11 +113,14 @@ jobs:
           }
           build_variant astar.mjs ""
           build_variant astar.threads.mjs "-pthread -sPTHREAD_POOL_SIZE=10"
-          # MEMORY64 build (8GB heap); loaded by node, not bun — tested below.
-          build_variant astar.mem64.mjs "-sMEMORY64=1" "8GB"
+          # wasm64 build (8GB heap); loaded by node, not bun — tested below.
+          # `-m64` is the standard flag emscripten 6.0.0 made an alias for
+          # -sMEMORY64, which 6.0.4 warns is deprecated. Keep in sync with
+          # src/util/buildWasm.ts.
+          build_variant astar.mem64.mjs "-m64" "8GB"
           # pthreads + 8GB shared MEMORY64 heap (isolated path). Browser-only
           # (shared memory64), so its build is verified here but not unit-tested.
-          build_variant astar.threads.mem64.mjs "-pthread -sPTHREAD_POOL_SIZE=10 -sMEMORY64=1" "8GB"
+          build_variant astar.threads.mem64.mjs "-pthread -sPTHREAD_POOL_SIZE=10 -m64" "8GB"
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2

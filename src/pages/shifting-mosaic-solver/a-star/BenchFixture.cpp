@@ -17,7 +17,7 @@ using json = nlohmann::json;
 Fixture loadFixture(const std::string &path) {
   std::ifstream f(path);
   if (!f.is_open())
-    throw std::runtime_error("Cannot open " + path);
+    throw FixtureError("Cannot open " + path);
   json j = json::parse(f);
 
   Fixture data;
@@ -38,6 +38,19 @@ Fixture loadFixture(const std::string &path) {
   data.goalIndex = j["goalIndex"].get<uint8_t>();
   data.goalAnchor = {.x = static_cast<int8_t>(j["goalAnchor"]["x"].get<int>()),
                      .y = static_cast<int8_t>(j["goalAnchor"]["y"].get<int>())};
+
+  // Everything downstream — replaySolves, firstIllegalMove, runVerify,
+  // BitGrid::buildOccupancy — indexes anchors[goalIndex] and pairs shapes[i]
+  // with initialAnchors[i] on trust. Reject a file that cannot honour that
+  // here, where there is still a path to report it.
+  if (data.shapes.size() != data.initialAnchors.size())
+    throw FixtureError(path + ": " + std::to_string(data.shapes.size()) +
+                       " shapes but " +
+                       std::to_string(data.initialAnchors.size()) + " anchors");
+  if (data.goalIndex >= data.initialAnchors.size())
+    throw FixtureError(path + ": goalIndex " +
+                       std::to_string(data.goalIndex) + " is out of range for " +
+                       std::to_string(data.initialAnchors.size()) + " blocks");
   return data;
 }
 

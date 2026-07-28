@@ -1,11 +1,7 @@
 import { registerCoiShim } from "../../common/coiRegister";
-import type {
-  Position,
-  ShiftingMosaicTest,
-  ShiftingMosaicTool,
-} from "../../util/types";
+import type { ShiftingMosaicTest, ShiftingMosaicTool } from "../../util/types";
 import { Board } from "./board";
-import { MAX_GRID_SIDE, validateConfig } from "./config";
+import { validateConfig } from "./config";
 import {
   computeGoalAnchor,
   downloadConfig,
@@ -573,11 +569,15 @@ export class ShiftingMosaicSolverEditor {
       if (dragDepth === 0) this.dropOverlay.classList.add("hidden");
     });
     window.addEventListener("drop", event => {
+      if (!hasFiles(event)) return;
+      // dragover already accepted this drop, so the default action (the
+      // browser navigating to the dropped file) must be cancelled even when
+      // the payload turns out to hold no readable file.
+      event.preventDefault();
       dragDepth = 0;
       this.dropOverlay.classList.add("hidden");
       const file = event.dataTransfer?.files?.[0];
       if (!file) return;
-      event.preventDefault();
       void this.loadConfigFromFile(file);
     });
   }
@@ -591,14 +591,14 @@ export class ShiftingMosaicSolverEditor {
 
 // Module-scope so the editor (and the DOM listeners it owns) lives as long as
 // the page does, rather than reading as an object constructed and dropped.
-let editor: ShiftingMosaicSolverEditor | undefined;
+// A const holder rather than an exported `let`: a mutable export would let
+// importers observe the binding change out from under them.
+export const page: { editor?: ShiftingMosaicSolverEditor } = {};
 
 if (process.env.NODE_ENV !== "test") {
   // Opt this page into cross-origin isolation (wasm threads) where the
   // browser supports the shim; everything degrades to the worker portfolio
   // otherwise.
   registerCoiShim();
-  editor = new ShiftingMosaicSolverEditor();
+  page.editor = new ShiftingMosaicSolverEditor();
 }
-
-export { editor };

@@ -46,6 +46,17 @@ inline const char *armName(const int arm) {
   }
 }
 
+// A board whose goal block already sits on goalAnchor. Its solution is the
+// empty plan, and the arms all return that — but "empty" is also what a failed
+// arm returns, so the race would run every arm to its full budget and then
+// escalate to the sequential phase before answering. Checked up front instead.
+inline bool alreadySolved(const std::vector<Position> &initialAnchors,
+                          const uint8_t goalIndex, const Position goalAnchor) {
+  return goalIndex < initialAnchors.size() &&
+         initialAnchors[goalIndex].x == goalAnchor.x &&
+         initialAnchors[goalIndex].y == goalAnchor.y;
+}
+
 // Per-arm outcome, so a fuzz campaign can answer "which arms actually earn
 // their slot, and how fast" instead of it being guesswork. In the race the
 // losers are cancelled, so their wallMs is a lower bound; in the sequential
@@ -249,6 +260,11 @@ inline std::vector<Turn> solveArmsParallel(
     const uint8_t jamDensityPct = DragSolver::Config{}.jamDensityPct,
     std::vector<cascade::ArmOutcome> *outcomes = nullptr) {
   using cascade::ARMS;
+  if (cascade::alreadySolved(initialAnchors, goalIndex, goalAnchor)) {
+    if (outcomes)
+      outcomes->clear();
+    return {};
+  }
   std::atomic cancel{false};
   std::atomic winner{-1};
   std::atomic finished{0};
@@ -257,7 +273,7 @@ inline std::vector<Turn> solveArmsParallel(
 
   const auto claimWin = [&](const int arm) {
     if (int expected = -1; winner.compare_exchange_strong(expected, arm))
-      cancel.store(true, std::memory_order_relaxed);
+      cancel.store(true);
   };
 
   std::array<std::atomic<uint32_t>, ARMS> armMs = {};
@@ -269,11 +285,10 @@ inline std::vector<Turn> solveArmsParallel(
           i, gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
           goalAnchor, maxMs, maxNodes, postProcess, maxHeapBytes, &cancel,
           [&progress, i](const uint32_t n) {
-            progress[i].store(n, std::memory_order_relaxed);
+            progress[i].store(n);
           },
           /*respectJamGate=*/true, jamAspect16, jamDensityPct);
-      armMs[i].store(static_cast<uint32_t>(cascade::nowMsSteady() - started),
-                     std::memory_order_relaxed);
+      armMs[i].store(static_cast<uint32_t>(cascade::nowMsSteady() - started));
       if (!results[i].empty())
         claimWin(i);
       finished.fetch_add(1);
@@ -285,7 +300,7 @@ inline std::vector<Turn> solveArmsParallel(
     if (onProgress) {
       uint32_t sum = 0;
       for (const auto &p : progress)
-        sum += p.load(std::memory_order_relaxed);
+        sum += p.load();
       onProgress(sum);
     }
   }
@@ -296,7 +311,7 @@ inline std::vector<Turn> solveArmsParallel(
   if (outcomes) {
     outcomes->clear();
     for (int i = 0; i < ARMS; i++) {
-      const uint32_t ms = armMs[i].load(std::memory_order_relaxed);
+      const uint32_t ms = armMs[i].load();
       outcomes->push_back({.arm = i,
                            .solved = !results[i].empty(),
                            .won = i == w,
@@ -353,6 +368,8 @@ inline std::vector<Turn> solveArmsSequential(
   // ORDER below is derived from.
   if (outcomes)
     outcomes->clear();
+  if (cascade::alreadySolved(initialAnchors, goalIndex, goalAnchor))
+    return {};
 
   const uint64_t deadline =
       totalMaxMs == 0 ? 0 : cascade::nowMsSteady() + totalMaxMs;
@@ -384,7 +401,7 @@ inline std::vector<Turn> solveArmsSequential(
   // no ordering rescues them.
   for (constexpr std::array ORDER = {6, 2, 5, 3, 4, 7, 0, 1};
        const int arm : ORDER) {
-    if (cancel && cancel->load(std::memory_order_relaxed))
+    if (cancel && cancel->load())
       return {};
     uint32_t budget = maxMsPerArm;
     if (deadline != 0) {

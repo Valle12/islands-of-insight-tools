@@ -4,10 +4,10 @@
 // Uses node:worker_threads explicitly — the test preload registers
 // happy-dom globals whose web `Worker` is a non-functional stub. The module
 // binary is read from disk because workers have no browser fetch context.
-import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parentPort } from "node:worker_threads";
+import { instantiateFromDisk } from "../../src/util/wasmModule";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const wasmDir = join(here, "../../src/pages/shifting-mosaic-solver/wasm");
@@ -16,13 +16,7 @@ const modulePromise = (async () => {
   const wasmPath = join(wasmDir, "astar.mjs");
   const wasmBinPath = join(wasmDir, "astar.wasm");
   const createModule = (await import(wasmPath)).default;
-  const wasmBinary = readFileSync(wasmBinPath);
-  return createModule({
-    locateFile(file: string) {
-      return file.endsWith(".wasm") ? wasmBinPath : file;
-    },
-    wasmBinary,
-  });
+  return createModule(instantiateFromDisk(wasmBinPath));
 })();
 
 parentPort!.on("message", async ({ puzzle, config }) => {

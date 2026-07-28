@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker as ArmWorker } from "node:worker_threads";
 import { PORTFOLIO } from "../../src/pages/shifting-mosaic-solver/wasmBridge";
 import type { Position, ShiftingMosaicTest } from "../../src/util/types";
+import { instantiateFromDisk } from "../../src/util/wasmModule";
 
 // ---------------------------------------------------------------------------
 // Exercises the production WASM solver (compiled from the C++ A*) against
@@ -86,13 +86,7 @@ async function loadWasmModule(): Promise<WasmModule> {
   const wasmPath = join(wasmDir, "astar.mjs");
   const wasmBinPath = join(wasmDir, "astar.wasm");
   const createModule = (await import(wasmPath)).default;
-  const wasmBinary = readFileSync(wasmBinPath);
-  return createModule({
-    locateFile(file: string) {
-      return file.endsWith(".wasm") ? wasmBinPath : file;
-    },
-    wasmBinary,
-  });
+  return createModule(instantiateFromDisk(wasmBinPath));
 }
 
 // Replay the turn list and confirm every move is in-bounds, collision-free,

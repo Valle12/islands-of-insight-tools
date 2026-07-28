@@ -10,7 +10,7 @@
 // table and flags regressions (lost fixtures, >2x wall time).
 
 import { readdirSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
 
 const projectRoot = resolve(import.meta.dir, "../..");
 const defaultExe = resolve(
@@ -112,8 +112,12 @@ async function runOne(
   const started = Date.now();
   const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
   const killer = setTimeout(() => proc.kill(), timeoutMs);
-  const [stdout, exitCode] = await Promise.all([
+  // stderr has to be drained too: the solver logs there, and a child that
+  // fills an unread pipe buffer blocks mid-write and gets recorded as a
+  // timeout instead of a result.
+  const [stdout, , exitCode] = await Promise.all([
     new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
     proc.exited,
   ]);
   clearTimeout(killer);
@@ -133,7 +137,19 @@ async function runOne(
       error: `no JSON output (exit ${exitCode})`,
     };
   }
-  return JSON.parse(lastJsonLine) as BenchResult;
+  try {
+    return JSON.parse(lastJsonLine) as BenchResult;
+  } catch (err) {
+    // A child killed mid-write leaves a truncated line. Record the one bad
+    // fixture rather than throwing out of a multi-hour sweep.
+    return {
+      fixture: file,
+      solved: false,
+      wallMs: elapsed,
+      timedOut: elapsed >= timeoutMs,
+      error: `unparseable JSON output (exit ${exitCode}): ${String(err)}`,
+    };
+  }
 }
 
 async function runMode(opts: ReturnType<typeof parseArgs>) {

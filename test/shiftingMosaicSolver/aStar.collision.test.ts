@@ -52,34 +52,9 @@ function applyTurns(initialAnchors: Position[], turns: Turn[]): Position[] {
 
 describe("AStar (shifting-mosaic)", () => {
   describe("BlocksCollide (cell-level)", () => {
-    test("two L-shapes whose bboxes overlap but whose cells do not are not colliding", () => {
-      // Shape A: L pointing top-right
-      //   X X
-      //   X .
-      const shapeA: Position[] = [
-        { x: 0, y: 0 },
-        { x: 1, y: 0 },
-        { x: 0, y: 1 },
-      ];
-      // Shape B: just bottom-right cell
-      //   . X
-      const shapeB: Position[] = [{ x: 1, y: 1 }];
-      // We use a 2x2 bbox shape B by also including {x:0,y:0} for bbox
-      // ... but we want a shape that fits the (1,1) corner exactly.
-      // Easier: use a real bbox-overlapping case where the cell at (1,1) is empty.
-      const shapeBReal: Position[] = [
-        { x: 1, y: 1 },
-        { x: 0, y: 1 },
-      ];
-      // shapeBReal's bbox is 2x2 (because we have x∈{0,1}, y∈{0,1}... wait y=1 only)
-      // Actually bbox is 2 wide, 1 tall (since min(y)=1, but bbox calc uses max(y)+1 = 2)
-      // Hmm bbox calc is just max+1 — let me redo with normalized shape.
-      // Skip this — use a more direct test below instead.
-      void shapeA;
-      void shapeB;
-      void shapeBReal;
-    });
-
+    // "bboxes overlap, cells do not" is exactly what the next case asserts —
+    // an earlier scratch attempt at it that never reached an assertion has
+    // been dropped rather than left as an always-passing test.
     test("L-shape and single cell — bbox overlaps, cells overlap", () => {
       const shapes: Position[][] = [
         [

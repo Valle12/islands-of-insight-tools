@@ -98,8 +98,12 @@ function parseArgs(argv: string[]) {
 async function runCli(exe: string, args: string[], timeoutMs: number) {
   const proc = Bun.spawn([exe, ...args], { stdout: "pipe", stderr: "pipe" });
   const killer = setTimeout(() => proc.kill(), timeoutMs);
-  const [stdout, exitCode] = await Promise.all([
+  // stderr is drained, not just piped: an unread pipe buffer fills up and
+  // blocks the child mid-write, which every sweep and retry-ladder step then
+  // scores as a timeout.
+  const [stdout, , exitCode] = await Promise.all([
     new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
     proc.exited,
   ]);
   clearTimeout(killer);
@@ -108,7 +112,14 @@ async function runCli(exe: string, args: string[], timeoutMs: number) {
     .map(l => l.trim())
     .filter(l => l.startsWith("{"))
     .pop();
-  return { json: lastJson ? JSON.parse(lastJson) : null, exitCode };
+  if (!lastJson) return { json: null, exitCode };
+  try {
+    return { json: JSON.parse(lastJson), exitCode };
+  } catch {
+    // Truncated line from a child killed mid-write — one bad case, not a
+    // reason to abandon the campaign.
+    return { json: null, exitCode };
+  }
 }
 
 const opts = parseArgs(process.argv.slice(2));

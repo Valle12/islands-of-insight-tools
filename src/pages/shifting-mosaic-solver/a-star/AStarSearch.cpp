@@ -81,6 +81,11 @@ std::vector<Turn> AStar::reconstructPath(const StateInfo *goal) {
 // fallback guarantees we never lose a puzzle that stride-1 could solve.
 std::vector<Turn> AStar::search(const uint32_t maxMs, const uint32_t maxNodes) {
   stats_ = {};
+  // An already-solved board's answer IS the empty plan. runAStar returns it,
+  // but every fallback below reads `result.empty()` as failure — so without
+  // this the BFS retry spends the entire budget re-deriving nothing.
+  if (const Node root(initialAnchors_); isGoalState(root))
+    return {};
   // ONE deadline for the whole entry point. runAStar takes a RELATIVE budget
   // and restarts its own clock, so handing each fallback pass the full maxMs
   // silently tripled the caller's budget (guided → stride-1 → BFS). That is

@@ -67,9 +67,38 @@ ShiftingMosaicTestData loadTestData(const std::string &filename) {
   return data;
 }
 
+// Independent occupancy check — deliberately shares no code with the solver
+// (mirrors optimizer_test.cpp's collisionFree): every block in bounds, no two
+// blocks overlapping.
+bool collisionFree(const ShiftingMosaicTestData &data,
+                   const std::vector<Position> &anchors) {
+  std::vector occupied(static_cast<size_t>(data.gridWidth) * data.gridHeight,
+                       false);
+  for (size_t i = 0; i < anchors.size(); i++) {
+    for (const auto &[dx, dy] : data.shapes[i]) {
+      const int cx = anchors[i].x + dx;
+      const int cy = anchors[i].y + dy;
+      if (cx < 0 || cy < 0 || cx >= data.gridWidth || cy >= data.gridHeight)
+        return false;
+      const auto idx = static_cast<size_t>(cx) * data.gridHeight + cy;
+      if (occupied[idx])
+        return false;
+      occupied[idx] = true;
+    }
+  }
+  return true;
+}
+
+// Full legality replay: the goal anchor alone is not enough. Checking only the
+// final position accepts a plan that drags a block THROUGH another block or
+// off the grid — the exact defect class this suite exists to catch, and the
+// one BenchFixture::firstIllegalMove already guards on the CLI side.
 bool validateSolution(const ShiftingMosaicTestData &data,
                       const std::vector<Turn> &turns) {
   std::vector<Position> anchors = data.initialAnchors;
+  if (data.goalIndex >= anchors.size() ||
+      data.shapes.size() != anchors.size() || !collisionFree(data, anchors))
+    return false;
   for (const auto &[blockId, direction] : turns) {
     if (blockId >= anchors.size())
       return false;
@@ -89,6 +118,8 @@ bool validateSolution(const ShiftingMosaicTestData &data,
       px--;
       break;
     }
+    if (!collisionFree(data, anchors))
+      return false;
   }
   const auto &[gx, gy] = anchors[data.goalIndex];
   return gx == data.goalAnchor.x && gy == data.goalAnchor.y;

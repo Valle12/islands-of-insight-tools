@@ -4,12 +4,21 @@
 #include "Types.h"
 
 #include <cstdint>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 // Fixture I/O and plan validation for the bench CLI (main.cpp), split out of
 // it purely for file size. Nothing here is solver logic — it is the harness
 // that feeds boards in and checks what comes back out.
+
+// Thrown by loadFixture for anything wrong with the file: unreadable, not
+// JSON, or internally inconsistent. Distinct from the std:: exceptions
+// nlohmann::json raises so callers can tell the two apart.
+class FixtureError : public std::runtime_error {
+public:
+  using std::runtime_error::runtime_error;
+};
 
 struct Fixture {
   uint8_t gridWidth{};

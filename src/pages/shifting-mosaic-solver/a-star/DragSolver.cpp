@@ -109,6 +109,10 @@ bool DragSolver::tryComputePacking(const int cellOrderVariant,
     return false;
 
   const int H = gridHeight_;
+  // A zero-height board has no cell to pack into, and the row-order scans
+  // below take `cell % H`. Bail out before either can matter.
+  if (H <= 0)
+    return false;
   const int total = gridWidth_ * H;
   std::vector<uint64_t> lockedRows(gridHeight_, 0);
   {

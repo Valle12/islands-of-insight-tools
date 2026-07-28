@@ -213,7 +213,7 @@ describe("AStar (shifting-mosaic)", () => {
         { x: 1, y: 0 },
       );
       const turns = aStar.search();
-      expect(turns.length).toBe(1);
+      expect(turns).toHaveLength(1);
       expect(turns[0]).toEqual({ blockId: 0, direction: Direction.RIGHT });
     });
 

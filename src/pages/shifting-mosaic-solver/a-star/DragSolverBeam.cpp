@@ -262,12 +262,25 @@ std::vector<Turn> DragSolver::searchBeamJam(const uint32_t maxMs,
   if (!symmetryGroups_.empty())
     cfg_.canonicalizeSymmetry = false;
   const bool savedPin = cfg_.jamPinRoute;
+  // Both budgets zero means "no budget" (DragSolver.h), and roundBudgetSpent
+  // then only ever fires on cancel. Every round is incomplete by design, so on
+  // an unsolvable board an unbudgeted call would restart rounds forever — the
+  // heap ceiling ends the ROUND, not the loop. `--budget-ms 0 --max-nodes 0`
+  // on the bench CLI reaches exactly that. Diversification is long spent by
+  // this many restarts anyway.
+  constexpr uint32_t MAX_UNBUDGETED_ROUNDS = 64;
+  const bool unbudgeted = deadline == 0 && maxNodes == 0;
   // A while, not `for (; turns.empty(); round++)`: that header tested a value
   // the body writes (S1994). `round` is stepped at the end of the body so the
   // budget breaks below still skip it, exactly as the for's increment did.
   while (turns.empty()) {
     if (roundBudgetSpent(deadline, maxNodes))
       break;
+    if (unbudgeted && round >= MAX_UNBUDGETED_ROUNDS) {
+      std::cout << "DragSolver(beam): no budget given — stopping after "
+                << MAX_UNBUDGETED_ROUNDS << " rounds\n";
+      break;
+    }
     rd.seed = savedSeed + round * 0x9E3779B9u;
     // Odd beam rounds pin the root route (wide-board diversification).
     cfg_.jamPinRoute = savedPin || (round & 1u) != 0;

@@ -167,14 +167,11 @@ bool AStar::blockCompatibleWithCluster(const Block &block,
        {block.depth, block.width},
        {block.depth, block.height},
        {block.height, block.width}}};
-  uint32_t seen = 0;
+  // Six entries, compared directly: the bitmask dedup this used to carry
+  // hashed (w, d) down to 5 bits, where the width dropped out entirely and
+  // distinct pairs with congruent depths aliased onto one another — skipping
+  // a genuine match. Deduplicating six comparisons was never worth that.
   for (const auto &[w, d] : dims) {
-    const auto k = static_cast<uint32_t>(static_cast<uint16_t>(w) << 8 |
-                                         static_cast<uint16_t>(d));
-    if (seen & 1u << (k & 31u)) {
-      continue;
-    }
-    seen |= 1u << (k & 31u);
     if (w == cluster.width && d == cluster.depth) {
       return true;
     }
@@ -186,7 +183,7 @@ bool AStar::blockCompatibleWithCluster(const Block &block,
 // Helper: count compatible clusters for a block and return index if unique
 // ---------------------------------------------------------------------------
 int AStar::countCompatibleClusters(const Block &block,
-                                   const std::array<bool, 64> &taken,
+                                   const std::vector<bool> &taken,
                                    size_t &outIdx) const {
   int count = 0;
   for (size_t i = 0; i < goalClusters_.size(); i++) {
@@ -204,7 +201,7 @@ int AStar::countCompatibleClusters(const Block &block,
 // Helper: assign blocks that have exactly one compatible cluster
 // ---------------------------------------------------------------------------
 void AStar::assignUniqueGoals(const std::vector<Block> &blocks,
-                              std::array<bool, 64> &taken) {
+                              std::vector<bool> &taken) {
   bool changed = true;
   while (changed) {
     changed = false;
@@ -228,7 +225,7 @@ void AStar::assignUniqueGoals(const std::vector<Block> &blocks,
 // Helper: greedily assign remaining blocks to nearest compatible cluster
 // ---------------------------------------------------------------------------
 void AStar::assignGreedyGoals(const std::vector<Block> &blocks,
-                              std::array<bool, 64> &taken) {
+                              std::vector<bool> &taken) {
   for (const auto &block : blocks) {
     if (blockGoalAssignment_[block.id].valid) {
       continue;
@@ -261,7 +258,11 @@ void AStar::assignBlocksToGoals(const std::vector<Block> &blocks) {
   if (goalClusters_.empty()) {
     return;
   }
-  std::array<bool, 64> taken{};
+  // Sized to the actual cluster count: goalClusters_ is one entry per
+  // connected Goal component, and a scattered Goal layout on a full-size
+  // board produces far more than the 64 a fixed array used to allow — every
+  // loop below indexes and writes taken[i] over the whole range.
+  std::vector<bool> taken(goalClusters_.size(), false);
   assignUniqueGoals(blocks, taken);
   assignGreedyGoals(blocks, taken);
 }

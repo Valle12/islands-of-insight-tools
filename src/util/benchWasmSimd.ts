@@ -10,6 +10,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { instantiateFromDisk } from "./wasmModule";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const wasmDir = join(here, "../pages/shifting-mosaic-solver/wasm");
@@ -18,11 +19,7 @@ async function loadModule() {
   const wasmPath = join(wasmDir, "astar.mjs");
   const wasmBinPath = join(wasmDir, "astar.wasm");
   const createModule = (await import(wasmPath)).default;
-  const wasmBinary = readFileSync(wasmBinPath);
-  return createModule({
-    locateFile: (f: string) => (f.endsWith(".wasm") ? wasmBinPath : f),
-    wasmBinary,
-  });
+  return createModule(instantiateFromDisk(wasmBinPath));
 }
 
 const CASES: { name: string; fixture: string; config: Record<string, unknown> }[] = [

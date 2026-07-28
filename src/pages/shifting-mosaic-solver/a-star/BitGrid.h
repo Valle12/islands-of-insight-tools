@@ -3,6 +3,7 @@
 #include "Types.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
 #include <vector>
 
@@ -25,6 +26,12 @@ public:
       : w_(gridWidth), h_(gridHeight), occ_(gridHeight, 0),
         epoch_(static_cast<size_t>(gridWidth) * gridHeight, 0),
         dist_(epoch_.size(), 0), parentDir_(epoch_.size(), -1) {
+    // The row-bitboard model IS the 64-column limit: past it, the `rows << x`
+    // shifts in canPlace/addBlock run off the end of a uint64_t (UB) and
+    // occupancy silently corrupts. config.ts caps both sides at 64 for the
+    // same reason; this holds the line for the CLI and wasm entry points.
+    static_assert(sizeof(uint64_t) * 8 == 64);
+    assert(gridWidth <= 64 && "BitGrid supports at most 64 columns");
     shapeRows_.reserve(shapes.size());
     boxW_.reserve(shapes.size());
     boxH_.reserve(shapes.size());

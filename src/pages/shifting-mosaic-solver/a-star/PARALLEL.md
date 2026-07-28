@@ -47,7 +47,7 @@ rejected. Written 2026-07 during the drag-space engine work (IIT-21).
    almost nothing — the flag stays opt-in and the default build ships
    without it.
 
-4. **MEMORY64 build** (`astar.mem64.mjs`, `-sMEMORY64=1 -sMAXIMUM_MEMORY=8GB`)
+4. **wasm64 build** (`astar.mem64.mjs`, `-m64 -sMAXIMUM_MEMORY=8GB`)
    — added 2026-07-23. A flat search (drag/unit) holds every expanded node's
    state map + per-expansion scratch resident, ~2.0-2.4KB/node measured, so it
    grows ~linearly and hits the wasm32 **4GB wall at ~1.7M nodes** — on a hard
@@ -77,9 +77,16 @@ rejected. Written 2026-07 during the drag-space engine work (IIT-21).
        SHARED 64-bit memory. This is the common production case (the coi shim
        makes the page cross-origin isolated — verified in Chromium), so it is
        the primary path and the one where a bigger heap matters most (8 arms
-       share it). `-pthread -sMEMORY64=1` builds cleanly on emcc 5.0.7 and
-       Chromium instantiates and solves on it (e2e, network-confirmed the
-       worker fetched the threads.mem64 module, no fallback).
+       share it). `-pthread -m64` builds cleanly on emcc 6.0.4 and Chromium
+       instantiates and solves on it (e2e, network-confirmed the worker
+       fetched the threads.mem64 module, no fallback).
+
+   **Flag spelling (2026-07-28):** these builds pass `-m64`, not
+   `-sMEMORY64=1`. Emscripten 6.0.0 made the standard compiler flag an alias
+   for the setting and 6.0.4 warns that the setting is deprecated. The floor
+   is therefore emsdk **>= 6.0.0**: older toolchains ignore `-m64` outright and
+   emit a wasm32 module under a mem64 name, which the runtime probe would then
+   happily load. CI installs `latest`, so it stays ahead of that floor.
      - `astar.mem64.mjs` — single-threaded, *non-shared* 8GB heap, for the
        non-isolated multi-worker fallback (each worker its own heap). Gated on
        a non-shared 64-bit-memory validate.

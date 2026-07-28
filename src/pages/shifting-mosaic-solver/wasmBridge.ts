@@ -151,13 +151,12 @@ export function searchShiftingMosaicWasm(
   //     shared-memory64 build if the engine validates it, else the wasm32 one.
   //   - non-isolated (one heap per worker): the 8GB non-shared build, else
   //     wasm32. An arm that hits even the 8GB wall still only retires itself.
-  const variant = isolated
-    ? supportsSharedMemory64()
-      ? "threads-mem64"
-      : "threads"
-    : supportsMemory64()
-      ? "mem64"
-      : "default";
+  let variant: string;
+  if (isolated) {
+    variant = supportsSharedMemory64() ? "threads-mem64" : "threads";
+  } else {
+    variant = supportsMemory64() ? "mem64" : "default";
+  }
   // Every arm, always. poolSize bounds how many run CONCURRENTLY, never which
   // ones exist: slicing the portfolio by core count made capability shrink as
   // the machine improved — a 4-core box raced only the first three arms and

@@ -9,7 +9,15 @@ const boostInclude =
     ? String.raw`E:\packages\vcpkg\installed\x64-windows\include`
     : null);
 
-const emcc = process.platform === "win32" ? "em++.bat" : "em++";
+// Resolved, not hardcoded: emscripten 6.0 replaced the Windows `.bat` wrappers
+// with `.exe`, so the old `em++.bat` literal stopped existing on an emsdk
+// upgrade. Bun.which applies PATHEXT, so the bare name finds either one.
+const emcc = Bun.which("em++");
+if (!emcc) {
+  throw new Error(
+    "em++ not found on PATH — activate emsdk first (emsdk activate latest).",
+  );
+}
 
 async function build({
   aStarDir,
@@ -32,7 +40,7 @@ async function build({
   // wasm heap ceiling. wasm32 tops out at 4GB; a MEMORY64 build can go higher
   // (the flat/hier searches on the hardest boards exhaust 4GB and abort).
   maxMemory?: string;
-  // MEMORY64: 64-bit pointers, so the heap can exceed the 4GB wasm32 wall.
+  // wasm64 (`-m64`): 64-bit pointers, so the heap can exceed the 4GB wasm32 wall.
   // Only runtimes with the Memory64 proposal can load it (node yes; bun not
   // yet — the bridge feature-detects and falls back to the wasm32 build).
   memory64?: boolean;
@@ -46,7 +54,11 @@ async function build({
     ...(needsBoost && boostInclude ? ["-I", boostInclude] : []),
     // Optional wasm SIMD (needs no cross-origin isolation): SM_SIMD=1.
     ...(process.env.SM_SIMD === "1" ? ["-msimd128"] : []),
-    ...(memory64 ? ["-s", "MEMORY64=1"] : []),
+    // `-m64`, not `-sMEMORY64=1`: emscripten 6.0.0 made the standard compiler
+    // flag an alias for the setting, and 6.0.4 warns that the setting is
+    // deprecated. Needs emsdk >= 6.0.0 — on older toolchains `-m64` is ignored
+    // and you silently get a wasm32 build under a mem64 name.
+    ...(memory64 ? ["-m64"] : []),
     ...extraArgs,
     "-std=c++23",
     "-O3",

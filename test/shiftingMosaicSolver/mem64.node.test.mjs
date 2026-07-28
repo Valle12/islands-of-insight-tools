@@ -46,9 +46,15 @@ function replaySolves(fixture, turns) {
 
 test("MEMORY64 build solves a real fixture with a valid plan", { skip: !memory64 }, async () => {
   const createModule = (await import(pathToFileURL(mjsPath).href)).default;
+  // instantiateWasm, not wasmBinary — see src/util/wasmModule.ts for why. This
+  // one is inlined because node --test cannot import the TypeScript helper.
   const module = await createModule({
-    locateFile: f => (f.endsWith(".wasm") ? wasmPath : f),
-    wasmBinary: readFileSync(wasmPath),
+    instantiateWasm(imports, receive) {
+      const mod = new WebAssembly.Module(readFileSync(wasmPath));
+      const instance = new WebAssembly.Instance(mod, imports);
+      receive(instance, mod);
+      return instance.exports;
+    },
   });
 
   const fixture = JSON.parse(

@@ -11,7 +11,6 @@
 #include <cstdint>
 #include <functional>
 #include <queue>
-#include <array>
 #include <unordered_map>
 #include <vector>
 
@@ -100,11 +99,11 @@ private:
                                          const GoalCluster &cluster);
   void assignBlocksToGoals(const std::vector<Block> &blocks);
   void assignUniqueGoals(const std::vector<Block> &blocks,
-                         std::array<bool, 64> &taken);
+                         std::vector<bool> &taken);
   void assignGreedyGoals(const std::vector<Block> &blocks,
-                         std::array<bool, 64> &taken);
+                         std::vector<bool> &taken);
   [[nodiscard]] int countCompatibleClusters(const Block &block,
-                                            const std::array<bool, 64> &taken,
+                                            const std::vector<bool> &taken,
                                             size_t &outIdx) const;
 
   [[nodiscard]] bool isGoalState(const Node &node) const;
