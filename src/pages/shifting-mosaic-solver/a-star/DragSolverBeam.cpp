@@ -36,7 +36,7 @@ uint32_t DragSolver::beamJitter(const NodeKey &key, const uint32_t seed) const {
   return x & 0x3FFu;
 }
 
-bool DragSolver::beamRoundBudgetSpent(const uint64_t deadline,
+bool DragSolver::roundBudgetSpent(const uint64_t deadline,
                                       const uint32_t maxNodes) const {
   if (deadline != 0 && nowMs() >= deadline)
     return true;
@@ -266,7 +266,7 @@ std::vector<Turn> DragSolver::searchBeamJam(const uint32_t maxMs,
   // the body writes (S1994). `round` is stepped at the end of the body so the
   // budget breaks below still skip it, exactly as the for's increment did.
   while (turns.empty()) {
-    if (beamRoundBudgetSpent(deadline, maxNodes))
+    if (roundBudgetSpent(deadline, maxNodes))
       break;
     rd.seed = savedSeed + round * 0x9E3779B9u;
     // Odd beam rounds pin the root route (wide-board diversification).

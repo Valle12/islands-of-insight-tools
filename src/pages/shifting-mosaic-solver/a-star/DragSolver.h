@@ -6,6 +6,7 @@
 #include "StateTable.h"
 #include "Types.h"
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <unordered_set>
@@ -619,8 +620,9 @@ private:
   // canonicalizeSymmetry is off — see the note in searchBeamJam.
   void decodeAnchors(const NodeKey &key, std::vector<Position> &out) const;
   [[nodiscard]] uint32_t beamJitter(const NodeKey &key, uint32_t seed) const;
-  [[nodiscard]] bool beamRoundBudgetSpent(uint64_t deadline,
-                                          uint32_t maxNodes) const;
+  // Deadline / cancellation / node budget, shared by the beam and jam drivers.
+  [[nodiscard]] bool roundBudgetSpent(uint64_t deadline,
+                                      uint32_t maxNodes) const;
   // Deadline, cancellation and the heap ceiling, checked once per depth.
   [[nodiscard]] bool beamRoundExhausted(uint64_t deadline);
   static void keepBestBeamCands(BeamRound &rd);
@@ -686,6 +688,60 @@ private:
                                      const BannedSet &banned) const;
   void backjumpFrames(std::vector<Frame> &stack,
                       std::vector<uint32_t> &failsAtDepth, size_t depth) const;
+
+  // ---- searchJamRestarts phases --------------------------------------------
+  // One restart round's configuration. Node caps keep each round's state map
+  // small (~a few hundred MB peak) and freed on return — wasm-heap-safe by
+  // construction.
+  struct Round {
+    uint8_t weight = 0;
+    bool settled = false;
+    uint16_t pea = 0;
+    uint8_t jamGuide = 0;
+    uint8_t jamPenalty = 0;
+    bool por = false;
+    bool relevant = false;
+    uint32_t nodeCap = 0;
+    bool pin = false;
+  };
+  static constexpr size_t JAM_ROUND_COUNT = 8;
+  // The table lives in DragSolverArms.cpp: Round is private, so a file-scope
+  // constant there could not name it.
+  [[nodiscard]] static const std::array<Round, JAM_ROUND_COUNT> &jamRounds();
+
+  // A failed round's deepest credible partial (lowest jam term).
+  struct Elite {
+    std::vector<Position> anchors;
+    std::vector<DragMove> prefix;
+    uint32_t jam = 0;
+  };
+  // One restart round's start state: the elite it warm-starts from (null =
+  // the root), the random ridge-hopper drags taken from there, and the
+  // anchors those drags reached.
+  struct JamRound {
+    const Elite *from = nullptr;
+    std::vector<DragMove> pert;
+    std::vector<Position> pertAnchors;
+  };
+
+  void applyRoundConfig(const Round &round, uint32_t r, const Config &saved);
+  [[nodiscard]] uint32_t jamRoundCap(const Round &round, const Config &saved,
+                                     uint32_t restarts,
+                                     uint32_t maxNodes) const;
+  void perturbFrom(uint32_t r, JamRound &jr);
+  [[nodiscard]] const std::vector<Position> &
+  jamStartAnchors(const JamRound &jr) const;
+  [[nodiscard]] static std::vector<DragMove>
+  stitchPlan(const JamRound &jr, const std::vector<DragMove> &suffix);
+  [[nodiscard]] std::vector<Position>
+  applyDrags(std::vector<Position> anchors,
+             const std::vector<DragMove> &drags) const;
+  [[nodiscard]] std::vector<Turn> finalizeJamRound(const SegmentResult &res,
+                                                   const JamRound &jr,
+                                                   uint64_t deadline,
+                                                   uint32_t cap);
+  void bankElite(const SegmentResult &res, const JamRound &jr,
+                 std::vector<Elite> &elites, size_t maxElites) const;
   // Expands the drag plan into unit-move turns by replaying each drag's flood
   // fill from the initial state. Returns an empty vector if any drag turns
   // out inconsistent (symmetry label mix-up) — the caller then retries.
