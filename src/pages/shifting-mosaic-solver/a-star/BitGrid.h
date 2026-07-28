@@ -119,8 +119,13 @@ public:
     dist_[start] = 0;
     parentDir_[start] = -1;
     queue_.push_back(start);
-    for (size_t head = 0; head < queue_.size(); head++) {
+    // Worklist BFS: the body pushes onto queue_ while it is being walked, so
+    // this is an index walk under a while rather than a for whose header tests
+    // a value the body changes (and emphatically not a range-for).
+    size_t head = 0;
+    while (head < queue_.size()) {
       const uint16_t cur = queue_[head];
+      head++;
       const int cx = cur / h_;
       const int cy = cur % h_;
       for (int d = 0; d < 4; d++) {
@@ -149,6 +154,14 @@ public:
     return parentDir_[idx];
   }
 
+  // Deliberately C arrays, against cpp:S5945 ("use std::array or std::vector").
+  // These are indexed in the two hottest inner loops there are — floodFill's
+  // 4-neighbour scan and runJamDijkstra's, the latter running once per beam/jam
+  // expansion. Converting them to std::array cost a MEASURED 3.4% on the jam
+  // leg and 3.3% on the beam leg (9 interleaved reps, reproduced twice; every
+  // other leg was unaffected, and reverting just this declaration recovered all
+  // of it). The same conversion in AStar.h is free and was kept, so this is
+  // about these two loops rather than the rule.
   static constexpr int8_t DX[4] = {0, 1, 0, -1};
   static constexpr int8_t DY[4] = {-1, 0, 1, 0};
   static constexpr Direction DIRS[4] = {Direction::UP, Direction::RIGHT,

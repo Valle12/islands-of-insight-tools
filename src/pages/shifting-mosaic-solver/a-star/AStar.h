@@ -5,6 +5,7 @@
 #include "StateTable.h"
 #include "Types.h"
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -210,10 +211,10 @@ private:
   std::function<void(uint32_t)> onProgress;
   std::vector<Turn> runAStar(uint32_t maxMs, uint32_t maxNodes);
 
-  static constexpr int8_t DX[4] = {0, 1, 0, -1};
-  static constexpr int8_t DY[4] = {-1, 0, 1, 0};
-  static constexpr Direction DIRS[4] = {Direction::UP, Direction::RIGHT,
-                                        Direction::DOWN, Direction::LEFT};
+  static constexpr std::array<int8_t, 4> DX = {0, 1, 0, -1};
+  static constexpr std::array<int8_t, 4> DY = {-1, 0, 1, 0};
+  static constexpr std::array<Direction, 4> DIRS = {
+      Direction::UP, Direction::RIGHT, Direction::DOWN, Direction::LEFT};
   static constexpr uint32_t SHAPE_STRIDE = 1024;
 
   [[nodiscard]] bool inBounds(uint8_t blockIndex, Position anchor) const;
