@@ -408,7 +408,7 @@ std::vector<Turn> DragSolver::searchAssembly(const uint32_t maxMs,
   const uint32_t perPackingMs =
       maxMs == 0 ? 300000 : std::max<uint32_t>(120000, maxMs / 4);
 
-  std::unordered_set<uint64_t> triedPackings{slotSignature()};
+  std::unordered_set triedPackings{slotSignature()};
   const std::vector<std::pair<int, int>> variants = packingVariants(run.pieces);
   size_t nextVariant = 0;
   bool packedAll = false;

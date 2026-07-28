@@ -129,7 +129,7 @@ void emitReport(const BenchOptions &opt, const Fixture &data,
 
 } // namespace
 
-int main(int argc, char **argv) {
+int main(const int argc, char **argv) {
   BenchOptions opt;
   if (!parseBenchOptions(argc, argv, opt))
     return usage(argv[0]);

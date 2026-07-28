@@ -111,7 +111,7 @@ struct Board {
 bool overlapsAt(const Board &board, const std::vector<Position> &shape,
                 const int ax, const int ay) {
   return std::ranges::any_of(shape, [&](const Position &cell) {
-    return board.cellUsed[((ax + cell.x) * board.height) + (ay + cell.y)] != 0;
+    return board.cellUsed[(ax + cell.x) * board.height + (ay + cell.y)] != 0;
   });
 }
 
@@ -131,7 +131,7 @@ bool tryPlace(SeededRng &rng, Board &board,
     if (overlapsAt(board, shape, ax, ay))
       continue;
     for (const auto &[cx, cy] : shape)
-      board.cellUsed[((ax + cx) * board.height) + (ay + cy)] = 1;
+      board.cellUsed[(ax + cx) * board.height + (ay + cy)] = 1;
     board.anchors.push_back(
         {.x = static_cast<int8_t>(ax), .y = static_cast<int8_t>(ay)});
     return true;
@@ -234,7 +234,7 @@ int runGenerate(const std::string &outPath, const uint32_t seed,
   const auto [goalAnchorX, goalAnchorY] = board.anchors[0];
   BitGrid grid(static_cast<uint8_t>(W), static_cast<uint8_t>(H), shapes);
   grid.buildOccupancy(board.anchors);
-  const ShuffleStats shuffled =
+  const auto [accepted, attempts] =
       shuffleBoard(rng, grid, board.anchors, shapes.size(), shuffleMoves);
 
   std::ofstream out(outPath);
@@ -257,8 +257,8 @@ int runGenerate(const std::string &outPath, const uint32_t seed,
       {"blocks", shapes.size()},
       {"cells", totalCells},
       {"density", static_cast<double>(totalCells) / (W * H)},
-      {"shuffleAccepted", shuffled.accepted},
-      {"shuffleAttempts", shuffled.attempts},
+      {"shuffleAccepted", accepted},
+      {"shuffleAttempts", attempts},
       {"goalDisplaced", goalDisplaced},
   };
   if (emitJson)
@@ -266,7 +266,7 @@ int runGenerate(const std::string &outPath, const uint32_t seed,
   else
     std::cout << "generated " << outPath << ": " << W << "x" << H << ", "
               << shapes.size() << " blocks (" << totalCells << " cells), "
-              << shuffled.accepted << " shuffle moves"
+              << accepted << " shuffle moves"
               << (goalDisplaced ? "" : " (goal back on target)") << "\n";
   return 0;
 }

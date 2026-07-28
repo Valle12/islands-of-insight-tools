@@ -5,7 +5,6 @@
 // (guided beam, hierarchical) live in DragSolverBeam.cpp.
 #include "DragSolver.h"
 #include "MemoryProbe.h"
-#include "Node.h"
 #include "SolverClock.h"
 
 #include <algorithm>

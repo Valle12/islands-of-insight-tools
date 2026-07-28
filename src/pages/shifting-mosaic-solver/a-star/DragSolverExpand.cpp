@@ -19,7 +19,7 @@ DragSolver::goalRoutePredecessors(const uint16_t startIdx,
                                   const uint16_t targetIdx,
                                   const DispGeometry &geo) const {
   const int H = gridHeight_;
-  std::vector<int32_t> par(static_cast<size_t>(gridWidth_) * H, -2);
+  std::vector par(static_cast<size_t>(gridWidth_) * H, -2);
   std::vector q{startIdx};
   par[startIdx] = -1;
   // Worklist BFS: the body pushes onto `q` while it is being walked, so this

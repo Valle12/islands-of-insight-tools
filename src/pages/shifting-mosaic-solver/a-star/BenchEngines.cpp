@@ -39,109 +39,129 @@ struct CascadeStage {
 };
 
 constexpr std::array<CascadeStage, 7> CASCADE{{
-    {"assembly", false,
-     [](const bool pp) {
-       DragSolver::Config c;
-       c.postProcess = pp;
-       return c;
-     },
-     [](DragSolver &s, const uint32_t budgetMs, const uint32_t maxNodes) {
-       return s.searchAssembly(budgetMs, maxNodes);
-     }},
+    {.name = "assembly",
+     .jamGated = false,
+     .config =
+         [](const bool pp) {
+           DragSolver::Config c;
+           c.postProcess = pp;
+           return c;
+         },
+     .run =
+         [](DragSolver &s, const uint32_t budgetMs, const uint32_t maxNodes) {
+           return s.searchAssembly(budgetMs, maxNodes);
+         }},
     // Corridor arm: instant-declines unless the goal has no real cuts but a
     // long journey (then synthetic bands make hier decompose the corridor).
-    {"corridor", false,
-     [](const bool pp) {
-       DragSolver::Config c;
-       c.weight = 3;
-       c.settledOnly = true;
-       c.partialExpansionWidth = 48;
-       c.corridorBands = true;
-       c.postProcess = pp;
-       return c;
-     },
-     [](DragSolver &s, const uint32_t budgetMs, const uint32_t maxNodes) {
-       return s.searchHierarchical(budgetMs, maxNodes);
-     }},
-    {"hier", false,
-     [](const bool pp) {
-       DragSolver::Config c;
-       c.weight = 3;
-       c.settledOnly = true;
-       c.partialExpansionWidth = 48;
-       c.postProcess = pp;
-       return c;
-     },
-     [](DragSolver &s, const uint32_t budgetMs, const uint32_t maxNodes) {
-       return s.searchHierarchical(budgetMs, maxNodes);
-     }},
-    {"drag", false,
-     [](const bool pp) {
-       DragSolver::Config c;
-       c.weight = 4;
-       c.settledOnly = true;
-       c.partialExpansionWidth = 64;
-       c.postProcess = pp;
-       return c;
-     },
-     [](DragSolver &s, const uint32_t budgetMs, const uint32_t maxNodes) {
-       return s.search(budgetMs, maxNodes);
-     }},
+    {.name = "corridor",
+     .jamGated = false,
+     .config =
+         [](const bool pp) {
+           DragSolver::Config c;
+           c.weight = 3;
+           c.settledOnly = true;
+           c.partialExpansionWidth = 48;
+           c.corridorBands = true;
+           c.postProcess = pp;
+           return c;
+         },
+     .run =
+         [](DragSolver &s, const uint32_t budgetMs, const uint32_t maxNodes) {
+           return s.searchHierarchical(budgetMs, maxNodes);
+         }},
+    {.name = "hier",
+     .jamGated = false,
+     .config =
+         [](const bool pp) {
+           DragSolver::Config c;
+           c.weight = 3;
+           c.settledOnly = true;
+           c.partialExpansionWidth = 48;
+           c.postProcess = pp;
+           return c;
+         },
+     .run =
+         [](DragSolver &s, const uint32_t budgetMs, const uint32_t maxNodes) {
+           return s.searchHierarchical(budgetMs, maxNodes);
+         }},
+    {.name = "drag",
+     .jamGated = false,
+     .config =
+         [](const bool pp) {
+           DragSolver::Config c;
+           c.weight = 4;
+           c.settledOnly = true;
+           c.partialExpansionWidth = 64;
+           c.postProcess = pp;
+           return c;
+         },
+     .run =
+         [](DragSolver &s, const uint32_t budgetMs, const uint32_t maxNodes) {
+           return s.search(budgetMs, maxNodes);
+         }},
     // Jam arm: relevance filter + commutativity pruning for compact dense
     // boards where the unrestricted searches drown.
-    {"relevant", false,
-     [](const bool pp) {
-       DragSolver::Config c;
-       c.weight = 4;
-       c.settledOnly = true;
-       c.partialExpansionWidth = 64;
-       c.sleepSets = true;
-       c.relevantOnly = true;
-       c.postProcess = pp;
-       return c;
-     },
-     [](DragSolver &s, const uint32_t budgetMs, const uint32_t maxNodes) {
-       return s.search(budgetMs, maxNodes);
-     }},
+    {.name = "relevant",
+     .jamGated = false,
+     .config =
+         [](const bool pp) {
+           DragSolver::Config c;
+           c.weight = 4;
+           c.settledOnly = true;
+           c.partialExpansionWidth = 64;
+           c.sleepSets = true;
+           c.relevantOnly = true;
+           c.postProcess = pp;
+           return c;
+         },
+     .run =
+         [](DragSolver &s, const uint32_t budgetMs, const uint32_t maxNodes) {
+           return s.search(budgetMs, maxNodes);
+         }},
     // Jam-restart arm: dig-cost-guided diversified rounds for compact dense
     // 0-cut boards; declines instantly outside the jam profile. Luby-shaped
     // caps (20k base / 64 elites): -46% ratchet depth vs stock at the 300s
     // browser budget on the hard-instance family (HARD-BOARDS.md).
-    {"jamrestart", true,
-     [](const bool pp) {
-       DragSolver::Config c;
-       c.corridorBands = true;
-       c.jamRoundNodeCap = 20000;
-       c.jamMaxElites = 64;
-       c.jamLubyRestarts = true;
-       c.postProcess = pp;
-       return c;
-     },
-     [](DragSolver &s, const uint32_t budgetMs, const uint32_t maxNodes) {
-       return s.searchJamRestarts(budgetMs, maxNodes);
-     }},
+    {.name = "jamrestart",
+     .jamGated = true,
+     .config =
+         [](const bool pp) {
+           DragSolver::Config c;
+           c.corridorBands = true;
+           c.jamRoundNodeCap = 20000;
+           c.jamMaxElites = 64;
+           c.jamLubyRestarts = true;
+           c.postProcess = pp;
+           return c;
+         },
+     .run =
+         [](DragSolver &s, const uint32_t budgetMs, const uint32_t maxNodes) {
+           return s.searchJamRestarts(budgetMs, maxNodes);
+         }},
     // Guided-beam arm: breadth against the jam plateaus the restart rounds
     // dive past. Same gate. The wide-beam/heavy-penalty config is the one that
     // cracked seed 3870 (own process — can afford the RAM).
-    {"jambeam", true,
-     [](const bool pp) {
-       DragSolver::Config c;
-       c.corridorBands = true;
-       c.jamGuideWeight = 8;
-       c.jamBlockerPenalty = 8;
-       c.beamWidth = 500000;
-       c.postProcess = pp;
-       return c;
-     },
-     [](DragSolver &s, const uint32_t budgetMs, const uint32_t maxNodes) {
-       return s.searchBeamJam(budgetMs, maxNodes);
-     }},
+    {.name = "jambeam",
+     .jamGated = true,
+     .config =
+         [](const bool pp) {
+           DragSolver::Config c;
+           c.corridorBands = true;
+           c.jamGuideWeight = 8;
+           c.jamBlockerPenalty = 8;
+           c.beamWidth = 500000;
+           c.postProcess = pp;
+           return c;
+         },
+     .run =
+         [](DragSolver &s, const uint32_t budgetMs, const uint32_t maxNodes) {
+           return s.searchBeamJam(budgetMs, maxNodes);
+         }},
 }};
 
 constexpr std::array<std::string_view, 12> ENGINES{
-    "unit",    "drag",       "hier",     "assembly",
-    "corridor", "jam",       "beam",     "cascade",
-    "parallel", "sequential", "twophase", "arm"};
+    "unit", "drag",    "hier",     "assembly",   "corridor", "jam",
+    "beam", "cascade", "parallel", "sequential", "twophase", "arm"};
 
 // The engines that drive DragSolver directly from the command-line options,
 // as opposed to the fixed configurations the cascade and the race use.
@@ -228,28 +248,29 @@ void runCascade(const BenchOptions &opt, const Fixture &data,
                 SolveResult &res) {
   res.t0 = nowMs();
   res.t1 = res.t0;
-  for (const auto &stage : CASCADE) {
+  for (const auto &[name, jamGated, config, run] : CASCADE) {
     if (!res.turns.empty())
       break;
     DragSolver solver(data.gridWidth, data.gridHeight, data.shapes,
                       data.initialAnchors, data.goalIndex, data.goalAnchor,
-                      stage.config(opt.cfg.postProcess));
-    if (stage.jamGated && !solver.jamProfile())
+                      config(opt.cfg.postProcess));
+    if (jamGated && !solver.jamProfile())
       continue;
-    res.turns = stage.run(solver, opt.budgetMs, opt.maxNodes);
+    res.turns = run(solver, opt.budgetMs, opt.maxNodes);
     accumulateFrom(res, solver);
     if (!res.turns.empty())
-      res.stage = stage.name;
+      res.stage = name;
   }
   if (res.turns.empty()) {
     AStar solver(data.gridWidth, data.gridHeight, data.shapes,
                  data.initialAnchors, data.goalIndex, data.goalAnchor, opt.cfg);
     res.turns = solver.search(opt.budgetMs, opt.maxNodes);
-    const auto &stats = solver.lastStats();
-    res.nodesExpanded += stats.nodesExpanded;
-    res.statesStored += stats.statesStored;
-    res.stoppedOnMemory = res.stoppedOnMemory || stats.stoppedOnMemory;
-    res.passes = static_cast<uint8_t>(res.passes + stats.passes);
+    const auto &[nodesExpanded, statesStored, stoppedOnMemory, passes] =
+        solver.lastStats();
+    res.nodesExpanded += nodesExpanded;
+    res.statesStored += statesStored;
+    res.stoppedOnMemory = res.stoppedOnMemory || stoppedOnMemory;
+    res.passes = static_cast<uint8_t>(res.passes + passes);
     if (!res.turns.empty())
       res.stage = "unit";
   }
@@ -268,8 +289,8 @@ void dumpEliteArtifacts(const BenchOptions &opt, const Fixture &data,
   if (solver.lastEliteAnchors().empty())
     return;
   if (!opt.dumpElitePath.empty()) {
-    const std::string path = opt.dumpElitePath.string();
-    if (writeFixtureAt(data, solver.lastEliteAnchors(), path))
+    if (const std::string path = opt.dumpElitePath.string();
+        writeFixtureAt(data, solver.lastEliteAnchors(), path))
       std::cerr << "elite residual fixture dumped to " << path << "\n";
     else
       std::cerr << "cannot write " << path << "\n";
@@ -348,11 +369,12 @@ void runUnit(const BenchOptions &opt, const Fixture &data, SolveResult &res) {
   res.t1 = nowMs();
   res.turns = solver.search(opt.budgetMs, opt.maxNodes);
   res.t2 = nowMs();
-  const auto &stats = solver.lastStats();
-  res.nodesExpanded = stats.nodesExpanded;
-  res.statesStored = stats.statesStored;
-  res.stoppedOnMemory = stats.stoppedOnMemory;
-  res.passes = stats.passes;
+  const auto &[nodesExpanded, statesStored, stoppedOnMemory, passes] =
+      solver.lastStats();
+  res.nodesExpanded = nodesExpanded;
+  res.statesStored = statesStored;
+  res.stoppedOnMemory = stoppedOnMemory;
+  res.passes = passes;
 }
 
 } // namespace
