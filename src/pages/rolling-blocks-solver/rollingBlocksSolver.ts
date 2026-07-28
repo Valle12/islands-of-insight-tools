@@ -7,33 +7,33 @@ export class RollingBlocksSolverEditor {
   private static readonly DEFAULT_GRID_WIDTH = 5;
   private static readonly DEFAULT_GRID_HEIGHT = 5;
 
-  private blocksListEl = document.getElementById(
+  private readonly blocksListEl = document.getElementById(
     "blocks-list",
   ) as HTMLDivElement;
-  private widthField = document.getElementById(
+  private readonly widthField = document.getElementById(
     "grid-width",
   ) as HTMLInputElement;
-  private heightField = document.getElementById(
+  private readonly heightField = document.getElementById(
     "grid-height",
   ) as HTMLInputElement;
-  private statusEl = document.getElementById("tool-status") as HTMLDivElement;
+  private readonly statusEl = document.getElementById("tool-status") as HTMLDivElement;
 
-  private solutionPanel = document.getElementById(
+  private readonly solutionPanel = document.getElementById(
     "solution-panel",
   ) as HTMLDivElement;
-  private solutionSpinner = document.getElementById(
+  private readonly solutionSpinner = document.getElementById(
     "solution-spinner",
   ) as HTMLDivElement;
-  private solutionError = document.getElementById(
+  private readonly solutionError = document.getElementById(
     "solution-error",
   ) as HTMLDivElement;
-  private solutionMoves = document.getElementById(
+  private readonly solutionMoves = document.getElementById(
     "solution-moves",
   ) as HTMLOListElement;
-  private solutionStatus = document.getElementById(
+  private readonly solutionStatus = document.getElementById(
     "solution-status",
   ) as HTMLSpanElement;
-  private solutionProgressText = document.getElementById(
+  private readonly solutionProgressText = document.getElementById(
     "solution-progress-text",
   ) as HTMLSpanElement;
 

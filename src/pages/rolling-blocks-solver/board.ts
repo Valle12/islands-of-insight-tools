@@ -3,19 +3,19 @@ import { Block } from "./block";
 import type { RollingBlocksSolverEditor } from "./rollingBlocksSolver";
 
 export class Board {
-  private gridWidth: number;
-  private gridHeight: number;
+  private readonly gridWidth: number;
+  private readonly gridHeight: number;
   private nextBlockId = 1;
   private hoveredBlockId = 0;
   private isPainting = false;
   private dragStart: Position | null = null;
   private dragCurrent: Position | null = null;
   private selectedTool: PaintTool;
-  private solver: RollingBlocksSolverEditor;
+  private readonly solver: RollingBlocksSolverEditor;
   private cells: Tile[][] = [];
   private blockAssignments: number[][] = [];
-  private blocks: Map<number, Block> = new Map();
-  private grid = document.getElementById("grid") as HTMLDivElement;
+  private readonly blocks: Map<number, Block> = new Map();
+  private readonly grid = document.getElementById("grid") as HTMLDivElement;
 
   constructor(
     solver: RollingBlocksSolverEditor,

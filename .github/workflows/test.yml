@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install C++ dependencies
         run: sudo apt-get update && sudo apt-get install -y libboost-dev nlohmann-json3-dev libgtest-dev cmake
@@ -24,6 +24,18 @@ jobs:
         working-directory: src/pages/rolling-blocks-solver/a-star
         run: ctest --test-dir build --output-on-failure
 
+      - name: Build shifting-mosaic C++ tests
+        working-directory: src/pages/shifting-mosaic-solver/a-star
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON && cmake --build build
+
+      # json_test defaults to the production six-arm parallel cascade (the
+      # same solveArmsParallel the threaded wasm build ships), so ALL 44
+      # fixtures are hard-required — including test37 (deep-drag arm,
+      # ~4-8 min) and test41 (assembly arm, ~25s).
+      - name: Run shifting-mosaic C++ tests
+        working-directory: src/pages/shifting-mosaic-solver/a-star
+        run: ctest --test-dir build --output-on-failure
+
       - name: Setup Emscripten
         uses: emscripten-core/setup-emsdk@v16
 
@@ -34,9 +46,12 @@ jobs:
           BOOST_DIR=/tmp/boost-headers
           mkdir -p "$OUT_DIR" "$BOOST_DIR"
           cp -r /usr/include/boost "$BOOST_DIR/"
+          # Keep in sync with the rolling-blocks `sources` in
+          # src/util/buildWasm.ts; a missing TU fails at link time.
           em++ \
             "$ASTAR_DIR/wasm_bindings.cpp" \
             "$ASTAR_DIR/AStar.cpp" \
+            "$ASTAR_DIR/AStarGoals.cpp" \
             "$ASTAR_DIR/Block.cpp" \
             -o "$OUT_DIR/astar.mjs" \
             -I "$BOOST_DIR" \
@@ -52,6 +67,61 @@ jobs:
             -flto \
             -fno-exceptions
 
+      - name: Build shifting-mosaic WASM
+        run: |
+          ASTAR_DIR=src/pages/shifting-mosaic-solver/a-star
+          OUT_DIR=src/pages/shifting-mosaic-solver/wasm
+          mkdir -p "$OUT_DIR"
+          # AStar and DragSolver are each split across several .cpp files purely
+          # for file size; every one of them is part of the same class, so
+          # omitting any of them fails at link time with undefined symbols.
+          # Keep in sync with the shifting-mosaic `sources` in
+          # src/util/buildWasm.ts, which is what local builds use.
+          SOURCES=(
+            "$ASTAR_DIR/wasm_bindings.cpp"
+            "$ASTAR_DIR/SolverClock.cpp"
+            "$ASTAR_DIR/AStar.cpp"
+            "$ASTAR_DIR/AStarHeuristics.cpp"
+            "$ASTAR_DIR/AStarSearch.cpp"
+            "$ASTAR_DIR/AStarOptimizer.cpp"
+            "$ASTAR_DIR/DragSolver.cpp"
+            "$ASTAR_DIR/DragSolverHeuristics.cpp"
+            "$ASTAR_DIR/DragSolverSearch.cpp"
+            "$ASTAR_DIR/DragSolverExpand.cpp"
+            "$ASTAR_DIR/DragSolverAssembly.cpp"
+            "$ASTAR_DIR/DragSolverArms.cpp"
+            "$ASTAR_DIR/DragSolverBeam.cpp"
+          )
+          # $1 output name, $2 extra flags, $3 MAXIMUM_MEMORY (default 4GB).
+          build_variant() {
+            em++ \
+              "${SOURCES[@]}" \
+              -o "$OUT_DIR/$1" \
+              $2 \
+              -std=c++23 \
+              -O3 \
+              -sWASM=1 \
+              -sMODULARIZE=1 \
+              -sEXPORT_NAME=createShiftingMosaicAStarModule \
+              -sENVIRONMENT=web,worker \
+              -sALLOW_MEMORY_GROWTH=1 \
+              -sINITIAL_MEMORY=16777216 \
+              -sMAXIMUM_MEMORY="${3:-4GB}" \
+              --bind \
+              -flto \
+              -fno-exceptions
+          }
+          build_variant astar.mjs ""
+          build_variant astar.threads.mjs "-pthread -sPTHREAD_POOL_SIZE=10"
+          # wasm64 build (8GB heap); loaded by node, not bun — tested below.
+          # `-m64` is the standard flag emscripten 6.0.0 made an alias for
+          # -sMEMORY64, which 6.0.4 warns is deprecated. Keep in sync with
+          # src/util/buildWasm.ts.
+          build_variant astar.mem64.mjs "-m64" "8GB"
+          # pthreads + 8GB shared MEMORY64 heap (isolated path). Browser-only
+          # (shared memory64), so its build is verified here but not unit-tested.
+          build_variant astar.threads.mem64.mjs "-pthread -sPTHREAD_POOL_SIZE=10 -m64" "8GB"
+
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
 
@@ -60,6 +130,24 @@ jobs:
 
       - name: Run tests
         run: ROLLING_BLOCKS_TEST=true bun test
+
+      # bun cannot instantiate a Memory64 module, so the mem64 build is tested
+      # under node instead of in `bun test`.
+      #
+      # The node version is PINNED rather than taken from the runner image: the
+      # ubuntu-24.04 default validates a 64-bit MEMORY but rejects the 64-bit
+      # TABLE that emscripten 6.x emits for every wasm64 build, so the module
+      # fails to compile with "invalid table elements limits flags". The test's
+      # own probe now covers tables too, so an under-capable runtime SKIPS —
+      # which means without this pin the gate would quietly stop testing
+      # anything at all.
+      - name: Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Run MEMORY64 wasm test (node)
+        run: node --test test/shiftingMosaicSolver/mem64.node.test.mjs
 
       - name: Install Playwright browsers
         run: bunx playwright install --with-deps

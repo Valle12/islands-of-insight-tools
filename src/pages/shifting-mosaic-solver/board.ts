@@ -1,5 +1,16 @@
-import type { BlockType, Position, ShiftingMosaicTool } from "../../util/types";
+import type {
+  BlockType,
+  Position,
+  ShiftingMosaicTest,
+  ShiftingMosaicTool,
+} from "../../util/types";
 import { Block } from "./block";
+import {
+  extractCellPosition,
+  isContiguous,
+  positionsEqual,
+} from "./boardGeometry";
+import { gridMaxWidthPx } from "./layout";
 import type { ShiftingMosaicSolverEditor } from "./shiftingMosaicSolver";
 
 export class Board {
@@ -8,16 +19,16 @@ export class Board {
   private nextBlockId = 1;
   private hoveredBlockId = 0;
   private isPainting = false;
-  private inProgressCells = new Set<string>();
+  private readonly inProgressCells = new Set<string>();
   private attemptedOverlap = false;
   private isPlacingGoalZone = false;
   private placementCursor: Position | null = null;
   private goalZoneCells: Position[] = [];
   private selectedTool: ShiftingMosaicTool;
-  private editor: ShiftingMosaicSolverEditor;
+  private readonly editor: ShiftingMosaicSolverEditor;
   private blockAssignments: number[][] = [];
-  private blocks: Map<number, Block> = new Map();
-  private grid = document.getElementById("grid") as HTMLDivElement;
+  private readonly blocks: Map<number, Block> = new Map();
+  private readonly grid = document.getElementById("grid") as HTMLDivElement;
 
   constructor(
     editor: ShiftingMosaicSolverEditor,
@@ -49,6 +60,49 @@ export class Board {
     this.attemptedOverlap = false;
     this.isPlacingGoalZone = false;
     this.placementCursor = null;
+  }
+
+  /**
+   * Resizes the board in place. Reuses this instance — and therefore its
+   * already-registered event listeners — so resizing never leaks stale
+   * listeners onto #grid / document.
+   */
+  reconfigure(gridWidth: number, gridHeight: number) {
+    this.gridWidth = gridWidth;
+    this.gridHeight = gridHeight;
+    this.resetBoardData();
+  }
+
+  /**
+   * Replaces the entire board with a saved configuration (the download
+   * format): grid size, every block, and the goal zone.
+   */
+  loadConfig(config: ShiftingMosaicTest) {
+    this.gridWidth = config.gridWidth;
+    this.gridHeight = config.gridHeight;
+    this.resetBoardData();
+
+    for (let i = 0; i < config.shapes.length; i++) {
+      const id = i + 1;
+      const anchor = config.initialAnchors[i]!;
+      const cells: Position[] = config.shapes[i]!.map(offset => ({
+        x: anchor.x + offset.x,
+        y: anchor.y + offset.y,
+      }));
+      const type: BlockType =
+        i === config.goalIndex ? "goal" : "obstruction";
+      this.blocks.set(id, new Block(id, type, cells));
+      for (const cell of cells) {
+        const col = this.blockAssignments[cell.x];
+        if (col) col[cell.y] = id;
+      }
+    }
+    this.nextBlockId = config.shapes.length + 1;
+
+    this.goalZoneCells = config.shapes[config.goalIndex]!.map(offset => ({
+      x: config.goalAnchor.x + offset.x,
+      y: config.goalAnchor.y + offset.y,
+    }));
   }
 
   hasGoalBlock(): boolean {
@@ -131,6 +185,7 @@ export class Board {
 
   renderGrid() {
     this.grid.style.gridTemplateColumns = `repeat(${this.gridWidth}, minmax(0, 1fr))`;
+    this.grid.style.maxWidth = `${gridMaxWidthPx(this.gridWidth)}px`;
     this.grid.innerHTML = "";
 
     const hologramCells = this.computeHologramCells();
@@ -217,7 +272,7 @@ export class Board {
 
   private addListeners() {
     this.grid.addEventListener("pointerdown", event => {
-      const position = this.extractCellPosition(event.target);
+      const position = extractCellPosition(event.target);
       if (!position) return;
 
       if (this.isPlacingGoalZone) {
@@ -236,11 +291,21 @@ export class Board {
     });
 
     this.grid.addEventListener("pointermove", event => {
-      const position = this.extractCellPosition(event.target);
+      // Hit-test by coordinate first, NOT event.target. Touch pointers get
+      // implicit pointer capture on the pointerdown target, so event.target
+      // stays pinned to the first cell for the whole gesture and drag-drawing a
+      // multi-cell block was impossible on a touchscreen (#grid sets
+      // touch-action: none precisely so these handlers get the gesture).
+      // render() also rebuilds the grid DOM between moves, invalidating the
+      // captured node. Falls back to event.target where there is no layout to
+      // hit-test against (happy-dom in the unit tests returns null here).
+      const hit =
+        document.elementFromPoint?.(event.clientX, event.clientY) ?? null;
+      const position = extractCellPosition(hit ?? event.target);
 
       if (this.isPlacingGoalZone) {
         if (!position) return;
-        if (this.positionsEqual(position, this.placementCursor)) return;
+        if (positionsEqual(position, this.placementCursor)) return;
         this.placementCursor = position;
         this.editor.render();
         return;
@@ -306,7 +371,7 @@ export class Board {
       return { x, y };
     });
 
-    if (!this.isContiguous(cells)) {
+    if (!isContiguous(cells)) {
       if (this.attemptedOverlap) {
         this.editor.showWarning(
           "Cannot create a block that overlaps with an existing block.",
@@ -401,53 +466,5 @@ export class Board {
 
   private hasBlockAt(x: number, y: number, blockId: number) {
     return this.blockAssignments[x]?.[y] === blockId;
-  }
-
-  private isContiguous(cells: Position[]): boolean {
-    if (cells.length <= 1) return true;
-    const cellSet = new Set(cells.map(c => `${c.x},${c.y}`));
-    const visited = new Set<string>();
-    const start = cells[0]!;
-    const queue: Position[] = [start];
-    visited.add(`${start.x},${start.y}`);
-
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      const neighbors: Position[] = [
-        { x: current.x, y: current.y - 1 },
-        { x: current.x + 1, y: current.y },
-        { x: current.x, y: current.y + 1 },
-        { x: current.x - 1, y: current.y },
-      ];
-      for (const neighbor of neighbors) {
-        const key = `${neighbor.x},${neighbor.y}`;
-        if (cellSet.has(key) && !visited.has(key)) {
-          visited.add(key);
-          queue.push(neighbor);
-        }
-      }
-    }
-
-    return visited.size === cellSet.size;
-  }
-
-  private positionsEqual(a: Position | null, b: Position | null): boolean {
-    if (a === null && b === null) return true;
-    if (a === null || b === null) return false;
-    return a.x === b.x && a.y === b.y;
-  }
-
-  private extractCellPosition(target: EventTarget | null): Position | null {
-    if (!(target instanceof HTMLElement)) return null;
-
-    const cell = target.closest(".grid-cell") as HTMLElement;
-    if (!cell) return null;
-
-    const x = Number(cell.dataset.x);
-    const y = Number(cell.dataset.y);
-
-    if (!Number.isInteger(x) || !Number.isInteger(y)) return null;
-
-    return { x, y };
   }
 }

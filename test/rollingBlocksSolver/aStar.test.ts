@@ -19,9 +19,9 @@ const DIRECTION_MAP: Record<number, Direction> = {
   3: Direction.LEFT,
 };
 
-import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { instantiateFromDisk } from "../../src/util/wasmModule";
 
 async function loadWasmModule() {
   const __filename = fileURLToPath(import.meta.url);
@@ -30,16 +30,7 @@ async function loadWasmModule() {
   const wasmPath = join(wasmDir, "astar.mjs");
   const wasmBinPath = join(wasmDir, "astar.wasm");
   const createModule = (await import(wasmPath)).default;
-  const wasmBinary = readFileSync(wasmBinPath);
-  return createModule({
-    locateFile(file: string) {
-      if (file.endsWith(".wasm")) {
-        return wasmBinPath;
-      }
-      return file;
-    },
-    wasmBinary,
-  });
+  return createModule(instantiateFromDisk(wasmBinPath));
 }
 
 describe.if(Bun.env.ROLLING_BLOCKS_TEST === "true")("BFS", () => {

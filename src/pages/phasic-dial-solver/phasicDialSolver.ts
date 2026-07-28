@@ -157,11 +157,11 @@ export class PhasicDialSolver {
       resultEl.textContent = "Already solved! No button presses needed.";
     } else {
       const lines = result
-        .map((presses, i) =>
-          presses > 0
-            ? `Button ${i + 1}: ${presses} press${presses !== 1 ? "es" : ""}`
-            : null,
-        )
+        .map((presses, i) => {
+          if (presses <= 0) return null;
+          const plural = presses === 1 ? "" : "es";
+          return `Button ${i + 1}: ${presses} press${plural}`;
+        })
         .filter(line => line !== null);
       resultEl.innerHTML = lines.join("<br>");
     }

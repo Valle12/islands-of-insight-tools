@@ -1,42 +1,89 @@
-import type { ShiftingMosaicTool } from "../../util/types";
+import { registerCoiShim } from "../../common/coiRegister";
+import type { ShiftingMosaicTest, ShiftingMosaicTool } from "../../util/types";
 import { Board } from "./board";
+import { validateConfig } from "./config";
+import {
+  computeGoalAnchor,
+  downloadConfig,
+  parsePositiveInt,
+} from "./editorHelpers";
+import { cardWidthPx } from "./layout";
+import { SolutionView } from "./solutionView";
+import type { Turn } from "./turn";
+import {
+  searchShiftingMosaicWasm,
+  type ShiftingMosaicPuzzle,
+  type SolverHandle,
+} from "./wasmBridge";
 
 export class ShiftingMosaicSolverEditor {
   private static readonly DEFAULT_GRID_WIDTH = 6;
   private static readonly DEFAULT_GRID_HEIGHT = 6;
 
-  private blocksListEl = document.getElementById(
+  private readonly blocksListEl = document.getElementById(
     "blocks-list",
   ) as HTMLDivElement;
-  private widthField = document.getElementById(
+  private readonly widthField = document.getElementById(
     "grid-width",
   ) as HTMLInputElement;
-  private heightField = document.getElementById(
+  private readonly heightField = document.getElementById(
     "grid-height",
   ) as HTMLInputElement;
-  private statusEl = document.getElementById("tool-status") as HTMLDivElement;
-  private placementBanner = document.getElementById(
+  private readonly statusEl = document.getElementById("tool-status") as HTMLDivElement;
+  private readonly placementBanner = document.getElementById(
     "placement-banner",
   ) as HTMLDivElement;
-  private warningBanner = document.getElementById(
+  private readonly warningBanner = document.getElementById(
     "warning-banner",
   ) as HTMLDivElement;
   private warningTimeoutId: number | null = null;
 
-  private solutionPanel = document.getElementById(
+  private readonly editorCard = document.getElementById(
+    "editor-card",
+  ) as HTMLDivElement;
+  private readonly editorSection = document.getElementById(
+    "editor-section",
+  ) as HTMLDivElement;
+  private readonly solutionViewEl = document.getElementById(
+    "solution-view",
+  ) as HTMLDivElement;
+
+  private readonly solutionPanel = document.getElementById(
     "solution-panel",
   ) as HTMLDivElement;
-  private solutionStatus = document.getElementById(
+  private readonly solutionStatus = document.getElementById(
     "solution-status",
   ) as HTMLSpanElement;
-  private solutionMessage = document.getElementById(
+  private readonly solutionMessage = document.getElementById(
     "solution-message",
+  ) as HTMLDivElement;
+  private readonly solutionSpinner = document.getElementById(
+    "solution-spinner",
+  ) as HTMLDivElement;
+  private readonly solutionProgressText = document.getElementById(
+    "solution-progress-text",
+  ) as HTMLSpanElement;
+  private readonly calculateBtn = document.getElementById(
+    "calculate-solution",
+  ) as HTMLButtonElement;
+  private readonly fileInput = document.getElementById(
+    "config-file-input",
+  ) as HTMLInputElement;
+  private readonly dropOverlay = document.getElementById(
+    "drop-overlay",
   ) as HTMLDivElement;
 
   private gridWidth = ShiftingMosaicSolverEditor.DEFAULT_GRID_WIDTH;
   private gridHeight = ShiftingMosaicSolverEditor.DEFAULT_GRID_HEIGHT;
   private selectedTool: ShiftingMosaicTool = "obstruction";
   private board: Board;
+  private currentWorker: SolverHandle | null = null;
+  // Bumped by stopCurrentWorker, captured by each solve. A callback whose
+  // generation is stale belongs to a run the user has already cancelled or
+  // replaced, and must touch neither the DOM nor currentWorker — nulling the
+  // field would orphan the CANCEL path of the run that superseded it.
+  private solveGeneration = 0;
+  private solutionView: SolutionView | null = null;
 
   constructor() {
     this.board = new Board(
@@ -87,10 +134,30 @@ export class ShiftingMosaicSolverEditor {
       resetDialog.close();
     });
 
-    const calculateBtn = document.getElementById("calculate-solution");
-    calculateBtn?.addEventListener("click", () => {
-      this.showSolverPlaceholder();
+    this.calculateBtn.addEventListener("click", () => {
+      this.calculateSolution();
     });
+
+    document
+      .getElementById("download-config")
+      ?.addEventListener("click", () => this.downloadCurrentConfig());
+
+    document
+      .getElementById("upload-config")
+      ?.addEventListener("click", () => this.fileInput.click());
+
+    this.fileInput.addEventListener("change", () => {
+      const file = this.fileInput.files?.[0];
+      if (file) void this.loadConfigFromFile(file);
+      // Clear the value so re-selecting the same file fires "change" again.
+      this.fileInput.value = "";
+    });
+
+    this.setupDragAndDrop();
+
+    document
+      .getElementById("solution-exit")
+      ?.addEventListener("click", () => this.exitSolutionView());
 
     this.widthField.addEventListener("input", () => this.handleSizeUpdate());
     this.heightField.addEventListener("input", () => this.handleSizeUpdate());
@@ -117,7 +184,6 @@ export class ShiftingMosaicSolverEditor {
         const id = Number(placeButton.dataset.blockPlaceId);
         this.board.startGoalZonePlacement(id);
         this.hideSolution();
-        return;
       }
     });
 
@@ -135,25 +201,14 @@ export class ShiftingMosaicSolverEditor {
   }
 
   private handleSizeUpdate() {
-    const parsedWidth = this.parsePositiveInt(this.widthField.value);
-    const parsedHeight = this.parsePositiveInt(this.heightField.value);
+    const parsedWidth = parsePositiveInt(this.widthField.value);
+    const parsedHeight = parsePositiveInt(this.heightField.value);
     if (!parsedWidth || !parsedHeight) return;
     this.gridWidth = parsedWidth;
     this.gridHeight = parsedHeight;
-    this.board = new Board(
-      this,
-      this.gridWidth,
-      this.gridHeight,
-      this.selectedTool,
-    );
+    this.board.reconfigure(this.gridWidth, this.gridHeight);
     this.hideSolution();
     this.render();
-  }
-
-  private parsePositiveInt(value: string): number | null {
-    const parsed = Number(value);
-    if (!Number.isInteger(parsed) || parsed <= 0) return null;
-    return parsed;
   }
 
   private applyDefaultGridSize() {
@@ -166,12 +221,8 @@ export class ShiftingMosaicSolverEditor {
   private resetToDefaults() {
     this.applyDefaultGridSize();
     this.selectedTool = "obstruction";
-    this.board = new Board(
-      this,
-      this.gridWidth,
-      this.gridHeight,
-      this.selectedTool,
-    );
+    this.board.setSelectedTool(this.selectedTool);
+    this.board.reconfigure(this.gridWidth, this.gridHeight);
   }
 
   notifyGoalZonePlacementChanged() {
@@ -191,10 +242,19 @@ export class ShiftingMosaicSolverEditor {
   }
 
   render() {
+    this.updateLayoutWidth();
     this.board.renderGrid();
     this.renderToolButtons();
     this.renderBlocksList();
     this.renderPlacementBanner();
+  }
+
+  /**
+   * Widens the editor card so a wide grid renders at full cell size, capped
+   * to the viewport. Small grids keep the default width.
+   */
+  private updateLayoutWidth() {
+    this.editorCard.style.width = `min(100%, ${cardWidthPx(this.gridWidth)}px)`;
   }
 
   private renderPlacementBanner() {
@@ -274,33 +334,290 @@ export class ShiftingMosaicSolverEditor {
       .join("");
   }
 
-  private showSolverPlaceholder() {
-    this.solutionPanel.classList.remove("hidden");
-    this.solutionStatus.textContent = "Pending";
-    this.solutionMessage.textContent =
-      "Solver implementation is coming in a follow-up. For now this page only handles puzzle setup.";
-    // TODO move this to a real method
+  // -------------------------------------------------------------------------
+  // Solver
+  // -------------------------------------------------------------------------
+
+  /**
+   * Collects the current board into a solver puzzle. Returns null (and shows
+   * a warning) if the puzzle is incomplete.
+   */
+  private buildPuzzle(): ShiftingMosaicPuzzle | null {
     const blocks = this.board
       .getBlocks()
       .values()
       .toArray()
       .sort((a, b) => a.id - b.id);
-    if (!blocks.some(block => block.type === "goal")) {
+
+    const goalIndex = blocks.findIndex(block => block.type === "goal");
+    if (goalIndex === -1) {
       this.showWarning(
         "No goal block defined! Please add a goal block to calculate a solution.",
       );
+      return null;
+    }
+
+    const goalZoneCells = this.board.getGoalZoneCells();
+    if (goalZoneCells.length === 0) {
+      this.showWarning(
+        "Goal zone has not been placed yet — drop the hologram first.",
+      );
+      return null;
+    }
+
+    return {
+      gridWidth: this.gridWidth,
+      gridHeight: this.gridHeight,
+      shapes: blocks.map(block => block.getRelativePositions()),
+      initialAnchors: blocks.map(block => ({
+        x: block.anchor.x,
+        y: block.anchor.y,
+      })),
+      goalIndex,
+      goalAnchor: computeGoalAnchor(goalZoneCells),
+    };
+  }
+
+  private calculateSolution() {
+    const puzzle = this.buildPuzzle();
+    if (!puzzle) return;
+
+    this.stopCurrentWorker();
+    this.showSolving();
+
+    // stopCurrentWorker just invalidated every earlier run; this is ours.
+    const generation = this.solveGeneration;
+    const isCurrent = () => generation === this.solveGeneration;
+
+    // Set by onPhase; prefixes the progress line so the slower second attempt
+    // is visible rather than looking like the first one has stalled.
+    let phaseLabel = "Searching…";
+    this.currentWorker = searchShiftingMosaicWasm(puzzle, {
+      onProgress: nodesExpanded => {
+        if (!isCurrent()) return;
+        this.solutionProgressText.textContent = `${phaseLabel} (${nodesExpanded.toLocaleString()} nodes explored)`;
+      },
+      onPhase: (phase, arm) => {
+        if (!isCurrent() || phase !== "sequential") return;
+        // The sequential phase can run for minutes. Naming the current strategy
+        // is the one piece of solver internals worth showing: it is the only
+        // visible sign that a long wait is progressing rather than hung.
+        phaseLabel = arm
+          ? `Trying harder — strategy ${arm} (slower, one at a time)…`
+          : "First attempt found nothing — trying harder (slower, one strategy at a time)…";
+        this.solutionProgressText.textContent = phaseLabel;
+      },
+      onDone: turns => {
+        if (!isCurrent()) return;
+        this.currentWorker = null;
+        this.handleSolution(puzzle, turns);
+      },
+      onError: error => {
+        if (!isCurrent()) return;
+        this.currentWorker = null;
+        this.showSolverError(error);
+      },
+    });
+  }
+
+  private handleSolution(puzzle: ShiftingMosaicPuzzle, turns: Turn[]) {
+    this.solutionSpinner.classList.add("hidden");
+    // The search is over — re-enable Calculate. showSolving() disabled it, and
+    // this path (unlike showSolverError/stopCurrentWorker) used to leave it
+    // disabled forever, so after "No solution" the user could not retry without
+    // editing the board first.
+    this.calculateBtn.toggleAttribute("disabled", false);
+
+    if (turns.length === 0) {
+      // The solver returns an empty path both when the goal block already
+      // sits on the goal zone and when no solution exists. Distinguish by
+      // checking the start state.
+      const goal = puzzle.initialAnchors[puzzle.goalIndex]!;
+      const alreadySolved =
+        goal.x === puzzle.goalAnchor.x && goal.y === puzzle.goalAnchor.y;
+      this.solutionStatus.textContent = alreadySolved ? "Solved" : "No solution";
+      this.solutionMessage.textContent = alreadySolved
+        ? "The goal block is already in the goal zone."
+        : "No solution was found within the search budget.";
       return;
     }
 
-    /*const aStar = new AStar(blocks, this.board.getGoalZoneCells());
-    aStar.search();*/
+    this.solutionPanel.classList.add("hidden");
+    this.enterSolutionView(puzzle, turns);
+  }
+
+  private enterSolutionView(puzzle: ShiftingMosaicPuzzle, turns: Turn[]) {
+    this.editorSection.classList.add("hidden");
+    this.solutionViewEl.classList.remove("hidden");
+    this.solutionView?.dispose();
+    this.solutionView = new SolutionView({
+      gridWidth: puzzle.gridWidth,
+      gridHeight: puzzle.gridHeight,
+      shapes: puzzle.shapes,
+      initialAnchors: puzzle.initialAnchors,
+      goalIndex: puzzle.goalIndex,
+      goalAnchor: puzzle.goalAnchor,
+      turns,
+    });
+  }
+
+  private exitSolutionView() {
+    this.solutionView?.dispose();
+    this.solutionView = null;
+    this.solutionViewEl.classList.add("hidden");
+    this.editorSection.classList.remove("hidden");
+    this.solutionPanel.classList.add("hidden");
+    this.render();
+  }
+
+  private showSolving() {
+    this.calculateBtn.toggleAttribute("disabled", true);
+    this.solutionPanel.classList.remove("hidden");
+    this.solutionSpinner.classList.remove("hidden");
+    this.solutionStatus.textContent = "";
+    this.solutionMessage.textContent = "";
+    this.solutionProgressText.textContent = "Searching…";
+  }
+
+  private showSolverError(error: string) {
+    this.calculateBtn.toggleAttribute("disabled", false);
+    this.solutionSpinner.classList.add("hidden");
+    this.solutionStatus.textContent = "Failed";
+    this.solutionMessage.textContent = `Solver error: ${error}`;
+  }
+
+  private stopCurrentWorker() {
+    this.solveGeneration++;
+    if (this.currentWorker) {
+      this.currentWorker.terminate();
+      this.currentWorker = null;
+    }
+    this.calculateBtn.toggleAttribute("disabled", false);
+  }
+
+  private downloadCurrentConfig() {
+    const puzzle = this.buildPuzzle();
+    if (!puzzle) return;
+    downloadConfig({
+      gridWidth: puzzle.gridWidth,
+      gridHeight: puzzle.gridHeight,
+      shapes: puzzle.shapes,
+      initialAnchors: puzzle.initialAnchors,
+      goalIndex: puzzle.goalIndex,
+      goalAnchor: puzzle.goalAnchor,
+    });
+  }
+
+  /** Reads a dropped/picked file, validates it, and populates the editor. */
+  private async loadConfigFromFile(file: File) {
+    if (
+      !file.name.toLowerCase().endsWith(".json") &&
+      file.type !== "application/json"
+    ) {
+      this.showWarning("Please choose a JSON config file.");
+      return;
+    }
+
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      this.showWarning("Could not read the selected file.");
+      return;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      this.showWarning("The file is not valid JSON.");
+      return;
+    }
+
+    const result = validateConfig(parsed);
+    if (!result.ok) {
+      this.showWarning(`Invalid config: ${result.error}`);
+      return;
+    }
+
+    this.applyLoadedConfig(result.config);
+  }
+
+  /** Applies a validated config to the board and returns to the editor. */
+  private applyLoadedConfig(config: ShiftingMosaicTest) {
+    // Drag-and-drop is bound to `window`, so a config can land while the
+    // solution view is open. Hiding it is not enough: SolutionView holds a
+    // window resize listener that only dispose() removes, and every load would
+    // otherwise strand another one re-rendering a board that no longer exists.
+    this.solutionView?.dispose();
+    this.solutionView = null;
+    this.gridWidth = config.gridWidth;
+    this.gridHeight = config.gridHeight;
+    this.widthField.value = String(this.gridWidth);
+    this.heightField.value = String(this.gridHeight);
+    this.selectedTool = "obstruction";
+    this.board.setSelectedTool(this.selectedTool);
+    this.board.loadConfig(config);
+    this.hideSolution();
+    this.solutionViewEl.classList.add("hidden");
+    this.editorSection.classList.remove("hidden");
+    this.render();
+  }
+
+  /** Lets the user drop a config JSON anywhere on the page to load it. */
+  private setupDragAndDrop() {
+    let dragDepth = 0;
+    const hasFiles = (event: DragEvent) =>
+      event.dataTransfer != null &&
+      Array.from(event.dataTransfer.types).includes("Files");
+
+    window.addEventListener("dragenter", event => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      dragDepth++;
+      this.dropOverlay.classList.remove("hidden");
+    });
+    window.addEventListener("dragover", event => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+    });
+    window.addEventListener("dragleave", event => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) this.dropOverlay.classList.add("hidden");
+    });
+    window.addEventListener("drop", event => {
+      if (!hasFiles(event)) return;
+      // dragover already accepted this drop, so the default action (the
+      // browser navigating to the dropped file) must be cancelled even when
+      // the payload turns out to hold no readable file.
+      event.preventDefault();
+      dragDepth = 0;
+      this.dropOverlay.classList.add("hidden");
+      const file = event.dataTransfer?.files?.[0];
+      if (!file) return;
+      void this.loadConfigFromFile(file);
+    });
   }
 
   hideSolution() {
+    this.stopCurrentWorker();
     this.solutionPanel.classList.add("hidden");
+    this.solutionSpinner.classList.add("hidden");
   }
 }
 
+// Module-scope so the editor (and the DOM listeners it owns) lives as long as
+// the page does, rather than reading as an object constructed and dropped.
+// A const holder rather than an exported `let`: a mutable export would let
+// importers observe the binding change out from under them.
+export const page: { editor?: ShiftingMosaicSolverEditor } = {};
+
 if (process.env.NODE_ENV !== "test") {
-  new ShiftingMosaicSolverEditor();
+  // Opt this page into cross-origin isolation (wasm threads) where the
+  // browser supports the shim; everything degrades to the worker portfolio
+  // otherwise.
+  registerCoiShim();
+  page.editor = new ShiftingMosaicSolverEditor();
 }
