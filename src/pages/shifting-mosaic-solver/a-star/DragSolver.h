@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <functional>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 // Drag-space solver. One search move ("drag") relocates a single block to ANY
@@ -742,6 +743,85 @@ private:
                                                    uint32_t cap);
   void bankElite(const SegmentResult &res, const JamRound &jr,
                  std::vector<Elite> &elites, size_t maxElites) const;
+
+  // ---- searchAssembly phases ----------------------------------------------
+  // DFS over placement ORDER with chronological backtracking: each frame
+  // snapshots the arrangement before a round, remembers which pieces it has
+  // already tried, and is popped (undoing its placement) when every
+  // candidate's subtree fails. A greedy order can seal a lane many rounds
+  // before the wedge becomes visible — this explores reorderings instead of
+  // giving up (the shiftingMosaicTest41 ordering lesson, in-engine).
+  struct AsmFrame {
+    std::vector<Position> anchors; // arrangement entering this round
+    size_t planLen = 0;            // plan length entering this round
+    std::vector<uint8_t> placed;   // pieces placed (incl. incidental)
+    std::vector<uint8_t> tried;    // pieces already attempted from here
+    bool jointTried = false;       // endgame joint solve attempted here
+  };
+  // One assembly attempt against one packing.
+  struct AsmRun {
+    std::vector<uint8_t> pieces;   // blocks with a slot, goal excluded
+    std::vector<Position> anchors; // scratch arrangement approachable() sees
+    std::vector<Turn> plan;
+    std::vector<AsmFrame> stack;
+    uint64_t packDeadline = 0;
+    uint32_t roundBudget = 0;
+    uint32_t backtracks = 0;
+    uint32_t jointAttempts = 0;
+    bool attemptOver = false;
+  };
+  enum class AsmOutcome : uint8_t {
+    Packed,       // every piece is on its slot
+    AttemptSpent, // this packing is out of order space or time
+    Abort,        // cancelled or past the overall deadline
+  };
+
+  [[nodiscard]] Position slotPos(uint8_t p) const;
+  [[nodiscard]] static uint32_t remainingMs(uint64_t deadline);
+  [[nodiscard]] static int manhattan(Position a, Position b);
+  // Applies unit turns to an arrangement. Shared by the joint endgame and the
+  // per-piece placement, which stepped anchors identically.
+  [[nodiscard]] static std::vector<Position>
+  applyTurns(std::vector<Position> anchors, const std::vector<Turn> &turns);
+  [[nodiscard]] std::vector<uint8_t> assemblyPieces() const;
+  // Relaxed approachability: with the goal parked and placed pieces frozen
+  // on their slots (everything else removed), the piece's slot must connect
+  // to its current anchor or to a decently sized free region.
+  [[nodiscard]] bool approachable(uint8_t piece,
+                                  const std::vector<uint8_t> &placed,
+                                  const std::vector<Position> &anchors);
+  void absorbOnSlot(AsmFrame &f, const std::vector<uint8_t> &pieces) const;
+  [[nodiscard]] std::vector<Turn> jointEndgame(const AsmFrame &f,
+                                               uint32_t budgetMs,
+                                               const std::vector<uint8_t> &pieces,
+                                               uint32_t maxNodes);
+  [[nodiscard]] uint64_t slotSignature() const;
+  [[nodiscard]] static std::vector<std::pair<int, int>>
+  packingVariants(const std::vector<uint8_t> &pieces);
+  [[nodiscard]] std::vector<uint8_t> assemblyCandidates(const AsmFrame &cur,
+                                                        AsmRun &run);
+  void sortAssemblyCandidates(std::vector<uint8_t> &candidates,
+                              const AsmFrame &cur) const;
+  [[nodiscard]] static bool shouldTryJointEndgame(const AsmFrame &cur,
+                                                  const AsmRun &run,
+                                                  bool noCandidates);
+  [[nodiscard]] bool tryJointEndgame(AsmFrame &cur, AsmRun &run,
+                                     uint32_t maxNodes);
+  static void backtrackAssembly(AsmRun &run);
+  void placePiece(const AsmFrame &cur, AsmRun &run, uint8_t piece,
+                  uint32_t maxNodes);
+  AsmOutcome runAssemblyAttempt(AsmRun &run, uint64_t deadline,
+                                uint32_t maxNodes);
+  [[nodiscard]] bool
+  advanceToNextPacking(const std::vector<std::pair<int, int>> &variants,
+                       size_t &nextVariant,
+                       std::unordered_set<uint64_t> &triedPackings);
+  [[nodiscard]] std::vector<Turn> finalGoalLeg(const std::vector<Position> &anchors,
+                                               uint64_t deadline,
+                                               uint32_t maxNodes);
+  // The shared optimizer tail: searchAssembly and finalizePlan ran this
+  // identically.
+  [[nodiscard]] std::vector<Turn> postProcess(std::vector<Turn> turns) const;
   // Expands the drag plan into unit-move turns by replaying each drag's flood
   // fill from the initial state. Returns an empty vector if any drag turns
   // out inconsistent (symmetry label mix-up) — the caller then retries.
