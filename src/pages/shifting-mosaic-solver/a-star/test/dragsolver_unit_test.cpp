@@ -18,7 +18,7 @@
 // sound. The portfolio arms are exercised in dragsolver_search_test.cpp.
 
 TEST(BitGrid, MatchesCollisionOracleOnRandomBoards) {
-  std::mt19937 rng(testSeed(1234));
+  SeededRng rng(testSeed(1234));
   for (int round = 0; round < 200; round++) {
     const Puzzle p = randomPuzzle(rng);
     BitGrid grid(p.w, p.h, p.shapes);
@@ -27,9 +27,9 @@ TEST(BitGrid, MatchesCollisionOracleOnRandomBoards) {
                                         static_cast<int>(p.shapes.size()) - 1);
     std::uniform_int_distribution cDist(-2, 7);
     for (int probe = 0; probe < 100; probe++) {
-      const auto i = static_cast<uint8_t>(bDist(rng));
-      const Position a = {.x = static_cast<int8_t>(cDist(rng)),
-                          .y = static_cast<int8_t>(cDist(rng))};
+      const auto i = static_cast<uint8_t>(rng.draw(bDist));
+      const Position a = {.x = static_cast<int8_t>(rng.draw(cDist)),
+                          .y = static_cast<int8_t>(rng.draw(cDist))};
       grid.removeBlock(i, p.anchors[i]);
       const bool got = grid.canPlace(i, a.x, a.y);
       grid.addBlock(i, p.anchors[i]);
@@ -43,7 +43,7 @@ TEST(BitGrid, MatchesCollisionOracleOnRandomBoards) {
 }
 
 TEST(BitGrid, FloodFillMatchesReferenceBfs) {
-  std::mt19937 rng(testSeed(4321));
+  SeededRng rng(testSeed(4321));
   for (int round = 0; round < 200; round++) {
     const Puzzle p = randomPuzzle(rng);
     BitGrid grid(p.w, p.h, p.shapes);
@@ -64,7 +64,7 @@ TEST(BitGrid, FloodFillMatchesReferenceBfs) {
 }
 
 TEST(DragSolver, Weight1MatchesExhaustiveDragOracle) {
-  std::mt19937 rng(testSeed(99));
+  SeededRng rng(testSeed(99));
   int solvable = 0;
   for (int round = 0; round < 120; round++) {
     const Puzzle p = randomPuzzle(rng);
@@ -94,7 +94,7 @@ TEST(DragSolver, PartialExpansionPreservesOptimality) {
   // PEA* with a brutal batch width of 2 must still return minimal drag
   // counts at weight 1 — children are emitted in f order and the parent is
   // requeued at the next child's f, so nothing is lost.
-  std::mt19937 rng(
+  SeededRng rng(
       testSeed(99)); // same instances as the full-expansion oracle test
   for (int round = 0; round < 120; round++) {
     const Puzzle p = randomPuzzle(rng);
@@ -120,7 +120,7 @@ TEST(DragSolver, SleepSetsPreserveOptimality) {
   // One-step commutativity pruning may only skip (i, j) drag orders whose
   // (j, i) twin exists move-for-move, so weight-1 must still return exactly
   // the oracle's optimal counts on every board.
-  std::mt19937 rng(testSeed(99)); // same instances as the oracle tests
+  SeededRng rng(testSeed(99)); // same instances as the oracle tests
   for (int round = 0; round < 120; round++) {
     const Puzzle p = randomPuzzle(rng);
     const int want = oracleMinDrags(p);
@@ -145,7 +145,7 @@ TEST(DragSolver, RelevantOnlySoundAndMostlyComplete) {
   // The relevance filter is incomplete by design (like settledOnly): every
   // returned plan must replay-validate, and it must still solve a healthy
   // majority of oracle-solvable boards.
-  std::mt19937 rng(testSeed(99)); // same instances as the oracle tests
+  SeededRng rng(testSeed(99)); // same instances as the oracle tests
   int solvable = 0;
   int solved = 0;
   for (int round = 0; round < 120; round++) {
@@ -175,7 +175,7 @@ TEST(DragSolver, SettledFilterIsSoundAndSolvesMostBoards) {
   // intermediate parking spot — the full-expansion portfolio arm covers
   // those). This asserts what it must guarantee: solutions it does find are
   // valid, and it solves the large majority of solvable boards.
-  std::mt19937 rng(testSeed(7));
+  SeededRng rng(testSeed(7));
   int solvable = 0;
   int solved = 0;
   for (int round = 0; round < 80; round++) {

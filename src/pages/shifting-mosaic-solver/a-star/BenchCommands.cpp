@@ -5,13 +5,13 @@
 #include "BenchCommands.h"
 
 #include "BitGrid.h"
+#include "SeededRng.h"
 
 #include <algorithm>
 #include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
-#include <random>
 #include <vector>
 
 using json = nlohmann::json;
@@ -62,14 +62,10 @@ namespace {
 // producing the same fixture, since fuzzShiftingMosaic.ts addresses boards by
 // seed. Nothing here reorders them.
 
-int randInt(std::mt19937 &rng, const int lo, const int hi) {
-  return std::uniform_int_distribution(lo, hi)(rng);
-}
-
 // A random polyomino of up to maxCells cells, normalised so its bounding box
 // starts at (0, 0).
-std::vector<Position> randomShape(std::mt19937 &rng, const int maxCells) {
-  const int want = randInt(rng, 1, maxCells);
+std::vector<Position> randomShape(SeededRng &rng, const int maxCells) {
+  const int want = rng.uniform(1, maxCells);
   std::vector<std::pair<int, int>> cells{{0, 0}};
   // guard bounds the retries for a shape that cannot grow, when the cell drawn
   // keeps having its neighbour already occupied. Decremented as the first
@@ -81,8 +77,8 @@ std::vector<Position> randomShape(std::mt19937 &rng, const int maxCells) {
   while (static_cast<int>(cells.size()) < want && guard > 0) {
     guard--;
     const auto &[bx, by] =
-        cells[randInt(rng, 0, static_cast<int>(cells.size()) - 1)];
-    const int d = randInt(rng, 0, 3);
+        cells[rng.uniform(0, static_cast<int>(cells.size()) - 1)];
+    const int d = rng.uniform(0, 3);
     const int nx = bx + BitGrid::DX[d];
     if (const int ny = by + BitGrid::DY[d];
         std::ranges::find(cells, std::make_pair(nx, ny)) == cells.end())
@@ -119,7 +115,7 @@ bool overlapsAt(const Board &board, const std::vector<Position> &shape,
   });
 }
 
-bool tryPlace(std::mt19937 &rng, Board &board,
+bool tryPlace(SeededRng &rng, Board &board,
               const std::vector<Position> &shape) {
   int bw = 0;
   int bh = 0;
@@ -130,8 +126,8 @@ bool tryPlace(std::mt19937 &rng, Board &board,
   if (bw > board.width || bh > board.height)
     return false;
   for (int tries = 0; tries < 200; tries++) {
-    const int ax = randInt(rng, 0, board.width - bw);
-    const int ay = randInt(rng, 0, board.height - bh);
+    const int ax = rng.uniform(0, board.width - bw);
+    const int ay = rng.uniform(0, board.height - bh);
     if (overlapsAt(board, shape, ax, ay))
       continue;
     for (const auto &[cx, cy] : shape)
@@ -151,7 +147,7 @@ struct ShuffleStats {
 // Scrambles with a long random walk of valid unit moves. The reverse walk
 // solves the result, which is what makes the instance solvable by
 // construction.
-ShuffleStats shuffleBoard(std::mt19937 &rng, BitGrid &grid,
+ShuffleStats shuffleBoard(SeededRng &rng, BitGrid &grid,
                           std::vector<Position> &anchors,
                           const size_t blockCount,
                           const uint32_t shuffleMoves) {
@@ -160,8 +156,8 @@ ShuffleStats shuffleBoard(std::mt19937 &rng, BitGrid &grid,
   while (stats.accepted < shuffleMoves && stats.attempts < maxAttempts) {
     stats.attempts++;
     const auto b =
-        static_cast<uint8_t>(randInt(rng, 0, static_cast<int>(blockCount) - 1));
-    const int d = randInt(rng, 0, 3);
+        static_cast<uint8_t>(rng.uniform(0, static_cast<int>(blockCount) - 1));
+    const int d = rng.uniform(0, 3);
     const Position from = anchors[b];
     const Position to = {.x = static_cast<int8_t>(from.x + BitGrid::DX[d]),
                          .y = static_cast<int8_t>(from.y + BitGrid::DY[d])};
@@ -209,10 +205,10 @@ json fixtureJson(const Board &board,
 // instance, so solvability is guaranteed by construction.
 int runGenerate(const std::string &outPath, const uint32_t seed,
                 const uint32_t shuffleMoves, const bool emitJson) {
-  std::mt19937 rng(seed);
-  const int W = randInt(rng, 4, 60);
-  const int H = randInt(rng, 4, 60);
-  const int targetBlocks = randInt(rng, 1, 20);
+  SeededRng rng(seed);
+  const int W = rng.uniform(4, 60);
+  const int H = rng.uniform(4, 60);
+  const int targetBlocks = rng.uniform(1, 20);
 
   std::vector<std::vector<Position>> shapes;
   Board board{.width = W,

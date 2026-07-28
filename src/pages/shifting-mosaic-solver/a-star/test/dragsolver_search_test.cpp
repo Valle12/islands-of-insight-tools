@@ -21,7 +21,7 @@ TEST(DragSolver, JamGuideAndJitterStayValidAndComplete) {
   // The jam guide adds an inadmissible ordering term to f and the tie seed
   // reshuffles equal-f plateaus — neither may cost completeness or validity:
   // every oracle-solvable board must still solve, every plan must replay.
-  std::mt19937 rng(testSeed(99)); // same instances as the oracle tests
+  SeededRng rng(testSeed(99)); // same instances as the oracle tests
   int solvable = 0;
   for (int round = 0; round < 120; round++) {
     const Puzzle p = randomPuzzle(rng);
@@ -48,7 +48,7 @@ TEST(DragSolver, JamRestartsAndBeamStayValid) {
   // Both jam-portfolio drivers are incomplete by design; what they must
   // guarantee is that any returned plan replays, and that between them they
   // solve a healthy majority of solvable boards within a generous budget.
-  std::mt19937 rng(testSeed(99)); // same instances as the oracle tests
+  SeededRng rng(testSeed(99)); // same instances as the oracle tests
   int solvable = 0;
   int solved = 0;
   for (int round = 0; round < 60; round++) {
@@ -93,7 +93,7 @@ TEST(DragSolver, JamRoundShapingStaysValidAndDefaultsUnchanged) {
   // jamMaxElites widens the retained pool. Both only reshape the restart
   // driver's lottery, so plans must stay replay-valid and the defaults must
   // stay bit-identical to the unshaped driver.
-  std::mt19937 rng(testSeed(99));
+  SeededRng rng(testSeed(99));
   int solvable = 0;
   int solved = 0;
   for (int round = 0; round < 40; round++) {
@@ -137,7 +137,7 @@ TEST(DragSolver, JamRoundShapingStaysValidAndDefaultsUnchanged) {
 }
 
 TEST(ParallelCascade, RacesArmsAndReturnsValidPlans) {
-  std::mt19937 rng(testSeed(2024));
+  SeededRng rng(testSeed(2024));
   int solvable = 0;
   for (int round = 0; round < 15; round++) {
     const Puzzle p = randomPuzzle(rng);
@@ -157,7 +157,7 @@ TEST(ParallelCascade, RacesArmsAndReturnsValidPlans) {
 }
 
 TEST(DragSolver, HierarchicalSolvesSolvableBoards) {
-  std::mt19937 rng(testSeed(55));
+  SeededRng rng(testSeed(55));
   for (int round = 0; round < 80; round++) {
     const Puzzle p = randomPuzzle(rng);
     if (const int want = oracleMinDrags(p); want <= 0)

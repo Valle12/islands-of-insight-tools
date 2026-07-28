@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DragSolver.h"
+#include "SeededRng.h"
 #include "Types.h"
 
 #include <cstdint>
@@ -164,7 +165,7 @@ inline size_t countPlayerSteps(const std::vector<Turn> &turns) {
 
 // Random small puzzle. Blocks are placed greedily; the result may be solvable
 // or not — the oracle decides, and DragSolver must agree either way.
-inline Puzzle randomPuzzle(std::mt19937 &rng) {
+inline Puzzle randomPuzzle(SeededRng &rng) {
   const std::vector<std::vector<Position>> catalog = {
       {{.x = 0, .y = 0}},
       {{.x = 0, .y = 0}, {.x = 1, .y = 0}},
@@ -175,19 +176,19 @@ inline Puzzle randomPuzzle(std::mt19937 &rng) {
   std::uniform_int_distribution wDist(4, 6);
   std::uniform_int_distribution hDist(3, 5);
   Puzzle p;
-  p.w = static_cast<uint8_t>(wDist(rng));
-  p.h = static_cast<uint8_t>(hDist(rng));
+  p.w = static_cast<uint8_t>(rng.draw(wDist));
+  p.h = static_cast<uint8_t>(rng.draw(hDist));
   std::uniform_int_distribution nDist(2, 3);
-  const int n = nDist(rng);
+  const int n = rng.draw(nDist);
   std::uniform_int_distribution shapeDist(0,
                                           static_cast<int>(catalog.size()) - 1);
   std::uniform_int_distribution xDist(0, p.w - 1);
   std::uniform_int_distribution yDist(0, p.h - 1);
   for (int i = 0; i < n; i++) {
-    const auto &shape = catalog[shapeDist(rng)];
+    const auto &shape = catalog[rng.draw(shapeDist)];
     for (int tries = 0; tries < 50; tries++) {
-      const Position a = {.x = static_cast<int8_t>(xDist(rng)),
-                          .y = static_cast<int8_t>(yDist(rng))};
+      const Position a = {.x = static_cast<int8_t>(rng.draw(xDist)),
+                          .y = static_cast<int8_t>(rng.draw(yDist))};
       p.shapes.push_back(shape);
       p.anchors.push_back(a);
       if (oracleCanPlace(p, p.shapes.size() - 1, a, p.anchors))
@@ -202,8 +203,8 @@ inline Puzzle randomPuzzle(std::mt19937 &rng) {
   }
   p.goalIndex = 0;
   for (int tries = 0; tries < 50; tries++) {
-    const Position t = {.x = static_cast<int8_t>(xDist(rng)),
-                        .y = static_cast<int8_t>(yDist(rng))};
+    const Position t = {.x = static_cast<int8_t>(rng.draw(xDist)),
+                        .y = static_cast<int8_t>(rng.draw(yDist))};
     std::vector<Position> alone(p.anchors.size(), {.x = 127, .y = 127});
     alone[0] = t;
     // Target just needs the goal's bbox in-grid.
