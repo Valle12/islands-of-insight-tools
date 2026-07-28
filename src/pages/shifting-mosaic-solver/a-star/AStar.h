@@ -243,6 +243,45 @@ private:
   [[nodiscard]] std::vector<bool>
   computeMovableSet(const std::vector<Position> &anchors) const;
   [[nodiscard]] bool isDeadlocked(const std::vector<Position> &anchors) const;
+
+  // ---- shared pieces of the heuristic components ---------------------------
+  // occupancy[cell] = block id occupying it, or -1. `skipGoal` leaves the goal
+  // block's own cells empty, which countPathBlockers needs so the goal's swept
+  // path is not blocked by itself; the movable fixpoint wants every block.
+  [[nodiscard]] std::vector<int16_t>
+  buildOccupancyIndex(const std::vector<Position> &anchors,
+                      bool skipGoal) const;
+  [[nodiscard]] bool allBlockersMovable(size_t i, Position to,
+                                        const std::vector<int16_t> &occupancy,
+                                        const std::vector<bool> &movable) const;
+  [[nodiscard]] bool
+  canFreeSomeDirection(size_t i, Position from,
+                       const std::vector<int16_t> &occupancy,
+                       const std::vector<bool> &movable) const;
+
+  // The rectangle spanning the goal block's current and target footprints —
+  // its sweep corridor. countSweepRectangleBlockers and axisAwareBlockerCost
+  // computed this identically before it was hoisted.
+  struct Rect {
+    int xLo;
+    int xHi;
+    int yLo;
+    int yHi;
+  };
+  [[nodiscard]] Rect goalCorridor(Position currentGoal) const;
+  [[nodiscard]] bool blockOverlapsRect(uint8_t i, Position anchor,
+                                       const Rect &rect) const;
+  enum class Axis : uint8_t { Horizontal, Vertical };
+  // Can block i step one cell either way along `axis` from `anchor`?
+  [[nodiscard]] bool canStepAlong(uint8_t i, Position anchor, Axis axis,
+                                  const std::vector<Position> &anchors) const;
+
+  // BFS over goal-block anchors from `from` toward goalAnchor_, seeing only
+  // the grid bounds (movable blocks ignored). Returns the predecessor map
+  // (-2 unvisited, -1 root), or an EMPTY vector when the target is
+  // unreachable even on an otherwise clear board.
+  [[nodiscard]] std::vector<int32_t>
+  goalAnchorPredecessors(Position from) const;
   // Canonical state signatures. Not static: they consult symmetryGroups_ to
   // canonicalise interchangeable same-shape blocks.
   [[nodiscard]] NodeKey nodeSignature(const Node &node) const;

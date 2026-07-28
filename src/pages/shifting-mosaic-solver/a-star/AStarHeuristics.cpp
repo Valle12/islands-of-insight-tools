@@ -12,6 +12,7 @@
 #include <array>
 #include <cstdlib>
 #include <deque>
+#include <ranges>
 #include <unordered_set>
 #include <utility>
 
@@ -134,80 +135,71 @@ uint32_t AStar::heuristic(const Node &node) const {
 //   * otherwise (block stuck right now) → it must still be displaced; 2 is a
 //     conservative penalty.
 // Non-admissible; intended for weighted A* / IDA* on rush-hour puzzles.
-uint32_t AStar::axisAwareBlockerCost(const std::vector<Position> &anchors,
-                                     const Position currentGoal) const {
-  // Corridor: rectangle covering both current and target footprints.
+AStar::Rect AStar::goalCorridor(const Position currentGoal) const {
   const int gw = shapeBoxWidth_[goalIndex_];
   const int gh = shapeBoxHeight_[goalIndex_];
-  const int xLo = std::min(static_cast<int>(currentGoal.x),
-                           static_cast<int>(goalAnchor_.x));
-  const int xHi = std::max(static_cast<int>(currentGoal.x),
-                           static_cast<int>(goalAnchor_.x)) +
-                  gw;
-  const int yLo = std::min(static_cast<int>(currentGoal.y),
-                           static_cast<int>(goalAnchor_.y));
-  const int yHi = std::max(static_cast<int>(currentGoal.y),
-                           static_cast<int>(goalAnchor_.y)) +
-                  gh;
+  return {.xLo = std::min(static_cast<int>(currentGoal.x),
+                          static_cast<int>(goalAnchor_.x)),
+          .xHi = std::max(static_cast<int>(currentGoal.x),
+                          static_cast<int>(goalAnchor_.x)) +
+                 gw,
+          .yLo = std::min(static_cast<int>(currentGoal.y),
+                          static_cast<int>(goalAnchor_.y)),
+          .yHi = std::max(static_cast<int>(currentGoal.y),
+                          static_cast<int>(goalAnchor_.y)) +
+                 gh};
+}
 
+bool AStar::blockOverlapsRect(const uint8_t i, const Position anchor,
+                              const Rect &rect) const {
+  // bbox quick reject
+  if (anchor.x + shapeBoxWidth_[i] <= rect.xLo || anchor.x >= rect.xHi)
+    return false;
+  if (anchor.y + shapeBoxHeight_[i] <= rect.yLo || anchor.y >= rect.yHi)
+    return false;
+  // cell-level: any cell of this block inside the rect?
+  return std::ranges::any_of(shapes_[i], [&](const Position &cell) {
+    const int cx = anchor.x + cell.x;
+    const int cy = anchor.y + cell.y;
+    return cx >= rect.xLo && cx < rect.xHi && cy >= rect.yLo && cy < rect.yHi;
+  });
+}
+
+bool AStar::canStepAlong(const uint8_t i, const Position anchor,
+                         const Axis axis,
+                         const std::vector<Position> &anchors) const {
+  // Indices into DX/DY: RIGHT, LEFT on the horizontal axis; UP, DOWN on the
+  // vertical one.
+  const std::array<int, 2> dirs =
+      axis == Axis::Horizontal ? std::array{1, 3} : std::array{0, 2};
+  return std::ranges::any_of(dirs, [&](const int d) {
+    const Position p = {.x = static_cast<int8_t>(anchor.x + DX[d]),
+                        .y = static_cast<int8_t>(anchor.y + DY[d])};
+    return inBounds(i, p) && !collidesWithOthers(i, p, anchors);
+  });
+}
+
+uint32_t AStar::axisAwareBlockerCost(const std::vector<Position> &anchors,
+                                     const Position currentGoal) const {
+  const Rect corridor = goalCorridor(currentGoal);
   uint32_t cost = 0;
   for (const uint8_t i : movableBlockIndices_) {
-    if (i == goalIndex_)
+    if (i == goalIndex_ || !blockOverlapsRect(i, anchors[i], corridor))
       continue;
-    const auto &[ax, ay] = anchors[i];
-    const int aw = shapeBoxWidth_[i];
-    const int ah = shapeBoxHeight_[i];
-    // bbox quick reject
-    if (ax + aw <= xLo || ax >= xHi)
-      continue;
-    if (ay + ah <= yLo || ay >= yHi)
-      continue;
-    bool overlapsCorridor = false;
-    for (const auto &[dx, dy] : shapes_[i]) {
-      const int cx = ax + dx;
-      if (const int cy = ay + dy;
-          cx >= xLo && cx < xHi && cy >= yLo && cy < yHi) {
-        overlapsCorridor = true;
-        break;
-      }
-    }
-    if (!overlapsCorridor)
-      continue;
-
-    // Decide block axis by probing one cell moves in each direction.
-    bool canMoveHoriz = false;
-    bool canMoveVert = false;
-    static constexpr std::array dirsH = {1, 3}; // RIGHT, LEFT
-    static constexpr std::array dirsV = {0, 2}; // UP, DOWN
-    for (const int d : dirsH) {
-      const Position p = {.x = static_cast<int8_t>(ax + DX[d]),
-                          .y = static_cast<int8_t>(ay + DY[d])};
-      if (inBounds(i, p) && !collidesWithOthers(i, p, anchors)) {
-        canMoveHoriz = true;
-        break;
-      }
-    }
-    for (const int d : dirsV) {
-      const Position p = {.x = static_cast<int8_t>(ax + DX[d]),
-                          .y = static_cast<int8_t>(ay + DY[d])};
-      if (inBounds(i, p) && !collidesWithOthers(i, p, anchors)) {
-        canMoveVert = true;
-        break;
-      }
-    }
-
     // NOTE: the perpendicular/parallel distinction this function is named for
     // is NOT currently implemented. The two branches that used to read
     // `canMoveVert ? 1 : 1` / `canMoveHoriz ? 1 : 1` were no-op ternaries —
-    // both arms were the literal 1 — so canMoveHoriz/canMoveVert only ever fed
-    // the "stuck" test, and `horizontalTrip` selected between two identical
+    // both arms were the literal 1 — so the axis probes only ever fed the
+    // "stuck" test, and `horizontalTrip` selected between two identical
     // statements. Collapsed to the behaviour that actually shipped. Giving a
     // perpendicular blocker a different cost than a parallel one would change
     // every benchmark on record, so it needs a deliberate re-tune rather than
     // a silent fix here.
-    cost += !canMoveHoriz && !canMoveVert
-                ? 2 // stuck right now; needs cascade to vacate
-                : 1;
+    const bool stuck =
+        !canStepAlong(i, anchors[i], Axis::Horizontal, anchors) &&
+        !canStepAlong(i, anchors[i], Axis::Vertical, anchors);
+    cost += stuck ? 2 // stuck right now; needs cascade to vacate
+                  : 1;
   }
   return cost;
 }
@@ -217,82 +209,62 @@ uint32_t AStar::axisAwareBlockerCost(const std::vector<Position> &anchors,
 // itself is one of several possible shortest paths, so this is approximate
 // (non-admissible) but strong: each counted block stands between the goal
 // block and its target on at least one optimal anchor-path.
-uint32_t AStar::countPathBlockers(const std::vector<Position> &anchors,
-                                  const Position currentGoal) const {
+std::vector<int32_t> AStar::goalAnchorPredecessors(const Position from) const {
   const size_t total =
       static_cast<size_t>(gridWidth_) * static_cast<size_t>(gridHeight_);
-
-  // Per-cell occupancy: -1 empty, otherwise block index. Allows attributing
-  // path cells to specific blockers.
-  std::vector<int16_t> occupancy(total, -1);
-  for (size_t i = 0; i < anchors.size(); i++) {
-    if (i == goalIndex_)
-      continue;
-    const auto &[ax, ay] = anchors[i];
-    for (const auto &[dx, dy] : shapes_[i]) {
-      occupancy[(ax + dx) * gridHeight_ + (ay + dy)] = static_cast<int16_t>(i);
-    }
-  }
-
-  // BFS anchor-graph from currentGoal toward goalAnchor; goal block sits on
-  // a cell if its shape (translated by anchor) overlaps with another block's
-  // occupancy. Passable = (no overlap with a non-goal block at any shape
-  // cell).
-  const auto &gShape = shapes_[goalIndex_];
-  const int gw = shapeBoxWidth_[goalIndex_];
-  const int gh = shapeBoxHeight_[goalIndex_];
-  auto anchorPassable = [&](const int8_t x, const int8_t y) {
-    if (x < 0 || y < 0)
-      return false;
-    if (x + gw > gridWidth_ || y + gh > gridHeight_)
-      return false;
-    return true;
-  };
-  // Per anchor cell, store predecessor for path reconstruction. -2 = not
-  // visited, -1 = root.
-  std::vector pred(total, -2);
-  pred[currentGoal.x * gridHeight_ + currentGoal.y] = -1;
+  std::vector<int32_t> pred(total, -2);
+  pred[from.x * gridHeight_ + from.y] = -1;
+  if (from.x == goalAnchor_.x && from.y == goalAnchor_.y)
+    return pred;
   std::deque<std::pair<int8_t, int8_t>> queue;
-  queue.emplace_back(currentGoal.x, currentGoal.y);
-  bool reached =
-      currentGoal.x == goalAnchor_.x && currentGoal.y == goalAnchor_.y;
-  while (!queue.empty() && !reached) {
+  queue.emplace_back(from.x, from.y);
+  while (!queue.empty()) {
     auto [x, y] = queue.front();
     queue.pop_front();
     for (int dir = 0; dir < 4; dir++) {
-      const auto nx = static_cast<int8_t>(x + DX[dir]);
-      const auto ny = static_cast<int8_t>(y + DY[dir]);
-      if (!anchorPassable(nx, ny))
+      const Position next = {.x = static_cast<int8_t>(x + DX[dir]),
+                             .y = static_cast<int8_t>(y + DY[dir])};
+      // The old anchorPassable lambda spelled this out; it is exactly the
+      // goal block's own bounds test.
+      if (!inBounds(goalIndex_, next))
         continue;
-      const int npos = nx * gridHeight_ + ny;
+      const int npos = next.x * gridHeight_ + next.y;
       if (pred[npos] != -2)
         continue;
       pred[npos] = x * gridHeight_ + y;
-      if (nx == goalAnchor_.x && ny == goalAnchor_.y) {
-        reached = true;
-        break;
-      }
-      queue.emplace_back(nx, ny);
+      if (next.x == goalAnchor_.x && next.y == goalAnchor_.y)
+        return pred;
+      queue.emplace_back(next.x, next.y);
     }
   }
-  if (!reached) {
-    // No anchor-path even ignoring movable blocks → push hard.
-    return 4;
-  }
+  return {}; // target unreachable even on a clear board
+}
+
+uint32_t AStar::countPathBlockers(const std::vector<Position> &anchors,
+                                  const Position currentGoal) const {
+  // BFS the anchor graph first: when the target is unreachable even ignoring
+  // movable blocks there is nothing to attribute, so the occupancy index below
+  // is not built at all.
+  const std::vector<int32_t> pred = goalAnchorPredecessors(currentGoal);
+  if (pred.empty())
+    return 4; // no anchor-path at all → push hard
+
+  // Per-cell occupancy: -1 empty, otherwise block index. Lets path cells be
+  // attributed to specific blockers.
+  const std::vector<int16_t> occupancy = buildOccupancyIndex(anchors, true);
 
   // Walk path from goal anchor back to current; collect blockers along the
   // way.
+  const auto &gShape = shapes_[goalIndex_];
   std::unordered_set<int16_t> blockerSet;
   int32_t cur = goalAnchor_.x * gridHeight_ + goalAnchor_.y;
   while (cur != -1) {
     const auto ax = static_cast<int8_t>(cur / gridHeight_);
     const auto ay = static_cast<int8_t>(cur % gridHeight_);
-    for (const auto &[dx, dy] : gShape) {
-      const int gx = ax + dx;
-      const int gy = ay + dy;
-      if (const int16_t occ = occupancy[gx * gridHeight_ + gy]; occ != -1)
+    for (const auto &[dx, dy] : gShape)
+      if (const int16_t occ = occupancy[(ax + dx) * gridHeight_ + (ay + dy)];
+          occ != -1)
         blockerSet.insert(occ);
-    }
     cur = pred[cur];
   }
   return static_cast<uint32_t>(blockerSet.size());
@@ -327,40 +299,11 @@ AStar::boundaryDistanceSum(const std::vector<Position> &anchors) const {
 uint32_t
 AStar::countSweepRectangleBlockers(const std::vector<Position> &anchors,
                                    const Position goal) const {
-  const int gw = shapeBoxWidth_[goalIndex_];
-  const int gh = shapeBoxHeight_[goalIndex_];
-  const int xLo =
-      std::min(static_cast<int>(goal.x), static_cast<int>(goalAnchor_.x));
-  const int xHi =
-      std::max(static_cast<int>(goal.x), static_cast<int>(goalAnchor_.x)) + gw;
-  const int yLo =
-      std::min(static_cast<int>(goal.y), static_cast<int>(goalAnchor_.y));
-  const int yHi =
-      std::max(static_cast<int>(goal.y), static_cast<int>(goalAnchor_.y)) + gh;
-
-  uint32_t count = 0;
-  for (const uint8_t i : movableBlockIndices_) {
-    if (i == goalIndex_)
-      continue;
-    const auto &[ax, ay] = anchors[i];
-    const int aw = shapeBoxWidth_[i];
-    const int ah = shapeBoxHeight_[i];
-    // bbox quick reject
-    if (ax + aw <= xLo || ax >= xHi)
-      continue;
-    if (ay + ah <= yLo || ay >= yHi)
-      continue;
-    // cell-level: any cell of this block inside the sweep rect?
-    for (const auto &[dx, dy] : shapes_[i]) {
-      const int cx = ax + dx;
-      if (const int cy = ay + dy;
-          cx >= xLo && cx < xHi && cy >= yLo && cy < yHi) {
-        count++;
-        break;
-      }
-    }
-  }
-  return count;
+  const Rect sweep = goalCorridor(goal);
+  return static_cast<uint32_t>(
+      std::ranges::count_if(movableBlockIndices_, [&](const uint8_t i) {
+        return i != goalIndex_ && blockOverlapsRect(i, anchors[i], sweep);
+      }));
 }
 
 bool AStar::isGoalState(const Node &node) const {
@@ -373,54 +316,58 @@ bool AStar::isGoalState(const Node &node) const {
 // locks (e.g. a hollow ring around a single cell where each blocks the other
 // in every direction) — the optimistic "start full and remove" variant would
 // keep both in the movable set forever, hiding the deadlock.
-std::vector<bool>
-AStar::computeMovableSet(const std::vector<Position> &anchors) const {
-  const size_t n = anchors.size();
+std::vector<int16_t>
+AStar::buildOccupancyIndex(const std::vector<Position> &anchors,
+                          const bool skipGoal) const {
   const size_t total =
       static_cast<size_t>(gridWidth_) * static_cast<size_t>(gridHeight_);
   std::vector<int16_t> occupancy(total, -1);
-  for (size_t i = 0; i < n; i++) {
+  for (size_t i = 0; i < anchors.size(); i++) {
+    if (skipGoal && i == goalIndex_)
+      continue;
     const auto &[ax, ay] = anchors[i];
-    for (const auto &[dx, dy] : shapes_[i]) {
+    for (const auto &[dx, dy] : shapes_[i])
       occupancy[(ax + dx) * gridHeight_ + (ay + dy)] = static_cast<int16_t>(i);
-    }
   }
+  return occupancy;
+}
+
+// Every cell block i would cover at `to` is free, its own, or held by a block
+// already proven movable.
+bool AStar::allBlockersMovable(const size_t i, const Position to,
+                               const std::vector<int16_t> &occupancy,
+                               const std::vector<bool> &movable) const {
+  return std::ranges::none_of(shapes_[i], [&](const Position &cell) {
+    const int occ = occupancy[(to.x + cell.x) * gridHeight_ + (to.y + cell.y)];
+    return occ != -1 && occ != static_cast<int>(i) && !movable[occ];
+  });
+}
+
+bool AStar::canFreeSomeDirection(const size_t i, const Position from,
+                                 const std::vector<int16_t> &occupancy,
+                                 const std::vector<bool> &movable) const {
+  return std::ranges::any_of(std::views::iota(0, 4), [&](const int d) {
+    const Position to = {.x = static_cast<int8_t>(from.x + DX[d]),
+                         .y = static_cast<int8_t>(from.y + DY[d])};
+    return inBounds(static_cast<uint8_t>(i), to) &&
+           allBlockersMovable(i, to, occupancy, movable);
+  });
+}
+
+std::vector<bool>
+AStar::computeMovableSet(const std::vector<Position> &anchors) const {
+  const size_t n = anchors.size();
+  const std::vector<int16_t> occupancy = buildOccupancyIndex(anchors, false);
   std::vector movable(n, false);
   bool changed = true;
   while (changed) {
     changed = false;
     for (size_t i = 0; i < n; i++) {
-      if (movable[i])
+      if (movable[i] ||
+          !canFreeSomeDirection(i, anchors[i], occupancy, movable))
         continue;
-      const auto &[ax, ay] = anchors[i];
-      const auto &shape = shapes_[i];
-      bool canMove = false;
-      for (int d = 0; d < 4; d++) {
-        const Position newAnchor = {.x = static_cast<int8_t>(ax + DX[d]),
-                                    .y = static_cast<int8_t>(ay + DY[d])};
-        if (!inBounds(static_cast<uint8_t>(i), newAnchor))
-          continue;
-        bool allFreeable = true;
-        for (const auto &[dx, dy] : shape) {
-          const int nx = newAnchor.x + dx;
-          const int ny = newAnchor.y + dy;
-          const int occ = occupancy[nx * gridHeight_ + ny];
-          if (occ == -1 || occ == static_cast<int>(i))
-            continue;
-          if (!movable[occ]) {
-            allFreeable = false;
-            break;
-          }
-        }
-        if (allFreeable) {
-          canMove = true;
-          break;
-        }
-      }
-      if (canMove) {
-        movable[i] = true;
-        changed = true;
-      }
+      movable[i] = true;
+      changed = true;
     }
   }
   return movable;
