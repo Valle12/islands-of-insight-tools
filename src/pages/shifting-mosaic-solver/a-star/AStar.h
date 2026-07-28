@@ -196,6 +196,40 @@ private:
   std::vector<std::vector<uint16_t>> blockSafeAnchorDist_;
   void computeBlockReachability();
 
+  // ---- construction and board-analysis phases ------------------------------
+  void buildShapeMetadata();
+  void buildSymmetryGroups();
+  void buildGoalFinalCells();
+  void detectMovableAndUnsolvable();
+  // Shape cells translated so their bounding box starts at (0,0), then sorted:
+  // two blocks are interchangeable iff these match.
+  [[nodiscard]] static std::vector<Position>
+  normalisedCells(const std::vector<Position> &shape);
+  // True iff block i at `anchor` covers any cell of the goal block's final
+  // footprint. Shared by the construction-time unsolvable check and
+  // isDeadlocked, which spelled out the same any_of separately.
+  [[nodiscard]] bool blockOnGoalFootprint(size_t i, Position anchor) const;
+
+  // Cells permanently occupied by blocks that can never move. The reachability
+  // masks and the goal-anchor BFS built this identically.
+  [[nodiscard]] std::vector<uint8_t> lockedCellMask() const;
+  // True iff none of block i's cells at (x, y) are set in `cellMask`.
+  [[nodiscard]] bool footprintClear(size_t i, int x, int y,
+                                    const std::vector<uint8_t> &cellMask) const;
+  void markValidAnchors(size_t i, const std::vector<uint8_t> &lockedCell);
+  void buildValidAnchorMasks(const std::vector<uint8_t> &lockedCell);
+  [[nodiscard]] bool onShortestGoalPath(int x, int y, int initGoalX,
+                                        int initGoalY, uint16_t dStart) const;
+  // Returns false when the goal block cannot reach its target at all: there is
+  // then no corridor, and the safe-anchor fields are deliberately left empty
+  // (the original code returned early at exactly this point).
+  [[nodiscard]] bool buildInitialGoalPathCells();
+  void buildSafeAnchorField(size_t i);
+  void buildSafeAnchorDistances();
+  [[nodiscard]] bool
+  goalAnchorValid(int8_t x, int8_t y,
+                  const std::vector<uint8_t> &lockedWall) const;
+
   // Move stride. If the whole puzzle (grid, every anchor, every shape, the
   // goal) is uniformly scaled by a factor G, the puzzle is isomorphic to one
   // 1/G the size, so restricting moves to G-cell strides loses no solution

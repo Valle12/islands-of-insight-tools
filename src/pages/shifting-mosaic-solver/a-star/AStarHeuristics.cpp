@@ -212,7 +212,7 @@ uint32_t AStar::axisAwareBlockerCost(const std::vector<Position> &anchors,
 std::vector<int32_t> AStar::goalAnchorPredecessors(const Position from) const {
   const size_t total =
       static_cast<size_t>(gridWidth_) * static_cast<size_t>(gridHeight_);
-  std::vector<int32_t> pred(total, -2);
+  std::vector pred(total, -2);
   pred[from.x * gridHeight_ + from.y] = -1;
   if (from.x == goalAnchor_.x && from.y == goalAnchor_.y)
     return pred;
@@ -376,6 +376,12 @@ AStar::computeMovableSet(const std::vector<Position> &anchors) const {
 bool AStar::isDeadlocked(const std::vector<Position> &anchors) const {
   // True iff block `i` currently covers any cell of the goal block's final
   // footprint. Both sweeps below ask exactly this question.
+  //
+  // Left spelled out rather than routed through the identical
+  // blockOnGoalFootprint() member: isDeadlocked runs per expanded node
+  // whenever deadlockPruning is on, and this file's per-node functions turned
+  // out to be sensitive to codegen changes (see the note in AStar.cpp), so the
+  // duplication is not worth disturbing for its own sake.
   const auto sitsOnGoalFootprint = [&](const size_t i) {
     const auto &[ax, ay] = anchors[i];
     return std::ranges::any_of(shapes_[i], [&](const Position &cell) {
@@ -395,7 +401,7 @@ bool AStar::isDeadlocked(const std::vector<Position> &anchors) const {
   }
   if (!hasBlocker)
     return false;
-  auto movable = computeMovableSet(anchors);
+  const auto movable = computeMovableSet(anchors);
   for (size_t i = 0; i < anchors.size(); i++) {
     if (i == goalIndex_ || movable[i])
       continue;
