@@ -2,11 +2,14 @@
 
 #include "AStar.h"
 #include "AStarOptimizer.h"
-#include "Node.h"
 #include "Replay.h"
+#include "SolverArms.h"
+#include "SolverClock.h"
 
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
+
+#include <string>
 
 using namespace emscripten;
 
@@ -116,20 +119,40 @@ val solve(const val puzzleVal, const val configVal) {
       opt<double>(configVal, "maxStatesStored", 0));
   cfg.maxHeapBytes = static_cast<uint64_t>(
       opt<double>(configVal, "maxHeapBytes", 0));
+  cfg.seed = opt<uint32_t>(configVal, "seed", 0);
   const bool postProcess = opt<bool>(configVal, "postProcess", true);
   const uint32_t optimizeMaxMs =
       opt<uint32_t>(configVal, "optimizeMaxMs", 30000);
 
-  AStar solver(puzzle.gridWidth, puzzle.gridHeight, puzzle.cells, cfg);
-  solver.setOnProgress([](uint32_t nodesExpanded) {
+  arms::ArmSpec spec;
+  spec.engine = opt<std::string>(configVal, "engine", "cascade");
+  spec.beamWidth = opt<uint32_t>(configVal, "beamWidth", 0);
+  spec.gated = opt<bool>(configVal, "gated", false);
+  if (!arms::knownEngine(spec.engine)) {
+    result.set("turns", val::array());
+    result.set("error", val("Unknown engine '" + spec.engine + "'"));
+    return result;
+  }
+
+  const uint64_t startMs = nowMs();
+  const auto onProgress = [](uint32_t nodesExpanded) {
     val self = val::global("self");
     val msg = val::object();
     msg.set("type", val("progress"));
     msg.set("progress", nodesExpanded);
     self.call<void>("postMessage", msg);
-  });
+  };
+  const auto onArmStart = [](const std::string &arm) {
+    val self = val::global("self");
+    val msg = val::object();
+    msg.set("type", val("phase"));
+    msg.set("arm", val(arm));
+    self.call<void>("postMessage", msg);
+  };
 
-  std::vector<Turn> turns = solver.search(Node(puzzle.blocks));
+  arms::Outcome outcome =
+      arms::solve(puzzle, spec, cfg, onProgress, onArmStart);
+  std::vector<Turn> turns = std::move(outcome.turns);
   if (postProcess && !turns.empty()) {
     turns = optimizer::optimize(puzzle, std::move(turns), optimizeMaxMs);
   }
@@ -137,10 +160,11 @@ val solve(const val puzzleVal, const val configVal) {
   result.set("turns", turnsToVal(turns));
   val stats = val::object();
   stats.set("nodesExpanded",
-            static_cast<double>(solver.stats().nodesExpanded));
-  stats.set("statesStored", static_cast<double>(solver.stats().statesStored));
-  stats.set("stoppedOnMemory", solver.stats().stoppedOnMemory);
-  stats.set("wallMs", solver.stats().wallMs);
+            static_cast<double>(outcome.stats.nodesExpanded));
+  stats.set("statesStored", static_cast<double>(outcome.stats.statesStored));
+  stats.set("stoppedOnMemory", outcome.stats.stoppedOnMemory);
+  stats.set("wallMs", static_cast<double>(nowMs() - startMs));
+  stats.set("engine", val(outcome.arm));
   result.set("stats", stats);
   return result;
 }

@@ -253,8 +253,8 @@ void AStar::expandNeighbor(const size_t bi, const Direction direction,
 // ---------------------------------------------------------------------------
 // Budgets
 // ---------------------------------------------------------------------------
-bool AStar::searchLimitReached(const uint64_t deadline,
-                               const SearchContext &ctx) {
+bool AStar::budgetExhausted(const uint64_t deadline,
+                            const size_t statesStored) {
   if (cfg_.cancel != nullptr &&
       cfg_.cancel->load(std::memory_order_relaxed)) {
     return true;
@@ -265,7 +265,7 @@ bool AStar::searchLimitReached(const uint64_t deadline,
   if (cfg_.maxNodes != 0 && stats_.nodesExpanded >= cfg_.maxNodes) {
     return true;
   }
-  if (cfg_.maxStatesStored != 0 && ctx.states.size() >= cfg_.maxStatesStored) {
+  if (cfg_.maxStatesStored != 0 && statesStored >= cfg_.maxStatesStored) {
     return true;
   }
 #if defined(__EMSCRIPTEN__)
@@ -287,6 +287,11 @@ bool AStar::searchLimitReached(const uint64_t deadline,
   return false;
 }
 
+bool AStar::searchLimitReached(const uint64_t deadline,
+                               const SearchContext &ctx) {
+  return budgetExhausted(deadline, ctx.states.size());
+}
+
 bool AStar::inputWithinCaps(const std::vector<Block> &blocks) const {
   if (gridWidth_ == 0 || gridWidth_ > MaxGridSide || gridHeight_ == 0 ||
       gridHeight_ > MaxGridSide) {
@@ -302,17 +307,14 @@ bool AStar::inputWithinCaps(const std::vector<Block> &blocks) const {
 }
 
 // ---------------------------------------------------------------------------
-// search
+// Shared entry-point preparation
 // ---------------------------------------------------------------------------
-std::vector<Turn> AStar::search(Node root) {
+bool AStar::prepareSearch(Node &root, boost::dynamic_bitset<> &rootOrd) {
   stats_ = {};
-  const uint64_t startMs = nowMs();
-  const uint64_t deadline = deadlineFrom(cfg_.maxMs);
-
   if (!inputWithinCaps(root.blocks)) {
     std::cout << "Input exceeds engine caps (grid <= 64x64, 1..255 blocks, "
                  "dims 1..64)\n";
-    return {};
+    return false;
   }
 
   rootBlocks_ = root.blocks;
@@ -327,11 +329,26 @@ std::vector<Turn> AStar::search(Node root) {
         gridWidth_, cells_, root.mustTouchCellsSatisfied);
   }
 
-  boost::dynamic_bitset<> rootOrd(mustTouchIndices_.size());
+  rootOrd.resize(mustTouchIndices_.size());
+  rootOrd.reset();
   for (size_t k = 0; k < cellOfOrdinal_.size(); k++) {
     if (root.mustTouchCellsSatisfied.test(cellOfOrdinal_[k])) {
       rootOrd.set(k);
     }
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// search
+// ---------------------------------------------------------------------------
+std::vector<Turn> AStar::search(Node root) {
+  const uint64_t startMs = nowMs();
+  const uint64_t deadline = deadlineFrom(cfg_.maxMs);
+
+  boost::dynamic_bitset<> rootOrd;
+  if (!prepareSearch(root, rootOrd)) {
+    return {};
   }
 
   SearchContext ctx;

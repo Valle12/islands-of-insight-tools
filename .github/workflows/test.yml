@@ -53,6 +53,9 @@ jobs:
             "$ASTAR_DIR/AStar.cpp" \
             "$ASTAR_DIR/AStarGoals.cpp" \
             "$ASTAR_DIR/AStarOptimizer.cpp" \
+            "$ASTAR_DIR/SearchCracker.cpp" \
+            "$ASTAR_DIR/SearchBeam.cpp" \
+            "$ASTAR_DIR/SolverArms.cpp" \
             "$ASTAR_DIR/Block.cpp" \
             "$ASTAR_DIR/SolverClock.cpp" \
             "$ASTAR_DIR/Replay.cpp" \

@@ -30,6 +30,7 @@ public:
     uint64_t maxNodes = 0;        // 0 = no expansion budget
     uint64_t maxStatesStored = 0; // deterministic budget knob for tests
     uint64_t maxHeapBytes = 0;    // production memory knob (measured bytes)
+    uint32_t seed = 0;            // tie-break / restart diversification
     std::atomic<bool> *cancel = nullptr;
   };
 
@@ -53,6 +54,17 @@ public:
         const Config &config);
 
   std::vector<Turn> search(Node root);
+
+  // Coverage cracker: depth-first over rolls with touch-greedy Warnsdorff
+  // ordering and Luby-scheduled seeded restarts. Built for the endgame class
+  // (must-touch-dominant boards) where best-first search drowns; see
+  // SearchCracker.cpp.
+  std::vector<Turn> searchCracker(Node root);
+
+  // Memory-bounded beam: level-synchronous best-f frontier of at most
+  // beamWidth states. Trades completeness for bounded memory on boards whose
+  // honest state space exceeds the heap; see SearchBeam.cpp.
+  std::vector<Turn> searchBeam(Node root, uint32_t beamWidth);
 
   [[nodiscard]] const SearchStats &stats() const { return stats_; }
 
@@ -170,9 +182,15 @@ private:
 
   [[nodiscard]] bool inputWithinCaps(const std::vector<Block> &blocks) const;
 
+  // Shared entry-point preparation: caps check, root bookkeeping (real-id
+  // blocks, goal tables), and the root's satisfied set in both forms.
+  // Returns false when the input is outside the engine caps.
+  bool prepareSearch(Node &root, boost::dynamic_bitset<> &rootOrd);
+
   void expandNeighbor(size_t bi, Direction direction, Table::Entry *curEntry,
                       SearchContext &ctx);
   bool searchLimitReached(uint64_t deadline, const SearchContext &ctx);
+  bool budgetExhausted(uint64_t deadline, size_t statesStored);
 
   // The heuristics are non-const: they reuse member scratch instead of
   // zero-initialising fresh tables per call. mustTouch is the cell-indexed

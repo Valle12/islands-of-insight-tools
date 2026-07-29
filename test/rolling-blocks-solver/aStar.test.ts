@@ -92,12 +92,18 @@ describe.if(Bun.env.ROLLING_BLOCKS_TEST === "true")("Rolling Blocks A*", () => {
     ["rollingBlocksTest31.json"],
     ["rollingBlocksTest32.json"],
     ["rollingBlocksTest33.json"],
+    ["rollingBlocksTest34.json"],
+    ["rollingBlocksTest35.json"],
+    ["rollingBlocksTest36.json"],
+    ["rollingBlocksTest37.json"],
+    ["rollingBlocksTest38.json"],
+    ["rollingBlocksTest39.json"],
   ];
 
   describe("Search", () => {
-    // Explicit per-test timeout: the heavier boards (fixture 18 especially)
-    // need more than bun's 5 s default under wasm.
-    const SOLVE_TEST_TIMEOUT_MS = 60_000;
+    // Explicit per-test timeout: the heavier boards (18/34/36) need far more
+    // than bun's 5 s default under wasm.
+    const SOLVE_TEST_TIMEOUT_MS = 120_000;
     test.each(solvableCases)(
       "should solve %s",
       async filename => {
@@ -107,8 +113,8 @@ describe.if(Bun.env.ROLLING_BLOCKS_TEST === "true")("Rolling Blocks A*", () => {
 
       const module = await loadWasmModule();
       const result = module.solve(toPuzzle(data), {
-        weight: 2,
-        maxMs: 60_000,
+        engine: "cascade",
+        maxMs: 90_000,
       });
       expect(result.error).toBeUndefined();
 
@@ -207,7 +213,11 @@ describe.if(Bun.env.ROLLING_BLOCKS_TEST === "true")("Rolling Blocks A*", () => {
         `${import.meta.dir}/../resources/rolling-blocks-solver/rollingBlocksTest36.json`,
       ).json();
       const module = await loadWasmModule();
-      const result = module.solve(toPuzzle(data), { weight: 2, maxNodes: 1 });
+      const result = module.solve(toPuzzle(data), {
+        engine: "wastar",
+        weight: 2,
+        maxNodes: 1,
+      });
 
       expect(result.error).toBeUndefined();
       expect(result.turns).toHaveLength(0);

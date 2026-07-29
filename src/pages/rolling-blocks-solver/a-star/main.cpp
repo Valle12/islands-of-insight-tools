@@ -7,8 +7,8 @@
 #include "AStar.h"
 #include "AStarOptimizer.h"
 #include "FixtureIo.h"
-#include "Node.h"
 #include "Replay.h"
+#include "SolverArms.h"
 #include "SolverClock.h"
 
 #include <cstdint>
@@ -23,21 +23,25 @@ namespace {
 
 struct CliOptions {
   std::string fixture;
-  std::string engine = "wastar";
+  std::string engine = "cascade";
   uint8_t weight = 2;
   uint32_t budgetMs = 60000;
   uint64_t maxNodes = 0;
   uint64_t maxStates = 0;
   uint64_t maxHeapBytes = 0;
   uint32_t seed = 0;
+  uint32_t beamWidth = 0;
+  bool gated = false;
   bool postProcess = true;
 };
 
 void printUsage() {
   std::cout
-      << "Usage: a_star --fixture <path> [--engine wastar] [--weight N]\n"
-         "              [--budget-ms N] [--max-nodes N] [--max-states N]\n"
-         "              [--max-heap-bytes N] [--seed N] [--no-post] [--json]\n"
+      << "Usage: a_star --fixture <path>\n"
+         "              [--engine cascade|wastar|exact|cracker|beam|greedy]\n"
+         "              [--weight N] [--budget-ms N] [--max-nodes N]\n"
+         "              [--max-states N] [--max-heap-bytes N] [--seed N]\n"
+         "              [--beam N] [--gated] [--no-post] [--json]\n"
          "The last stdout line starting with '{' is the JSON report.\n";
 }
 
@@ -50,6 +54,10 @@ bool parseArgs(const int argc, char **argv, CliOptions &opts) {
     }
     if (arg == "--no-post") {
       opts.postProcess = false;
+      continue;
+    }
+    if (arg == "--gated") {
+      opts.gated = true;
       continue;
     }
     if (i + 1 >= argc) {
@@ -73,6 +81,8 @@ bool parseArgs(const int argc, char **argv, CliOptions &opts) {
       opts.maxHeapBytes = std::strtoull(value, nullptr, 10);
     } else if (arg == "--seed") {
       opts.seed = static_cast<uint32_t>(std::strtoul(value, nullptr, 10));
+    } else if (arg == "--beam") {
+      opts.beamWidth = static_cast<uint32_t>(std::strtoul(value, nullptr, 10));
     } else {
       std::cerr << "Unknown argument: " << arg << "\n";
       return false;
@@ -97,9 +107,10 @@ int main(const int argc, char **argv) {
     printUsage();
     return 2;
   }
-  if (opts.engine != "wastar") {
+  if (!arms::knownEngine(opts.engine)) {
     std::cerr << "Unknown engine '" << opts.engine
-              << "' (available: wastar)\n";
+              << "' (available: cascade, wastar, exact, cracker, beam, "
+                 "greedy)\n";
     return 2;
   }
 
@@ -123,29 +134,36 @@ int main(const int argc, char **argv) {
   cfg.maxNodes = opts.maxNodes;
   cfg.maxStatesStored = opts.maxStates;
   cfg.maxHeapBytes = opts.maxHeapBytes;
+  cfg.seed = opts.seed;
 
-  const uint64_t constructStart = nowMs();
-  AStar solver(puzzle.gridWidth, puzzle.gridHeight, puzzle.cells, cfg);
+  arms::ArmSpec spec;
+  spec.engine = opts.engine;
+  spec.beamWidth = opts.beamWidth;
+  spec.gated = opts.gated;
+
   const uint64_t searchStart = nowMs();
-  std::vector<Turn> turns = solver.search(Node(puzzle.blocks));
+  arms::Outcome outcome = arms::solve(
+      puzzle, spec, cfg, {},
+      [](const std::string &arm) { std::cout << "arm: " << arm << "\n"; });
+  std::vector<Turn> turns = std::move(outcome.turns);
   const uint64_t searchEnd = nowMs();
 
   if (opts.postProcess && !turns.empty()) {
     turns = optimizer::optimize(puzzle, std::move(turns), 30000);
   }
 
-  const replay::Outcome outcome = replay::replayTurns(puzzle, turns);
-  const bool valid = outcome.legal && outcome.solvedAtEnd;
+  const replay::Outcome replayed = replay::replayTurns(puzzle, turns);
+  const bool valid = replayed.legal && replayed.solvedAtEnd;
 
   report["solved"] = !turns.empty() && valid;
   report["valid"] = valid;
   report["turns"] = turns.size();
-  report["nodesExpanded"] = solver.stats().nodesExpanded;
-  report["statesStored"] = solver.stats().statesStored;
-  report["stoppedOnMemory"] = solver.stats().stoppedOnMemory;
-  report["constructMs"] = searchStart - constructStart;
+  report["stage"] = outcome.arm;
+  report["nodesExpanded"] = outcome.stats.nodesExpanded;
+  report["statesStored"] = outcome.stats.statesStored;
+  report["stoppedOnMemory"] = outcome.stats.stoppedOnMemory;
   report["searchMs"] = searchEnd - searchStart;
-  report["wallMs"] = nowMs() - constructStart;
+  report["wallMs"] = nowMs() - searchStart;
   emitReport(report);
   return 0;
 }
