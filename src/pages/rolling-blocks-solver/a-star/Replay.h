@@ -33,6 +33,13 @@ struct Outcome {
 
 Outcome replayTurns(const Puzzle &puzzle, const std::vector<Turn> &turns);
 
+// Replays turns from the start and hands back the resulting position:
+// blocks after every roll plus the satisfied set. Returns false (leaving the
+// outputs unspecified) if any move is illegal.
+bool applyTurns(const Puzzle &puzzle, const std::vector<Turn> &turns,
+                std::vector<Block> &blocksOut,
+                boost::dynamic_bitset<> &satisfiedOut);
+
 // Post-processing stub until the full optimizer lands: cut the solution at
 // its earliest solving prefix. Returns the input unchanged when it never
 // solves or is already minimal-length in that sense.

@@ -98,6 +98,15 @@ describe.if(Bun.env.ROLLING_BLOCKS_TEST === "true")("Rolling Blocks A*", () => {
     ["rollingBlocksTest37.json"],
     ["rollingBlocksTest38.json"],
     ["rollingBlocksTest39.json"],
+    ["rollingBlocksTest40.json"],
+    ["rollingBlocksTest41.json"],
+    ["rollingBlocksTest42.json"],
+    ["rollingBlocksTest43.json"],
+    ["rollingBlocksTest44.json"],
+    ["rollingBlocksTest45.json"],
+    ["rollingBlocksTest46.json"],
+    ["rollingBlocksTest47.json"],
+    ["rollingBlocksTest48.json"],
   ];
 
   describe("Search", () => {

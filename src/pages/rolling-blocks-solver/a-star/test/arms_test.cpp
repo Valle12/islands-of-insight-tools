@@ -34,21 +34,19 @@ void expectValid(const replay::Puzzle &puzzle,
 } // namespace
 
 TEST(PuzzleProfile, GatesTheEndgameClass) {
-  // The single-block endgame boards are coverage-profile; multi-block and
-  // plain goal boards are not.
+  // One- and two-block endgame boards are coverage-profile (two-block ones
+  // route through the split scheme); plain goal boards are not.
   for (const auto *name :
-       {"rollingBlocksTest35.json", "rollingBlocksTest37.json",
-        "rollingBlocksTest38.json", "rollingBlocksTest39.json"}) {
+       {"rollingBlocksTest34.json", "rollingBlocksTest35.json",
+        "rollingBlocksTest37.json", "rollingBlocksTest38.json",
+        "rollingBlocksTest39.json"}) {
     SCOPED_TRACE(name);
     const auto features = puzzleprofile::analyze(loadFixture(name));
     EXPECT_TRUE(puzzleprofile::coverageProfile(features));
   }
-  for (const auto *name :
-       {"rollingBlocksTest3.json", "rollingBlocksTest34.json"}) {
-    SCOPED_TRACE(name);
-    const auto features = puzzleprofile::analyze(loadFixture(name));
-    EXPECT_FALSE(puzzleprofile::coverageProfile(features));
-  }
+  const auto goalBoard =
+      puzzleprofile::analyze(loadFixture("rollingBlocksTest3.json"));
+  EXPECT_FALSE(puzzleprofile::coverageProfile(goalBoard));
 }
 
 TEST(Arms, CrackerCracksTheCapturedEndgameFixtures) {

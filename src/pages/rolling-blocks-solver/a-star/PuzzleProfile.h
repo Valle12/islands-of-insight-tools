@@ -33,16 +33,15 @@ inline Features analyze(const replay::Puzzle &puzzle) {
   return f;
 }
 
-// The cracker's home turf: SINGLE-block must-touch-dominant boards, where
-// touched-cells-become-walls makes the puzzle a self-avoiding coverage walk.
-// Measured on the captured endgame fixtures: 37/38/39 fall in 106/60/7907
-// expansions and 35 in the same class, while the two-block fixture 34 defeats
-// the touch-greedy ordering outright (8.4M expansions, no solution) — so
-// multi-block boards stay with the weighted arms until the fuzz campaign
-// produces evidence for a looser gate.
+// The cracker's home turf: must-touch-dominant boards with one or two
+// blocks. Single-block boards run the touch-greedy walk directly (fixtures
+// 37/38/39 fall in 106/60/7907 expansions). Two-block boards route through
+// the split scheme in SolverArms.cpp — the JOINT walk was measured useless
+// there (fixture 34: 8.4M expansions, nothing), which is also why three-plus
+// blocks stay with the weighted arms until fuzz evidence says otherwise.
 inline bool coverageProfile(const Features &f) {
   return f.mustTouch >= 20 && f.mustTouch * 10 >= f.playable * 4 &&
-         f.blocks == 1;
+         f.blocks <= 2;
 }
 
 // Where uniform-cost enumeration (the exact arm) can plausibly finish: pure

@@ -138,10 +138,15 @@ export class RollingBlocksSolverEditor {
             this.solutionProgressText.textContent = `${phaseLabel} (${nodesExpanded.toLocaleString()} nodes expanded)`;
           },
           onPhase: phase => {
-            phaseLabel =
-              phase === "sequential"
-                ? "Trying harder — one strategy at a time..."
-                : `Searching (${phase})...`;
+            if (phase === "optimizing") {
+              // The optimizer emits no progress ticks; without its own label
+              // the spinner reads as stuck on the last node count.
+              phaseLabel = "Optimizing solution...";
+            } else if (phase === "sequential") {
+              phaseLabel = "Trying harder — one strategy at a time...";
+            } else {
+              phaseLabel = `Searching (${phase})...`;
+            }
             this.solutionProgressText.textContent = phaseLabel;
           },
           onDone: path => {

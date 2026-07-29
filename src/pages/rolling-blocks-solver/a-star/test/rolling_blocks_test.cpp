@@ -22,7 +22,7 @@ class RollingBlocksSearchTest : public testing::TestWithParam<std::string> {};
 static std::vector<std::string> allTestFiles() {
   std::vector<std::string> files;
   files.emplace_back("rollingBlocksTest.json");
-  for (int i = 1; i <= 39; i++) {
+  for (int i = 1; i <= 48; i++) {
     files.push_back(std::format("rollingBlocksTest{}.json", i));
   }
   return files;

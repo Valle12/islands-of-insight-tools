@@ -26,6 +26,206 @@ struct SingleArm {
   bool overrideWeight = false;
 };
 
+// Two-block coverage split, the fix for the fuzz campaign's surviving
+// boards: partition the unsatisfied must-touch cells by nearest block, then
+// run the single-block cracker per block IN SEQUENCE — the idle block's
+// footprint becomes a wall, the other block's share of cells becomes either
+// walls ("avoid" style, provably interaction-free) or plain floor ("free"
+// style, more connective but the first block may satisfy cells en route).
+// Four attempts (2 orders x 2 styles); every candidate plan must survive a
+// full replay of the REAL puzzle, so the sub-puzzle relaxations can suggest
+// but never certify.
+std::vector<Turn> runSplitCoverage(
+    const replay::Puzzle &puzzle, const AStar::Config &base,
+    AStar::SearchStats &statsOut,
+    const std::function<void(uint32_t)> &onProgress,
+    const uint64_t progressBase) {
+  if (puzzle.blocks.size() != 2 ||
+      std::ranges::contains(puzzle.cells, Tile::Goal)) {
+    return {};
+  }
+  const uint32_t totalMs = base.maxMs == 0 ? 300000 : base.maxMs;
+  const uint64_t deadline = nowMs() + totalMs;
+  const size_t totalCells = puzzle.cells.size();
+
+  const auto footprintCells = [&](const Block &b) {
+    std::vector<uint16_t> cells;
+    for (int8_t cx = b.x; cx < b.x + static_cast<int8_t>(b.width); cx++) {
+      for (int8_t cy = b.y; cy < b.y + static_cast<int8_t>(b.depth); cy++) {
+        cells.push_back(positionToIndex(cx, cy, puzzle.gridWidth));
+      }
+    }
+    return cells;
+  };
+  const auto fieldFrom = [&](const Block &b) {
+    std::vector<uint16_t> dist(totalCells, UINT16_MAX);
+    std::vector<uint16_t> frontier;
+    for (const uint16_t idx : footprintCells(b)) {
+      dist[idx] = 0;
+      frontier.push_back(idx);
+    }
+    std::vector<uint16_t> next;
+    uint16_t depth = 0;
+    while (!frontier.empty()) {
+      next.clear();
+      depth++;
+      for (const uint16_t idx : frontier) {
+        const int cx = idx % puzzle.gridWidth;
+        const int cy = idx / puzzle.gridWidth;
+        constexpr std::array<std::pair<int, int>, 4> kSteps = {
+            {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}};
+        for (const auto &[dx, dy] : kSteps) {
+          const int nx = cx + dx;
+          const int ny = cy + dy;
+          if (nx < 0 || nx >= puzzle.gridWidth || ny < 0 ||
+              ny >= puzzle.gridHeight) {
+            continue;
+          }
+          const auto nidx =
+              static_cast<uint16_t>(nx + ny * puzzle.gridWidth);
+          if (dist[nidx] != UINT16_MAX ||
+              puzzle.cells[nidx] == Tile::Unplayable) {
+            continue;
+          }
+          dist[nidx] = depth;
+          next.push_back(nidx);
+        }
+      }
+      frontier.swap(next);
+    }
+    return dist;
+  };
+  const auto fields = std::array{fieldFrom(puzzle.blocks[0]),
+                                 fieldFrom(puzzle.blocks[1])};
+
+  boost::dynamic_bitset<> rootSat(totalCells);
+  for (const auto &b : puzzle.blocks) {
+    rootSat = b.updateMustTouchCells(puzzle.gridWidth, puzzle.cells, rootSat);
+  }
+
+  const auto crackSub = [&](const replay::Puzzle &sub, const uint32_t maxMs,
+                            const uint64_t progressAt) {
+    AStar::Config cfg = base;
+    cfg.maxMs = maxMs;
+    AStar solver(sub.gridWidth, sub.gridHeight, sub.cells, cfg);
+    if (onProgress) {
+      solver.setOnProgress([&onProgress, progressAt](uint32_t n) {
+        onProgress(static_cast<uint32_t>(progressAt + n));
+      });
+    }
+    auto turns = solver.searchCracker(Node(sub.blocks));
+    statsOut.nodesExpanded += solver.stats().nodesExpanded;
+    statsOut.stoppedOnMemory =
+        statsOut.stoppedOnMemory || solver.stats().stoppedOnMemory;
+    return turns;
+  };
+  const auto unsatisfiedCount = [](const replay::Puzzle &sub) {
+    boost::dynamic_bitset<> sat(sub.cells.size());
+    for (const auto &b : sub.blocks) {
+      sat = b.updateMustTouchCells(sub.gridWidth, sub.cells, sat);
+    }
+    size_t open = 0;
+    for (size_t i = 0; i < sub.cells.size(); i++) {
+      if (sub.cells[i] == Tile::MustTouch && !sat.test(i)) {
+        open++;
+      }
+    }
+    return open;
+  };
+
+  struct Attempt {
+    size_t firstIdx;
+    bool wallForeign;
+  };
+  constexpr std::array<Attempt, 4> kAttempts = {
+      {{0, true}, {1, true}, {0, false}, {1, false}}};
+  const uint32_t perLeg = std::max<uint32_t>(1000, totalMs / 8);
+
+  for (const auto &attempt : kAttempts) {
+    const uint64_t now = nowMs();
+    if (now >= deadline) {
+      break;
+    }
+    const Block &first = puzzle.blocks[attempt.firstIdx];
+    const Block &second = puzzle.blocks[1 - attempt.firstIdx];
+    const auto &firstField = fields[attempt.firstIdx];
+    const auto &secondField = fields[1 - attempt.firstIdx];
+
+    // Leg 1: the first block alone against its share of the cells.
+    replay::Puzzle sub1{puzzle.gridWidth, puzzle.gridHeight, puzzle.cells,
+                       {first}};
+    for (const uint16_t idx : footprintCells(second)) {
+      sub1.cells[idx] = Tile::Unplayable;
+    }
+    for (size_t i = 0; i < totalCells; i++) {
+      if (puzzle.cells[i] != Tile::MustTouch || rootSat.test(i)) {
+        continue;
+      }
+      if (secondField[i] < firstField[i]) {
+        sub1.cells[i] =
+            attempt.wallForeign ? Tile::Unplayable : Tile::Regular;
+      }
+    }
+    std::vector<Turn> leg1;
+    if (unsatisfiedCount(sub1) > 0) {
+      leg1 = crackSub(
+          sub1,
+          static_cast<uint32_t>(std::min<uint64_t>(perLeg, deadline - now)),
+          progressBase + statsOut.nodesExpanded);
+      if (leg1.empty()) {
+        continue;
+      }
+    }
+
+    // The mid position on the REAL board decides what leg 2 faces.
+    std::vector<Block> midBlocks;
+    boost::dynamic_bitset<> midSat;
+    if (!replay::applyTurns(puzzle, leg1, midBlocks, midSat)) {
+      continue; // "free" style tripped over a cell it satisfied en route
+    }
+    const auto firstMid = std::ranges::find_if(
+        midBlocks, [&](const Block &b) { return b.id == first.id; });
+    const auto secondMid = std::ranges::find_if(
+        midBlocks, [&](const Block &b) { return b.id == second.id; });
+
+    // Leg 2: the second block alone against everything still open; the
+    // parked first block and every satisfied cell act as walls (equivalent
+    // semantics for a solo block).
+    replay::Puzzle sub2{puzzle.gridWidth, puzzle.gridHeight, puzzle.cells,
+                       {*secondMid}};
+    for (const uint16_t idx : footprintCells(*firstMid)) {
+      sub2.cells[idx] = Tile::Unplayable;
+    }
+    for (size_t i = 0; i < totalCells; i++) {
+      if (puzzle.cells[i] == Tile::MustTouch && midSat.test(i)) {
+        sub2.cells[i] = Tile::Unplayable;
+      }
+    }
+    std::vector<Turn> leg2;
+    if (unsatisfiedCount(sub2) > 0) {
+      const uint64_t mid = nowMs();
+      if (mid >= deadline) {
+        break;
+      }
+      leg2 = crackSub(
+          sub2,
+          static_cast<uint32_t>(std::min<uint64_t>(perLeg, deadline - mid)),
+          progressBase + statsOut.nodesExpanded);
+      if (leg2.empty()) {
+        continue;
+      }
+    }
+
+    std::vector<Turn> plan = leg1;
+    plan.insert(plan.end(), leg2.begin(), leg2.end());
+    if (const auto outcome = replay::replayTurns(puzzle, plan);
+        outcome.legal && outcome.solvedAtEnd) {
+      return plan;
+    }
+  }
+  return {};
+}
+
 std::vector<Turn> runSingle(const replay::Puzzle &puzzle, const SingleArm &arm,
                             const AStar::Config &base,
                             AStar::SearchStats &statsOut,
@@ -40,6 +240,12 @@ std::vector<Turn> runSingle(const replay::Puzzle &puzzle, const SingleArm &arm,
     if (arm.engine == "exact" && !puzzleprofile::exactProfile(features)) {
       return {};
     }
+  }
+
+  // Two-block coverage boards route through the split scheme — the joint
+  // DFS was measured useless there (8.4M expansions, nothing, fixture 34).
+  if (arm.engine == "cracker" && puzzle.blocks.size() == 2) {
+    return runSplitCoverage(puzzle, base, statsOut, onProgress, progressBase);
   }
 
   AStar::Config cfg = base;

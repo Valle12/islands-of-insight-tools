@@ -92,6 +92,34 @@ Outcome replayTurns(const Puzzle &puzzle, const std::vector<Turn> &turns) {
   return outcome;
 }
 
+bool applyTurns(const Puzzle &puzzle, const std::vector<Turn> &turns,
+                std::vector<Block> &blocksOut,
+                boost::dynamic_bitset<> &satisfiedOut) {
+  blocksOut = puzzle.blocks;
+  satisfiedOut.resize(puzzle.cells.size());
+  satisfiedOut.reset();
+  for (const auto &block : blocksOut) {
+    satisfiedOut = block.updateMustTouchCells(puzzle.gridWidth, puzzle.cells,
+                                              satisfiedOut);
+  }
+  for (const auto &turn : turns) {
+    const auto it = std::ranges::find_if(blocksOut, [&](const Block &b) {
+      return b.id == turn.blockId;
+    });
+    if (it == blocksOut.end()) {
+      return false;
+    }
+    it->roll(turn.direction);
+    if (!it->checkValidity(puzzle.gridWidth, puzzle.gridHeight, puzzle.cells,
+                           blocksOut, satisfiedOut)) {
+      return false;
+    }
+    satisfiedOut =
+        it->updateMustTouchCells(puzzle.gridWidth, puzzle.cells, satisfiedOut);
+  }
+  return true;
+}
+
 std::vector<Turn> truncateToEarliestSolve(const Puzzle &puzzle,
                                           const std::vector<Turn> &turns) {
   const Outcome outcome = replayTurns(puzzle, turns);

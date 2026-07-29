@@ -163,6 +163,9 @@ val solve(const val puzzleVal, const val configVal) {
 #endif
   std::vector<Turn> turns = std::move(outcome.turns);
   if (postProcess && !turns.empty()) {
+    // The optimizer can run for many seconds with no progress ticks; without
+    // a phase signal the page's spinner reads as stuck.
+    onArmStart("optimizing");
     turns = optimizer::optimize(puzzle, std::move(turns), optimizeMaxMs);
   }
 
