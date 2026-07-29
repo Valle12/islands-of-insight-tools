@@ -1,8 +1,10 @@
 // AStar: heuristics and the goal-cluster machinery.
 //
-// The three admissible lower bounds combined by heuristic(), the connected
-// goal regions they measure against, and the block-to-cluster assignment
-// that decides which block is expected to cover which region.
+// The lower bounds combined by heuristic(), the connected goal regions they
+// measure against, and the goal test. All of it works on decoded scratch
+// states (a blocks vector plus a cell-indexed must-touch bitset) — block ids
+// in here are slot indices from decodeState, never real ids, so nothing may
+// key persistent data on them.
 
 #include "AStar.h"
 
@@ -11,86 +13,132 @@
 #include <limits>
 #include <queue>
 
+uint32_t AStar::heuristic(const std::vector<Block> &blocks,
+                          const boost::dynamic_bitset<> &mustTouch,
+                          const boost::dynamic_bitset<> &ordinal) {
+  return std::max({mustTouchHeuristic(blocks, ordinal),
+                   groupedMustTouchHeuristic(blocks, mustTouch),
+                   goalDistanceHeuristic(blocks)});
+}
 
-uint32_t AStar::mustTouchHeuristic(const Node &node) const {
-  uint32_t unsatisfied = 0;
+uint32_t
+AStar::mustTouchHeuristic(const std::vector<Block> &blocks,
+                          const boost::dynamic_bitset<> &ordinal) const {
   uint32_t maxFootprint = 1;
-  for (const auto &block : node.blocks) {
+  for (const auto &block : blocks) {
     maxFootprint = std::max(maxFootprint,
                             static_cast<uint32_t>(block.width) * block.depth);
   }
-  for (const auto &[mx, my, idx] : mustTouchIndices_) {
-    if (idx >= node.mustTouchCellsSatisfied.size() ||
-        !node.mustTouchCellsSatisfied.test(idx)) {
-      unsatisfied++;
-    }
-  }
+  const auto unsatisfied =
+      static_cast<uint32_t>(mustTouchIndices_.size() - ordinal.count());
   return (unsatisfied + maxFootprint - 1) / maxFootprint;
 }
 
-uint32_t AStar::groupedMustTouchHeuristic(const Node &node) const {
-  std::array<uint32_t, 256> counts{};
+// Group each unsatisfied must-touch cell with its nearest block, then bound
+// every group by that block's footprint. Blocks are addressed by INDEX — the
+// grouping is symmetric under permuting same-shaped blocks, which keeps it
+// coherent with the canonical (id-free) state encoding.
+uint32_t
+AStar::groupedMustTouchHeuristic(const std::vector<Block> &blocks,
+                                 const boost::dynamic_bitset<> &mustTouch) {
+  groupScratch_.assign(blocks.size(), 0);
   for (const auto &[mx, my, idx] : mustTouchIndices_) {
-    if (idx < node.mustTouchCellsSatisfied.size() &&
-        node.mustTouchCellsSatisfied.test(idx)) {
+    if (mustTouch.test(idx)) {
       continue;
     }
-    uint8_t bestId = node.blocks[0].id;
+    size_t bestIdx = 0;
     int bestDist = std::numeric_limits<int>::max();
-    for (const auto &block : node.blocks) {
-      const int d = std::abs(static_cast<int>(block.x) - mx) +
-                    std::abs(static_cast<int>(block.y) - my);
+    for (size_t i = 0; i < blocks.size(); i++) {
+      const int d = std::abs(static_cast<int>(blocks[i].x) - mx) +
+                    std::abs(static_cast<int>(blocks[i].y) - my);
       if (d < bestDist) {
         bestDist = d;
-        bestId = block.id;
+        bestIdx = i;
       }
     }
-    counts[bestId]++;
+    groupScratch_[bestIdx]++;
   }
   uint32_t maxLowerBound = 0;
-  for (const auto &block : node.blocks) {
-    const uint32_t count = counts[block.id];
+  for (size_t i = 0; i < blocks.size(); i++) {
+    const uint32_t count = groupScratch_[i];
     if (count == 0) {
       continue;
     }
-    const uint32_t footprint = static_cast<uint32_t>(block.width) * block.depth;
+    const uint32_t footprint =
+        static_cast<uint32_t>(blocks[i].width) * blocks[i].depth;
     maxLowerBound =
         std::max(maxLowerBound, (count + footprint - 1) / footprint);
   }
   return maxLowerBound;
 }
 
-uint32_t AStar::goalDistanceHeuristic(const Node &node) const {
+// Minimum-cost matching of clusters to distinct compatible blocks, computed
+// per state from geometry alone. The previous per-id assignment table is
+// meaningless under the canonical encoding, where physically interchangeable
+// blocks trade identities freely between states; a plain per-cluster minimum
+// let one block "cover" several clusters and blew up goal-bearing fixtures
+// five-fold; a greedy claim in cluster order oscillated between neighbouring
+// states and was far worse. The optimal matching is the strongest bound of
+// this family AND permutation-symmetric. Subset DP over clusters: dp[S] =
+// cheapest way to serve cluster set S with the blocks seen so far.
+uint32_t AStar::goalDistanceHeuristic(const std::vector<Block> &blocks) {
   if (goalIndices_.empty()) {
     return 0;
   }
-  uint32_t total = 0;
-  for (const auto &block : node.blocks) {
-    const auto &[cluster, valid] = blockGoalAssignment_[block.id];
-    if (!valid || blockCoversGoal(block, cluster)) {
-      continue;
+  constexpr int kInf = std::numeric_limits<int>::max() / 2;
+  const size_t numClusters = goalClusters_.size();
+  // 2^C states: past 12 clusters fall back to "0" rather than blow up the
+  // per-successor cost; such boards are goal-scatter puzzles the must-touch
+  // bounds carry anyway.
+  if (numClusters > 12) {
+    return 0;
+  }
+  const size_t full = (size_t{1} << numClusters) - 1;
+  matchDp_.assign(full + 1, kInf);
+  matchDp_[0] = 0;
+  for (const auto &block : blocks) {
+    for (size_t s = full; s > 0; s--) {
+      if (matchDp_[s] >= kInf) {
+        continue;
+      }
+      for (size_t c = 0; c < numClusters; c++) {
+        if ((s >> c & 1u) != 0) {
+          continue;
+        }
+        if (!blockCompatibleWithCluster(block, goalClusters_[c])) {
+          continue;
+        }
+        const int d =
+            std::abs(static_cast<int>(block.x) - goalClusters_[c].minX) +
+            std::abs(static_cast<int>(block.y) - goalClusters_[c].minY);
+        matchDp_[s | size_t{1} << c] =
+            std::min(matchDp_[s | size_t{1} << c], matchDp_[s] + d);
+      }
     }
-    total += std::abs(static_cast<int>(block.x) - cluster.minX) +
-             std::abs(static_cast<int>(block.y) - cluster.minY);
-  }
-  return total;
-}
-
-bool AStar::blockCoversGoal(const Block &block, const GoalCluster &goal) const {
-  if (block.width != goal.width || block.depth != goal.depth) {
-    return false;
-  }
-  for (int8_t cx = block.x; cx < block.x + static_cast<int8_t>(block.width);
-       cx++) {
-    for (int8_t cy = block.y; cy < block.y + static_cast<int8_t>(block.depth);
-         cy++) {
-      if (const auto idx = positionToIndex(cx, cy, gridWidth_);
-          idx >= cells_.size() || cells_[idx] != Tile::Goal) {
-        return false;
+    // s == 0 seeds single-cluster assignments for this block.
+    for (size_t c = 0; c < numClusters; c++) {
+      if (blockCompatibleWithCluster(block, goalClusters_[c])) {
+        const int d =
+            std::abs(static_cast<int>(block.x) - goalClusters_[c].minX) +
+            std::abs(static_cast<int>(block.y) - goalClusters_[c].minY);
+        matchDp_[size_t{1} << c] =
+            std::min(matchDp_[size_t{1} << c], d);
       }
     }
   }
-  return true;
+  // The best over all subsets of maximal size that are actually assignable:
+  // clusters no block fits contribute nothing, matching the old behaviour of
+  // simply leaving them unassigned.
+  if (matchDp_[full] < kInf) {
+    return static_cast<uint32_t>(matchDp_[full]);
+  }
+  int best = 0;
+  for (size_t s = 0; s <= full; s++) {
+    if (matchDp_[s] < kInf) {
+      best = std::max(best, matchDp_[s]);
+    }
+  }
+  return static_cast<uint32_t>(best);
 }
 
 // ---------------------------------------------------------------------------
@@ -177,94 +225,6 @@ bool AStar::blockCompatibleWithCluster(const Block &block,
 }
 
 // ---------------------------------------------------------------------------
-// Helper: count compatible clusters for a block and return index if unique
-// ---------------------------------------------------------------------------
-int AStar::countCompatibleClusters(const Block &block,
-                                   const std::vector<bool> &taken,
-                                   size_t &outIdx) const {
-  int count = 0;
-  for (size_t i = 0; i < goalClusters_.size(); i++) {
-    if (!taken[i] && blockCompatibleWithCluster(block, goalClusters_[i])) {
-      outIdx = i;
-      if (++count > 1) {
-        break;
-      }
-    }
-  }
-  return count;
-}
-
-// ---------------------------------------------------------------------------
-// Helper: assign blocks that have exactly one compatible cluster
-// ---------------------------------------------------------------------------
-void AStar::assignUniqueGoals(const std::vector<Block> &blocks,
-                              std::vector<bool> &taken) {
-  bool changed = true;
-  while (changed) {
-    changed = false;
-    for (const auto &block : blocks) {
-      if (blockGoalAssignment_[block.id].valid) {
-        continue;
-      }
-      size_t compatIdx = std::numeric_limits<size_t>::max();
-      if (const int compatCount =
-              countCompatibleClusters(block, taken, compatIdx);
-          compatCount == 1) {
-        blockGoalAssignment_[block.id] = {goalClusters_[compatIdx], true};
-        taken[compatIdx] = true;
-        changed = true;
-      }
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Helper: greedily assign remaining blocks to nearest compatible cluster
-// ---------------------------------------------------------------------------
-void AStar::assignGreedyGoals(const std::vector<Block> &blocks,
-                              std::vector<bool> &taken) {
-  for (const auto &block : blocks) {
-    if (blockGoalAssignment_[block.id].valid) {
-      continue;
-    }
-    int bestDist = std::numeric_limits<int>::max();
-    size_t bestIdx = std::numeric_limits<size_t>::max();
-    for (size_t i = 0; i < goalClusters_.size(); i++) {
-      if (taken[i] || !blockCompatibleWithCluster(block, goalClusters_[i])) {
-        continue;
-      }
-      const int d =
-          std::abs(static_cast<int>(block.x) - goalClusters_[i].minX) +
-          std::abs(static_cast<int>(block.y) - goalClusters_[i].minY);
-      if (d < bestDist) {
-        bestDist = d;
-        bestIdx = i;
-      }
-    }
-    if (bestIdx != std::numeric_limits<size_t>::max()) {
-      blockGoalAssignment_[block.id] = {goalClusters_[bestIdx], true};
-      taken[bestIdx] = true;
-    }
-  }
-}
-
-void AStar::assignBlocksToGoals(const std::vector<Block> &blocks) {
-  for (auto &[cluster, valid] : blockGoalAssignment_) {
-    valid = false;
-  }
-  if (goalClusters_.empty()) {
-    return;
-  }
-  // Sized to the actual cluster count: goalClusters_ is one entry per
-  // connected Goal component, and a scattered Goal layout on a full-size
-  // board produces far more than the 64 a fixed array used to allow — every
-  // loop below indexes and writes taken[i] over the whole range.
-  std::vector<bool> taken(goalClusters_.size(), false);
-  assignUniqueGoals(blocks, taken);
-  assignGreedyGoals(blocks, taken);
-}
-
-// ---------------------------------------------------------------------------
 // Helper: check if a single block is fully on Goal cells
 // ---------------------------------------------------------------------------
 bool AStar::isBlockFullyOnGoal(const Block &block) const {
@@ -280,99 +240,24 @@ bool AStar::isBlockFullyOnGoal(const Block &block) const {
   return true;
 }
 
-bool AStar::isGoalState(const Node &node) const {
-  for (const auto &[mx, my, idx] : mustTouchIndices_) {
-    if (idx >= node.mustTouchCellsSatisfied.size() ||
-        !node.mustTouchCellsSatisfied.test(idx)) {
-      return false;
-    }
+bool AStar::isGoalState(const std::vector<Block> &blocks,
+                        const boost::dynamic_bitset<> &ordinal) const {
+  // all() is vacuously true on an empty bitset, matching "no must-touch
+  // cells" — and is a word-wise scan, not a per-cell loop.
+  if (!ordinal.all()) {
+    return false;
   }
   if (goalIndices_.empty()) {
     return true;
   }
   size_t satisfied = 0;
-  for (const auto &block : node.blocks) {
+  for (const auto &block : blocks) {
     if (isBlockFullyOnGoal(block)) {
       satisfied += static_cast<size_t>(block.width) * block.depth;
     }
   }
+  // Footprints are disjoint and every counted cell is a Goal cell, so the sum
+  // equals the number of DISTINCT goal cells covered — ">=" is only ever
+  // reachable as "==", i.e. this is an exact-cover test.
   return satisfied >= goalIndices_.size();
 }
-
-std::vector<Turn> AStar::reconstructPath(const StateMap &states,
-                                         const NodeKey &goalSignature) {
-  std::vector<Turn> turns;
-  NodeKey current = goalSignature;
-  while (true) {
-    auto it = states.find(current);
-    if (it == states.end() || !it->second.hasParent) {
-      break;
-    }
-    turns.push_back(it->second.turn);
-    current = it->second.parent;
-  }
-  std::ranges::reverse(turns);
-  return turns;
-}
-
-NodeKey AStar::nodeSignature(const Node &node) {
-  const auto n = static_cast<uint8_t>(node.blocks.size());
-  std::array<uint8_t, 256> indices{};
-  for (uint8_t i = 0; i < n; i++) {
-    indices[i] = i;
-  }
-  std::sort(indices.begin(), indices.begin() + n,
-            [&](const uint8_t a, const uint8_t b) {
-              const auto &ba = node.blocks[a];
-              const auto &bb = node.blocks[b];
-              if (ba.x != bb.x) {
-                return ba.x < bb.x;
-              }
-              if (ba.y != bb.y) {
-                return ba.y < bb.y;
-              }
-              if (ba.width != bb.width) {
-                return ba.width < bb.width;
-              }
-              return ba.depth < bb.depth;
-            });
-  return buildSignature(
-      n, indices.data(),
-      [&node](const uint8_t i) -> const Block & { return node.blocks[i]; },
-      node.mustTouchCellsSatisfied);
-}
-
-NodeKey AStar::signatureFromParts(const std::vector<Block> &blocks,
-                                  const size_t replaceIdx,
-                                  const Block &replacement,
-                                  const boost::dynamic_bitset<> &mustTouch) {
-  const auto n = static_cast<uint8_t>(blocks.size());
-  std::array<uint8_t, 256> indices{};
-  for (uint8_t i = 0; i < n; i++) {
-    indices[i] = i;
-  }
-  std::sort(indices.begin(), indices.begin() + n,
-            [&](const uint8_t a, const uint8_t b) {
-              const auto &ba = a == replaceIdx ? replacement : blocks[a];
-              const auto &bb = b == replaceIdx ? replacement : blocks[b];
-              if (ba.x != bb.x) {
-                return ba.x < bb.x;
-              }
-              if (ba.y != bb.y) {
-                return ba.y < bb.y;
-              }
-              if (ba.width != bb.width) {
-                return ba.width < bb.width;
-              }
-              return ba.depth < bb.depth;
-            });
-  return buildSignature(
-      n, indices.data(),
-      [replaceIdx, &replacement, &blocks](const uint8_t i) -> const Block & {
-        return i == replaceIdx ? replacement : blocks[i];
-      },
-      mustTouch);
-}
-
-// buildSignature is a template defined in AStar.h
-

@@ -100,7 +100,13 @@ async function build({
 await build({
   aStarDir: resolve(projectRoot, "src/pages/rolling-blocks-solver/a-star"),
   outDir: resolve(projectRoot, "src/pages/rolling-blocks-solver/wasm"),
-  sources: ["wasm_bindings.cpp", "AStar.cpp", "AStarGoals.cpp", "Block.cpp"],
+  sources: [
+    "wasm_bindings.cpp",
+    "AStar.cpp",
+    "AStarGoals.cpp",
+    "Block.cpp",
+    "SolverClock.cpp",
+  ],
   outputJs: "astar.mjs",
   exportName: "createAStarModule",
   needsBoost: true,

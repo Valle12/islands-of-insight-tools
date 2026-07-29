@@ -6,38 +6,55 @@
 #include <cstring>
 #include <memory>
 
+// Byte-oriented state key: the canonical, COMPLETE encoding of a search state.
+// AStar::encodeState writes, per state:
+//
+//   numBlocks * 5 bytes   one (x, y, width, depth, height) record per block,
+//                         records sorted ascending as 5-byte tuples so states
+//                         differing only in which same-shaped block sits where
+//                         collapse into one entry
+//   ceil(K/8) bytes       must-touch satisfaction bits, indexed by must-touch
+//                         ORDINAL (K = number of must-touch cells), not by
+//                         board cell
+//
+// Height is part of the record: without it a standing 1x1x3 and a standing
+// 1x1x5 on the same footprint alias into one state (the fixture-32 bug). The
+// ordinal bit block replaces the old fixed to_block_range scratch, whose 16
+// unsigned longs silently overflowed past 512 board cells on wasm32 and whose
+// block width differed between wasm32 (4 bytes) and native (8), making keys
+// non-portable. len is in BYTES and uint16_t: the worst case at the engine
+// caps (255 blocks * 5 + 4096/8) is 1787.
 struct NodeKey {
-  static constexpr size_t InlineCapacity = 16; // uint32_t units
-  std::array<uint32_t, InlineCapacity> inlineData{};
+  static constexpr size_t InlineCapacity = 48; // bytes
+  std::array<uint8_t, InlineCapacity> inlineData{};
   // Owning spill buffer for keys longer than InlineCapacity. unique_ptr is the
   // same one pointer wide as the raw pointer it replaced, so the inline-buffer
   // optimisation this struct exists for is unchanged.
-  std::unique_ptr<uint32_t[]> heapData;
-  uint8_t len = 0;
+  std::unique_ptr<uint8_t[]> heapData;
+  uint16_t len = 0;
 
-  uint32_t *data() {
+  uint8_t *data() {
     return len <= InlineCapacity ? inlineData.data() : heapData.get();
   }
-  [[nodiscard]] const uint32_t *data() const {
+  [[nodiscard]] const uint8_t *data() const {
     return len <= InlineCapacity ? inlineData.data() : heapData.get();
   }
 
   NodeKey() = default;
 
-  explicit NodeKey(const uint8_t n) : len(n) {
+  explicit NodeKey(const uint16_t n) : len(n) {
     if (n > InlineCapacity)
-      heapData = std::make_unique<uint32_t[]>(n);
+      heapData = std::make_unique<uint8_t[]>(n); // value-init: starts zeroed
   }
 
   ~NodeKey() = default;
 
   NodeKey(const NodeKey &o) : len(o.len) {
     if (len > InlineCapacity) {
-      heapData = std::make_unique_for_overwrite<uint32_t[]>(len);
-      std::memcpy(heapData.get(), o.heapData.get(), len * sizeof(uint32_t));
+      heapData = std::make_unique_for_overwrite<uint8_t[]>(len);
+      std::memcpy(heapData.get(), o.heapData.get(), len);
     } else {
-      std::memcpy(inlineData.data(), o.inlineData.data(),
-                  len * sizeof(uint32_t));
+      std::memcpy(inlineData.data(), o.inlineData.data(), len);
     }
   }
 
@@ -48,17 +65,15 @@ struct NodeKey {
     heapData.reset();
     len = o.len;
     if (len > InlineCapacity) {
-      heapData = std::make_unique_for_overwrite<uint32_t[]>(len);
-      std::memcpy(heapData.get(), o.heapData.get(), len * sizeof(uint32_t));
+      heapData = std::make_unique_for_overwrite<uint8_t[]>(len);
+      std::memcpy(heapData.get(), o.heapData.get(), len);
     } else {
-      std::memcpy(inlineData.data(), o.inlineData.data(),
-                  len * sizeof(uint32_t));
+      std::memcpy(inlineData.data(), o.inlineData.data(), len);
     }
     return *this;
   }
 
-  NodeKey(NodeKey &&o) noexcept
-      : heapData(std::move(o.heapData)), len(o.len) {
+  NodeKey(NodeKey &&o) noexcept : heapData(std::move(o.heapData)), len(o.len) {
     std::memcpy(inlineData.data(), o.inlineData.data(), sizeof(inlineData));
     o.len = 0;
   }
@@ -77,7 +92,7 @@ struct NodeKey {
   bool operator==(const NodeKey &o) const {
     if (len != o.len)
       return false;
-    return std::memcmp(data(), o.data(), len * sizeof(uint32_t)) == 0;
+    return std::memcmp(data(), o.data(), len) == 0;
   }
 };
 
@@ -97,10 +112,9 @@ struct NodeKeyHash {
   size_t operator()(const NodeKey &k) const noexcept {
     using Fnv = detail::FnvParams<sizeof(size_t)>;
     size_t h = Fnv::offset;
-    const auto *p = reinterpret_cast<const std::byte *>(k.data());
-    const size_t bytes = k.len * sizeof(uint32_t);
-    for (size_t i = 0; i < bytes; i++) {
-      h ^= std::to_integer<size_t>(p[i]);
+    const uint8_t *p = k.data();
+    for (size_t i = 0; i < k.len; i++) {
+      h ^= p[i];
       h *= Fnv::prime;
     }
     return h;

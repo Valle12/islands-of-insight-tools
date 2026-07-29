@@ -4,26 +4,42 @@
 #include "GoalCluster.h"
 #include "Node.h"
 #include "NodeKey.h"
+#include "StateTable.h"
 #include "Types.h"
 
-#include <array>
+#include <atomic>
 #include <boost/dynamic_bitset.hpp>
 #include <cstdint>
 #include <functional>
 #include <queue>
-#include <unordered_map>
 #include <vector>
-
-struct HeapEntry;
 
 class AStar {
 public:
-  struct StateInfo {
-    uint32_t gScore = UINT32_MAX;
-    NodeKey parent;
-    Turn turn{};
-    bool hasParent = false;
-    bool closed = false;
+  // Hard engine caps. The byte-per-field NodeKey encoding and Block's int8_t
+  // roll arithmetic are sized for these (x + dim <= 127 keeps every roll
+  // transient inside int8_t); search() rejects anything larger, and the UI /
+  // wasm boundary / CLI enforce the same limits with real error messages.
+  static constexpr uint8_t MaxGridSide = 64;
+  static constexpr size_t MaxBlocks = 255;
+  static constexpr uint8_t MaxBlockDim = 64;
+
+  struct Config {
+    uint8_t weight = 2;           // f = g + weight * h
+    uint32_t maxMs = 0;           // 0 = no wall-clock budget
+    uint64_t maxNodes = 0;        // 0 = no expansion budget
+    uint64_t maxStatesStored = 0; // deterministic budget knob for tests
+    uint64_t maxHeapBytes = 0;    // production memory knob (measured bytes)
+    std::atomic<bool> *cancel = nullptr;
+  };
+
+  // Why the search stopped and how much it did. stoppedOnMemory distinguishes
+  // "too big for this heap" from "genuinely searched out".
+  struct SearchStats {
+    uint64_t nodesExpanded = 0;
+    uint64_t statesStored = 0;
+    bool stoppedOnMemory = false;
+    uint32_t wallMs = 0;
   };
 
   // Optional per-expansion progress callback (throttled by the search).
@@ -33,14 +49,76 @@ public:
 
   AStar(uint8_t gridWidth, uint8_t gridHeight, std::vector<Tile> cells,
         uint8_t weight = 2);
+  AStar(uint8_t gridWidth, uint8_t gridHeight, std::vector<Tile> cells,
+        const Config &config);
 
   std::vector<Turn> search(Node root);
 
+  [[nodiscard]] const SearchStats &stats() const { return stats_; }
+
+  // Canonical state encode/decode, public for the state-encoding tests.
+  //
+  // encodeState sorts the block records, so two states that differ only by
+  // which same-dimensioned block occupies which pose produce the SAME key —
+  // physically interchangeable blocks are searched once. Ids are deliberately
+  // absent from the key; decodeState assigns slot indices as ids (all the
+  // game rules are geometric, ids only matter for reporting turns, and
+  // reconstructPath recovers the real ids by forward replay).
+  [[nodiscard]] NodeKey
+  encodeState(const std::vector<Block> &blocks,
+              const boost::dynamic_bitset<> &mustTouchCells);
+  void decodeState(const NodeKey &key, std::vector<Block> &blocks,
+                   boost::dynamic_bitset<> &mustTouchCells) const;
+
 private:
+  // 12 bytes on wasm32. parent points at another entry's value inside the
+  // StateTable arena (entries never move), replacing the full NodeKey copy
+  // the previous StateInfo carried — that copy was 72 of its 80 bytes.
+  struct StateInfo {
+    static constexpr uint8_t ClosedFlag = 1;
+    static constexpr uint8_t HasParentFlag = 2;
+
+    uint32_t g = UINT32_MAX;
+    const StateInfo *parent = nullptr;
+    // The moved block's PRE-ROLL anchor plus the direction. Anchors are unique
+    // per state (footprints are disjoint), so forward replay resolves each
+    // step to exactly one real block — that is how turns get real ids back.
+    uint8_t fromX = 0;
+    uint8_t fromY = 0;
+    uint8_t dir = 0;
+    uint8_t flags = 0;
+  };
+
+  using Table = StateTable<StateInfo>;
+
+  struct HeapEntry {
+    uint32_t f;
+    uint32_t g;
+    Table::Entry *entry;
+  };
+
+  // Min-heap on f; deeper-first (larger g) on ties. Measured against f-only
+  // ordering on fixtures 18/34/36: deeper-first halves fixture 34's
+  // expansions (1.34M vs 2.65M) and wins on 18, at a mild cost on 36 —
+  // clearly the better default for weighted A* here.
+  struct HeapCmp {
+    bool operator()(const HeapEntry &a, const HeapEntry &b) const {
+      if (a.f != b.f)
+        return a.f > b.f;
+      return a.g < b.g;
+    }
+  };
+
+  struct SearchContext {
+    Table states;
+    std::priority_queue<HeapEntry, std::vector<HeapEntry>, HeapCmp> openHeap;
+  };
+
   uint8_t gridWidth_;
   uint8_t gridHeight_;
   std::vector<Tile> cells_;
-  uint8_t weight_;
+  Config cfg_;
+  SearchStats stats_;
   std::vector<GoalCluster> goalClusters_;
 
   struct MustTouchEntry {
@@ -51,40 +129,75 @@ private:
   std::vector<MustTouchEntry> mustTouchIndices_;
   std::vector<uint16_t> goalIndices_;
 
-  struct GoalAssignEntry {
-    GoalCluster cluster;
-    bool valid = false;
-  };
-  std::array<GoalAssignEntry, 256> blockGoalAssignment_{};
+  // Must-touch ordinal tables: the key stores one bit per must-touch CELL
+  // ORDINAL, the working bitset stays board-cell-indexed so Block's rule code
+  // and the TS replay oracle are untouched. mtBytes_ is the key's bit-block
+  // size; it is a per-search constant, which is what lets decodeState derive
+  // the block count from key.len alone.
+  std::vector<uint16_t> ordinalOfCell_;
+  std::vector<uint16_t> cellOfOrdinal_;
+  uint16_t mtBytes_ = 0;
+
   std::function<void(uint32_t)> onProgress;
 
-  [[nodiscard]] uint32_t heuristic(const Node &node) const;
-  [[nodiscard]] uint32_t mustTouchHeuristic(const Node &node) const;
-  [[nodiscard]] uint32_t groupedMustTouchHeuristic(const Node &node) const;
-  [[nodiscard]] uint32_t goalDistanceHeuristic(const Node &node) const;
-  [[nodiscard]] bool blockCoversGoal(const Block &block,
-                                     const GoalCluster &goal) const;
+  // The real-id blocks the caller passed in, kept for path reconstruction.
+  std::vector<Block> rootBlocks_;
+
+  // Reusable per-search scratch. curBlocks_/curBits_ hold the decoded state
+  // being expanded; childBlocks_/childBitsBuf_ the successor being generated.
+  // The satisfied set is carried in TWO synchronised forms: cell-indexed
+  // (what Block's rule code and the flood fill test against) and
+  // must-touch-ordinal-indexed (what the key stores) — keeping the ordinal
+  // mirror live makes encoding a state a straight word copy instead of a
+  // per-successor loop over every must-touch cell.
+  std::vector<Block> curBlocks_;
+  boost::dynamic_bitset<> curBits_;
+  boost::dynamic_bitset<> curOrd_;
+  std::vector<Block> childBlocks_;
+  boost::dynamic_bitset<> childBitsBuf_;
+  boost::dynamic_bitset<> childOrdBuf_;
+  std::vector<uint64_t> encodeScratch_;
+  std::vector<boost::dynamic_bitset<>::block_type> ordWords_;
+  std::vector<uint32_t> groupScratch_;
+  std::vector<int> matchDp_;
+
+  [[nodiscard]] NodeKey
+  encodeStateOrdinal(const std::vector<Block> &blocks,
+                     const boost::dynamic_bitset<> &ordinal);
+  void decodeWorking(const NodeKey &key);
+  void applyTouch(const Block &block, boost::dynamic_bitset<> &cellBits,
+                  boost::dynamic_bitset<> &ordinalBits) const;
+
+  [[nodiscard]] bool inputWithinCaps(const std::vector<Block> &blocks) const;
+
+  void expandNeighbor(size_t bi, Direction direction, Table::Entry *curEntry,
+                      SearchContext &ctx);
+  bool searchLimitReached(uint64_t deadline, const SearchContext &ctx);
+
+  // The heuristics are non-const: they reuse member scratch instead of
+  // zero-initialising fresh tables per call. mustTouch is the cell-indexed
+  // satisfied set, ordinal its must-touch-ordinal mirror (see below).
+  [[nodiscard]] uint32_t heuristic(const std::vector<Block> &blocks,
+                                   const boost::dynamic_bitset<> &mustTouch,
+                                   const boost::dynamic_bitset<> &ordinal);
+  [[nodiscard]] uint32_t
+  mustTouchHeuristic(const std::vector<Block> &blocks,
+                     const boost::dynamic_bitset<> &ordinal) const;
+  [[nodiscard]] uint32_t
+  groupedMustTouchHeuristic(const std::vector<Block> &blocks,
+                            const boost::dynamic_bitset<> &mustTouch);
+  [[nodiscard]] uint32_t
+  goalDistanceHeuristic(const std::vector<Block> &blocks);
   [[nodiscard]] bool isBlockFullyOnGoal(const Block &block) const;
 
-  [[nodiscard]] bool blockTouchesNewMustTouch(
-      const Block &block,
-      const boost::dynamic_bitset<> &satisfied) const;
-
-  using StateMap = std::unordered_map<NodeKey, StateInfo, NodeKeyHash>;
-
-  struct SearchContext {
-    StateMap states;
-    std::unordered_map<NodeKey, Node, NodeKeyHash> nodeStore;
-    std::priority_queue<HeapEntry, std::vector<HeapEntry>, std::greater<>> openHeap;
-    boost::dynamic_bitset<> mustTouchBuf;
-  };
-
-  void expandNeighbor(const Node &node, size_t bi, Direction direction,
-                      const HeapEntry &current, SearchContext &ctx);
+  [[nodiscard]] bool
+  blockTouchesNewMustTouch(const Block &block,
+                           const boost::dynamic_bitset<> &satisfied) const;
 
   bool isReachable(const std::vector<Block> &blocks, size_t replaceIdx,
                    const Block &replacement,
-                   const boost::dynamic_bitset<> &mustTouchSatisfied);
+                   const boost::dynamic_bitset<> &mustTouchSatisfied,
+                   const boost::dynamic_bitset<> &ordinal);
   void seedReachability(const std::vector<Block> &blocks, size_t replaceIdx,
                         const Block &replacement);
   void seedBlockReachability(const Block &block);
@@ -92,62 +205,23 @@ private:
                           uint32_t totalUnsatisfied);
 
   [[nodiscard]] std::vector<GoalCluster> precomputeGoalClusters() const;
-  void discoverGoalComponent(int8_t startX, int8_t startY,
-                             std::vector<bool> &visited,
-                             std::vector<std::pair<int8_t, int8_t>> &component) const;
+  void discoverGoalComponent(
+      int8_t startX, int8_t startY, std::vector<bool> &visited,
+      std::vector<std::pair<int8_t, int8_t>> &component) const;
   static bool blockCompatibleWithCluster(const Block &block,
                                          const GoalCluster &cluster);
-  void assignBlocksToGoals(const std::vector<Block> &blocks);
-  void assignUniqueGoals(const std::vector<Block> &blocks,
-                         std::vector<bool> &taken);
-  void assignGreedyGoals(const std::vector<Block> &blocks,
-                         std::vector<bool> &taken);
-  [[nodiscard]] int countCompatibleClusters(const Block &block,
-                                            const std::vector<bool> &taken,
-                                            size_t &outIdx) const;
 
-  [[nodiscard]] bool isGoalState(const Node &node) const;
+  [[nodiscard]] bool
+  isGoalState(const std::vector<Block> &blocks,
+              const boost::dynamic_bitset<> &ordinal) const;
 
-  static std::vector<Turn> reconstructPath(const StateMap &states,
-                                           const NodeKey &goalSignature);
+  [[nodiscard]] std::vector<Turn>
+  reconstructPath(const StateInfo &goalInfo) const;
 
-  static NodeKey nodeSignature(const Node &node);
-  static NodeKey signatureFromParts(const std::vector<Block> &blocks,
-                                    size_t replaceIdx, const Block &replacement,
-                                    const boost::dynamic_bitset<> &mustTouch);
-
-  std::vector<uint8_t> reachBuf_;
+  // Epoch-stamped reachability scratch: a cell is "visited" when its stamp
+  // equals the current epoch, so starting a flood fill is one counter bump
+  // instead of a full-board memset per generated successor.
+  std::vector<uint32_t> reachStamp_;
   std::vector<uint16_t> reachStack_;
-
-  template <typename BlockAccessor>
-  static NodeKey buildSignature(const uint8_t numBlocks, const uint8_t *indices,
-                                BlockAccessor &&getBlock,
-                                const boost::dynamic_bitset<> &mustTouch) {
-    using block_type = boost::dynamic_bitset<>::block_type;
-    const size_t numBitBlocks = !mustTouch.empty() ? mustTouch.num_blocks() : 0;
-    static constexpr size_t ratio = sizeof(block_type) / sizeof(uint32_t);
-    const auto bitSlots = static_cast<uint8_t>(numBitBlocks * ratio);
-
-    const uint8_t totalSlots = numBlocks + bitSlots;
-    if (totalSlots == 0)
-      return {};
-
-    NodeKey key(totalSlots);
-    uint32_t *d = key.data();
-
-    for (uint8_t i = 0; i < numBlocks; i++) {
-      const auto &b = getBlock(indices[i]);
-      d[i] = static_cast<uint32_t>(static_cast<uint8_t>(b.x)) << 24 |
-             static_cast<uint32_t>(static_cast<uint8_t>(b.y)) << 16 |
-             static_cast<uint32_t>(b.width) << 8 | b.depth;
-    }
-
-    if (numBitBlocks > 0) {
-      std::array<block_type, 16> temp{}; // enough for grids up to ~1024 cells
-      boost::to_block_range(mustTouch, temp.begin());
-      std::memcpy(d + numBlocks, temp.data(), numBitBlocks * sizeof(block_type));
-    }
-
-    return key;
-  }
+  uint32_t reachEpoch_ = 0;
 };

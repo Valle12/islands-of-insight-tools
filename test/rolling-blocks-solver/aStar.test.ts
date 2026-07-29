@@ -69,7 +69,12 @@ describe.if(Bun.env.ROLLING_BLOCKS_TEST === "true")("Rolling Blocks A*", () => {
   ];
 
   describe("Search", () => {
-    test.each(solvableCases)("should solve %s", async filename => {
+    // Explicit per-test timeout: the heavier boards (fixture 18 especially)
+    // need more than bun's 5 s default under wasm.
+    const SOLVE_TEST_TIMEOUT_MS = 60_000;
+    test.each(solvableCases)(
+      "should solve %s",
+      async filename => {
       const data: RollingBlocksTest = await Bun.file(
         `${import.meta.dir}/../resources/rolling-blocks-solver/${filename}`,
       ).json();
@@ -180,6 +185,8 @@ describe.if(Bun.env.ROLLING_BLOCKS_TEST === "true")("Rolling Blocks A*", () => {
         }
         expect(coveredGoals.size).toBe(goalIndices.size);
       }
-    });
+      },
+      SOLVE_TEST_TIMEOUT_MS,
+    );
   });
 });

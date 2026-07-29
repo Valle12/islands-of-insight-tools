@@ -1,9 +1,11 @@
 add_executable(a_star_tests
     block_test.cpp
     rolling_blocks_test.cpp
+    state_encoding_test.cpp
     ${CMAKE_SOURCE_DIR}/Block.cpp
     ${CMAKE_SOURCE_DIR}/AStar.cpp
     ${CMAKE_SOURCE_DIR}/AStarGoals.cpp
+    ${CMAKE_SOURCE_DIR}/SolverClock.cpp
 )
 
 target_link_libraries(a_star_tests PRIVATE

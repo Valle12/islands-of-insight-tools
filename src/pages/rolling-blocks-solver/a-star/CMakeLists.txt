@@ -18,7 +18,8 @@ endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../../../cmake/ClangTidyGate.cmake")
 clang_tidy_gate(OPTION RB_CLANG_TIDY PROFILE_LLVM 23)
 
-add_executable(a_star main.cpp Block.cpp AStar.cpp AStarGoals.cpp)
+add_executable(a_star main.cpp Block.cpp AStar.cpp AStarGoals.cpp
+        SolverClock.cpp)
 
 find_package(Boost CONFIG REQUIRED)
 target_link_libraries(a_star PRIVATE Boost::boost)
