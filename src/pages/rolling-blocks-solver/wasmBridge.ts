@@ -58,13 +58,14 @@ export const PORTFOLIO: Record<string, unknown>[] = [
   { engine: "cracker", gated: true, maxMs: SOLVE_BUDGET_MS },
   // The zero-regression arm: the production weighted A*.
   { engine: "wastar", weight: 2, maxMs: SOLVE_BUDGET_MS, maxNodes: 20_000_000 },
+  // Depth at all costs, the optimizer cleans up: fuzz campaign 1 measured it
+  // cracking single-region boards wastar and beam both miss.
+  { engine: "greedy", maxMs: SOLVE_BUDGET_MS },
   // Memory-bounded breadth for boards whose state space outgrows the heap.
   { engine: "beam", maxMs: SOLVE_BUDGET_MS },
-  // Depth-first weighted arms; the optimizer shortens whatever they find.
-  { engine: "wastar", weight: 4, maxMs: SOLVE_BUDGET_MS },
-  { engine: "greedy", maxMs: SOLVE_BUDGET_MS },
   // Ungated cracker retry with a different restart seed.
   { engine: "cracker", seed: 1, maxMs: SOLVE_BUDGET_MS },
+  { engine: "wastar", weight: 4, maxMs: SOLVE_BUDGET_MS },
   // Near-optimal low-weight arm for small boards.
   { engine: "wastar", weight: 1, maxMs: SOLVE_BUDGET_MS },
 ];

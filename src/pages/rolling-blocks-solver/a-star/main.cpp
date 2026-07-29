@@ -7,6 +7,7 @@
 #include "AStar.h"
 #include "AStarOptimizer.h"
 #include "FixtureIo.h"
+#include "GenerateCommands.h"
 #include "Replay.h"
 #include "SolverArms.h"
 #include "SolverClock.h"
@@ -23,6 +24,8 @@ namespace {
 
 struct CliOptions {
   std::string fixture;
+  std::string generateOut;
+  std::string kind = "goal";
   std::string engine = "cascade";
   uint8_t weight = 2;
   uint32_t budgetMs = 60000;
@@ -30,6 +33,7 @@ struct CliOptions {
   uint64_t maxStates = 0;
   uint64_t maxHeapBytes = 0;
   uint32_t seed = 0;
+  uint32_t shuffle = 100000;
   uint32_t beamWidth = 0;
   bool gated = false;
   bool postProcess = true;
@@ -42,6 +46,8 @@ void printUsage() {
          "              [--weight N] [--budget-ms N] [--max-nodes N]\n"
          "              [--max-states N] [--max-heap-bytes N] [--seed N]\n"
          "              [--beam N] [--gated] [--no-post] [--json]\n"
+         "       a_star --generate <path> --seed N [--shuffle N]\n"
+         "              [--kind goal|coverage|mixed]\n"
          "The last stdout line starting with '{' is the JSON report.\n";
 }
 
@@ -67,6 +73,12 @@ bool parseArgs(const int argc, char **argv, CliOptions &opts) {
     const char *value = argv[++i];
     if (arg == "--fixture") {
       opts.fixture = value;
+    } else if (arg == "--generate") {
+      opts.generateOut = value;
+    } else if (arg == "--kind") {
+      opts.kind = value;
+    } else if (arg == "--shuffle") {
+      opts.shuffle = static_cast<uint32_t>(std::strtoul(value, nullptr, 10));
     } else if (arg == "--engine") {
       opts.engine = value;
     } else if (arg == "--weight") {
@@ -88,8 +100,8 @@ bool parseArgs(const int argc, char **argv, CliOptions &opts) {
       return false;
     }
   }
-  if (opts.fixture.empty()) {
-    std::cerr << "--fixture is required\n";
+  if (opts.fixture.empty() && opts.generateOut.empty()) {
+    std::cerr << "--fixture or --generate is required\n";
     return false;
   }
   return true;
@@ -106,6 +118,9 @@ int main(const int argc, char **argv) {
   if (!parseArgs(argc, argv, opts)) {
     printUsage();
     return 2;
+  }
+  if (!opts.generateOut.empty()) {
+    return generate::run(opts.generateOut, opts.seed, opts.shuffle, opts.kind);
   }
   if (!arms::knownEngine(opts.engine)) {
     std::cerr << "Unknown engine '" << opts.engine
@@ -153,9 +168,19 @@ int main(const int argc, char **argv) {
   }
 
   const replay::Outcome replayed = replay::replayTurns(puzzle, turns);
-  const bool valid = replayed.legal && replayed.solvedAtEnd;
+  // A board that is solved before any move legitimately gets an empty plan;
+  // report it as solved so harnesses can score it trivial, not failed.
+  const bool alreadySolved =
+      turns.empty() && replay::replayTurns(puzzle, {}).solvedAtEnd;
+  // `valid` judges a RETURNED plan. An empty plan on an unsolved board is
+  // "no solution found", not an invalid one — harnesses distinguish the two.
+  const bool valid =
+      turns.empty() ? true : replayed.legal && replayed.solvedAtEnd;
 
-  report["solved"] = !turns.empty() && valid;
+  report["solved"] =
+      (!turns.empty() && replayed.legal && replayed.solvedAtEnd) ||
+      alreadySolved;
+  report["alreadySolved"] = alreadySolved;
   report["valid"] = valid;
   report["turns"] = turns.size();
   report["stage"] = outcome.arm;
