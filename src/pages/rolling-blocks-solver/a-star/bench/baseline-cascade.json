@@ -1,6 +1,6 @@
 {
   "meta": {
-    "createdAt": "2026-07-29T12:03:09.899Z",
+    "createdAt": "2026-07-29T17:40:52.312Z",
     "exe": "E:\\projects\\VS Code\\islands-of-insight-tools\\src\\pages\\rolling-blocks-solver\\a-star\\cmake-build-release-visual-studio\\a_star.exe",
     "engine": "cascade",
     "weight": 2,
@@ -42,7 +42,7 @@
       "statesStored": 75,
       "stoppedOnMemory": false,
       "searchMs": 0,
-      "wallMs": 1
+      "wallMs": 0
     },
     {
       "fixture": "rollingBlocksTest3.json",
@@ -65,8 +65,8 @@
       "nodesExpanded": 1716,
       "statesStored": 2839,
       "stoppedOnMemory": false,
-      "searchMs": 2,
-      "wallMs": 11
+      "searchMs": 1,
+      "wallMs": 10
     },
     {
       "fixture": "rollingBlocksTest5.json",
@@ -77,8 +77,8 @@
       "nodesExpanded": 12,
       "statesStored": 14,
       "stoppedOnMemory": false,
-      "searchMs": 1,
-      "wallMs": 1
+      "searchMs": 0,
+      "wallMs": 0
     },
     {
       "fixture": "rollingBlocksTest6.json",
@@ -89,7 +89,7 @@
       "nodesExpanded": 85,
       "statesStored": 86,
       "stoppedOnMemory": false,
-      "searchMs": 0,
+      "searchMs": 1,
       "wallMs": 1
     },
     {
@@ -101,8 +101,8 @@
       "nodesExpanded": 74882,
       "statesStored": 74928,
       "stoppedOnMemory": false,
-      "searchMs": 117,
-      "wallMs": 1072
+      "searchMs": 118,
+      "wallMs": 1065
     },
     {
       "fixture": "rollingBlocksTest8.json",
@@ -125,8 +125,8 @@
       "nodesExpanded": 468,
       "statesStored": 478,
       "stoppedOnMemory": false,
-      "searchMs": 0,
-      "wallMs": 7
+      "searchMs": 1,
+      "wallMs": 8
     },
     {
       "fixture": "rollingBlocksTest10.json",
@@ -137,8 +137,8 @@
       "nodesExpanded": 13,
       "statesStored": 14,
       "stoppedOnMemory": false,
-      "searchMs": 0,
-      "wallMs": 0
+      "searchMs": 1,
+      "wallMs": 1
     },
     {
       "fixture": "rollingBlocksTest11.json",
@@ -161,7 +161,7 @@
       "nodesExpanded": 159078,
       "statesStored": 159165,
       "stoppedOnMemory": false,
-      "searchMs": 516,
+      "searchMs": 511,
       "wallMs": 802
     },
     {
@@ -174,7 +174,7 @@
       "statesStored": 47,
       "stoppedOnMemory": false,
       "searchMs": 0,
-      "wallMs": 0
+      "wallMs": 1
     },
     {
       "fixture": "rollingBlocksTest14.json",
@@ -185,8 +185,8 @@
       "nodesExpanded": 5363,
       "statesStored": 5381,
       "stoppedOnMemory": false,
-      "searchMs": 6,
-      "wallMs": 40
+      "searchMs": 4,
+      "wallMs": 41
     },
     {
       "fixture": "rollingBlocksTest15.json",
@@ -198,7 +198,7 @@
       "statesStored": 61,
       "stoppedOnMemory": false,
       "searchMs": 0,
-      "wallMs": 15
+      "wallMs": 16
     },
     {
       "fixture": "rollingBlocksTest16.json",
@@ -209,8 +209,8 @@
       "nodesExpanded": 57,
       "statesStored": 75,
       "stoppedOnMemory": false,
-      "searchMs": 1,
-      "wallMs": 2
+      "searchMs": 0,
+      "wallMs": 1
     },
     {
       "fixture": "rollingBlocksTest17.json",
@@ -233,8 +233,8 @@
       "nodesExpanded": 1973774,
       "statesStored": 2961550,
       "stoppedOnMemory": false,
-      "searchMs": 8628,
-      "wallMs": 8958
+      "searchMs": 8674,
+      "wallMs": 9007
     },
     {
       "fixture": "rollingBlocksTest19.json",
@@ -246,7 +246,7 @@
       "statesStored": 180,
       "stoppedOnMemory": false,
       "searchMs": 0,
-      "wallMs": 12
+      "wallMs": 13
     },
     {
       "fixture": "rollingBlocksTest20.json",
@@ -257,8 +257,8 @@
       "nodesExpanded": 32444,
       "statesStored": 63169,
       "stoppedOnMemory": false,
-      "searchMs": 110,
-      "wallMs": 404
+      "searchMs": 108,
+      "wallMs": 413
     },
     {
       "fixture": "rollingBlocksTest21.json",
@@ -282,7 +282,7 @@
       "statesStored": 61,
       "stoppedOnMemory": false,
       "searchMs": 0,
-      "wallMs": 2
+      "wallMs": 1
     },
     {
       "fixture": "rollingBlocksTest23.json",
@@ -305,7 +305,7 @@
       "nodesExpanded": 467,
       "statesStored": 476,
       "stoppedOnMemory": false,
-      "searchMs": 1,
+      "searchMs": 0,
       "wallMs": 3
     },
     {
@@ -317,7 +317,7 @@
       "nodesExpanded": 1740,
       "statesStored": 1746,
       "stoppedOnMemory": false,
-      "searchMs": 3,
+      "searchMs": 2,
       "wallMs": 7
     },
     {
@@ -330,7 +330,7 @@
       "statesStored": 0,
       "stoppedOnMemory": false,
       "searchMs": 10,
-      "wallMs": 391
+      "wallMs": 355
     },
     {
       "fixture": "rollingBlocksTest27.json",
@@ -342,7 +342,7 @@
       "statesStored": 67,
       "stoppedOnMemory": false,
       "searchMs": 0,
-      "wallMs": 129
+      "wallMs": 126
     },
     {
       "fixture": "rollingBlocksTest28.json",
@@ -353,8 +353,8 @@
       "nodesExpanded": 3546,
       "statesStored": 7121,
       "stoppedOnMemory": false,
-      "searchMs": 11,
-      "wallMs": 315
+      "searchMs": 10,
+      "wallMs": 333
     },
     {
       "fixture": "rollingBlocksTest29.json",
@@ -365,8 +365,8 @@
       "nodesExpanded": 65005,
       "statesStored": 65136,
       "stoppedOnMemory": false,
-      "searchMs": 247,
-      "wallMs": 684
+      "searchMs": 250,
+      "wallMs": 677
     },
     {
       "fixture": "rollingBlocksTest30.json",
@@ -378,7 +378,7 @@
       "statesStored": 3376,
       "stoppedOnMemory": false,
       "searchMs": 5,
-      "wallMs": 52
+      "wallMs": 53
     },
     {
       "fixture": "rollingBlocksTest31.json",
@@ -389,8 +389,8 @@
       "nodesExpanded": 12585,
       "statesStored": 12586,
       "stoppedOnMemory": false,
-      "searchMs": 22,
-      "wallMs": 30
+      "searchMs": 21,
+      "wallMs": 29
     },
     {
       "fixture": "rollingBlocksTest32.json",
@@ -401,8 +401,8 @@
       "nodesExpanded": 31493,
       "statesStored": 32446,
       "stoppedOnMemory": false,
-      "searchMs": 1163,
-      "wallMs": 2150
+      "searchMs": 1123,
+      "wallMs": 2090
     },
     {
       "fixture": "rollingBlocksTest33.json",
@@ -420,13 +420,13 @@
       "fixture": "rollingBlocksTest34.json",
       "solved": true,
       "valid": true,
-      "turns": 74,
-      "stage": "wastar",
-      "nodesExpanded": 1383496,
-      "statesStored": 1650166,
+      "turns": 72,
+      "stage": "cracker",
+      "nodesExpanded": 36365,
+      "statesStored": 0,
       "stoppedOnMemory": false,
-      "searchMs": 3776,
-      "wallMs": 4214
+      "searchMs": 90,
+      "wallMs": 344
     },
     {
       "fixture": "rollingBlocksTest35.json",
@@ -437,8 +437,8 @@
       "nodesExpanded": 672,
       "statesStored": 972,
       "stoppedOnMemory": false,
-      "searchMs": 2,
-      "wallMs": 6
+      "searchMs": 1,
+      "wallMs": 5
     },
     {
       "fixture": "rollingBlocksTest36.json",
@@ -449,8 +449,8 @@
       "nodesExpanded": 587502,
       "statesStored": 1237423,
       "stoppedOnMemory": false,
-      "searchMs": 6257,
-      "wallMs": 7597
+      "searchMs": 6298,
+      "wallMs": 7568
     },
     {
       "fixture": "rollingBlocksTest37.json",
@@ -458,10 +458,10 @@
       "valid": true,
       "turns": 25,
       "stage": "cracker",
-      "nodesExpanded": 106,
-      "statesStored": 160,
+      "nodesExpanded": 77,
+      "statesStored": 106,
       "stoppedOnMemory": false,
-      "searchMs": 0,
+      "searchMs": 1,
       "wallMs": 6
     },
     {
@@ -474,7 +474,7 @@
       "statesStored": 61,
       "stoppedOnMemory": false,
       "searchMs": 1,
-      "wallMs": 142
+      "wallMs": 146
     },
     {
       "fixture": "rollingBlocksTest39.json",
@@ -485,8 +485,8 @@
       "nodesExpanded": 7907,
       "statesStored": 15159,
       "stoppedOnMemory": false,
-      "searchMs": 22,
-      "wallMs": 89
+      "searchMs": 24,
+      "wallMs": 92
     },
     {
       "fixture": "rollingBlocksTest40.json",
@@ -509,8 +509,8 @@
       "nodesExpanded": 31493,
       "statesStored": 32446,
       "stoppedOnMemory": false,
-      "searchMs": 1178,
-      "wallMs": 2164
+      "searchMs": 1132,
+      "wallMs": 2130
     },
     {
       "fixture": "rollingBlocksTest42.json",
@@ -533,8 +533,8 @@
       "nodesExpanded": 1851528,
       "statesStored": 2324454,
       "stoppedOnMemory": false,
-      "searchMs": 5313,
-      "wallMs": 5729
+      "searchMs": 5350,
+      "wallMs": 5774
     },
     {
       "fixture": "rollingBlocksTest44.json",
@@ -558,7 +558,7 @@
       "statesStored": 1237423,
       "stoppedOnMemory": false,
       "searchMs": 6262,
-      "wallMs": 7584
+      "wallMs": 7543
     },
     {
       "fixture": "rollingBlocksTest46.json",
@@ -566,8 +566,8 @@
       "valid": true,
       "turns": 25,
       "stage": "cracker",
-      "nodesExpanded": 106,
-      "statesStored": 160,
+      "nodesExpanded": 77,
+      "statesStored": 106,
       "stoppedOnMemory": false,
       "searchMs": 1,
       "wallMs": 6
@@ -581,8 +581,8 @@
       "nodesExpanded": 60,
       "statesStored": 61,
       "stoppedOnMemory": false,
-      "searchMs": 0,
-      "wallMs": 145
+      "searchMs": 1,
+      "wallMs": 147
     },
     {
       "fixture": "rollingBlocksTest48.json",
@@ -593,8 +593,8 @@
       "nodesExpanded": 7907,
       "statesStored": 15159,
       "stoppedOnMemory": false,
-      "searchMs": 22,
-      "wallMs": 90
+      "searchMs": 23,
+      "wallMs": 96
     }
   ]
 }

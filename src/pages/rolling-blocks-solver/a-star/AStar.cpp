@@ -336,6 +336,21 @@ bool AStar::prepareSearch(Node &root, boost::dynamic_bitset<> &rootOrd) {
       rootOrd.set(k);
     }
   }
+
+  requiredCellBits_.resize(totalCells);
+  requiredCellBits_.reset();
+  requiredOrd_.resize(mustTouchIndices_.size());
+  requiredOrd_.reset();
+  requiredSubset_ = false;
+  if (cfg_.requiredCells != nullptr) {
+    for (const uint16_t cell : *cfg_.requiredCells) {
+      if (cell < totalCells && cells_[cell] == Tile::MustTouch) {
+        requiredCellBits_.set(cell);
+        requiredOrd_.set(ordinalOfCell_[cell]);
+      }
+    }
+    requiredSubset_ = requiredOrd_.any();
+  }
   return true;
 }
 
@@ -491,7 +506,8 @@ bool AStar::floodFillReachable(
     const uint16_t idx = reachStack_.back();
     reachStack_.pop_back();
 
-    if (cells_[idx] == Tile::MustTouch && !mustTouchSatisfied.test(idx)) {
+    if (cells_[idx] == Tile::MustTouch && !mustTouchSatisfied.test(idx) &&
+        (!requiredSubset_ || requiredCellBits_.test(idx))) {
       ++reachableUnsatisfied;
       if (reachableUnsatisfied == totalUnsatisfied) {
         return true;
@@ -534,8 +550,18 @@ bool AStar::isReachable(const std::vector<Block> &blocks,
     return true;
   }
 
-  const auto totalUnsatisfied =
-      static_cast<uint32_t>(mustTouchIndices_.size() - ordinal.count());
+  uint32_t totalUnsatisfied = 0;
+  if (requiredSubset_) {
+    // Required-subset legs only care whether the REQUIRED cells stay
+    // reachable — other must-touch cells getting walled off is the partner
+    // block's problem, not this leg's.
+    totalUnsatisfied =
+        static_cast<uint32_t>(requiredOrd_.count() -
+                              (requiredOrd_ & ordinal).count());
+  } else {
+    totalUnsatisfied =
+        static_cast<uint32_t>(mustTouchIndices_.size() - ordinal.count());
+  }
   if (totalUnsatisfied == 0) {
     return true;
   }

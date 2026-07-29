@@ -32,6 +32,24 @@ public:
     uint64_t maxHeapBytes = 0;    // production memory knob (measured bytes)
     uint32_t seed = 0;            // tie-break / restart diversification
     std::atomic<bool> *cancel = nullptr;
+    // Cracker-only (never exposed at the wasm/CLI boundary): when set,
+    // searchCracker succeeds once THESE cells are satisfied instead of the
+    // whole board, and narrows its reachability prune and transit guidance
+    // to them. Every other must-touch cell keeps its real one-shot
+    // semantics, so a leg plan found this way replays legally on the full
+    // board. Used by the chunked-alternation scheme in SolverArms.cpp.
+    const std::vector<uint16_t> *requiredCells = nullptr;
+    // Cracker-only companion to requiredCells: when set, after every
+    // touching move EVERY still-open must-touch cell must remain coverable
+    // by the searching block (from its new pose) or by this parked partner
+    // — otherwise the move stranded a cell for good and the subtree is
+    // dead even though the leg itself could still "succeed". Enforced by a
+    // two-seed pose-space BFS on touch moves (transit moves add no walls).
+    const Block *coveragePartner = nullptr;
+    // Cracker-only: the same coverage-intact prune for a JOINT two-block
+    // search — after every touching move, every open must-touch cell must
+    // stay coverable by one of the two blocks from their current poses.
+    bool jointCoverageIntact = false;
   };
 
   // Why the search stopped and how much it did. stoppedOnMemory distinguishes
@@ -149,6 +167,12 @@ private:
   std::vector<uint16_t> ordinalOfCell_;
   std::vector<uint16_t> cellOfOrdinal_;
   uint16_t mtBytes_ = 0;
+
+  // Required-subset mode (Config::requiredCells): cell- and ordinal-indexed
+  // views of the required set, empty/false in normal full-board searches.
+  boost::dynamic_bitset<> requiredCellBits_;
+  boost::dynamic_bitset<> requiredOrd_;
+  bool requiredSubset_ = false;
 
   std::function<void(uint32_t)> onProgress;
 

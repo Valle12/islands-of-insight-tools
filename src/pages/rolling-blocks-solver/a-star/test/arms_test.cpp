@@ -50,9 +50,13 @@ TEST(PuzzleProfile, GatesTheEndgameClass) {
 }
 
 TEST(Arms, CrackerCracksTheCapturedEndgameFixtures) {
+  // 34 is the two-block board: it exercises the split scheme (the joint
+  // walk was measured useless there), the single-block ones the plain
+  // touch-greedy walk.
   for (const auto *name :
-       {"rollingBlocksTest35.json", "rollingBlocksTest37.json",
-        "rollingBlocksTest38.json", "rollingBlocksTest39.json"}) {
+       {"rollingBlocksTest34.json", "rollingBlocksTest35.json",
+        "rollingBlocksTest37.json", "rollingBlocksTest38.json",
+        "rollingBlocksTest39.json"}) {
     SCOPED_TRACE(name);
     const auto puzzle = loadFixture(name);
     arms::ArmSpec spec;
