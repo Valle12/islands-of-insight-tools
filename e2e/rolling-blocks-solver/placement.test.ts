@@ -55,7 +55,7 @@ test.describe("Rolling Blocks Solver", () => {
     await block1Source.dragTo(block1Target);
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
     - heading "Rolling Blocks Setup" [level=1]
-    - paragraph: Build the board layout and block definitions. Solver logic comes later.
+    - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
     - text: Grid Height
@@ -108,7 +108,7 @@ test.describe("Rolling Blocks Solver", () => {
     await block2Source.dragTo(block2Target);
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
     - heading "Rolling Blocks Setup" [level=1]
-    - paragraph: Build the board layout and block definitions. Solver logic comes later.
+    - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
     - text: Grid Height
@@ -161,7 +161,7 @@ test.describe("Rolling Blocks Solver", () => {
     await block3Source.dragTo(block3Target);
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
     - heading "Rolling Blocks Setup" [level=1]
-    - paragraph: Build the board layout and block definitions. Solver logic comes later.
+    - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
     - text: Grid Height

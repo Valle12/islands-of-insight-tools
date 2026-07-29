@@ -1,5 +1,11 @@
-import type { PaintTool } from "./../../util/types";
+import {
+  downloadJson,
+  readJsonFile,
+  setupDragAndDrop,
+} from "./../../util/configFile";
+import type { PaintTool, RollingBlocksTest } from "./../../util/types";
 import { Board } from "./board";
+import { MAX_BLOCK_DIM, MAX_GRID_SIDE, validateConfig } from "./config";
 import type { Turn } from "./turn";
 import { searchRollingBlocksWasm, type SolverHandle } from "./wasmBridge";
 
@@ -36,6 +42,17 @@ export class RollingBlocksSolverEditor {
   private readonly solutionProgressText = document.getElementById(
     "solution-progress-text",
   ) as HTMLSpanElement;
+
+  private readonly warningBanner = document.getElementById(
+    "warning-banner",
+  ) as HTMLDivElement;
+  private warningTimeoutId: number | null = null;
+  private readonly fileInput = document.getElementById(
+    "config-file-input",
+  ) as HTMLInputElement;
+  private readonly dropOverlay = document.getElementById(
+    "drop-overlay",
+  ) as HTMLDivElement;
 
   private gridWidth = RollingBlocksSolverEditor.DEFAULT_GRID_WIDTH;
   private gridHeight = RollingBlocksSolverEditor.DEFAULT_GRID_HEIGHT;
@@ -134,6 +151,25 @@ export class RollingBlocksSolverEditor {
       );
     });
 
+    document
+      .getElementById("download-config")
+      ?.addEventListener("click", () => this.downloadCurrentConfig());
+
+    document
+      .getElementById("upload-config")
+      ?.addEventListener("click", () => this.fileInput.click());
+
+    this.fileInput.addEventListener("change", () => {
+      const file = this.fileInput.files?.[0];
+      if (file) void this.loadConfigFromFile(file);
+      // Clear the value so re-selecting the same file fires "change" again.
+      this.fileInput.value = "";
+    });
+
+    setupDragAndDrop(this.dropOverlay, file => {
+      void this.loadConfigFromFile(file);
+    });
+
     this.widthField.addEventListener("input", () => this.handleSizeUpdate());
     this.heightField.addEventListener("input", () => this.handleSizeUpdate());
 
@@ -145,7 +181,7 @@ export class RollingBlocksSolverEditor {
       const blocks = this.board.getBlocks();
       const block = blocks.get(id);
       if (!block) return;
-      const parsed = this.parsePositiveInt(textField.value);
+      const parsed = this.parsePositiveInt(textField.value, MAX_BLOCK_DIM);
       if (!parsed) return;
       block.height = parsed;
       this.hideSolution();
@@ -176,8 +212,14 @@ export class RollingBlocksSolverEditor {
   }
 
   private handleSizeUpdate() {
-    const parsedWidth = this.parsePositiveInt(this.widthField.value);
-    const parsedHeight = this.parsePositiveInt(this.heightField.value);
+    const parsedWidth = this.parsePositiveInt(
+      this.widthField.value,
+      MAX_GRID_SIDE,
+    );
+    const parsedHeight = this.parsePositiveInt(
+      this.heightField.value,
+      MAX_GRID_SIDE,
+    );
     if (!parsedWidth || !parsedHeight) return;
     this.gridWidth = parsedWidth;
     this.gridHeight = parsedHeight;
@@ -191,9 +233,9 @@ export class RollingBlocksSolverEditor {
     this.render();
   }
 
-  private parsePositiveInt(value: string): number | null {
+  private parsePositiveInt(value: string, max: number): number | null {
     const parsed = Number(value);
-    if (!Number.isInteger(parsed) || parsed <= 0) {
+    if (!Number.isInteger(parsed) || parsed <= 0 || parsed > max) {
       return null;
     }
     return parsed;
@@ -323,6 +365,74 @@ export class RollingBlocksSolverEditor {
     this.solutionError.classList.remove("hidden");
     this.solutionError.textContent = `Error: ${error}`;
     this.solutionStatus.textContent = "Failed";
+  }
+
+  private showWarning(message: string) {
+    this.warningBanner.textContent = message;
+    this.warningBanner.classList.remove("hidden");
+    if (this.warningTimeoutId !== null) {
+      window.clearTimeout(this.warningTimeoutId);
+    }
+    this.warningTimeoutId = window.setTimeout(() => {
+      this.warningBanner.classList.add("hidden");
+      this.warningTimeoutId = null;
+    }, 3500);
+  }
+
+  private downloadCurrentConfig() {
+    const blocks = Array.from(this.board.getBlocks().values()).sort(
+      (a, b) => a.id - b.id,
+    );
+    downloadJson(
+      {
+        gridWidth: this.gridWidth,
+        gridHeight: this.gridHeight,
+        cells: this.board.getCells(),
+        blocks: blocks.map(b => ({
+          id: b.id,
+          x: b.x,
+          y: b.y,
+          width: b.width,
+          depth: b.depth,
+          height: b.height,
+        })),
+      },
+      "rollingBlocksTest.json",
+    );
+  }
+
+  /** Reads a dropped/picked file, validates it, and populates the editor. */
+  private async loadConfigFromFile(file: File) {
+    const read = await readJsonFile(file);
+    if (!read.ok) {
+      this.showWarning(read.error);
+      return;
+    }
+
+    const result = validateConfig(read.data);
+    if (!result.ok) {
+      this.showWarning(`Invalid config: ${result.error}`);
+      return;
+    }
+
+    this.applyLoadedConfig(result.config);
+  }
+
+  /** Applies a validated config to the board. */
+  private applyLoadedConfig(config: RollingBlocksTest) {
+    this.hideSolution();
+    this.gridWidth = config.gridWidth;
+    this.gridHeight = config.gridHeight;
+    this.widthField.value = String(this.gridWidth);
+    this.heightField.value = String(this.gridHeight);
+    this.board = new Board(
+      this,
+      this.gridWidth,
+      this.gridHeight,
+      this.selectedTool,
+    );
+    this.board.loadConfig(config);
+    this.render();
   }
 
   hideSolution() {

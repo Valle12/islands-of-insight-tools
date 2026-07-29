@@ -35,7 +35,7 @@ test.describe("Rolling Blocks Solver", () => {
     await page.goto("/rolling-blocks-solver");
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
     - heading "Rolling Blocks Setup" [level=1]
-    - paragraph: Build the board layout and block definitions. Solver logic comes later.
+    - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
     - text: Grid Height
@@ -85,7 +85,7 @@ test.describe("Rolling Blocks Solver", () => {
     await page.getByRole("spinbutton", { name: "Grid Height" }).fill("7");
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
     - heading "Rolling Blocks Setup" [level=1]
-    - paragraph: Build the board layout and block definitions. Solver logic comes later.
+    - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
     - text: Grid Height
@@ -176,7 +176,7 @@ test.describe("Rolling Blocks Solver", () => {
       .click();
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
     - heading "Rolling Blocks Setup" [level=1]
-    - paragraph: Build the board layout and block definitions. Solver logic comes later.
+    - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
     - text: Grid Height
@@ -240,7 +240,7 @@ test.describe("Rolling Blocks Solver", () => {
     await page.getByRole("button", { name: "Fill Must-Touch" }).click();
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
     - heading "Rolling Blocks Setup" [level=1]
-    - paragraph: Build the board layout and block definitions. Solver logic comes later.
+    - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
     - text: Grid Height
@@ -343,7 +343,7 @@ test.describe("Rolling Blocks Solver", () => {
       .click();
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
     - heading "Rolling Blocks Setup" [level=1]
-    - paragraph: Build the board layout and block definitions. Solver logic comes later.
+    - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
     - text: Grid Height
@@ -407,7 +407,7 @@ test.describe("Rolling Blocks Solver", () => {
     await page.getByRole("button", { name: "Fill Regular" }).click();
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
     - heading "Rolling Blocks Setup" [level=1]
-    - paragraph: Build the board layout and block definitions. Solver logic comes later.
+    - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
     - text: Grid Height
@@ -478,7 +478,7 @@ test.describe("Rolling Blocks Solver", () => {
     await goal1Source.dragTo(goal1Target);
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
     - heading "Rolling Blocks Setup" [level=1]
-    - paragraph: Build the board layout and block definitions. Solver logic comes later.
+    - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
     - text: Grid Height
@@ -551,7 +551,7 @@ test.describe("Rolling Blocks Solver", () => {
       .click();
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
     - heading "Rolling Blocks Setup" [level=1]
-    - paragraph: Build the board layout and block definitions. Solver logic comes later.
+    - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
     - text: Grid Height
@@ -632,7 +632,7 @@ test.describe("Rolling Blocks Solver", () => {
     await block2Source.dragTo(block2Target);
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
     - heading "Rolling Blocks Setup" [level=1]
-    - paragraph: Build the board layout and block definitions. Solver logic comes later.
+    - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
     - text: Grid Height
@@ -718,7 +718,7 @@ test.describe("Rolling Blocks Solver", () => {
     await page.keyboard.press("Tab");
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
     - heading "Rolling Blocks Setup" [level=1]
-    - paragraph: Build the board layout and block definitions. Solver logic comes later.
+    - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
     - text: Grid Height
@@ -797,10 +797,12 @@ test.describe("Rolling Blocks Solver", () => {
     await expect(hoveredCell).toHaveCSS("filter", /brightness/);
     await page.locator("#grid").hover();
     await expect(hoveredCell).not.toHaveClass(/block-hovered/);
-    await page.locator("#button").nth(4).click();
+    // The block's own delete control, not an index into Material's shadow
+    // buttons — adding any icon button to the page used to shift that index.
+    await page.locator('md-icon-button[data-block-delete-id="1"]').click();
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
     - heading "Rolling Blocks Setup" [level=1]
-    - paragraph: Build the board layout and block definitions. Solver logic comes later.
+    - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
     - text: Grid Height
@@ -873,7 +875,7 @@ test.describe("Rolling Blocks Solver", () => {
       .click();
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
     - heading "Rolling Blocks Setup" [level=1]
-    - paragraph: Build the board layout and block definitions. Solver logic comes later.
+    - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
     - text: Grid Height
