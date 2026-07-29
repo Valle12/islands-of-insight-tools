@@ -54,6 +54,7 @@ jobs:
             "$ASTAR_DIR/AStarGoals.cpp" \
             "$ASTAR_DIR/Block.cpp" \
             "$ASTAR_DIR/SolverClock.cpp" \
+            "$ASTAR_DIR/Replay.cpp" \
             -o "$OUT_DIR/astar.mjs" \
             -I "$BOOST_DIR" \
             -std=c++23 \

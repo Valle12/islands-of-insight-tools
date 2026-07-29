@@ -17,20 +17,42 @@ const DIRECTION_MAP: Record<number, Direction> = {
   3: Direction.LEFT,
 };
 
+// One solve = one worker for now; the handle hides that so the page keeps
+// working unchanged when the portfolio (several racing workers) lands.
+export interface SolverHandle {
+  terminate(): void;
+}
+
+export interface SolveStats {
+  nodesExpanded: number;
+  statesStored: number;
+  stoppedOnMemory: boolean;
+  wallMs: number;
+}
+
+export interface SolveConfig {
+  weight?: number;
+  maxMs?: number;
+  maxNodes?: number;
+  maxStatesStored?: number;
+  maxHeapBytes?: number;
+  postProcess?: boolean;
+}
+
 export interface WasmSearchCallbacks {
   onProgress?: (nodesExpanded: number) => void;
-  onDone?: (path: Turn[]) => void;
+  onDone?: (path: Turn[], stats?: SolveStats) => void;
   onError?: (error: string) => void;
 }
 
-export function searchWasm(
+export function searchRollingBlocksWasm(
   gridWidth: number,
   gridHeight: number,
   cells: Tile[][],
   blocks: Block[],
   callbacks: WasmSearchCallbacks,
-  weight = 2,
-): Worker {
+  config: SolveConfig = {},
+): SolverHandle {
   const flatCells: number[] = new Array(gridWidth * gridHeight);
   for (let x = 0; x < gridWidth; x++) {
     for (let y = 0; y < gridHeight; y++) {
@@ -60,7 +82,7 @@ export function searchWasm(
           direction: DIRECTION_MAP[t.direction],
         }),
       );
-      callbacks.onDone?.(path);
+      callbacks.onDone?.(path, event.data.stats);
       worker.terminate();
     } else if (type === "error") {
       callbacks.onError?.(event.data.error);
@@ -69,12 +91,14 @@ export function searchWasm(
   };
 
   worker.postMessage({
-    gridWidth,
-    gridHeight,
-    cells: flatCells,
-    blocks: blocksData,
-    weight,
+    puzzle: {
+      gridWidth,
+      gridHeight,
+      cells: flatCells,
+      blocks: blocksData,
+    },
+    config,
   });
 
-  return worker;
+  return { terminate: () => worker.terminate() };
 }

@@ -1,4 +1,6 @@
-// Worker that loads the A* WASM module and runs the search off the main thread
+// Worker that loads the A* WASM module and runs the search off the main
+// thread. Message in: { puzzle, config }; messages out: progress (posted by
+// the wasm module itself), done { path, stats }, or error.
 
 let modulePromise = null;
 
@@ -16,19 +18,32 @@ function getModule() {
 }
 
 self.onmessage = async event => {
-  const { gridWidth, gridHeight, cells, blocks, weight } = event.data;
+  const { puzzle, config } = event.data;
 
   try {
     const module = await getModule();
-    const result = module.search(gridWidth, gridHeight, cells, blocks, weight);
+    const result = module.solve(puzzle, config ?? {});
 
-    // Convert embind result to plain array before posting
-    const path = [];
-    for (let i = 0; i < result.length; i++) {
-      path.push({ blockId: result[i].blockId, direction: result[i].direction });
+    if (result.error) {
+      self.postMessage({ type: "error", error: String(result.error) });
+      return;
     }
 
-    self.postMessage({ type: "done", path });
+    // Convert the embind result to plain structures before posting.
+    const path = [];
+    for (const turn of result.turns) {
+      path.push({ blockId: turn.blockId, direction: turn.direction });
+    }
+    const stats = result.stats
+      ? {
+          nodesExpanded: result.stats.nodesExpanded,
+          statesStored: result.stats.statesStored,
+          stoppedOnMemory: result.stats.stoppedOnMemory,
+          wallMs: result.stats.wallMs,
+        }
+      : undefined;
+
+    self.postMessage({ type: "done", path, stats });
   } catch (err) {
     self.postMessage({ type: "error", error: String(err) });
   }

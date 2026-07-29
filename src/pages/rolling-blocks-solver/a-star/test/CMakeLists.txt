@@ -6,6 +6,8 @@ add_executable(a_star_tests
     ${CMAKE_SOURCE_DIR}/AStar.cpp
     ${CMAKE_SOURCE_DIR}/AStarGoals.cpp
     ${CMAKE_SOURCE_DIR}/SolverClock.cpp
+    ${CMAKE_SOURCE_DIR}/Replay.cpp
+    ${CMAKE_SOURCE_DIR}/FixtureIo.cpp
 )
 
 target_link_libraries(a_star_tests PRIVATE

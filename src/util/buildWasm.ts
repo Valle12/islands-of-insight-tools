@@ -106,6 +106,7 @@ await build({
     "AStarGoals.cpp",
     "Block.cpp",
     "SolverClock.cpp",
+    "Replay.cpp",
   ],
   outputJs: "astar.mjs",
   exportName: "createAStarModule",

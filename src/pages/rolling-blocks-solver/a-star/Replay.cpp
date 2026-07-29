@@ -1,0 +1,106 @@
+#include "Replay.h"
+
+#include <algorithm>
+#include <boost/dynamic_bitset.hpp>
+
+namespace {
+
+// Strict solved test: all must-touch cells satisfied AND the set of goal
+// cells under fully-on-goal blocks is every goal cell.
+bool isSolved(const replay::Puzzle &puzzle, const std::vector<Block> &blocks,
+              const boost::dynamic_bitset<> &satisfied) {
+  const uint8_t w = puzzle.gridWidth;
+  size_t goalCells = 0;
+  for (size_t i = 0; i < puzzle.cells.size(); i++) {
+    if (puzzle.cells[i] == Tile::MustTouch && !satisfied.test(i)) {
+      return false;
+    }
+    if (puzzle.cells[i] == Tile::Goal) {
+      goalCells++;
+    }
+  }
+  if (goalCells == 0) {
+    return true;
+  }
+  boost::dynamic_bitset<> covered(puzzle.cells.size());
+  for (const auto &block : blocks) {
+    bool fullyOnGoal = true;
+    for (int8_t cx = block.x;
+         fullyOnGoal && cx < block.x + static_cast<int8_t>(block.width);
+         cx++) {
+      for (int8_t cy = block.y; cy < block.y + static_cast<int8_t>(block.depth);
+           cy++) {
+        if (puzzle.cells[positionToIndex(cx, cy, w)] != Tile::Goal) {
+          fullyOnGoal = false;
+          break;
+        }
+      }
+    }
+    if (!fullyOnGoal) {
+      continue;
+    }
+    for (int8_t cx = block.x; cx < block.x + static_cast<int8_t>(block.width);
+         cx++) {
+      for (int8_t cy = block.y; cy < block.y + static_cast<int8_t>(block.depth);
+           cy++) {
+        covered.set(positionToIndex(cx, cy, w));
+      }
+    }
+  }
+  return covered.count() == goalCells;
+}
+
+} // namespace
+
+namespace replay {
+
+Outcome replayTurns(const Puzzle &puzzle, const std::vector<Turn> &turns) {
+  Outcome outcome;
+  std::vector<Block> blocks = puzzle.blocks;
+  boost::dynamic_bitset<> satisfied(puzzle.cells.size());
+  for (const auto &block : blocks) {
+    satisfied =
+        block.updateMustTouchCells(puzzle.gridWidth, puzzle.cells, satisfied);
+  }
+
+  if (isSolved(puzzle, blocks, satisfied)) {
+    outcome.firstSolvedAt = 0;
+  }
+
+  for (size_t i = 0; i < turns.size(); i++) {
+    const auto it = std::ranges::find_if(blocks, [&](const Block &b) {
+      return b.id == turns[i].blockId;
+    });
+    if (it == blocks.end()) {
+      return outcome; // legal stays false
+    }
+    it->roll(turns[i].direction);
+    if (!it->checkValidity(puzzle.gridWidth, puzzle.gridHeight, puzzle.cells,
+                           blocks, satisfied)) {
+      return outcome;
+    }
+    satisfied =
+        it->updateMustTouchCells(puzzle.gridWidth, puzzle.cells, satisfied);
+    if (outcome.firstSolvedAt == SIZE_MAX &&
+        isSolved(puzzle, blocks, satisfied)) {
+      outcome.firstSolvedAt = i + 1;
+    }
+  }
+
+  outcome.legal = true;
+  outcome.solvedAtEnd = isSolved(puzzle, blocks, satisfied);
+  return outcome;
+}
+
+std::vector<Turn> truncateToEarliestSolve(const Puzzle &puzzle,
+                                          const std::vector<Turn> &turns) {
+  const Outcome outcome = replayTurns(puzzle, turns);
+  if (!outcome.legal || outcome.firstSolvedAt == SIZE_MAX ||
+      outcome.firstSolvedAt >= turns.size()) {
+    return turns;
+  }
+  return {turns.begin(),
+          turns.begin() + static_cast<ptrdiff_t>(outcome.firstSolvedAt)};
+}
+
+} // namespace replay

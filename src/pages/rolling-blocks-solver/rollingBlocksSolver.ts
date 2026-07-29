@@ -1,7 +1,7 @@
 import type { PaintTool } from "./../../util/types";
 import { Board } from "./board";
 import type { Turn } from "./turn";
-import { searchWasm } from "./wasmBridge";
+import { searchRollingBlocksWasm, type SolverHandle } from "./wasmBridge";
 
 export class RollingBlocksSolverEditor {
   private static readonly DEFAULT_GRID_WIDTH = 5;
@@ -41,7 +41,10 @@ export class RollingBlocksSolverEditor {
   private gridHeight = RollingBlocksSolverEditor.DEFAULT_GRID_HEIGHT;
   private selectedTool: PaintTool = "regular";
   private board: Board;
-  private currentWorker: Worker | null = null;
+  private currentWorker: SolverHandle | null = null;
+  // Ceiling for a single browser solve; without it a hopeless search would
+  // spin until the tab dies. Mirrors the shifting-mosaic page's budget.
+  private static readonly SOLVE_BUDGET_MS = 300_000;
 
   constructor() {
     this.board = new Board(
@@ -109,7 +112,7 @@ export class RollingBlocksSolverEditor {
       this.stopCurrentWorker();
       this.showSolving();
 
-      this.currentWorker = searchWasm(
+      this.currentWorker = searchRollingBlocksWasm(
         this.gridWidth,
         this.gridHeight,
         this.board.getCells(),
@@ -127,6 +130,7 @@ export class RollingBlocksSolverEditor {
             this.showError(err);
           },
         },
+        { maxMs: RollingBlocksSolverEditor.SOLVE_BUDGET_MS },
       );
     });
 

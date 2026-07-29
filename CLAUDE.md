@@ -78,7 +78,7 @@ The source lists are duplicated in three places that must stay in sync: `buildWa
 
 ### The two solver bridges differ
 
-- **rolling-blocks** (`wasmBridge.ts` → `searchWasm`): one worker, messages `progress | done | error`.
+- **rolling-blocks** (`wasmBridge.ts` → `searchRollingBlocksWasm`): one worker, messages `progress | done | error`, returns a `SolverHandle`. The wasm exports are `solve(puzzle, config)` and `optimize(puzzle, turns)` — config keys (all optional): `weight` (2), `maxMs` (60000), `maxNodes`, `maxStatesStored`, `maxHeapBytes` (0 = unlimited), `postProcess` (true). `solve` returns `{turns, stats:{nodesExpanded, statesStored, stoppedOnMemory, wallMs}}` or `{turns: [], error}` for boards beyond the engine caps (64×64 grid, 255 blocks, dims ≤ 64). The page passes `maxMs: 300_000` so a browser solve can never spin unbounded.
 - **shifting-mosaic** (`wasmBridge.ts` → `searchShiftingMosaicWasm`): a **portfolio**. `PORTFOLIO` is an ordered array of engine configs; each is one worker racing the others, first non-empty solution wins, and the rest are terminated. Concurrency is bounded by `hardwareConcurrency`, not the arm count — every arm always runs, queued and back-filled. An arm that exhausts the heap retires itself and the race continues. If every arm comes back empty the bridge re-runs them sequentially (`onPhase("sequential")`) so the UI can say the strategy changed. `PORTFOLIO` is exported so `test/shifting-mosaic-solver/wasm.test.ts` races the exact production arm set.
 
 The shifting-mosaic page needs `SharedArrayBuffer`, which GitHub Pages cannot grant via headers. `src/common/coiRegister.ts` registers `coi-serviceworker.js` and **reloads once** when it activates. `page.goto()` resolves on the *pre-reload* document, so any e2e interaction in that window can die with "Execution context was destroyed". Always reach that page through `gotoIsolated` / `waitForCoiSettled` in `e2e/coi.ts`.
@@ -95,13 +95,15 @@ The shifting-mosaic page needs `SharedArrayBuffer`, which GitHub Pages cannot gr
 
 `test/` and `e2e/` mirror `src/pages/` with kebab-case folders (`phasic-dial-solver`, `rolling-blocks-solver`, `shifting-mosaic-solver`); shared tests sit at the root of each. `test/resources/` is split the same way. Fixtures are produced by the app's own download button, so the JSON *is* the download format.
 
-`test/resources/phasic-dial-solver/` is discovered by directory listing rather than a hard-coded list, so dropping a captured `phasicDialTest*.json` in makes it run with no code change. Every other fixture family is enumerated explicitly, and the bounds disagree: the C++ suites run rollingBlocksTest 1–39 and shiftingMosaicTest 1–43, while `test/rolling-blocks-solver/aStar.test.ts` lists only 1–30.
+`test/resources/phasic-dial-solver/` is discovered by directory listing rather than a hard-coded list, so dropping a captured `phasicDialTest*.json` in makes it run with no code change. Every other fixture family is enumerated explicitly, and the bounds disagree: the C++ suites run rollingBlocksTest 1–39 and shiftingMosaicTest 1–43, while `test/rolling-blocks-solver/aStar.test.ts` lists only 1–33 (34–39 join once the endgame arms land).
 
 Fixture paths appear in nine places — the two `TEST_RESOURCES_DIR` macros in the C++ test `CMakeLists.txt`, four TS/MJS test files, `src/util/benchShiftingMosaic.ts` (regex over `readdirSync`), `src/util/benchWasmSimd.ts`, and a **cwd-relative** literal in `e2e/shifting-mosaic-solver/config.test.ts`. Renaming or moving a fixture means touching all of them.
 
 ## Native C++ builds
 
-`bun run build:wasm` compiles with emscripten; the gtest suites are a separate native build per solver (`src/pages/*/a-star/`, needs boost + nlohmann_json + gtest). CI configures fresh Release build dirs; locally there are pre-configured ones (`cmake-build-release-visual-studio`, `build-native`) that must be driven by **CLion's** bundled CMake, from an MSVC environment (`vcvars64.bat`) for the Ninja dirs.
+`bun run build:wasm` compiles with emscripten; the gtest suites are a separate native build per solver (`src/pages/*/a-star/`, needs boost + nlohmann_json + gtest). CI configures fresh Release build dirs; locally there are pre-configured ones (`cmake-build-release-visual-studio`, `build-native`) that must be driven by **CLion's** bundled CMake, from an MSVC environment (`vcvars64.bat`) for the Ninja dirs. The rolling-blocks dirs are Ninja despite their `-visual-studio` names, so the clang-tidy gate is live there.
+
+Both solvers now have a real CLI (`a_star.exe` for rolling-blocks): `--fixture <path> [--engine wastar] [--weight N] [--budget-ms N] [--max-nodes N] [--max-states N] [--max-heap-bytes N] [--no-post] [--json]`; the LAST stdout line starting with `{` is the JSON report (same protocol as the shifting-mosaic CLI). Fixture loading and the replay validity oracle live in `Replay.{h,cpp}` (wasm + native) and `FixtureIo.{h,cpp}` (native only — it drags in nlohmann + exceptions, so it must never join the wasm source lists).
 
 Run the suite in **Release**: `shiftingMosaicTest37` needs ~115 s there and blows its per-arm budget in Debug, so a lone test37 failure means the build type, not a regression.
 
