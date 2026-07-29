@@ -118,6 +118,81 @@ std::vector<Turn> AStar::searchCracker(Node root) {
     return touched;
   };
 
+  // Transit guidance: cell distance to the NEAREST unsatisfied must-touch
+  // cell (multi-source BFS, satisfied cells are walls). Without it every
+  // zero-touch move ordered purely by Warnsdorff + jitter and the walk
+  // meandered enormously between touches — measured 3025-turn solutions
+  // against 213-turn witnesses on a 56x43 fuzz board.
+  const size_t totalCells = static_cast<size_t>(gridWidth_) * gridHeight_;
+  std::vector<uint16_t> field(totalCells, UINT16_MAX);
+  std::vector<uint16_t> fieldFrontier;
+  std::vector<uint16_t> fieldNext;
+  bool fieldLive = false;
+  // Cache key: the satisfied count. Two branches with equal counts but
+  // different sets share a slightly stale field — acceptable, the field only
+  // orders moves (legality never consults it) and rebuilding per frame was
+  // measured 12x slower per node.
+  size_t fieldBuiltCount = SIZE_MAX;
+  const auto rebuildField = [&](const boost::dynamic_bitset<> &cellBits,
+                                const size_t satisfiedCount) {
+    if (satisfiedCount == fieldBuiltCount) {
+      return;
+    }
+    fieldBuiltCount = satisfiedCount;
+    std::ranges::fill(field, UINT16_MAX);
+    fieldFrontier.clear();
+    for (const auto &[mx, my, idx] : mustTouchIndices_) {
+      if (!cellBits.test(idx)) {
+        field[idx] = 0;
+        fieldFrontier.push_back(idx);
+      }
+    }
+    fieldLive = !fieldFrontier.empty();
+    uint16_t depth = 0;
+    while (!fieldFrontier.empty()) {
+      fieldNext.clear();
+      depth++;
+      for (const uint16_t idx : fieldFrontier) {
+        const auto cx = static_cast<int8_t>(idx % gridWidth_);
+        const auto cy = static_cast<int8_t>(idx / gridWidth_);
+        for (int d = 0; d < 4; d++) {
+          constexpr std::array<int8_t, 4> dy = {1, -1, 0, 0};
+          constexpr std::array<int8_t, 4> dx = {0, 0, 1, -1};
+          const auto nx = static_cast<int8_t>(cx + dx[d]);
+          const auto ny = static_cast<int8_t>(cy + dy[d]);
+          if (nx < 0 || nx >= gridWidth_ || ny < 0 || ny >= gridHeight_) {
+            continue;
+          }
+          const auto nidx = positionToIndex(nx, ny, gridWidth_);
+          if (field[nidx] != UINT16_MAX ||
+              cells_[nidx] == Tile::Unplayable ||
+              (cells_[nidx] == Tile::MustTouch && cellBits.test(nidx))) {
+            continue;
+          }
+          field[nidx] = depth;
+          fieldNext.push_back(nidx);
+        }
+      }
+      fieldFrontier.swap(fieldNext);
+    }
+  };
+  const auto fieldDistance = [&](const Block &moved) -> uint32_t {
+    if (!fieldLive) {
+      return 0;
+    }
+    uint32_t best = 0xFFF;
+    for (int8_t cx = moved.x; cx < moved.x + static_cast<int8_t>(moved.width);
+         cx++) {
+      for (int8_t cy = moved.y;
+           cy < moved.y + static_cast<int8_t>(moved.depth); cy++) {
+        best = std::min(
+            best, static_cast<uint32_t>(
+                      field[positionToIndex(cx, cy, gridWidth_)]));
+      }
+    }
+    return std::min(best, 0xFFFU);
+  };
+
   for (uint64_t round = 1;; round++) {
     if (budgetExhausted(deadline, 0)) {
       break;
@@ -137,11 +212,13 @@ std::vector<Turn> AStar::searchCracker(Node root) {
     }
     frames.push_back(std::move(rootFrame));
 
-    // Order a frame's candidate moves: most fresh touches first, then the
+    // Order a frame's candidate moves: most fresh touches first, then
+    // closest to the nearest remaining cell (beeline transit), then the
     // fewest onward options (finish corridors before they get walled off),
     // then a seeded jitter so restarts explore different tie orders.
     const auto scoreFrame = [&](Frame &frame) {
       frame.moves.clear();
+      rebuildField(frame.cells, frame.ord.count());
       for (size_t bi = 0; bi < frame.blocks.size(); bi++) {
         for (const auto dir : kDirs) {
           Block moved = frame.blocks[bi].clone();
@@ -151,16 +228,22 @@ std::vector<Turn> AStar::searchCracker(Node root) {
             continue;
           }
           const uint32_t touched = touchedCount(moved, frame.cells);
+          const uint32_t dist = touched > 0 ? 0 : fieldDistance(moved);
           const uint32_t onward = onwardOptions(moved, frame.cells);
           const uint32_t jitter = mixHash(
               roundSeed ^ static_cast<uint32_t>(moved.x) << 24 ^
               static_cast<uint32_t>(moved.y) << 16 ^
               static_cast<uint32_t>(bi) << 8 ^ static_cast<uint32_t>(dir));
           // Smaller sorts first: invert touches (footprints cap at 4096
-          // cells), keep onward ascending.
+          // cells), then Warnsdorff's onward count, then transit distance.
+          // Distance strictly BELOW onward: distance-first walks straight
+          // into snake traps (measured: it turned a solving cracker into one
+          // that found nothing on the same board), while as a tie-break it
+          // replaces random jitter with progress toward the remaining cells.
           const uint64_t order =
-              static_cast<uint64_t>(4096 - std::min(touched, 4096U)) << 40 |
-              static_cast<uint64_t>(onward) << 32 | jitter;
+              static_cast<uint64_t>(4096 - std::min(touched, 4096U)) << 48 |
+              static_cast<uint64_t>(onward) << 44 |
+              static_cast<uint64_t>(dist) << 32 | (jitter >> 4);
           frame.moves.push_back({order, static_cast<uint8_t>(bi), dir});
         }
       }

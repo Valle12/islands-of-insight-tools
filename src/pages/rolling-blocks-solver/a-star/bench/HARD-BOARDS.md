@@ -33,8 +33,20 @@ Next algorithmic candidates for the class, in rough order of promise:
 3. Seed-diversified greedy restarts (greedy already cracks several of these
    solo; it currently gets one deterministic shot per cascade).
 
-Also recorded from these campaigns: solutions on very large coverage boards
-can run far past the witness length (seed 7040: 15,606 turns vs a 213-turn
-witness) — the optimizer's windowed BFS re-solve saturates its 20k node cap
-on 2-block boards. Raising the cap adaptively or window-solving per block
-are the obvious levers.
+Also recorded from these campaigns, then FIXED: solutions on very large
+coverage boards ran far past the witness length (seed 7040: 15,606 turns vs
+a 213-turn witness). Two changes brought that board to 665 turns (≈3× the
+hard floor of ceil(274 cells / footprint 2)):
+
+1. The cracker orders zero-touch (transit) moves by a distance field to the
+   nearest unsatisfied cell — strictly BELOW Warnsdorff's onward count.
+   Distance-first was measured to walk into snake traps (a solving cracker
+   found nothing on the same board); as a tie-break it replaces random
+   jitter with progress. The field caches by satisfied count (per-frame
+   rebuilds were 12× slower per node).
+2. The optimizer's touch-segmented reconnection pass: split at must-touch
+   events, reconnect each stretch optimally with the search restricted to
+   the blocks that stretch moves (single-block stretches solve exactly in
+   ≤24k pose space). Meanders never repeat a full state (the satisfied set
+   is monotone), so the loop-cut pass structurally cannot see them — this
+   pass can.

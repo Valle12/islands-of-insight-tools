@@ -188,13 +188,16 @@ bool singleRemovalPass(const replay::Puzzle &puzzle, std::vector<Turn> &turns,
 
 // Breadth-first exact reconnection from `from` to `target` in fewer than
 // `maxDepth` moves. Bounded by a node cap so a wide window on a many-block
-// board cannot blow up the post-processing budget.
-std::optional<std::vector<Turn>> connect(const replay::Puzzle &puzzle,
-                                         const State &from,
-                                         const std::string &targetKey,
-                                         const size_t maxDepth,
-                                         const uint64_t deadline) {
-  constexpr size_t kNodeCap = 20000;
+// board cannot blow up the post-processing budget. When `allowedIds` is
+// given, only those blocks may move — restricting a reconnection to the
+// blocks the original stretch used keeps the search in THEIR pose space (a
+// single block has at most 64*64*6 poses, so the search completes exactly)
+// instead of the full joint space.
+std::optional<std::vector<Turn>> connect(
+    const replay::Puzzle &puzzle, const State &from,
+    const std::string &targetKey, const size_t maxDepth,
+    const uint64_t deadline, const std::vector<uint8_t> *allowedIds = nullptr,
+    const size_t nodeCap = 20000) {
   constexpr std::array kDirs = {Direction::UP, Direction::RIGHT,
                                 Direction::DOWN, Direction::LEFT};
 
@@ -210,7 +213,7 @@ std::optional<std::vector<Turn>> connect(const replay::Puzzle &puzzle,
   visited.insert(stateKey(from));
 
   for (size_t head = 0; head < arena.size(); head++) {
-    if (arena.size() > kNodeCap || (deadline != 0 && nowMs() >= deadline)) {
+    if (arena.size() > nodeCap || (deadline != 0 && nowMs() >= deadline)) {
       return std::nullopt;
     }
     // Copy: growing the arena below may reallocate it.
@@ -220,6 +223,10 @@ std::optional<std::vector<Turn>> connect(const replay::Puzzle &puzzle,
       continue;
     }
     for (const auto &block : current.blocks) {
+      if (allowedIds != nullptr &&
+          !std::ranges::contains(*allowedIds, block.id)) {
+        continue;
+      }
       for (const auto dir : kDirs) {
         State next = current;
         if (!applyTurn(puzzle, next, {block.id, dir})) {
@@ -243,6 +250,69 @@ std::optional<std::vector<Turn>> connect(const replay::Puzzle &puzzle,
     }
   }
   return std::nullopt;
+}
+
+// Reconnects every stretch between consecutive must-touch events with a
+// provably shortest replacement. Depth-first arms (the cracker above all)
+// meander enormously BETWEEN touches, and those stretches never repeat a
+// full state (the satisfied set differs before/after each touch), so the
+// loop-cut pass cannot see them — but each stretch usually moves ONE block,
+// whose pose space is tiny. Splicing runs right-to-left so earlier segment
+// boundaries stay valid without recomputing the replay. Measured trigger: a
+// fuzz board whose cracker solution was 15,606 turns against a 213-turn
+// witness.
+bool segmentPass(const replay::Puzzle &puzzle, std::vector<Turn> &turns,
+                 const uint64_t deadline) {
+  const std::vector<State> states = replayStates(puzzle, turns);
+  if (states.empty()) {
+    return false;
+  }
+  std::vector<size_t> bounds{0};
+  for (size_t k = 1; k < states.size(); k++) {
+    if (states[k].satisfied.count() != states[k - 1].satisfied.count()) {
+      bounds.push_back(k);
+    }
+  }
+  if (bounds.back() != states.size() - 1) {
+    bounds.push_back(states.size() - 1);
+  }
+
+  const std::vector<Turn> backup = turns;
+  bool changed = false;
+  for (size_t i = bounds.size() - 1; i-- > 0;) {
+    if (deadline != 0 && nowMs() >= deadline) {
+      break;
+    }
+    const size_t a = bounds[i];
+    const size_t b = bounds[i + 1];
+    if (b - a < 2) {
+      continue;
+    }
+    std::vector<uint8_t> movedIds;
+    for (size_t t = a; t < b; t++) {
+      if (!std::ranges::contains(movedIds, turns[t].blockId)) {
+        movedIds.push_back(turns[t].blockId);
+      }
+    }
+    const auto shorter =
+        connect(puzzle, states[a], stateKey(states[b]), b - a - 1, deadline,
+                &movedIds, 150000);
+    if (!shorter) {
+      continue;
+    }
+    turns.erase(turns.begin() + static_cast<ptrdiff_t>(a),
+                turns.begin() + static_cast<ptrdiff_t>(b));
+    turns.insert(turns.begin() + static_cast<ptrdiff_t>(a), shorter->begin(),
+                 shorter->end());
+    changed = true;
+  }
+  if (changed && !validates(puzzle, turns)) {
+    // Reconnections target exact id-aware states, so this should be
+    // unreachable — but the replay oracle stays the last word.
+    turns = backup;
+    return false;
+  }
+  return changed;
 }
 
 bool windowPass(const replay::Puzzle &puzzle, std::vector<Turn> &turns,
@@ -294,6 +364,7 @@ std::vector<Turn> optimize(const replay::Puzzle &puzzle,
   while (changed && (deadline == 0 || nowMs() < deadline)) {
     changed = truncatePass(puzzle, turns);
     changed = loopCutPass(puzzle, turns) || changed;
+    changed = segmentPass(puzzle, turns, deadline) || changed;
     changed = inversePairPass(puzzle, turns) || changed;
     changed = singleRemovalPass(puzzle, turns, deadline) || changed;
   }
