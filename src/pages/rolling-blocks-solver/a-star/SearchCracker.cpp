@@ -311,7 +311,7 @@ std::vector<Turn> AStar::searchCracker(Node root) {
             if (!rectPassable(rx, ry, fw, fd, satCells)) {
               continue;
             }
-            Block pose(0, static_cast<int8_t>(rx), static_cast<int8_t>(ry),
+            Block const pose(0, static_cast<int8_t>(rx), static_cast<int8_t>(ry),
                        static_cast<uint8_t>(fw), static_cast<uint8_t>(fd),
                        o[2]);
             for (const auto dir : kDirs) {
@@ -399,10 +399,14 @@ std::vector<Turn> AStar::searchCracker(Node root) {
       const auto [w, d, h] = graph.orients[o];
       // Mirrors Block::roll: UP y-=h swap(d,h); RIGHT x+=w swap(w,h);
       // DOWN y+=d swap(d,h); LEFT x-=h swap(w,h).
-      graph.trans[o][0] = {0, static_cast<int8_t>(-h), findOrAdd({w, h, d})};
-      graph.trans[o][1] = {static_cast<int8_t>(w), 0, findOrAdd({h, d, w})};
-      graph.trans[o][2] = {0, static_cast<int8_t>(d), findOrAdd({w, h, d})};
-      graph.trans[o][3] = {static_cast<int8_t>(-h), 0, findOrAdd({h, d, w})};
+      graph.trans[o][0] = {.dx = 0, .dy = static_cast<int8_t>(-h),
+                           .next = findOrAdd({w, h, d})};
+      graph.trans[o][1] = {.dx = static_cast<int8_t>(w), .dy = 0,
+                           .next = findOrAdd({h, d, w})};
+      graph.trans[o][2] = {.dx = 0, .dy = static_cast<int8_t>(d),
+                           .next = findOrAdd({w, h, d})};
+      graph.trans[o][3] = {.dx = static_cast<int8_t>(-h), .dy = 0,
+                           .next = findOrAdd({h, d, w})};
     }
     return graph;
   };
@@ -608,7 +612,11 @@ std::vector<Turn> AStar::searchCracker(Node root) {
     std::vector<Frame> frames;
     std::vector<Turn> path;
 
-    Frame rootFrame{root.blocks, root.mustTouchCellsSatisfied, rootOrd, {}, 0};
+    Frame rootFrame{.blocks = root.blocks,
+                    .cells = root.mustTouchCellsSatisfied,
+                    .ord = rootOrd,
+                    .moves = {},
+                    .next = 0};
     visited.emplace(encodeStateOrdinal(rootFrame.blocks, rootFrame.ord));
     if (legDone(rootFrame.blocks, rootFrame.ord)) {
       return {};
@@ -656,7 +664,8 @@ std::vector<Turn> AStar::searchCracker(Node root) {
               (diversifyRound
                    ? static_cast<uint64_t>(jitter >> 7)
                    : static_cast<uint64_t>(dist) << 26 | (jitter >> 7));
-          frame.moves.push_back({order, static_cast<uint8_t>(bi), dir});
+          frame.moves.push_back(
+              {.order = order, .bi = static_cast<uint8_t>(bi), .dir = dir});
         }
       }
       std::ranges::sort(frame.moves, {}, &ScoredMove::order);
@@ -716,7 +725,8 @@ std::vector<Turn> AStar::searchCracker(Node root) {
         onProgress(static_cast<uint32_t>(stats_.nodesExpanded));
       }
 
-      path.push_back({frame.blocks[move.bi].id, move.dir});
+      path.push_back(
+          {.blockId = frame.blocks[move.bi].id, .direction = move.dir});
       if (legDone(child.blocks, child.ord)) {
         stats_.statesStored = visited.size();
         stats_.wallMs = static_cast<uint32_t>(nowMs() - startMs);

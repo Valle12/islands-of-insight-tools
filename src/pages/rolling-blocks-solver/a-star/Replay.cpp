@@ -1,7 +1,6 @@
 #include "Replay.h"
 
 #include <algorithm>
-#include <boost/dynamic_bitset.hpp>
 
 namespace {
 

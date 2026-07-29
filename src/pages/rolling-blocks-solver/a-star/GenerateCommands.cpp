@@ -6,7 +6,6 @@
 #include "Types.h"
 
 #include <algorithm>
-#include <boost/dynamic_bitset.hpp>
 #include <cstdint>
 #include <fstream>
 #include <iostream>
@@ -92,11 +91,12 @@ void scramble(BoardGen &g, SeededRng &rng,
       continue;
     }
     g.blocks[bi] = trial;
-    walk.push_back({g.blocks[bi].id, dir});
+    walk.push_back({.blockId = g.blocks[bi].id, .direction = dir});
     g.accepted++;
   }
   for (const Turn &move : std::views::reverse(walk)) {
-    forward.push_back({move.blockId, inverseOf(move.direction)});
+    forward.push_back(
+        {.blockId = move.blockId, .direction = inverseOf(move.direction)});
   }
 }
 
@@ -176,7 +176,10 @@ BoardGen generateGoal(SeededRng &rng, const uint32_t shuffle) {
   // are the FIRST forward moves, so they prepend. A board that stays covered
   // anyway is emitted and scored trivial by the harness.
   for (int extra = 0; extra < 3; extra++) {
-    const replay::Puzzle check{g.width, g.height, g.cells, g.blocks};
+    const replay::Puzzle check{.gridWidth = g.width,
+                               .gridHeight = g.height,
+                               .cells = g.cells,
+                               .blocks = g.blocks};
     if (!replay::replayTurns(check, {}).solvedAtEnd) {
       break;
     }
@@ -253,7 +256,7 @@ BoardGen generateCoverage(SeededRng &rng, const uint32_t shuffle) {
       continue;
     }
     g.blocks[bi] = trial;
-    g.witness.push_back({g.blocks[bi].id, dir});
+    g.witness.push_back({.blockId = g.blocks[bi].id, .direction = dir});
     g.accepted++;
     touch(trial);
   }
@@ -331,7 +334,7 @@ BoardGen generateMixed(SeededRng &rng, const uint32_t shuffle) {
       continue;
     }
     g.blocks[bi] = trial;
-    g.witness.push_back({g.blocks[bi].id, dir});
+    g.witness.push_back({.blockId = g.blocks[bi].id, .direction = dir});
     g.accepted++;
     touch(trial);
   }
@@ -460,7 +463,10 @@ int run(const std::string &outPath, const uint32_t seed,
 
   // The construction argument in code form: the witness MUST replay to a
   // solution. A failure here is a generator bug, never a puzzle property.
-  const replay::Puzzle puzzle{g.width, g.height, g.cells, g.blocks};
+  const replay::Puzzle puzzle{.gridWidth = g.width,
+                              .gridHeight = g.height,
+                              .cells = g.cells,
+                              .blocks = g.blocks};
   const replay::Outcome outcome = replay::replayTurns(puzzle, g.witness);
   if (!outcome.legal || !outcome.solvedAtEnd) {
     nlohmann::json err;

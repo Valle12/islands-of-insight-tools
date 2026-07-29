@@ -5,7 +5,6 @@
 #undef __cpp_lib_is_pointer_interconvertible
 #endif
 #include "AStarOptimizer.h"
-#include "Block.h"
 #include "FixtureIo.h"
 #include "Replay.h"
 #include "Types.h"
@@ -53,7 +52,10 @@ TEST(Optimizer, TruncatesPastTheSolvingPrefix) {
   using enum Direction;
   // Solves after two rolls, then wanders on and comes back.
   const std::vector<Turn> turns = {
-      {1, RIGHT}, {1, RIGHT}, {1, RIGHT}, {1, LEFT}};
+      {.blockId = 1, .direction = RIGHT},
+      {.blockId = 1, .direction = RIGHT},
+      {.blockId = 1, .direction = RIGHT},
+      {.blockId = 1, .direction = LEFT}};
   const auto optimized = optimizer::optimize(puzzle, turns, 5000);
   EXPECT_EQ(optimized.size(), 2u);
   expectValid(puzzle, optimized);
@@ -62,8 +64,12 @@ TEST(Optimizer, TruncatesPastTheSolvingPrefix) {
 TEST(Optimizer, CutsOutAndBackLoops) {
   const auto puzzle = openBoardPuzzle();
   using enum Direction;
-  const std::vector<Turn> turns = {{1, DOWN},  {1, UP},    {1, RIGHT},
-                                   {1, RIGHT}, {1, RIGHT}, {1, RIGHT}};
+  const std::vector<Turn> turns = {{.blockId = 1, .direction = DOWN},
+                                   {.blockId = 1, .direction = UP},
+                                   {.blockId = 1, .direction = RIGHT},
+                                   {.blockId = 1, .direction = RIGHT},
+                                   {.blockId = 1, .direction = RIGHT},
+                                   {.blockId = 1, .direction = RIGHT}};
   const auto optimized = optimizer::optimize(puzzle, turns, 5000);
   EXPECT_EQ(optimized.size(), 4u);
   expectValid(puzzle, optimized);
@@ -75,8 +81,12 @@ TEST(Optimizer, WindowReSolveStraightensADetour) {
   // A 6-move staircase detour to (4,0); the direct route is 4 rolls. No move
   // is individually removable and no state repeats, so only the windowed
   // exact re-solve can shorten it.
-  const std::vector<Turn> turns = {{1, DOWN},  {1, RIGHT}, {1, RIGHT},
-                                   {1, RIGHT}, {1, RIGHT}, {1, UP}};
+  const std::vector<Turn> turns = {{.blockId = 1, .direction = DOWN},
+                                   {.blockId = 1, .direction = RIGHT},
+                                   {.blockId = 1, .direction = RIGHT},
+                                   {.blockId = 1, .direction = RIGHT},
+                                   {.blockId = 1, .direction = RIGHT},
+                                   {.blockId = 1, .direction = UP}};
   const auto optimized = optimizer::optimize(puzzle, turns, 5000);
   EXPECT_EQ(optimized.size(), 4u);
   expectValid(puzzle, optimized);
@@ -85,7 +95,8 @@ TEST(Optimizer, WindowReSolveStraightensADetour) {
 TEST(Optimizer, LeavesAnInvalidSolutionUntouched) {
   const auto puzzle = corridorPuzzle();
   using enum Direction;
-  const std::vector<Turn> turns = {{1, LEFT}}; // rolls off the board
+  // Rolls off the board.
+  const std::vector<Turn> turns = {{.blockId = 1, .direction = LEFT}};
   const auto optimized = optimizer::optimize(puzzle, turns, 5000);
   EXPECT_EQ(optimized, turns);
 }

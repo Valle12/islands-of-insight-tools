@@ -9,7 +9,6 @@
 #include "Block.h"
 #include "Node.h"
 #include "Types.h"
-#include <boost/dynamic_bitset.hpp>
 #if defined(__GNUC__) && !defined(__clang__)
 namespace boost {
 template <typename T>
@@ -66,7 +65,7 @@ void replaySolution(const uint8_t w, const uint8_t h,
     ASSERT_TRUE(it->checkValidity(w, h, cells, blocks, satisfied));
     satisfied = it->updateMustTouchCells(w, cells, satisfied);
   }
-  out = {std::move(blocks), std::move(satisfied)};
+  out = {.blocks = std::move(blocks), .satisfied = std::move(satisfied)};
 }
 
 // Exact goal cover: the set of goal cells under fully-on-goal blocks must be

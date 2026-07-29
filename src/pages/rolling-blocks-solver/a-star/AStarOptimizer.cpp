@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <array>
-#include <boost/dynamic_bitset.hpp>
 #include <cstddef>
 #include <optional>
 #include <string>
@@ -47,7 +46,8 @@ std::string stateKey(const State &s) {
 }
 
 State initialState(const replay::Puzzle &puzzle) {
-  State s{puzzle.blocks, boost::dynamic_bitset<>(puzzle.cells.size())};
+  State s{.blocks = puzzle.blocks,
+          .satisfied = boost::dynamic_bitset<>(puzzle.cells.size())};
   for (const auto &b : s.blocks) {
     s.satisfied =
         b.updateMustTouchCells(puzzle.gridWidth, puzzle.cells, s.satisfied);
@@ -208,7 +208,7 @@ std::optional<std::vector<Turn>> connect(
     size_t depth;
   };
   std::vector<Entry> arena;
-  arena.push_back({from, SIZE_MAX, {}, 0});
+  arena.push_back({.state = from, .parent = SIZE_MAX, .turn = {}, .depth = 0});
   std::unordered_set<std::string> visited;
   visited.insert(stateKey(from));
 
@@ -229,14 +229,17 @@ std::optional<std::vector<Turn>> connect(
       }
       for (const auto dir : kDirs) {
         State next = current;
-        if (!applyTurn(puzzle, next, {block.id, dir})) {
+        if (!applyTurn(puzzle, next, {.blockId = block.id, .direction = dir})) {
           continue;
         }
-        std::string key = stateKey(next);
+        std::string const key = stateKey(next);
         if (!visited.insert(key).second) {
           continue;
         }
-        arena.push_back({std::move(next), head, {block.id, dir}, depth + 1});
+        arena.push_back({.state = std::move(next),
+                         .parent = head,
+                         .turn = {.blockId = block.id, .direction = dir},
+                         .depth = depth + 1});
         if (key == targetKey) {
           std::vector<Turn> path;
           for (size_t k = arena.size() - 1; k != SIZE_MAX && k != 0;

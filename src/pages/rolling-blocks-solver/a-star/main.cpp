@@ -51,7 +51,7 @@ void printUsage() {
          "The last stdout line starting with '{' is the JSON report.\n";
 }
 
-bool parseArgs(const int argc, char **argv, CliOptions &opts) {
+bool parseArgs(const int argc, char * const*argv, CliOptions &opts) {
   for (int i = 1; i < argc; i++) {
     const std::string_view arg = argv[i];
     if (arg == "--json") {

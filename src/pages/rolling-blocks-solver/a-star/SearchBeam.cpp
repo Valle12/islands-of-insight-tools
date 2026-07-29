@@ -61,7 +61,7 @@ std::vector<Turn> AStar::searchBeam(Node root, uint32_t beamWidth) {
 
   for (uint32_t depth = 1; !beam.empty(); depth++) {
     candidates.clear();
-    for (Table::Entry *entry : beam) {
+    for (Table::Entry  const*entry : beam) {
       decodeWorking(entry->key);
 
       stats_.nodesExpanded++;
@@ -125,7 +125,7 @@ std::vector<Turn> AStar::searchBeam(Node root, uint32_t beamWidth) {
                       cfg_.seed) &
               0xFFFU;
           candidates.push_back(
-              {static_cast<uint64_t>(f) << 12 | jitter, child});
+              {.score = static_cast<uint64_t>(f) << 12 | jitter, .entry = child});
         }
       }
     }

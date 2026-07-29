@@ -192,9 +192,9 @@ std::vector<GoalCluster> AStar::precomputeGoalClusters() const {
         minY = std::min(minY, cy);
         maxY = std::max(maxY, cy);
       }
-      clusters.push_back({minX, maxX, minY, maxY,
-                          static_cast<uint8_t>(maxX - minX + 1),
-                          static_cast<uint8_t>(maxY - minY + 1)});
+      clusters.push_back({.minX = minX, .maxX = maxX, .minY = minY, .maxY = maxY,
+                          .width = static_cast<uint8_t>(maxX - minX + 1),
+                          .depth = static_cast<uint8_t>(maxY - minY + 1)});
     }
   }
   return clusters;
@@ -217,7 +217,7 @@ std::array<uint8_t, 3> sortedDims(const Block &block) {
 uint8_t heightFor(const std::array<uint8_t, 3> &dims, const uint8_t w,
                   const uint8_t d) {
   std::array<uint8_t, 3> rest = dims;
-  for (uint8_t used : {w, d}) {
+  for (uint8_t const used : {w, d}) {
     for (auto &r : rest) {
       if (r == used) {
         r = 0;

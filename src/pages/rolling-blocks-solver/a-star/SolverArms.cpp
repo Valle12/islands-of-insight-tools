@@ -1,6 +1,5 @@
 #include "SolverArms.h"
 
-#include "MemoryProbe.h"
 #include "Node.h"
 #include "PuzzleProfile.h"
 #include "SolverClock.h"
@@ -10,6 +9,8 @@
 #include <string_view>
 
 #ifdef __EMSCRIPTEN_PTHREADS__
+// Heap ceilings only matter for the in-module thread race.
+#include "MemoryProbe.h"
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -134,7 +135,7 @@ std::vector<uint16_t> coverField(const replay::Puzzle &puzzle,
   std::array<std::pair<uint8_t, uint8_t>, 6> orientKeys{};
   size_t orientCount = 0;
   const auto orientIdx = [&](const Block &pose) {
-    const std::pair<uint8_t, uint8_t> key{pose.width, pose.depth};
+    const std::pair key{pose.width, pose.depth};
     for (size_t i = 0; i < orientCount; i++) {
       if (orientKeys[i] == key) {
         return i;
@@ -252,7 +253,7 @@ std::vector<Turn> runChunkedAlternation(
   // satisfied cells as walls; the partner is ignored — it can move away, so
   // only the monotone satisfied set counts). A leg that grows this set has
   // stranded a cell for good and gets rolled back.
-  const auto deadCount = [&]() {
+  const auto deadCount = [&] {
     const auto f0 = coverField(puzzle, cur[0], sat);
     const auto f1 = coverField(puzzle, cur[1], sat);
     size_t dead = 0;
@@ -288,7 +289,7 @@ std::vector<Turn> runChunkedAlternation(
   int stuckHands = 0;
   std::array<uint32_t, 2> consecFails{};
   size_t lastFinisherOpen = SIZE_MAX;
-  const auto rewind = [&]() {
+  const auto rewind = [&] {
     // Periodic deep rewind: shallow rewinds keep reconverging when the
     // real mistake is a giant early leg, so occasionally jump straight
     // back toward it (but never drain a short history — those snapshots
@@ -345,8 +346,10 @@ std::vector<Turn> runChunkedAlternation(
     if (now >= deadline) {
       return false;
     }
-    replay::Puzzle fin{puzzle.gridWidth, puzzle.gridHeight, puzzle.cells,
-                       cur};
+    replay::Puzzle fin{.gridWidth = puzzle.gridWidth,
+                       .gridHeight = puzzle.gridHeight,
+                       .cells = puzzle.cells,
+                       .blocks = cur};
     for (size_t i = 0; i < totalCells; i++) {
       if (puzzle.cells[i] == Tile::MustTouch && sat.test(i)) {
         fin.cells[i] = Tile::Unplayable;
@@ -483,8 +486,10 @@ std::vector<Turn> runChunkedAlternation(
       size_t tryCount = std::min(candidates.size(), chunkSize[active]);
       std::vector<Turn> legTurns;
       while (true) {
-        replay::Puzzle sub{puzzle.gridWidth, puzzle.gridHeight, puzzle.cells,
-                          {cur[active]}};
+        replay::Puzzle sub{.gridWidth = puzzle.gridWidth,
+                           .gridHeight = puzzle.gridHeight,
+                           .cells = puzzle.cells,
+                           .blocks = {cur[active]}};
         for (const uint16_t idx :
              blockFootprint(cur[1 - active], puzzle.gridWidth)) {
           sub.cells[idx] = Tile::Unplayable;
@@ -561,9 +566,8 @@ std::vector<Turn> runChunkedAlternation(
         it->roll(turn.direction);
         if (!it->checkValidity(puzzle.gridWidth, puzzle.gridHeight,
                                puzzle.cells, cur, sat)) {
-          constexpr std::array<Direction, 4> kInverse = {
-              Direction::DOWN, Direction::LEFT, Direction::UP,
-              Direction::RIGHT};
+          constexpr std::array kInverse = {Direction::DOWN, Direction::LEFT,
+                                           Direction::UP, Direction::RIGHT};
           it->roll(kInverse[static_cast<size_t>(turn.direction)]);
           break;
         }
@@ -593,7 +597,11 @@ std::vector<Turn> runChunkedAlternation(
       active = 1 - active;
       continue;
     }
-    history.push_back({handCur, handSat, handPlanLen, active, pendingBump});
+    history.push_back({.blocks = handCur,
+                       .sat = handSat,
+                       .planLen = handPlanLen,
+                       .active = active,
+                       .seedBump = pendingBump});
     consecFails[active] = 0;
     pendingBump = 0;
     stuckHands = 0;
@@ -655,7 +663,10 @@ std::vector<Turn> runSplitCoverage(
     bool wallForeign = false;
   };
   constexpr std::array<Attempt, 4> kAttempts = {
-      {{0, true}, {1, true}, {0, false}, {1, false}}};
+      {{.firstIdx = 0, .wallForeign = true},
+       {.firstIdx = 1, .wallForeign = true},
+       {.firstIdx = 0, .wallForeign = false},
+       {.firstIdx = 1, .wallForeign = false}}};
   const uint32_t perLeg = std::max<uint32_t>(1000, totalMs / 24);
 
   for (const auto &attempt : kAttempts) {
@@ -669,8 +680,10 @@ std::vector<Turn> runSplitCoverage(
     const auto &secondField = fields[1 - attempt.firstIdx];
 
     // Leg 1: the first block alone against its share of the cells.
-    replay::Puzzle sub1{puzzle.gridWidth, puzzle.gridHeight, puzzle.cells,
-                       {first}};
+    replay::Puzzle sub1{.gridWidth = puzzle.gridWidth,
+                        .gridHeight = puzzle.gridHeight,
+                        .cells = puzzle.cells,
+                        .blocks = {first}};
     for (const uint16_t idx : blockFootprint(second, puzzle.gridWidth)) {
       sub1.cells[idx] = Tile::Unplayable;
     }
@@ -709,8 +722,10 @@ std::vector<Turn> runSplitCoverage(
     // Leg 2: the second block alone against everything still open; the
     // parked first block and every satisfied cell act as walls (equivalent
     // semantics for a solo block).
-    replay::Puzzle sub2{puzzle.gridWidth, puzzle.gridHeight, puzzle.cells,
-                       {*secondMid}};
+    replay::Puzzle sub2{.gridWidth = puzzle.gridWidth,
+                        .gridHeight = puzzle.gridHeight,
+                        .cells = puzzle.cells,
+                        .blocks = {*secondMid}};
     for (const uint16_t idx : blockFootprint(*firstMid, puzzle.gridWidth)) {
       sub2.cells[idx] = Tile::Unplayable;
     }
@@ -913,14 +928,17 @@ constexpr double kRetryShare = 0.20;
 constexpr double kTailShare = 0.15;
 
 constexpr ChainStep kCascade[] = {
-    {{.engine = "exact", .gated = true}, kExactShare},
-    {{.engine = "cracker", .gated = true}, kCrackerShare},
-    {{.engine = "wastar", .weight = 2, .overrideWeight = true}, kWastarShare},
-    {{.engine = "greedy"}, kGreedyShare},
-    {{.engine = "beam", .beamWidth = 50000}, kBeamShare},
-    {{.engine = "cracker", .seed = 1}, kRetryShare},
-    {{.engine = "wastar", .weight = 4, .overrideWeight = true}, kTailShare},
-    {{.engine = "wastar", .weight = 1, .overrideWeight = true}, kTailShare},
+    {.arm = {.engine = "exact", .gated = true}, .budgetShare = kExactShare},
+    {.arm = {.engine = "cracker", .gated = true}, .budgetShare = kCrackerShare},
+    {.arm = {.engine = "wastar", .weight = 2, .overrideWeight = true},
+     .budgetShare = kWastarShare},
+    {.arm = {.engine = "greedy"}, .budgetShare = kGreedyShare},
+    {.arm = {.engine = "beam", .beamWidth = 50000}, .budgetShare = kBeamShare},
+    {.arm = {.engine = "cracker", .seed = 1}, .budgetShare = kRetryShare},
+    {.arm = {.engine = "wastar", .weight = 4, .overrideWeight = true},
+     .budgetShare = kTailShare},
+    {.arm = {.engine = "wastar", .weight = 1, .overrideWeight = true},
+     .budgetShare = kTailShare},
 };
 
 } // namespace

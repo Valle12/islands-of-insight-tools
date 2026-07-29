@@ -10,7 +10,6 @@
 
 #include <filesystem>
 #include <format>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -49,7 +48,7 @@ TEST_P(RollingBlocksSearchTest, ShouldFindValidSolution) {
   }
 
   AStar solver(puzzle.gridWidth, puzzle.gridHeight, puzzle.cells);
-  Node root(puzzle.blocks);
+  Node const root(puzzle.blocks);
   const auto turns = solver.search(root);
 
   ASSERT_FALSE(turns.empty()) << "No solution found for " << filename;

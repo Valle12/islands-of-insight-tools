@@ -4,7 +4,6 @@
 #endif
 #include "Block.h"
 #include "Types.h"
-#include <boost/dynamic_bitset.hpp>
 #if defined(__GNUC__) && !defined(__clang__)
 namespace boost {
 template <typename T>
@@ -31,12 +30,18 @@ class BlockRollTest : public testing::TestWithParam<RollTestParam> {};
 static std::vector<RollTestParam> makeUpCases() {
   using enum Direction;
   return {
-      {Block(1, 3, 3, 1, 2, 3), Block(1, 3, 0, 1, 3, 2), UP, "1x2x3"},
-      {Block(1, 3, 3, 1, 3, 2), Block(1, 3, 1, 1, 2, 3), UP, "1x3x2"},
-      {Block(1, 3, 3, 2, 1, 3), Block(1, 3, 0, 2, 3, 1), UP, "2x1x3"},
-      {Block(1, 3, 3, 2, 3, 1), Block(1, 3, 2, 2, 1, 3), UP, "2x3x1"},
-      {Block(1, 3, 3, 3, 1, 2), Block(1, 3, 1, 3, 2, 1), UP, "3x1x2"},
-      {Block(1, 3, 3, 3, 2, 1), Block(1, 3, 2, 3, 1, 2), UP, "3x2x1"},
+      {.initial = Block(1, 3, 3, 1, 2, 3), .expected = Block(1, 3, 0, 1, 3, 2),
+       .direction = UP, .name = "1x2x3"},
+      {.initial = Block(1, 3, 3, 1, 3, 2), .expected = Block(1, 3, 1, 1, 2, 3),
+       .direction = UP, .name = "1x3x2"},
+      {.initial = Block(1, 3, 3, 2, 1, 3), .expected = Block(1, 3, 0, 2, 3, 1),
+       .direction = UP, .name = "2x1x3"},
+      {.initial = Block(1, 3, 3, 2, 3, 1), .expected = Block(1, 3, 2, 2, 1, 3),
+       .direction = UP, .name = "2x3x1"},
+      {.initial = Block(1, 3, 3, 3, 1, 2), .expected = Block(1, 3, 1, 3, 2, 1),
+       .direction = UP, .name = "3x1x2"},
+      {.initial = Block(1, 3, 3, 3, 2, 1), .expected = Block(1, 3, 2, 3, 1, 2),
+       .direction = UP, .name = "3x2x1"},
   };
 }
 
@@ -50,12 +55,18 @@ INSTANTIATE_TEST_SUITE_P(RollUp, BlockRollTest,
 static std::vector<RollTestParam> makeRightCases() {
   using enum Direction;
   return {
-      {Block(1, 3, 3, 1, 2, 3), Block(1, 4, 3, 3, 2, 1), RIGHT, "1x2x3"},
-      {Block(1, 3, 3, 1, 3, 2), Block(1, 4, 3, 2, 3, 1), RIGHT, "1x3x2"},
-      {Block(1, 3, 3, 2, 1, 3), Block(1, 5, 3, 3, 1, 2), RIGHT, "2x1x3"},
-      {Block(1, 3, 3, 2, 3, 1), Block(1, 5, 3, 1, 3, 2), RIGHT, "2x3x1"},
-      {Block(1, 3, 3, 3, 1, 2), Block(1, 6, 3, 2, 1, 3), RIGHT, "3x1x2"},
-      {Block(1, 3, 3, 3, 2, 1), Block(1, 6, 3, 1, 2, 3), RIGHT, "3x2x1"},
+      {.initial = Block(1, 3, 3, 1, 2, 3), .expected = Block(1, 4, 3, 3, 2, 1),
+       .direction = RIGHT, .name = "1x2x3"},
+      {.initial = Block(1, 3, 3, 1, 3, 2), .expected = Block(1, 4, 3, 2, 3, 1),
+       .direction = RIGHT, .name = "1x3x2"},
+      {.initial = Block(1, 3, 3, 2, 1, 3), .expected = Block(1, 5, 3, 3, 1, 2),
+       .direction = RIGHT, .name = "2x1x3"},
+      {.initial = Block(1, 3, 3, 2, 3, 1), .expected = Block(1, 5, 3, 1, 3, 2),
+       .direction = RIGHT, .name = "2x3x1"},
+      {.initial = Block(1, 3, 3, 3, 1, 2), .expected = Block(1, 6, 3, 2, 1, 3),
+       .direction = RIGHT, .name = "3x1x2"},
+      {.initial = Block(1, 3, 3, 3, 2, 1), .expected = Block(1, 6, 3, 1, 2, 3),
+       .direction = RIGHT, .name = "3x2x1"},
   };
 }
 
@@ -69,12 +80,18 @@ INSTANTIATE_TEST_SUITE_P(RollRight, BlockRollTest,
 static std::vector<RollTestParam> makeDownCases() {
   using enum Direction;
   return {
-      {Block(1, 3, 3, 1, 2, 3), Block(1, 3, 5, 1, 3, 2), DOWN, "1x2x3"},
-      {Block(1, 3, 3, 1, 3, 2), Block(1, 3, 6, 1, 2, 3), DOWN, "1x3x2"},
-      {Block(1, 3, 3, 2, 1, 3), Block(1, 3, 4, 2, 3, 1), DOWN, "2x1x3"},
-      {Block(1, 3, 3, 2, 3, 1), Block(1, 3, 6, 2, 1, 3), DOWN, "2x3x1"},
-      {Block(1, 3, 3, 3, 1, 2), Block(1, 3, 4, 3, 2, 1), DOWN, "3x1x2"},
-      {Block(1, 3, 3, 3, 2, 1), Block(1, 3, 5, 3, 1, 2), DOWN, "3x2x1"},
+      {.initial = Block(1, 3, 3, 1, 2, 3), .expected = Block(1, 3, 5, 1, 3, 2),
+       .direction = DOWN, .name = "1x2x3"},
+      {.initial = Block(1, 3, 3, 1, 3, 2), .expected = Block(1, 3, 6, 1, 2, 3),
+       .direction = DOWN, .name = "1x3x2"},
+      {.initial = Block(1, 3, 3, 2, 1, 3), .expected = Block(1, 3, 4, 2, 3, 1),
+       .direction = DOWN, .name = "2x1x3"},
+      {.initial = Block(1, 3, 3, 2, 3, 1), .expected = Block(1, 3, 6, 2, 1, 3),
+       .direction = DOWN, .name = "2x3x1"},
+      {.initial = Block(1, 3, 3, 3, 1, 2), .expected = Block(1, 3, 4, 3, 2, 1),
+       .direction = DOWN, .name = "3x1x2"},
+      {.initial = Block(1, 3, 3, 3, 2, 1), .expected = Block(1, 3, 5, 3, 1, 2),
+       .direction = DOWN, .name = "3x2x1"},
   };
 }
 
@@ -88,12 +105,18 @@ INSTANTIATE_TEST_SUITE_P(RollDown, BlockRollTest,
 static std::vector<RollTestParam> makeLeftCases() {
   using enum Direction;
   return {
-      {Block(1, 3, 3, 1, 2, 3), Block(1, 0, 3, 3, 2, 1), LEFT, "1x2x3"},
-      {Block(1, 3, 3, 1, 3, 2), Block(1, 1, 3, 2, 3, 1), LEFT, "1x3x2"},
-      {Block(1, 3, 3, 2, 1, 3), Block(1, 0, 3, 3, 1, 2), LEFT, "2x1x3"},
-      {Block(1, 3, 3, 2, 3, 1), Block(1, 2, 3, 1, 3, 2), LEFT, "2x3x1"},
-      {Block(1, 3, 3, 3, 1, 2), Block(1, 1, 3, 2, 1, 3), LEFT, "3x1x2"},
-      {Block(1, 3, 3, 3, 2, 1), Block(1, 2, 3, 1, 2, 3), LEFT, "3x2x1"},
+      {.initial = Block(1, 3, 3, 1, 2, 3), .expected = Block(1, 0, 3, 3, 2, 1),
+       .direction = LEFT, .name = "1x2x3"},
+      {.initial = Block(1, 3, 3, 1, 3, 2), .expected = Block(1, 1, 3, 2, 3, 1),
+       .direction = LEFT, .name = "1x3x2"},
+      {.initial = Block(1, 3, 3, 2, 1, 3), .expected = Block(1, 0, 3, 3, 1, 2),
+       .direction = LEFT, .name = "2x1x3"},
+      {.initial = Block(1, 3, 3, 2, 3, 1), .expected = Block(1, 2, 3, 1, 3, 2),
+       .direction = LEFT, .name = "2x3x1"},
+      {.initial = Block(1, 3, 3, 3, 1, 2), .expected = Block(1, 1, 3, 2, 1, 3),
+       .direction = LEFT, .name = "3x1x2"},
+      {.initial = Block(1, 3, 3, 3, 2, 1), .expected = Block(1, 2, 3, 1, 2, 3),
+       .direction = LEFT, .name = "3x2x1"},
   };
 }
 
@@ -164,9 +187,14 @@ class CompletelyOutOfBoundsTest
 
 static std::vector<BoundsTestParam> completelyOutOfBoundsCases() {
   return {
-      {-3, -3, "top_left"},   {1, -3, "top"},         {6, -3, "top_right"},
-      {6, 1, "right"},        {6, 6, "bottom_right"}, {2, 6, "bottom"},
-      {-3, 6, "bottom_left"}, {-3, 2, "left"},
+      {.x = -3, .y = -3, .position = "top_left"},
+      {.x = 1, .y = -3, .position = "top"},
+      {.x = 6, .y = -3, .position = "top_right"},
+      {.x = 6, .y = 1, .position = "right"},
+      {.x = 6, .y = 6, .position = "bottom_right"},
+      {.x = 2, .y = 6, .position = "bottom"},
+      {.x = -3, .y = 6, .position = "bottom_left"},
+      {.x = -3, .y = 2, .position = "left"},
   };
 }
 
@@ -190,9 +218,14 @@ class PartiallyOutOfBoundsTest
 
 static std::vector<BoundsTestParam> partiallyOutOfBoundsCases() {
   return {
-      {2, -1, "top"},         {4, -1, "top_right"}, {4, 2, "right"},
-      {4, 4, "bottom_right"}, {1, 4, "bottom"},     {-1, 4, "bottom_left"},
-      {-1, 1, "left"},        {-1, -1, "top_left"},
+      {.x = 2, .y = -1, .position = "top"},
+      {.x = 4, .y = -1, .position = "top_right"},
+      {.x = 4, .y = 2, .position = "right"},
+      {.x = 4, .y = 4, .position = "bottom_right"},
+      {.x = 1, .y = 4, .position = "bottom"},
+      {.x = -1, .y = 4, .position = "bottom_left"},
+      {.x = -1, .y = 1, .position = "left"},
+      {.x = -1, .y = -1, .position = "top_left"},
   };
 }
 
@@ -215,9 +248,15 @@ class InBoundsTest : public testing::TestWithParam<BoundsTestParam> {};
 
 static std::vector<BoundsTestParam> inBoundsCases() {
   return {
-      {0, 0, "top_left"},    {1, 0, "top"},          {3, 0, "top_right"},
-      {3, 1, "right"},       {3, 3, "bottom_right"}, {2, 3, "bottom"},
-      {0, 3, "bottom_left"}, {0, 2, "left"},         {1, 1, "center"},
+      {.x = 0, .y = 0, .position = "top_left"},
+      {.x = 1, .y = 0, .position = "top"},
+      {.x = 3, .y = 0, .position = "top_right"},
+      {.x = 3, .y = 1, .position = "right"},
+      {.x = 3, .y = 3, .position = "bottom_right"},
+      {.x = 2, .y = 3, .position = "bottom"},
+      {.x = 0, .y = 3, .position = "bottom_left"},
+      {.x = 0, .y = 2, .position = "left"},
+      {.x = 1, .y = 1, .position = "center"},
   };
 }
 
@@ -247,42 +286,62 @@ class BlockOverlapTest : public testing::TestWithParam<OverlapTestParam> {};
 
 static std::vector<OverlapTestParam> blockOverlapCases() {
   return {
-      {Block(1, 1, 1, 3, 2, 1), Block(2, 1, 1, 1, 2, 3), "second_1x2_0"},
-      {Block(1, 1, 1, 3, 2, 1), Block(2, 2, 1, 1, 2, 3), "second_1x2_1"},
-      {Block(1, 1, 1, 3, 2, 1), Block(2, 3, 1, 1, 2, 3), "second_1x2_2"},
-      {Block(1, 1, 1, 3, 2, 1), Block(2, 1, 2, 1, 2, 3), "second_1x2_3"},
-      {Block(1, 1, 1, 3, 2, 1), Block(2, 2, 2, 1, 2, 3), "second_1x2_4"},
-      {Block(1, 1, 1, 3, 2, 1), Block(2, 3, 2, 1, 2, 3), "second_1x2_5"},
-      {Block(1, 1, 1, 3, 2, 1), Block(2, 1, 1, 1, 1, 1), "second_1x1_0"},
-      {Block(1, 1, 1, 3, 2, 1), Block(2, 2, 1, 1, 1, 1), "second_1x1_1"},
-      {Block(1, 1, 1, 3, 2, 1), Block(2, 3, 1, 1, 1, 1), "second_1x1_2"},
-      {Block(1, 1, 1, 3, 2, 1), Block(2, 1, 2, 1, 1, 1), "second_1x1_3"},
-      {Block(1, 1, 1, 3, 2, 1), Block(2, 2, 2, 1, 1, 1), "second_1x1_4"},
-      {Block(1, 1, 1, 3, 2, 1), Block(2, 3, 2, 1, 1, 1), "second_1x1_5"},
-      {Block(1, 0, 0, 1, 1, 1), Block(2, 0, 0, 1, 1, 1), "both_1x1_0"},
-      {Block(1, 4, 0, 1, 1, 1), Block(2, 4, 0, 1, 1, 1), "both_1x1_1"},
-      {Block(1, 4, 4, 1, 1, 1), Block(2, 4, 4, 1, 1, 1), "both_1x1_2"},
-      {Block(1, 0, 4, 1, 1, 1), Block(2, 0, 4, 1, 1, 1), "both_1x1_3"},
-      {Block(1, 0, 0, 3, 3, 3), Block(2, 0, 0, 3, 3, 3), "both_3x3_0"},
-      {Block(1, 2, 0, 3, 3, 3), Block(2, 2, 0, 3, 3, 3), "both_3x3_1"},
-      {Block(1, 2, 2, 3, 3, 3), Block(2, 2, 2, 3, 3, 3), "both_3x3_2"},
-      {Block(1, 0, 2, 3, 3, 3), Block(2, 0, 2, 3, 3, 3), "both_3x3_3"},
-      {Block(1, 1, 1, 1, 1, 1), Block(2, 0, 0, 3, 3, 3),
-       "second_includes_first_0"},
-      {Block(1, 3, 1, 1, 1, 1), Block(2, 2, 0, 3, 3, 3),
-       "second_includes_first_1"},
-      {Block(1, 3, 3, 1, 1, 1), Block(2, 2, 2, 3, 3, 3),
-       "second_includes_first_2"},
-      {Block(1, 1, 3, 1, 1, 1), Block(2, 0, 2, 3, 3, 3),
-       "second_includes_first_3"},
-      {Block(1, 0, 0, 3, 3, 3), Block(2, 1, 1, 1, 1, 1),
-       "first_includes_second_0"},
-      {Block(1, 2, 0, 3, 3, 3), Block(2, 3, 1, 1, 1, 1),
-       "first_includes_second_1"},
-      {Block(1, 2, 2, 3, 3, 3), Block(2, 3, 3, 1, 1, 1),
-       "first_includes_second_2"},
-      {Block(1, 0, 2, 3, 3, 3), Block(2, 1, 3, 1, 1, 1),
-       "first_includes_second_3"},
+      {.block1 = Block(1, 1, 1, 3, 2, 1), .block2 = Block(2, 1, 1, 1, 2, 3),
+       .blockType = "second_1x2_0"},
+      {.block1 = Block(1, 1, 1, 3, 2, 1), .block2 = Block(2, 2, 1, 1, 2, 3),
+       .blockType = "second_1x2_1"},
+      {.block1 = Block(1, 1, 1, 3, 2, 1), .block2 = Block(2, 3, 1, 1, 2, 3),
+       .blockType = "second_1x2_2"},
+      {.block1 = Block(1, 1, 1, 3, 2, 1), .block2 = Block(2, 1, 2, 1, 2, 3),
+       .blockType = "second_1x2_3"},
+      {.block1 = Block(1, 1, 1, 3, 2, 1), .block2 = Block(2, 2, 2, 1, 2, 3),
+       .blockType = "second_1x2_4"},
+      {.block1 = Block(1, 1, 1, 3, 2, 1), .block2 = Block(2, 3, 2, 1, 2, 3),
+       .blockType = "second_1x2_5"},
+      {.block1 = Block(1, 1, 1, 3, 2, 1), .block2 = Block(2, 1, 1, 1, 1, 1),
+       .blockType = "second_1x1_0"},
+      {.block1 = Block(1, 1, 1, 3, 2, 1), .block2 = Block(2, 2, 1, 1, 1, 1),
+       .blockType = "second_1x1_1"},
+      {.block1 = Block(1, 1, 1, 3, 2, 1), .block2 = Block(2, 3, 1, 1, 1, 1),
+       .blockType = "second_1x1_2"},
+      {.block1 = Block(1, 1, 1, 3, 2, 1), .block2 = Block(2, 1, 2, 1, 1, 1),
+       .blockType = "second_1x1_3"},
+      {.block1 = Block(1, 1, 1, 3, 2, 1), .block2 = Block(2, 2, 2, 1, 1, 1),
+       .blockType = "second_1x1_4"},
+      {.block1 = Block(1, 1, 1, 3, 2, 1), .block2 = Block(2, 3, 2, 1, 1, 1),
+       .blockType = "second_1x1_5"},
+      {.block1 = Block(1, 0, 0, 1, 1, 1), .block2 = Block(2, 0, 0, 1, 1, 1),
+       .blockType = "both_1x1_0"},
+      {.block1 = Block(1, 4, 0, 1, 1, 1), .block2 = Block(2, 4, 0, 1, 1, 1),
+       .blockType = "both_1x1_1"},
+      {.block1 = Block(1, 4, 4, 1, 1, 1), .block2 = Block(2, 4, 4, 1, 1, 1),
+       .blockType = "both_1x1_2"},
+      {.block1 = Block(1, 0, 4, 1, 1, 1), .block2 = Block(2, 0, 4, 1, 1, 1),
+       .blockType = "both_1x1_3"},
+      {.block1 = Block(1, 0, 0, 3, 3, 3), .block2 = Block(2, 0, 0, 3, 3, 3),
+       .blockType = "both_3x3_0"},
+      {.block1 = Block(1, 2, 0, 3, 3, 3), .block2 = Block(2, 2, 0, 3, 3, 3),
+       .blockType = "both_3x3_1"},
+      {.block1 = Block(1, 2, 2, 3, 3, 3), .block2 = Block(2, 2, 2, 3, 3, 3),
+       .blockType = "both_3x3_2"},
+      {.block1 = Block(1, 0, 2, 3, 3, 3), .block2 = Block(2, 0, 2, 3, 3, 3),
+       .blockType = "both_3x3_3"},
+      {.block1 = Block(1, 1, 1, 1, 1, 1), .block2 = Block(2, 0, 0, 3, 3, 3),
+       .blockType = "second_includes_first_0"},
+      {.block1 = Block(1, 3, 1, 1, 1, 1), .block2 = Block(2, 2, 0, 3, 3, 3),
+       .blockType = "second_includes_first_1"},
+      {.block1 = Block(1, 3, 3, 1, 1, 1), .block2 = Block(2, 2, 2, 3, 3, 3),
+       .blockType = "second_includes_first_2"},
+      {.block1 = Block(1, 1, 3, 1, 1, 1), .block2 = Block(2, 0, 2, 3, 3, 3),
+       .blockType = "second_includes_first_3"},
+      {.block1 = Block(1, 0, 0, 3, 3, 3), .block2 = Block(2, 1, 1, 1, 1, 1),
+       .blockType = "first_includes_second_0"},
+      {.block1 = Block(1, 2, 0, 3, 3, 3), .block2 = Block(2, 3, 1, 1, 1, 1),
+       .blockType = "first_includes_second_1"},
+      {.block1 = Block(1, 2, 2, 3, 3, 3), .block2 = Block(2, 3, 3, 1, 1, 1),
+       .blockType = "first_includes_second_2"},
+      {.block1 = Block(1, 0, 2, 3, 3, 3), .block2 = Block(2, 1, 3, 1, 1, 1),
+       .blockType = "first_includes_second_3"},
   };
 }
 
@@ -342,10 +401,14 @@ class OverlappingSatisfiedMustTouchTest
 
 static std::vector<MustTouchBlockParam> overlappingSatisfiedMustTouchCases() {
   return {
-      {Block(1, 0, 0, 2, 2, 2), "0_0"},    {Block(1, 2, 1, 2, 2, 2), "2_1"},
-      {Block(1, 3, 2, 2, 2, 2), "3_2"},    {Block(1, 2, 3, 2, 2, 2), "2_3"},
-      {Block(1, 1, 2, 2, 2, 2), "1_2"},    {Block(1, 2, 0, 3, 2, 2), "2_0_3w"},
-      {Block(1, 0, 2, 2, 3, 2), "0_2_3d"}, {Block(1, 4, 4, 1, 1, 1), "4_4"},
+      {.block = Block(1, 0, 0, 2, 2, 2), .name = "0_0"},
+      {.block = Block(1, 2, 1, 2, 2, 2), .name = "2_1"},
+      {.block = Block(1, 3, 2, 2, 2, 2), .name = "3_2"},
+      {.block = Block(1, 2, 3, 2, 2, 2), .name = "2_3"},
+      {.block = Block(1, 1, 2, 2, 2, 2), .name = "1_2"},
+      {.block = Block(1, 2, 0, 3, 2, 2), .name = "2_0_3w"},
+      {.block = Block(1, 0, 2, 2, 3, 2), .name = "0_2_3d"},
+      {.block = Block(1, 4, 4, 1, 1, 1), .name = "4_4"},
   };
 }
 
@@ -368,10 +431,10 @@ class NonOverlappingSatisfiedMustTouchTest
 static std::vector<MustTouchBlockParam>
 nonOverlappingSatisfiedMustTouchCases() {
   return {
-      {Block(1, 0, 2, 2, 2, 2), "0_2"},
-      {Block(1, 2, 0, 2, 2, 2), "2_0"},
-      {Block(1, 1, 4, 3, 1, 1), "1_4_3w"},
-      {Block(1, 4, 1, 1, 3, 1), "4_1_3d"},
+      {.block = Block(1, 0, 2, 2, 2, 2), .name = "0_2"},
+      {.block = Block(1, 2, 0, 2, 2, 2), .name = "2_0"},
+      {.block = Block(1, 1, 4, 3, 1, 1), .name = "1_4_3w"},
+      {.block = Block(1, 4, 1, 1, 3, 1), .name = "4_1_3d"},
   };
 }
 

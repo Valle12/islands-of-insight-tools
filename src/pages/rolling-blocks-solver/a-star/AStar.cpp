@@ -34,7 +34,7 @@ AStar::AStar(const uint8_t gridWidth, const uint8_t gridHeight,
       if (cells_[idx] == Tile::MustTouch) {
         ordinalOfCell_[idx] = static_cast<uint16_t>(mustTouchIndices_.size());
         cellOfOrdinal_.push_back(idx);
-        mustTouchIndices_.push_back({x, y, idx});
+        mustTouchIndices_.push_back({.x = x, .y = y, .index = idx});
       }
       if (cells_[idx] == Tile::Goal) {
         goalIndices_.push_back(idx);
@@ -247,7 +247,7 @@ void AStar::expandNeighbor(const size_t bi, const Direction direction,
   child->value.flags = StateInfo::HasParentFlag;
 
   const uint32_t h = heuristic(childBlocks_, mustTouchRef, ordinalRef);
-  ctx.openHeap.push({newG + cfg_.weight * h, newG, child});
+  ctx.openHeap.push({.f = newG + cfg_.weight * h, .g = newG, .entry = child});
 }
 
 // ---------------------------------------------------------------------------
@@ -372,9 +372,9 @@ std::vector<Turn> AStar::search(Node root) {
   rootEntry->value.g = 0;
 
   ctx.openHeap.push(
-      {cfg_.weight *
+      {.f = cfg_.weight *
            heuristic(root.blocks, root.mustTouchCellsSatisfied, rootOrd),
-       0, rootEntry});
+       .g = 0, .entry = rootEntry});
 
   constexpr std::array dirs = {Direction::UP, Direction::RIGHT, Direction::DOWN,
                                Direction::LEFT};
@@ -439,7 +439,9 @@ std::vector<Turn> AStar::reconstructPath(const StateInfo &goalInfo) const {
   for (const StateInfo *info = &goalInfo;
        (info->flags & StateInfo::HasParentFlag) != 0; info = info->parent) {
     steps.push_back(
-        {info->fromX, info->fromY, static_cast<Direction>(info->dir)});
+        {.fromX = info->fromX,
+         .fromY = info->fromY,
+         .dir = static_cast<Direction>(info->dir)});
   }
   std::ranges::reverse(steps);
 
@@ -454,7 +456,7 @@ std::vector<Turn> AStar::reconstructPath(const StateInfo &goalInfo) const {
     // Anchors are unique per state (disjoint footprints), so exactly one
     // block can match a recorded pre-roll anchor.
     assert(it != blocks.end());
-    turns.push_back({it->id, dir});
+    turns.push_back({.blockId = it->id, .direction = dir});
     it->roll(dir);
   }
   return turns;

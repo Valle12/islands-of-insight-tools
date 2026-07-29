@@ -70,8 +70,8 @@ replay::Puzzle load(const std::string &path, std::vector<Turn> *turnsOut) {
     if (j.contains("turns") && j.at("turns").is_array()) {
       for (const auto &jt : j.at("turns")) {
         turnsOut->push_back(
-            {jt.at("blockId").get<uint8_t>(),
-             parseDirection(jt.at("direction").get<std::string>())});
+            {.blockId = jt.at("blockId").get<uint8_t>(),
+             .direction = parseDirection(jt.at("direction").get<std::string>())});
       }
     }
   }

@@ -123,7 +123,7 @@ TEST(Arms, CascadeSolvesAcrossPuzzleClasses) {
         "rollingBlocksTest18.json"}) {
     SCOPED_TRACE(name);
     const auto puzzle = loadFixture(name);
-    arms::ArmSpec spec; // engine defaults to cascade
+    arms::ArmSpec const spec; // engine defaults to cascade
     AStar::Config cfg;
     cfg.maxMs = 60000;
     const auto outcome = arms::solve(puzzle, spec, cfg);
