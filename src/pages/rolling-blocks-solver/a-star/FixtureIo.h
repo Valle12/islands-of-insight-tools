@@ -13,9 +13,10 @@
 namespace fixtureio {
 
 // Loads a rollingBlocksTest*.json fixture (the app's own download format).
-// Throws std::runtime_error with a readable message on a missing file or a
-// malformed document. When `turnsOut` is given, the fixture's optional
-// recorded solution is parsed into it (left empty if absent).
+// Throws a std::exception on failure: std::runtime_error with a readable
+// message for a missing file, nlohmann::json::exception for a malformed
+// document. When `turnsOut` is given, the fixture's optional recorded
+// solution is parsed into it (left empty if absent).
 replay::Puzzle load(const std::string &path,
                     std::vector<Turn> *turnsOut = nullptr);
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 // Fixture generation for the fuzz campaign (native CLI only — writes JSON

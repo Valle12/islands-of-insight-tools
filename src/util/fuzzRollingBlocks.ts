@@ -21,6 +21,7 @@
 
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { parseFlags, runCli } from "./solverCli";
 
 const projectRoot = resolve(import.meta.dir, "../..");
 const defaultExe = resolve(
@@ -70,59 +71,23 @@ function parseArgs(argv: string[]) {
   };
   // Repeatable --extra is a passthrough for solver flags the harness does
   // not model.
-  const setters: Record<string, (value: string) => void> = {
-    "--exe": v => (opts.exe = resolve(v)),
-    "--count": v => (opts.count = Number(v)),
-    "--shuffle": v => (opts.shuffle = Number(v)),
-    "--budget-ms": v => (opts.budgetMs = Number(v)),
-    "--seed-base": v => (opts.seedBase = Number(v)),
-    "--kind": v => (opts.kind = v),
-    "--out": v => (opts.out = resolve(v)),
-    "--work-dir": v => (opts.workDir = resolve(v)),
-    "--engine": v => (opts.engine = v),
-    "--extra": v => opts.extra.push(v),
-  };
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
-    if (arg === "--retry") {
-      opts.retry = true;
-      continue;
-    }
-    const setter = setters[arg];
-    if (!setter) throw new Error(`Unknown argument: ${arg}`);
-    const value = argv[++i];
-    if (value === undefined) throw new Error(`Missing value for ${arg}`);
-    setter(value);
-  }
+  parseFlags(argv, {
+    "--exe": next => (opts.exe = resolve(next())),
+    "--count": next => (opts.count = Number(next())),
+    "--shuffle": next => (opts.shuffle = Number(next())),
+    "--budget-ms": next => (opts.budgetMs = Number(next())),
+    "--seed-base": next => (opts.seedBase = Number(next())),
+    "--kind": next => (opts.kind = next()),
+    "--out": next => (opts.out = resolve(next())),
+    "--work-dir": next => (opts.workDir = resolve(next())),
+    "--engine": next => (opts.engine = next()),
+    "--extra": next => opts.extra.push(next()),
+    "--retry": () => (opts.retry = true),
+  });
   if (!opts.workDir)
     opts.workDir = resolve(projectRoot, "test-results", "rb-fuzz");
   if (!opts.out) opts.out = resolve(opts.workDir, "fuzz-results.json");
   return opts;
-}
-
-async function runCli(exe: string, args: string[], timeoutMs: number) {
-  const proc = Bun.spawn([exe, ...args], { stdout: "pipe", stderr: "pipe" });
-  const killer = setTimeout(() => proc.kill(), timeoutMs);
-  // stderr is drained, not just piped: an unread pipe buffer fills up and
-  // blocks the child mid-write, which then gets scored as a timeout.
-  const [stdout, , exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  clearTimeout(killer);
-  const lastJson = stdout
-    .split("\n")
-    .map(l => l.trim())
-    .findLast(l => l.startsWith("{"));
-  if (!lastJson) return { json: null, exitCode };
-  try {
-    return { json: JSON.parse(lastJson), exitCode };
-  } catch {
-    // Truncated line from a child killed mid-write — one bad case, not a
-    // reason to abandon the campaign.
-    return { json: null, exitCode };
-  }
 }
 
 const opts = parseArgs(process.argv.slice(2));
@@ -274,7 +239,7 @@ if (opts.retry && failures > 0) {
         r.valid = j.valid;
         r.stage = `retry:${step.name}:${j.stage}`;
         r.turns = j.turns;
-        r.wallMs = j.wallMs;
+        r.wallMs = j.wallMs ?? r.wallMs;
         r.error = undefined;
         console.log(
           `  seed ${r.seed}: SOLVED on retry via ${step.name} — ${j.turns} turns in ${j.wallMs}ms`,
@@ -297,7 +262,7 @@ const times = results
   .sort((a, b) => a - b);
 const pct = (p: number) =>
   times.length
-    ? times[Math.min(times.length - 1, Math.floor((p / 100) * times.length))]
+    ? (times[Math.min(times.length - 1, Math.floor((p / 100) * times.length))] ?? 0)
     : 0;
 console.log(`\n${solvedCount}/${results.length} solved (${trivial} trivial)`);
 const winSummary = [...stageWins.entries()]

@@ -21,7 +21,8 @@ function cubeSolves(turns: Turn[]): boolean {
     if (t.direction === 0) y--;
     else if (t.direction === 1) x++;
     else if (t.direction === 2) y++;
-    else x--;
+    else if (t.direction === 3) x--;
+    else return false;
     if (x < 0 || x > 4 || y !== 0) return false;
   }
   return x === 2;

@@ -23,6 +23,7 @@
 
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { parseFlags, runCli } from "./solverCli";
 
 const projectRoot = resolve(import.meta.dir, "../..");
 const defaultExe = resolve(
@@ -68,58 +69,24 @@ function parseArgs(argv: string[]) {
     engine: "cascade",
     extra: [] as string[],
   };
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
-    const next = () => {
-      const v = argv[++i];
-      if (v === undefined) throw new Error(`Missing value for ${arg}`);
-      return v;
-    };
-    if (arg === "--exe") opts.exe = resolve(next());
-    else if (arg === "--count") opts.count = Number(next());
-    else if (arg === "--shuffle") opts.shuffle = Number(next());
-    else if (arg === "--budget-ms") opts.budgetMs = Number(next());
-    else if (arg === "--seed-base") opts.seedBase = Number(next());
-    else if (arg === "--out") opts.out = resolve(next());
-    else if (arg === "--work-dir") opts.workDir = resolve(next());
-    else if (arg === "--retry") opts.retry = true;
-    else if (arg === "--engine") opts.engine = next();
-    // Repeatable passthrough for solver flags the harness does not model,
-    // e.g. --extra --jam-aspect --extra 66 --extra --max-heap-bytes ...
-    else if (arg === "--extra") opts.extra.push(next());
-    else throw new Error(`Unknown argument: ${arg}`);
-  }
+  // Repeatable --extra is a passthrough for solver flags the harness does
+  // not model, e.g. --extra --jam-aspect --extra 66 --extra --max-heap-bytes.
+  parseFlags(argv, {
+    "--exe": next => (opts.exe = resolve(next())),
+    "--count": next => (opts.count = Number(next())),
+    "--shuffle": next => (opts.shuffle = Number(next())),
+    "--budget-ms": next => (opts.budgetMs = Number(next())),
+    "--seed-base": next => (opts.seedBase = Number(next())),
+    "--out": next => (opts.out = resolve(next())),
+    "--work-dir": next => (opts.workDir = resolve(next())),
+    "--engine": next => (opts.engine = next()),
+    "--extra": next => opts.extra.push(next()),
+    "--retry": () => (opts.retry = true),
+  });
   if (!opts.workDir)
     opts.workDir = resolve(projectRoot, "test-results", "sm-fuzz");
   if (!opts.out) opts.out = resolve(opts.workDir, "fuzz-results.json");
   return opts;
-}
-
-async function runCli(exe: string, args: string[], timeoutMs: number) {
-  const proc = Bun.spawn([exe, ...args], { stdout: "pipe", stderr: "pipe" });
-  const killer = setTimeout(() => proc.kill(), timeoutMs);
-  // stderr is drained, not just piped: an unread pipe buffer fills up and
-  // blocks the child mid-write, which every sweep and retry-ladder step then
-  // scores as a timeout.
-  const [stdout, , exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  clearTimeout(killer);
-  const lastJson = stdout
-    .split("\n")
-    .map(l => l.trim())
-    .filter(l => l.startsWith("{"))
-    .pop();
-  if (!lastJson) return { json: null, exitCode };
-  try {
-    return { json: JSON.parse(lastJson), exitCode };
-  } catch {
-    // Truncated line from a child killed mid-write — one bad case, not a
-    // reason to abandon the campaign.
-    return { json: null, exitCode };
-  }
 }
 
 const opts = parseArgs(process.argv.slice(2));

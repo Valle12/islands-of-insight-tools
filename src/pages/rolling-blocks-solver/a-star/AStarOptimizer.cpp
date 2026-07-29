@@ -131,7 +131,8 @@ bool truncatePass(const replay::Puzzle &puzzle, std::vector<Turn> &turns) {
 // Cut [i, j) whenever state j exactly repeats state i: with a monotone
 // satisfied set an exact repeat proves the loop did nothing, and because the
 // repeat is id-aware the suffix replays identically.
-bool loopCutPass(const replay::Puzzle &puzzle, std::vector<Turn> &turns) {
+bool loopCutPass(const replay::Puzzle &puzzle, std::vector<Turn> &turns,
+                 const uint64_t deadline) {
   const std::vector<State> states = replayStates(puzzle, turns);
   if (states.empty()) {
     return false;
@@ -139,6 +140,9 @@ bool loopCutPass(const replay::Puzzle &puzzle, std::vector<Turn> &turns) {
   std::unordered_map<std::string, size_t, StringHash, std::equal_to<>>
       firstSeen;
   for (size_t k = 0; k < states.size(); k++) {
+    if (deadline != 0 && nowMs() >= deadline) {
+      return false;
+    }
     if (const auto [it, inserted] =
             firstSeen.try_emplace(stateKey(states[k]), k);
         !inserted) {
@@ -193,9 +197,13 @@ bool withoutRange(const replay::Puzzle &puzzle, std::vector<Turn> &turns,
 
 // Both removal passes return the moment they rewrite `turns`, so the size is
 // cached: the loop bound has to be invariant, and it is.
-bool inversePairPass(const replay::Puzzle &puzzle, std::vector<Turn> &turns) {
+bool inversePairPass(const replay::Puzzle &puzzle, std::vector<Turn> &turns,
+                     const uint64_t deadline) {
   const size_t count = turns.size();
   for (size_t i = 0; i + 1 < count; i++) {
+    if (deadline != 0 && nowMs() >= deadline) {
+      return false;
+    }
     if (isInverse(turns[i], turns[i + 1]) &&
         withoutRange(puzzle, turns, i, 2)) {
       return true;
@@ -454,9 +462,9 @@ std::vector<Turn> optimize(const replay::Puzzle &puzzle,
   bool changed = true;
   while (changed && (deadline == 0 || nowMs() < deadline)) {
     changed = truncatePass(puzzle, turns);
-    changed = loopCutPass(puzzle, turns) || changed;
+    changed = loopCutPass(puzzle, turns, deadline) || changed;
     changed = segmentPass(puzzle, turns, deadline) || changed;
-    changed = inversePairPass(puzzle, turns) || changed;
+    changed = inversePairPass(puzzle, turns, deadline) || changed;
     changed = singleRemovalPass(puzzle, turns, deadline) || changed;
   }
 

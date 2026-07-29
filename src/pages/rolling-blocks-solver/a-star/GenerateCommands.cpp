@@ -401,7 +401,7 @@ const char *directionName(const Direction dir) {
   return "UP";
 }
 
-void writeFixture(const std::string &path, const BoardGen &g,
+bool writeFixture(const std::string &path, const BoardGen &g,
                   const bool storeWitness) {
   nlohmann::json j;
   j["gridWidth"] = g.width;
@@ -435,6 +435,9 @@ void writeFixture(const std::string &path, const BoardGen &g,
   }
   std::ofstream out(path);
   out << j.dump(2) << "\n";
+  // Flush + state check: an unwritable path must not report success.
+  out.flush();
+  return out.good();
 }
 
 } // namespace
@@ -476,7 +479,14 @@ int run(const std::string &outPath, const uint32_t seed,
 
   // Witnesses are kept in the fixture only when short enough to be a useful
   // debugging aid — a million-turn walk would bloat the file to tens of MB.
-  writeFixture(outPath, g, g.witness.size() <= 200);
+  if (!writeFixture(outPath, g, g.witness.size() <= 200)) {
+    nlohmann::json err;
+    err["generated"] = false;
+    err["seed"] = seed;
+    err["error"] = "cannot write fixture to " + outPath;
+    std::cout << err.dump() << "\n";
+    return 4;
+  }
 
   size_t mustTouch = 0;
   size_t goals = 0;

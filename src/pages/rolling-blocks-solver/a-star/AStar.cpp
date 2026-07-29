@@ -50,10 +50,12 @@ AStar::AStar(const uint8_t gridWidth, const uint8_t gridHeight,
 // ---------------------------------------------------------------------------
 // Canonical state encoding
 // ---------------------------------------------------------------------------
-NodeKey AStar::encodeState(const std::vector<Block> &blocks,
-                           const boost::dynamic_bitset<> &mustTouchCells) {
-  // Pack each record into a uint64 with x in the most significant of the five
-  // bytes, so a plain numeric sort IS the lexicographic (x,y,w,d,h) sort.
+
+// The shared first half of both encoders: pack each record into a uint64 with
+// x in the most significant of the five bytes (so a plain numeric sort IS the
+// lexicographic (x,y,w,d,h) sort), then write the sorted records into a key
+// whose ordinal bit block starts zeroed.
+NodeKey AStar::encodeRecords(const std::vector<Block> &blocks) {
   encodeScratch_.clear();
   for (const auto &b : blocks) {
     encodeScratch_.push_back(static_cast<uint64_t>(static_cast<uint8_t>(b.x))
@@ -75,7 +77,14 @@ NodeKey AStar::encodeState(const std::vector<Block> &blocks,
     d[4] = static_cast<uint8_t>(rec);
     d += 5;
   }
-  // d now points at the (zero-initialised) ordinal bit block.
+  return key;
+}
+
+NodeKey AStar::encodeState(const std::vector<Block> &blocks,
+                           const boost::dynamic_bitset<> &mustTouchCells) {
+  NodeKey key = encodeRecords(blocks);
+  // The (zero-initialised) ordinal bit block follows the records.
+  uint8_t *d = key.data() + blocks.size() * 5;
   const size_t numOrdinals = cellOfOrdinal_.size();
   for (size_t k = 0; k < numOrdinals; k++) {
     if (mustTouchCells.test(cellOfOrdinal_[k])) {
@@ -92,30 +101,10 @@ NodeKey AStar::encodeState(const std::vector<Block> &blocks,
 // wasm32 / x64), which the state-encoding tests pin down.
 NodeKey AStar::encodeStateOrdinal(const std::vector<Block> &blocks,
                                   const boost::dynamic_bitset<> &ordinal) {
-  encodeScratch_.clear();
-  for (const auto &b : blocks) {
-    encodeScratch_.push_back(static_cast<uint64_t>(static_cast<uint8_t>(b.x))
-                                 << 32 |
-                             static_cast<uint64_t>(static_cast<uint8_t>(b.y))
-                                 << 24 |
-                             static_cast<uint64_t>(b.width) << 16 |
-                             static_cast<uint64_t>(b.depth) << 8 | b.height);
-  }
-  std::ranges::sort(encodeScratch_);
-
-  NodeKey key(static_cast<uint16_t>(blocks.size() * 5 + mtBytes_));
-  uint8_t *d = key.data();
-  for (const uint64_t rec : encodeScratch_) {
-    d[0] = static_cast<uint8_t>(rec >> 32);
-    d[1] = static_cast<uint8_t>(rec >> 24);
-    d[2] = static_cast<uint8_t>(rec >> 16);
-    d[3] = static_cast<uint8_t>(rec >> 8);
-    d[4] = static_cast<uint8_t>(rec);
-    d += 5;
-  }
+  NodeKey key = encodeRecords(blocks);
   if (mtBytes_ > 0) {
     boost::to_block_range(ordinal, ordWords_.begin());
-    std::memcpy(d, ordWords_.data(), mtBytes_);
+    std::memcpy(key.data() + blocks.size() * 5, ordWords_.data(), mtBytes_);
   }
   return key;
 }
@@ -516,27 +505,20 @@ bool AStar::floodFillReachable(
       }
     }
 
-    const auto cx = static_cast<int8_t>(idx % gridWidth_);
-    const auto cy = static_cast<int8_t>(idx / gridWidth_);
-    for (int d = 0; d < 4; d++) {
-      constexpr std::array<int8_t, 4> dy = {1, -1, 0, 0};
-      constexpr std::array<int8_t, 4> dx = {0, 0, 1, -1};
-      const auto nx = static_cast<int8_t>(cx + dx[d]);
-      const auto ny = static_cast<int8_t>(cy + dy[d]);
-      if (nx < 0 || nx >= gridWidth_ || ny < 0 || ny >= gridHeight_) {
-        continue;
-      }
-      const auto nidx = positionToIndex(nx, ny, gridWidth_);
-      if (reachStamp_[nidx] == reachEpoch_ ||
-          cells_[nidx] == Tile::Unplayable) {
-        continue;
-      }
-      if (cells_[nidx] == Tile::MustTouch && mustTouchSatisfied.test(nidx)) {
-        continue;
-      }
-      reachStamp_[nidx] = reachEpoch_;
-      reachStack_.push_back(nidx);
-    }
+    forEachNeighbor(
+        gridWidth_, gridHeight_, idx,
+        [this, &mustTouchSatisfied](const uint16_t nidx) {
+          if (reachStamp_[nidx] == reachEpoch_ ||
+              cells_[nidx] == Tile::Unplayable) {
+            return;
+          }
+          if (cells_[nidx] == Tile::MustTouch &&
+              mustTouchSatisfied.test(nidx)) {
+            return;
+          }
+          reachStamp_[nidx] = reachEpoch_;
+          reachStack_.push_back(nidx);
+        });
   }
   return false;
 }

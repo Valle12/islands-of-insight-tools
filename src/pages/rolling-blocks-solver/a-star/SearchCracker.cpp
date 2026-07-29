@@ -447,25 +447,17 @@ private:
 
   void spreadFieldFrom(const uint16_t idx, const uint16_t depth,
                        const boost::dynamic_bitset<> &cellBits) {
-    const auto cx = static_cast<int8_t>(idx % gridWidth_);
-    const auto cy = static_cast<int8_t>(idx / gridWidth_);
-    for (int d = 0; d < 4; d++) {
-      constexpr std::array<int8_t, 4> dy = {1, -1, 0, 0};
-      constexpr std::array<int8_t, 4> dx = {0, 0, 1, -1};
-      const auto nx = static_cast<int8_t>(cx + dx[d]);
-      const auto ny = static_cast<int8_t>(cy + dy[d]);
-      if (nx < 0 || nx >= gridWidth_ || ny < 0 || ny >= gridHeight_) {
-        continue;
-      }
-      const auto nidx = positionToIndex(nx, ny, gridWidth_);
-      if (field_.dist[nidx] != UINT16_MAX ||
-          cells_[nidx] == Tile::Unplayable ||
-          (cells_[nidx] == Tile::MustTouch && cellBits.test(nidx))) {
-        continue;
-      }
-      field_.dist[nidx] = depth;
-      field_.next.push_back(nidx);
-    }
+    forEachNeighbor(gridWidth_, gridHeight_, idx,
+                    [this, depth, &cellBits](const uint16_t nidx) {
+                      if (field_.dist[nidx] != UINT16_MAX ||
+                          cells_[nidx] == Tile::Unplayable ||
+                          (cells_[nidx] == Tile::MustTouch &&
+                           cellBits.test(nidx))) {
+                        return;
+                      }
+                      field_.dist[nidx] = depth;
+                      field_.next.push_back(nidx);
+                    });
   }
 
   [[nodiscard]] uint32_t fieldDistance(const Block &moved) const {
@@ -704,7 +696,11 @@ private:
     cover_.requiredNeed = 0;
     if (cfg_.requiredCells != nullptr) {
       for (const uint16_t cell : *cfg_.requiredCells) {
-        if (!satCells.test(cell)) {
+        // Gate on the same predicate requiredCellBits_ was built with:
+        // requiredGot below only counts cells in that bitset, so a
+        // requiredCells entry that is not a must-touch cell must not
+        // inflate the need and prune every branch.
+        if (requiredCellBits_.test(cell) && !satCells.test(cell)) {
           cover_.requiredNeed++;
         }
       }

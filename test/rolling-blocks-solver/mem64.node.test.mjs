@@ -38,14 +38,6 @@ globalThis.self ??= { postMessage() {} };
 
 const TILE_MAP = { regular: 0, mustTouch: 1, goal: 2, unplayable: 3 };
 
-// Minimal replay oracle over the fixture's [x][y] cells: every roll must be
-// legal is out of scope here — the full oracles live in the bun/gtest suites.
-// This checks the plan is non-empty and every referenced block exists.
-function plausiblePlan(fixture, turns) {
-  const ids = new Set(fixture.blocks.map(b => b.id));
-  return turns.length > 0 && turns.every(t => ids.has(t.blockId));
-}
-
 test(
   "rolling-blocks MEMORY64 build solves a real fixture",
   { skip: !memory64 },
@@ -73,21 +65,25 @@ test(
       }
     }
 
-    const result = module.solve(
-      {
-        gridWidth: fixture.gridWidth,
-        gridHeight: fixture.gridHeight,
-        cells: flatCells,
-        blocks: fixture.blocks,
-      },
-      { engine: "cascade", maxMs: 60_000 },
-    );
+    const puzzle = {
+      gridWidth: fixture.gridWidth,
+      gridHeight: fixture.gridHeight,
+      cells: flatCells,
+      blocks: fixture.blocks,
+    };
+    const result = module.solve(puzzle, { engine: "cascade", maxMs: 60_000 });
 
     assert.equal(result.error, undefined);
     const turns = [];
     for (const turn of result.turns) {
       turns.push({ blockId: turn.blockId, direction: turn.direction });
     }
-    assert.ok(plausiblePlan(fixture, turns), "expected a non-empty plan");
+    assert.ok(turns.length > 0, "expected a non-empty plan");
+    // The module's own replay oracle (replay::replayTurns compiled into the
+    // MEMORY64 build): every roll legal AND the final state solves the board.
+    assert.ok(
+      module.verify(puzzle, turns),
+      "plan must replay legally to a solved board",
+    );
   },
 );

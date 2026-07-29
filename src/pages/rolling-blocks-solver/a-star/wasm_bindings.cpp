@@ -83,6 +83,12 @@ const char *capsError(const replay::Puzzle &puzzle) {
       puzzle.gridHeight == 0 || puzzle.gridHeight > AStar::MaxGridSide) {
     return "Grid exceeds the 64x64 cap";
   }
+  // puzzleFromVal sizes cells from the JS array alone; a short array would
+  // mean out-of-bounds reads in every positionToIndex consumer.
+  if (puzzle.cells.size() !=
+      static_cast<size_t>(puzzle.gridWidth) * puzzle.gridHeight) {
+    return "cells length does not match gridWidth * gridHeight";
+  }
   if (puzzle.blocks.empty()) {
     return "The puzzle has no blocks";
   }
@@ -189,11 +195,21 @@ val optimize(const val puzzleVal, const val turnsVal) {
   return turnsToVal(optimizer::optimize(puzzle, std::move(turns), 30000));
 }
 
+// Replay oracle for callers without one of their own (the node mem64 test):
+// true iff every roll is legal AND the final state solves the board.
+bool verify(const val puzzleVal, const val turnsVal) {
+  const replay::Puzzle puzzle = puzzleFromVal(puzzleVal);
+  const std::vector<Turn> turns = turnsFromVal(turnsVal);
+  const replay::Outcome outcome = replay::replayTurns(puzzle, turns);
+  return outcome.legal && outcome.solvedAtEnd;
+}
+
 } // namespace
 
 EMSCRIPTEN_BINDINGS(astar_module) {
   function("solve", &solve);
   function("optimize", &optimize);
+  function("verify", &verify);
 }
 
 #endif // __EMSCRIPTEN__

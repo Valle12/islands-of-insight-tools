@@ -205,6 +205,7 @@ private:
   std::vector<uint32_t> groupScratch_;
   std::vector<int> matchDp_;
 
+  [[nodiscard]] NodeKey encodeRecords(const std::vector<Block> &blocks);
   [[nodiscard]] NodeKey
   encodeStateOrdinal(const std::vector<Block> &blocks,
                      const boost::dynamic_bitset<> &ordinal);

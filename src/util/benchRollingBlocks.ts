@@ -12,6 +12,7 @@
 
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { parseFlags, runCli } from "./solverCli";
 
 const projectRoot = resolve(import.meta.dir, "../..");
 const fixtureDir = resolve(projectRoot, "test/resources/rolling-blocks-solver");
@@ -60,23 +61,16 @@ function parseArgs(argv: string[]) {
     out: resolve(projectRoot, "bench-rolling-blocks.json"),
     diff: [] as string[],
   };
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
-    const next = () => {
-      const v = argv[++i];
-      if (v === undefined) throw new Error(`Missing value for ${arg}`);
-      return v;
-    };
-    if (arg === "--exe") opts.exe = resolve(next());
-    else if (arg === "--engine") opts.engine = next();
-    else if (arg === "--weight") opts.weight = Number(next());
-    else if (arg === "--budget-ms") opts.budgetMs = Number(next());
-    else if (arg === "--max-nodes") opts.maxNodes = Number(next());
-    else if (arg === "--filter") opts.filter = next();
-    else if (arg === "--out") opts.out = resolve(next());
-    else if (arg === "--diff") opts.diff = [resolve(next()), resolve(next())];
-    else throw new Error(`Unknown argument: ${arg}`);
-  }
+  parseFlags(argv, {
+    "--exe": next => (opts.exe = resolve(next())),
+    "--engine": next => (opts.engine = next()),
+    "--weight": next => (opts.weight = Number(next())),
+    "--budget-ms": next => (opts.budgetMs = Number(next())),
+    "--max-nodes": next => (opts.maxNodes = Number(next())),
+    "--filter": next => (opts.filter = next()),
+    "--out": next => (opts.out = resolve(next())),
+    "--diff": next => (opts.diff = [resolve(next()), resolve(next())]),
+  });
   return opts;
 }
 
@@ -89,27 +83,6 @@ function listFixtures(filter: string): string[] {
       const nb = Number(b.replace(/\D/g, "") || 0);
       return na - nb;
     });
-}
-
-async function runCli(exe: string, args: string[], timeoutMs: number) {
-  const proc = Bun.spawn([exe, ...args], { stdout: "pipe", stderr: "pipe" });
-  const killer = setTimeout(() => proc.kill(), timeoutMs);
-  const [stdout, , exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  clearTimeout(killer);
-  const lastJson = stdout
-    .split("\n")
-    .map(l => l.trim())
-    .findLast(l => l.startsWith("{"));
-  if (!lastJson) return { json: null, exitCode };
-  try {
-    return { json: JSON.parse(lastJson), exitCode };
-  } catch {
-    return { json: null, exitCode };
-  }
 }
 
 function diffRow(

@@ -42,24 +42,6 @@ std::vector<uint16_t> blockFootprint(const Block &b, const uint8_t gridWidth) {
   return cells;
 }
 
-// Visit a cell's 4-neighbourhood, clipped to the grid.
-template <typename Visit>
-void forEachNeighbor(const int width, const int height, const uint16_t idx,
-                     const Visit &visit) {
-  const int cx = idx % width;
-  const int cy = idx / width;
-  constexpr std::array kSteps = {std::pair{1, 0}, std::pair{-1, 0},
-                                 std::pair{0, 1}, std::pair{0, -1}};
-  for (const auto &[dx, dy] : kSteps) {
-    const int nx = cx + dx;
-    const int ny = cy + dy;
-    if (nx < 0 || nx >= width || ny < 0 || ny >= height) {
-      continue;
-    }
-    visit(static_cast<uint16_t>(nx + ny * width));
-  }
-}
-
 // Multi-source BFS over playable cells. extraWalls (satisfied cells, the
 // parked block) block expansion, but seeds may sit on them — a block stands
 // on the cells it just satisfied until it rolls off.
@@ -723,7 +705,9 @@ private:
   const std::vector<uint8_t> &shareOf_;
   ChunkOptions opts_;
   size_t totalCells_ = 0;
-  std::array<size_t, 2> chunkSize_ = {1, 1};
+  // Counters first (the constructor tallies each share's cells into them),
+  // then divided into per-hand chunk sizes with a floor of 1.
+  std::array<size_t, 2> chunkSize_ = {0, 0};
   std::vector<Turn> plan_;
   std::vector<Block> cur_;
   boost::dynamic_bitset<> sat_;
@@ -1250,9 +1234,12 @@ Outcome solveUndecomposed(
       break;
     }
     AStar::Config armCfg = cfg;
-    armCfg.maxMs = static_cast<uint32_t>(
-        std::min<uint64_t>(deadline - now,
-                           static_cast<uint64_t>(budgetShare * totalMs)));
+    // Floor of 1: maxMs == 0 means UNLIMITED everywhere in this file, so a
+    // sub-10ms total budget truncating a share to 0 must not hand the first
+    // arm the whole clock.
+    armCfg.maxMs = static_cast<uint32_t>(std::max<uint64_t>(
+        1, std::min<uint64_t>(deadline - now,
+                              static_cast<uint64_t>(budgetShare * totalMs))));
     if (onArmStart) {
       onArmStart(std::string(arm.engine));
     }
