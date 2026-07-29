@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Block.h"
-#include "Types.h"
 
 #include <cstddef>
 #include <vector>

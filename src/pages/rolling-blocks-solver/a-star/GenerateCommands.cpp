@@ -1,9 +1,7 @@
 #include "GenerateCommands.h"
 
-#include "Block.h"
 #include "Replay.h"
 #include "SeededRng.h"
-#include "Types.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -51,7 +49,7 @@ struct BoardGen {
 bool placeBlock(BoardGen &g, SeededRng &rng, const uint8_t id,
                 const uint8_t bw, const uint8_t bd, const uint8_t bh,
                 const int minX, const int maxX) {
-  const boost::dynamic_bitset<> empty(g.cells.size());
+  const boost::dynamic_bitset empty(g.cells.size());
   const int hiX = std::min(maxX, g.width - bw);
   const int hiY = g.height - bd;
   if (hiX < minX || hiY < 0) {
@@ -131,7 +129,7 @@ BoardGen generateGoal(SeededRng &rng, const uint32_t shuffle) {
   // block (a corner 3x3x4 wedged in by walls, measured on seed 42) keeps its
   // own goal patch covered through any amount of scrambling and the board
   // arrives pre-solved.
-  const boost::dynamic_bitset<> noneSatisfied(g.cells.size());
+  const boost::dynamic_bitset noneSatisfied(g.cells.size());
   const auto isMobile = [&](const Block &b) {
     for (int d = 0; d < 4; d++) {
       Block trial = b.clone();
@@ -219,8 +217,8 @@ BoardGen generateCoverage(SeededRng &rng, const uint32_t shuffle) {
   const std::vector<Block> startBlocks = g.blocks;
 
   const int markPct = rng.uniform(50, 100);
-  boost::dynamic_bitset<> touched(g.cells.size());
-  boost::dynamic_bitset<> satisfied(g.cells.size());
+  boost::dynamic_bitset touched(g.cells.size());
+  boost::dynamic_bitset satisfied(g.cells.size());
   const auto touch = [&](const Block &b) {
     for (int8_t cx = b.x; cx < b.x + static_cast<int8_t>(b.width); cx++) {
       for (int8_t cy = b.y; cy < b.y + static_cast<int8_t>(b.depth); cy++) {
@@ -298,8 +296,8 @@ BoardGen generateMixed(SeededRng &rng, const uint32_t shuffle) {
   const std::vector<Block> coverageStart = g.blocks;
 
   const int markPct = rng.uniform(50, 100);
-  boost::dynamic_bitset<> touched(g.cells.size());
-  boost::dynamic_bitset<> satisfied(g.cells.size());
+  boost::dynamic_bitset touched(g.cells.size());
+  boost::dynamic_bitset satisfied(g.cells.size());
   const auto touch = [&](const Block &b) {
     for (int8_t cx = b.x; cx < b.x + static_cast<int8_t>(b.width); cx++) {
       for (int8_t cy = b.y; cy < b.y + static_cast<int8_t>(b.depth); cy++) {
@@ -467,8 +465,9 @@ int run(const std::string &outPath, const uint32_t seed,
                               .gridHeight = g.height,
                               .cells = g.cells,
                               .blocks = g.blocks};
-  const replay::Outcome outcome = replay::replayTurns(puzzle, g.witness);
-  if (!outcome.legal || !outcome.solvedAtEnd) {
+  const auto [legal, solvedAtEnd, firstSolvedAt] =
+      replay::replayTurns(puzzle, g.witness);
+  if (!legal || !solvedAtEnd) {
     nlohmann::json err;
     err["generated"] = false;
     err["seed"] = seed;

@@ -1,6 +1,5 @@
 #include "AStarOptimizer.h"
 
-#include "Block.h"
 #include "SolverClock.h"
 
 #include <algorithm>
@@ -47,7 +46,7 @@ std::string stateKey(const State &s) {
 
 State initialState(const replay::Puzzle &puzzle) {
   State s{.blocks = puzzle.blocks,
-          .satisfied = boost::dynamic_bitset<>(puzzle.cells.size())};
+          .satisfied = boost::dynamic_bitset(puzzle.cells.size())};
   for (const auto &b : s.blocks) {
     s.satisfied =
         b.updateMustTouchCells(puzzle.gridWidth, puzzle.cells, s.satisfied);
@@ -72,8 +71,9 @@ bool applyTurn(const replay::Puzzle &puzzle, State &s, const Turn &turn) {
 }
 
 bool validates(const replay::Puzzle &puzzle, const std::vector<Turn> &turns) {
-  const replay::Outcome outcome = replay::replayTurns(puzzle, turns);
-  return outcome.legal && outcome.solvedAtEnd;
+  const auto [legal, solvedAtEnd, firstSolvedAt] =
+      replay::replayTurns(puzzle, turns);
+  return legal && solvedAtEnd;
 }
 
 // All intermediate states of a (legal) solution, states[k] = after k turns.

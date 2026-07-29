@@ -211,7 +211,8 @@ private:
   // Returns false when the input is outside the engine caps.
   bool prepareSearch(Node &root, boost::dynamic_bitset<> &rootOrd);
 
-  void expandNeighbor(size_t bi, Direction direction, Table::Entry *curEntry,
+  void expandNeighbor(size_t bi, Direction direction,
+                      const Table::Entry *curEntry,
                       SearchContext &ctx);
   bool searchLimitReached(uint64_t deadline, const SearchContext &ctx);
   bool budgetExhausted(uint64_t deadline, size_t statesStored);

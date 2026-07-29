@@ -206,7 +206,7 @@ bool AStar::blockTouchesNewMustTouch(
 // Helper: try to expand a single neighbor in search
 // ---------------------------------------------------------------------------
 void AStar::expandNeighbor(const size_t bi, const Direction direction,
-                           Table::Entry *curEntry, SearchContext &ctx) {
+                           const Table::Entry *curEntry, SearchContext &ctx) {
   Block newBlock = curBlocks_[bi].clone();
   newBlock.roll(direction);
 

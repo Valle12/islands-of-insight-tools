@@ -13,6 +13,8 @@ dynamic_bitset(T) -> dynamic_bitset<>;
 #include <gtest/gtest.h>
 #include <vector>
 
+namespace {
+
 // =========================================================================
 // Roll tests
 // =========================================================================
@@ -27,7 +29,7 @@ struct RollTestParam {
 class BlockRollTest : public testing::TestWithParam<RollTestParam> {};
 
 // -- UP cases --
-static std::vector<RollTestParam> makeUpCases() {
+std::vector<RollTestParam> makeUpCases() {
   using enum Direction;
   return {
       {.initial = Block(1, 3, 3, 1, 2, 3), .expected = Block(1, 3, 0, 1, 3, 2),
@@ -52,7 +54,7 @@ INSTANTIATE_TEST_SUITE_P(RollUp, BlockRollTest,
                          });
 
 // -- RIGHT cases --
-static std::vector<RollTestParam> makeRightCases() {
+std::vector<RollTestParam> makeRightCases() {
   using enum Direction;
   return {
       {.initial = Block(1, 3, 3, 1, 2, 3), .expected = Block(1, 4, 3, 3, 2, 1),
@@ -77,7 +79,7 @@ INSTANTIATE_TEST_SUITE_P(RollRight, BlockRollTest,
                          });
 
 // -- DOWN cases --
-static std::vector<RollTestParam> makeDownCases() {
+std::vector<RollTestParam> makeDownCases() {
   using enum Direction;
   return {
       {.initial = Block(1, 3, 3, 1, 2, 3), .expected = Block(1, 3, 5, 1, 3, 2),
@@ -102,7 +104,7 @@ INSTANTIATE_TEST_SUITE_P(RollDown, BlockRollTest,
                          });
 
 // -- LEFT cases --
-static std::vector<RollTestParam> makeLeftCases() {
+std::vector<RollTestParam> makeLeftCases() {
   using enum Direction;
   return {
       {.initial = Block(1, 3, 3, 1, 2, 3), .expected = Block(1, 0, 3, 3, 2, 1),
@@ -152,7 +154,7 @@ TEST(BlockClone, ChangesToCloneShouldNotAffectOriginal) {
 // Helper: build the 5x5 flat cell grid used in the TS tests.
 // TS has cells[x][y] with all "mustTouch" except cells[4][0], cells[0][4],
 // cells[4][4] = "unplayable"
-static std::vector<Tile> makeTestCells() {
+std::vector<Tile> makeTestCells() {
   using enum Tile;
   // Flat layout: index = x + y * 5
   std::vector cells(25, MustTouch);
@@ -162,7 +164,7 @@ static std::vector<Tile> makeTestCells() {
   return cells;
 }
 
-static boost::dynamic_bitset<> makeTestMustTouch() {
+boost::dynamic_bitset<> makeTestMustTouch() {
   boost::dynamic_bitset bits(25);
   bits.set(0 + 0 * 5); // (0,0)
   bits.set(1 + 0 * 5); // (1,0)
@@ -185,7 +187,7 @@ struct BoundsTestParam {
 class CompletelyOutOfBoundsTest
     : public testing::TestWithParam<BoundsTestParam> {};
 
-static std::vector<BoundsTestParam> completelyOutOfBoundsCases() {
+std::vector<BoundsTestParam> completelyOutOfBoundsCases() {
   return {
       {.x = -3, .y = -3, .position = "top_left"},
       {.x = 1, .y = -3, .position = "top"},
@@ -216,7 +218,7 @@ TEST_P(CompletelyOutOfBoundsTest, ShouldBeOutOfBounds) {
 class PartiallyOutOfBoundsTest
     : public testing::TestWithParam<BoundsTestParam> {};
 
-static std::vector<BoundsTestParam> partiallyOutOfBoundsCases() {
+std::vector<BoundsTestParam> partiallyOutOfBoundsCases() {
   return {
       {.x = 2, .y = -1, .position = "top"},
       {.x = 4, .y = -1, .position = "top_right"},
@@ -246,7 +248,7 @@ TEST_P(PartiallyOutOfBoundsTest, ShouldBeOutOfBounds) {
 // -- In bounds --
 class InBoundsTest : public testing::TestWithParam<BoundsTestParam> {};
 
-static std::vector<BoundsTestParam> inBoundsCases() {
+std::vector<BoundsTestParam> inBoundsCases() {
   return {
       {.x = 0, .y = 0, .position = "top_left"},
       {.x = 1, .y = 0, .position = "top"},
@@ -284,7 +286,7 @@ struct OverlapTestParam {
 
 class BlockOverlapTest : public testing::TestWithParam<OverlapTestParam> {};
 
-static std::vector<OverlapTestParam> blockOverlapCases() {
+std::vector<OverlapTestParam> blockOverlapCases() {
   return {
       {.block1 = Block(1, 1, 1, 3, 2, 1), .block2 = Block(2, 1, 1, 1, 2, 3),
        .blockType = "second_1x2_0"},
@@ -399,7 +401,7 @@ struct MustTouchBlockParam {
 class OverlappingSatisfiedMustTouchTest
     : public testing::TestWithParam<MustTouchBlockParam> {};
 
-static std::vector<MustTouchBlockParam> overlappingSatisfiedMustTouchCases() {
+std::vector<MustTouchBlockParam> overlappingSatisfiedMustTouchCases() {
   return {
       {.block = Block(1, 0, 0, 2, 2, 2), .name = "0_0"},
       {.block = Block(1, 2, 1, 2, 2, 2), .name = "2_1"},
@@ -428,7 +430,7 @@ TEST_P(OverlappingSatisfiedMustTouchTest, ShouldFail) {
 class NonOverlappingSatisfiedMustTouchTest
     : public testing::TestWithParam<MustTouchBlockParam> {};
 
-static std::vector<MustTouchBlockParam>
+std::vector<MustTouchBlockParam>
 nonOverlappingSatisfiedMustTouchCases() {
   return {
       {.block = Block(1, 0, 2, 2, 2, 2), .name = "0_2"},
@@ -489,3 +491,5 @@ TEST(UpdateMustTouchCells, BlockOverlapsSomeMustTouch) {
   EXPECT_FALSE(result.test(18));
   EXPECT_EQ(result.count(), 2u);
 }
+
+} // namespace

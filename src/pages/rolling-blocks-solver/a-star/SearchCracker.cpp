@@ -76,7 +76,6 @@ std::vector<Turn> AStar::searchCracker(Node root) {
 
   constexpr std::array kDirs = {Direction::UP, Direction::RIGHT,
                                 Direction::DOWN, Direction::LEFT};
-  constexpr uint64_t kRoundBaseCap = 150000;
 
   // Cheap onward-mobility count for Warnsdorff ordering: how many rolls the
   // moved block could take next, ignoring other blocks.
@@ -134,8 +133,6 @@ std::vector<Turn> AStar::searchCracker(Node root) {
   // strand later. Found on fuzz-7007's dense blobs.
   const auto opennessCount = [&](const Block &moved,
                                  const boost::dynamic_bitset<> &prevCells) {
-    constexpr std::array<int8_t, 4> dxs = {0, 0, 1, -1};
-    constexpr std::array<int8_t, 4> dys = {1, -1, 0, 0};
     const auto insideMoved = [&](const int px, const int py) {
       return px >= moved.x && px < moved.x + static_cast<int>(moved.width) &&
              py >= moved.y && py < moved.y + static_cast<int>(moved.depth);
@@ -145,20 +142,23 @@ std::vector<Turn> AStar::searchCracker(Node root) {
          cx++) {
       for (int8_t cy = moved.y;
            cy < moved.y + static_cast<int8_t>(moved.depth); cy++) {
-        const auto idx = positionToIndex(cx, cy, gridWidth_);
-        if (cells_[idx] != Tile::MustTouch || prevCells.test(idx)) {
+        if (const auto idx = positionToIndex(cx, cy, gridWidth_);
+            cells_[idx] != Tile::MustTouch || prevCells.test(idx)) {
           continue;
         }
         for (int d = 0; d < 4; d++) {
+          constexpr std::array<int8_t, 4> dxs = {0, 0, 1, -1};
+          constexpr std::array<int8_t, 4> dys = {1, -1, 0, 0};
           const int nx = cx + dxs[d];
           const int ny = cy + dys[d];
           if (nx < 0 || nx >= gridWidth_ || ny < 0 || ny >= gridHeight_ ||
               insideMoved(nx, ny)) {
             continue;
           }
-          const auto nidx = positionToIndex(
-              static_cast<int8_t>(nx), static_cast<int8_t>(ny), gridWidth_);
-          if (cells_[nidx] == Tile::MustTouch && !prevCells.test(nidx)) {
+          if (const auto nidx = positionToIndex(static_cast<int8_t>(nx),
+                                                static_cast<int8_t>(ny),
+                                                gridWidth_);
+              cells_[nidx] == Tile::MustTouch && !prevCells.test(nidx)) {
             open++;
           }
         }
@@ -332,26 +332,26 @@ std::vector<Turn> AStar::searchCracker(Node root) {
                                const std::vector<Block> &blocks,
                                const boost::dynamic_bitset<> &prevCells,
                                const boost::dynamic_bitset<> &newCells) {
-    constexpr std::array<int8_t, 4> dxs = {0, 0, 1, -1};
-    constexpr std::array<int8_t, 4> dys = {1, -1, 0, 0};
     for (int8_t cx = moved.x; cx < moved.x + static_cast<int8_t>(moved.width);
          cx++) {
       for (int8_t cy = moved.y;
            cy < moved.y + static_cast<int8_t>(moved.depth); cy++) {
-        const auto idx = positionToIndex(cx, cy, gridWidth_);
-        if (cells_[idx] != Tile::MustTouch || prevCells.test(idx)) {
+        if (const auto idx = positionToIndex(cx, cy, gridWidth_);
+            cells_[idx] != Tile::MustTouch || prevCells.test(idx)) {
           continue; // only cells THIS move newly satisfied can orphan
         }
         for (int d = 0; d < 4; d++) {
+          constexpr std::array<int8_t, 4> dxs = {0, 0, 1, -1};
+          constexpr std::array<int8_t, 4> dys = {1, -1, 0, 0};
           const int nx = cx + dxs[d];
           const int ny = cy + dys[d];
           if (nx < 0 || nx >= gridWidth_ || ny < 0 || ny >= gridHeight_) {
             continue;
           }
-          const auto nidx = positionToIndex(static_cast<int8_t>(nx),
-                                            static_cast<int8_t>(ny),
-                                            gridWidth_);
-          if (cells_[nidx] != Tile::MustTouch || newCells.test(nidx)) {
+          if (const auto nidx = positionToIndex(static_cast<int8_t>(nx),
+                                                static_cast<int8_t>(ny),
+                                                gridWidth_);
+              cells_[nidx] != Tile::MustTouch || newCells.test(nidx)) {
             continue;
           }
           if (!cellCoverable(nx, ny, blocks, newCells)) {
@@ -527,15 +527,15 @@ std::vector<Turn> AStar::searchCracker(Node root) {
           const size_t cell = state % totalCells;
           const int cx = static_cast<int>(cell % gridWidth_);
           const int cy = static_cast<int>(cell / gridWidth_);
-          for (const auto &tr : graph.trans[orient]) {
-            const int nx = cx + tr.dx;
-            const int ny = cy + tr.dy;
-            const auto &no = graph.orients[tr.next];
+          for (const auto &[dx, dy, nextOrient] : graph.trans[orient]) {
+            const int nx = cx + dx;
+            const int ny = cy + dy;
+            const auto &no = graph.orients[nextOrient];
             if (!rectPassableAt(nx, ny, no)) {
               continue;
             }
             const auto nextState = static_cast<uint32_t>(
-                (orientBase + tr.next) * totalCells +
+                (orientBase + nextOrient) * totalCells +
                 static_cast<size_t>(nx) +
                 static_cast<size_t>(ny) * gridWidth_);
             auto &stamp = poseStamp[nextState];
@@ -598,6 +598,7 @@ std::vector<Turn> AStar::searchCracker(Node root) {
     if (budgetExhausted(deadline, 0)) {
       break;
     }
+    constexpr uint64_t kRoundBaseCap = 150000;
     const uint64_t roundCap =
         stats_.nodesExpanded + kRoundBaseCap * luby(round);
     const uint32_t roundSeed = cfg_.seed * 2654435761U + round;
@@ -682,12 +683,12 @@ std::vector<Turn> AStar::searchCracker(Node root) {
         }
         continue;
       }
-      const ScoredMove move = frame.moves[frame.next++];
+      const auto [order, bi, dir] = frame.moves[frame.next++];
 
       Frame child;
       child.blocks = frame.blocks;
-      Block &moved = child.blocks[move.bi];
-      moved.roll(move.dir);
+      Block &moved = child.blocks[bi];
+      moved.roll(dir);
       child.cells = frame.cells;
       child.ord = frame.ord;
       applyTouch(moved, child.cells, child.ord);
@@ -701,7 +702,7 @@ std::vector<Turn> AStar::searchCracker(Node root) {
           intactWanted && child.ord.count() != frame.ord.count()) {
         const Block &partner = cfg_.coveragePartner != nullptr
                                    ? *cfg_.coveragePartner
-                                   : child.blocks[move.bi == 0 ? 1 : 0];
+                                   : child.blocks[bi == 0 ? 1 : 0];
         if (!coverageIntactOk(moved, partner, child.cells,
                               child.ord.count())) {
           continue;
@@ -711,7 +712,7 @@ std::vector<Turn> AStar::searchCracker(Node root) {
                .second) {
         continue;
       }
-      if (!isReachable(frame.blocks, move.bi, moved, child.cells, child.ord)) {
+      if (!isReachable(frame.blocks, bi, moved, child.cells, child.ord)) {
         continue;
       }
 
@@ -726,7 +727,7 @@ std::vector<Turn> AStar::searchCracker(Node root) {
       }
 
       path.push_back(
-          {.blockId = frame.blocks[move.bi].id, .direction = move.dir});
+          {.blockId = frame.blocks[bi].id, .direction = dir});
       if (legDone(child.blocks, child.ord)) {
         stats_.statesStored = visited.size();
         stats_.wallMs = static_cast<uint32_t>(nowMs() - startMs);

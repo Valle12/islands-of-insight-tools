@@ -13,12 +13,14 @@
 #include <string>
 #include <vector>
 
+namespace {
+
 // Fixture loading and the replay validity oracle live in FixtureIo/Replay,
 // shared with the native CLI and the wasm bindings' post-processing.
 
 class RollingBlocksSearchTest : public testing::TestWithParam<std::string> {};
 
-static std::vector<std::string> allTestFiles() {
+std::vector<std::string> allTestFiles() {
   std::vector<std::string> files;
   files.emplace_back("rollingBlocksTest.json");
   for (int i = 1; i <= 48; i++) {
@@ -57,3 +59,5 @@ TEST_P(RollingBlocksSearchTest, ShouldFindValidSolution) {
   EXPECT_TRUE(outcome.solvedAtEnd)
       << "Solution does not solve " << filename;
 }
+
+} // namespace

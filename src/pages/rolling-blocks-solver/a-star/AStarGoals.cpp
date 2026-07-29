@@ -182,10 +182,11 @@ std::vector<GoalCluster> AStar::precomputeGoalClusters() const {
       std::vector<std::pair<int8_t, int8_t>> component;
       discoverGoalComponent(x, y, visited, component);
 
-      int8_t minX = component[0].first;
-      int8_t maxX = component[0].first;
-      int8_t minY = component[0].second;
-      int8_t maxY = component[0].second;
+      const auto [firstX, firstY] = component[0];
+      int8_t minX = firstX;
+      int8_t maxX = firstX;
+      int8_t minY = firstY;
+      int8_t maxY = firstY;
       for (const auto &[cx, cy] : component) {
         minX = std::min(minX, cx);
         maxX = std::max(maxX, cx);
@@ -289,8 +290,7 @@ void AStar::fillClassClusterTable(const GoalClassTables &tables,
   const auto footIndexOf = [&](const uint8_t w,
                                const uint8_t d) -> size_t {
     for (size_t i = 0; i < tables.footprints.size(); i++) {
-      if (tables.footprints[i].first == w &&
-          tables.footprints[i].second == d) {
+      if (const auto &[fw, fd] = tables.footprints[i]; fw == w && fd == d) {
         return i;
       }
     }
@@ -371,8 +371,8 @@ uint32_t AStar::goalPairCost(const Block &block,
       continue;
     }
     for (size_t f = 0; f < tables.footprints.size(); f++) {
-      if (tables.footprints[f].first != block.width ||
-          tables.footprints[f].second != block.depth) {
+      if (const auto &[fw, fd] = tables.footprints[f];
+          fw != block.width || fd != block.depth) {
         continue;
       }
       const size_t totalCells = static_cast<size_t>(gridWidth_) * gridHeight_;

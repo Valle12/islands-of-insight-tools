@@ -21,7 +21,7 @@ bool isSolved(const replay::Puzzle &puzzle, const std::vector<Block> &blocks,
   if (goalCells == 0) {
     return true;
   }
-  boost::dynamic_bitset<> covered(puzzle.cells.size());
+  boost::dynamic_bitset covered(puzzle.cells.size());
   for (const auto &block : blocks) {
     bool fullyOnGoal = true;
     for (int8_t cx = block.x;
@@ -56,7 +56,7 @@ namespace replay {
 Outcome replayTurns(const Puzzle &puzzle, const std::vector<Turn> &turns) {
   Outcome outcome;
   std::vector<Block> blocks = puzzle.blocks;
-  boost::dynamic_bitset<> satisfied(puzzle.cells.size());
+  boost::dynamic_bitset satisfied(puzzle.cells.size());
   for (const auto &block : blocks) {
     satisfied =
         block.updateMustTouchCells(puzzle.gridWidth, puzzle.cells, satisfied);
@@ -121,13 +121,11 @@ bool applyTurns(const Puzzle &puzzle, const std::vector<Turn> &turns,
 
 std::vector<Turn> truncateToEarliestSolve(const Puzzle &puzzle,
                                           const std::vector<Turn> &turns) {
-  const Outcome outcome = replayTurns(puzzle, turns);
-  if (!outcome.legal || outcome.firstSolvedAt == SIZE_MAX ||
-      outcome.firstSolvedAt >= turns.size()) {
+  const auto [legal, solvedAtEnd, firstSolvedAt] = replayTurns(puzzle, turns);
+  if (!legal || firstSolvedAt == SIZE_MAX || firstSolvedAt >= turns.size()) {
     return turns;
   }
-  return {turns.begin(),
-          turns.begin() + static_cast<ptrdiff_t>(outcome.firstSolvedAt)};
+  return {turns.begin(), turns.begin() + static_cast<ptrdiff_t>(firstSolvedAt)};
 }
 
 } // namespace replay

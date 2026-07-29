@@ -6,9 +6,6 @@
 #undef __cpp_lib_is_pointer_interconvertible
 #endif
 #include "AStar.h"
-#include "Block.h"
-#include "Node.h"
-#include "Types.h"
 #if defined(__GNUC__) && !defined(__clang__)
 namespace boost {
 template <typename T>
@@ -39,7 +36,7 @@ void setCell(std::vector<Tile> &cells, const uint8_t w, const int8_t x,
 }
 
 boost::dynamic_bitset<> emptyBits(const uint8_t w, const uint8_t h) {
-  return boost::dynamic_bitset<>(static_cast<size_t>(w) * h);
+  return boost::dynamic_bitset(static_cast<size_t>(w) * h);
 }
 
 // Replays a solution on the original real-id blocks, asserting legality of
@@ -53,7 +50,7 @@ struct ReplayResult {
 void replaySolution(const uint8_t w, const uint8_t h,
                     const std::vector<Tile> &cells, std::vector<Block> blocks,
                     const std::vector<Turn> &turns, ReplayResult &out) {
-  boost::dynamic_bitset<> satisfied(static_cast<size_t>(w) * h);
+  boost::dynamic_bitset satisfied(static_cast<size_t>(w) * h);
   for (const auto &b : blocks) {
     satisfied = b.updateMustTouchCells(w, cells, satisfied);
   }
@@ -73,7 +70,7 @@ void replaySolution(const uint8_t w, const uint8_t h,
 void assertGoalsCovered(const uint8_t w, const uint8_t h,
                         const std::vector<Tile> &cells,
                         const std::vector<Block> &blocks) {
-  boost::dynamic_bitset<> covered(static_cast<size_t>(w) * h);
+  boost::dynamic_bitset covered(static_cast<size_t>(w) * h);
   for (const auto &b : blocks) {
     bool fullyOnGoal = true;
     for (int8_t cx = b.x; cx < b.x + static_cast<int8_t>(b.width); cx++) {
@@ -102,8 +99,8 @@ void assertGoalsCovered(const uint8_t w, const uint8_t h,
 } // namespace
 
 TEST(StateEncoding, EqualDimsPermutationCollapses) {
-  const uint8_t w = 6;
-  const uint8_t h = 6;
+  constexpr uint8_t w = 6;
+  constexpr uint8_t h = 6;
   AStar solver(w, h, uniformCells(w, h));
 
   const std::vector<Block> a = {{1, 1, 1, 1, 1, 2}, {2, 4, 4, 1, 1, 2}};
@@ -115,8 +112,8 @@ TEST(StateEncoding, EqualDimsPermutationCollapses) {
 }
 
 TEST(StateEncoding, DifferentHeightsDoNotAlias) {
-  const uint8_t w = 6;
-  const uint8_t h = 6;
+  constexpr uint8_t w = 6;
+  constexpr uint8_t h = 6;
   AStar solver(w, h, uniformCells(w, h));
 
   // A standing 1x1x3 and a standing 1x1x5 share the 1x1 footprint. Swapping
@@ -131,8 +128,8 @@ TEST(StateEncoding, DifferentHeightsDoNotAlias) {
 }
 
 TEST(StateEncoding, MustTouchOrdinalBitsRoundTrip) {
-  const uint8_t w = 7;
-  const uint8_t h = 5;
+  constexpr uint8_t w = 7;
+  constexpr uint8_t h = 5;
   auto cells = uniformCells(w, h);
   setCell(cells, w, 0, 0, Tile::MustTouch);
   setCell(cells, w, 3, 2, Tile::MustTouch);
@@ -165,8 +162,8 @@ TEST(StateEncoding, MustTouchOrdinalBitsRoundTrip) {
 TEST(StateEncoding, LargeBoardKeysRoundTripThroughSpill) {
   // 64x64 = 4096 cells: far past the 512-cell ceiling the old fixed
   // to_block_range scratch silently overflowed on wasm32.
-  const uint8_t w = 64;
-  const uint8_t h = 64;
+  constexpr uint8_t w = 64;
+  constexpr uint8_t h = 64;
   auto cells = uniformCells(w, h);
   std::vector<uint16_t> mustTouchCells;
   for (int i = 0; i < 300; i++) {
@@ -208,15 +205,15 @@ TEST(StateEncoding, LargeBoardKeysRoundTripThroughSpill) {
 }
 
 TEST(StateEncoding, LargeBoardSearchSolves) {
-  const uint8_t w = 64;
-  const uint8_t h = 64;
+  constexpr uint8_t w = 64;
+  constexpr uint8_t h = 64;
   auto cells = uniformCells(w, h);
   setCell(cells, w, 1, 0, Tile::Goal);
   setCell(cells, w, 2, 0, Tile::Goal);
   AStar solver(w, h, cells);
 
   const std::vector<Block> blocks = {{1, 0, 0, 1, 1, 2}};
-  auto turns = solver.search(Node(blocks));
+  const auto turns = solver.search(Node(blocks));
   ASSERT_FALSE(turns.empty());
 
   ReplayResult replayed;
@@ -230,15 +227,15 @@ TEST(StateEncoding, RealIdAttributionWithInterchangeableBlocks) {
   // must both reach a goal cell. Under the canonical encoding the two blocks
   // trade identities freely between states; the reported turns must still
   // carry REAL ids and replay to a valid solution.
-  const uint8_t w = 4;
-  const uint8_t h = 4;
+  constexpr uint8_t w = 4;
+  constexpr uint8_t h = 4;
   auto cells = uniformCells(w, h);
   setCell(cells, w, 1, 2, Tile::Goal);
   setCell(cells, w, 2, 1, Tile::Goal);
   AStar solver(w, h, cells);
 
   const std::vector<Block> blocks = {{7, 3, 0, 1, 1, 2}, {9, 0, 3, 1, 1, 2}};
-  auto turns = solver.search(Node(blocks));
+  const auto turns = solver.search(Node(blocks));
   ASSERT_FALSE(turns.empty());
 
   for (const auto &turn : turns) {
@@ -253,8 +250,8 @@ TEST(StateEncoding, RealIdAttributionWithInterchangeableBlocks) {
 }
 
 TEST(StateEncoding, CancelStopsBeforeAnyExpansion) {
-  const uint8_t w = 5;
-  const uint8_t h = 5;
+  constexpr uint8_t w = 5;
+  constexpr uint8_t h = 5;
   auto cells = uniformCells(w, h);
   setCell(cells, w, 4, 4, Tile::Goal);
 
@@ -282,8 +279,8 @@ TEST(StateEncoding, MaxNodesBudgetStopsTheSearch) {
   const nlohmann::json j = nlohmann::json::parse(f);
   const auto gridWidth = j["gridWidth"].get<uint8_t>();
   const auto gridHeight = j["gridHeight"].get<uint8_t>();
-  std::vector<Tile> cells(static_cast<size_t>(gridWidth) * gridHeight,
-                          Tile::Regular);
+  std::vector cells(static_cast<size_t>(gridWidth) * gridHeight,
+                    Tile::Regular);
   for (uint8_t x = 0; x < gridWidth; x++) {
     for (uint8_t y = 0; y < gridHeight; y++) {
       const auto s = j["cells"][x][y].get<std::string>();

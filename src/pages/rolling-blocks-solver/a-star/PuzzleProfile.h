@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Replay.h"
-#include "Types.h"
 
 #include <cstddef>
 

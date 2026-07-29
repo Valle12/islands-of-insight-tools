@@ -61,8 +61,8 @@ std::vector<uint16_t> nearestField(const replay::Puzzle &puzzle,
     for (const uint16_t idx : frontier) {
       const int cx = idx % puzzle.gridWidth;
       const int cy = idx / puzzle.gridWidth;
-      constexpr std::array<std::pair<int, int>, 4> kSteps = {
-          {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}};
+      constexpr std::array kSteps = {std::pair{1, 0}, std::pair{-1, 0},
+                                     std::pair{0, 1}, std::pair{0, -1}};
       for (const auto &[dx, dy] : kSteps) {
         const int nx = cx + dx;
         const int ny = cy + dy;
@@ -190,7 +190,7 @@ std::vector<Turn> crackLeg(const replay::Puzzle &sub, const AStar::Config &base,
   cfg.requiredCells = required;
   AStar solver(sub.gridWidth, sub.gridHeight, sub.cells, cfg);
   if (onProgress) {
-    solver.setOnProgress([&onProgress, progressAt](uint32_t n) {
+    solver.setOnProgress([&onProgress, progressAt](const uint32_t n) {
       onProgress(static_cast<uint32_t>(progressAt + n));
     });
   }
@@ -202,7 +202,7 @@ std::vector<Turn> crackLeg(const replay::Puzzle &sub, const AStar::Config &base,
 }
 
 size_t unsatisfiedCount(const replay::Puzzle &sub) {
-  boost::dynamic_bitset<> sat(sub.cells.size());
+  boost::dynamic_bitset sat(sub.cells.size());
   for (const auto &b : sub.blocks) {
     sat = b.updateMustTouchCells(sub.gridWidth, sub.cells, sat);
   }
@@ -244,7 +244,7 @@ std::vector<Turn> runChunkedAlternation(
 
   std::vector<Turn> plan;
   std::vector<Block> cur = puzzle.blocks;
-  boost::dynamic_bitset<> sat(totalCells);
+  boost::dynamic_bitset sat(totalCells);
   for (const auto &b : cur) {
     sat = b.updateMustTouchCells(puzzle.gridWidth, puzzle.cells, sat);
   }
@@ -498,7 +498,7 @@ std::vector<Turn> runChunkedAlternation(
         if (wallForeign) {
           // "Avoid" style: everything outside the target chunk is a wall —
           // interaction-free but heavily constrained.
-          boost::dynamic_bitset<> target(totalCells);
+          boost::dynamic_bitset target(totalCells);
           for (size_t t = 0; t < tryCount; t++) {
             target.set(candidates[t]);
           }
@@ -653,7 +653,7 @@ std::vector<Turn> runSplitCoverage(
       nearestField(puzzle, blockFootprint(puzzle.blocks[1], puzzle.gridWidth),
                    nullptr)};
 
-  boost::dynamic_bitset<> rootSat(totalCells);
+  boost::dynamic_bitset rootSat(totalCells);
   for (const auto &b : puzzle.blocks) {
     rootSat = b.updateMustTouchCells(puzzle.gridWidth, puzzle.cells, rootSat);
   }
@@ -881,7 +881,7 @@ std::vector<Turn> runSingle(const replay::Puzzle &puzzle, const SingleArm &arm,
 
   AStar solver(puzzle.gridWidth, puzzle.gridHeight, puzzle.cells, cfg);
   if (onProgress) {
-    solver.setOnProgress([&onProgress, progressBase](uint32_t n) {
+    solver.setOnProgress([&onProgress, progressBase](const uint32_t n) {
       // Offset by the expansions earlier arms already reported, so the
       // page's readout never moves backwards at an arm boundary.
       onProgress(static_cast<uint32_t>(progressBase + n));
@@ -977,8 +977,8 @@ std::vector<Region> decompose(const replay::Puzzle &puzzle) {
       stack.pop_back();
       const int cx = idx % puzzle.gridWidth;
       const int cy = idx / puzzle.gridWidth;
-      constexpr std::array<std::pair<int, int>, 4> kSteps = {
-          {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}};
+      constexpr std::array kSteps = {std::pair{1, 0}, std::pair{-1, 0},
+                                     std::pair{0, 1}, std::pair{0, -1}};
       for (const auto &[dx, dy] : kSteps) {
         const int nx = cx + dx;
         const int ny = cy + dy;
@@ -1137,8 +1137,8 @@ Outcome solve(const replay::Puzzle &puzzle, const ArmSpec &spec,
         const uint64_t progressBase = outcome.stats.nodesExpanded;
         const Outcome sub = solveUndecomposed(
             region.sub, spec, regionCfg,
-            onProgress ? std::function<void(uint32_t)>(
-                             [&onProgress, progressBase](uint32_t n) {
+            onProgress ? std::function(
+                             [&onProgress, progressBase](const uint32_t n) {
                                onProgress(static_cast<uint32_t>(
                                    progressBase + n));
                              })
@@ -1222,7 +1222,7 @@ Outcome solveParallel(
         auto turns = runSingle(
             puzzle, kPortfolio[static_cast<size_t>(i)], armCfg,
             armStats[static_cast<size_t>(i)],
-            [&progress, i](uint32_t n) {
+            [&progress, i](const uint32_t n) {
               progress[static_cast<size_t>(i)].store(
                   n, std::memory_order_relaxed);
             },
@@ -1282,8 +1282,8 @@ Outcome solveParallel(
   const Outcome seq = solve(
       puzzle, cascade, seqCfg,
       onProgress
-          ? std::function<void(uint32_t)>(
-                [&onProgress, progressBase](uint32_t n) {
+          ? std::function(
+                [&onProgress, progressBase](const uint32_t n) {
                   onProgress(static_cast<uint32_t>(progressBase + n));
                 })
           : std::function<void(uint32_t)>{},
