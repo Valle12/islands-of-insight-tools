@@ -52,6 +52,7 @@ jobs:
             "$ASTAR_DIR/wasm_bindings.cpp" \
             "$ASTAR_DIR/AStar.cpp" \
             "$ASTAR_DIR/AStarGoals.cpp" \
+            "$ASTAR_DIR/AStarOptimizer.cpp" \
             "$ASTAR_DIR/Block.cpp" \
             "$ASTAR_DIR/SolverClock.cpp" \
             "$ASTAR_DIR/Replay.cpp" \

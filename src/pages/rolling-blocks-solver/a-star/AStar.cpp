@@ -316,6 +316,7 @@ std::vector<Turn> AStar::search(Node root) {
   }
 
   rootBlocks_ = root.blocks;
+  prepareGoalTables(root.blocks);
 
   const size_t totalCells = static_cast<size_t>(gridWidth_) * gridHeight_;
   if (root.mustTouchCellsSatisfied.size() < totalCells) {
@@ -457,7 +458,12 @@ void AStar::seedReachability(const std::vector<Block> &blocks,
 }
 
 // ---------------------------------------------------------------------------
-// Helper: flood-fill and count reachable unsatisfied must-touch cells
+// Helper: flood-fill and count reachable unsatisfied must-touch cells.
+// Depth-first on purpose: it typically collects every unsatisfied cell (the
+// early-out) after visiting far fewer cells than a level-order sweep — a
+// breadth-first variant that also recorded a nearest-unsatisfied distance
+// was measured 15-43% slower on the fill-bound fixtures for no expansion
+// savings.
 // ---------------------------------------------------------------------------
 bool AStar::floodFillReachable(
     const boost::dynamic_bitset<> &mustTouchSatisfied,

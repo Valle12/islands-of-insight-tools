@@ -211,6 +211,27 @@ private:
   static bool blockCompatibleWithCluster(const Block &block,
                                          const GoalCluster &cluster);
 
+  // Pose-space distance tables: for every block dimension class (sorted dims
+  // multiset — physically interchangeable blocks share one class) and every
+  // goal cluster, the exact minimum ROLL count from each reachable pose to an
+  // accepting pose, ignoring other blocks and must-touch walls (a relaxation,
+  // so the distances are admissible). A pose is (x, y, footprint); the height
+  // is always the dimension the footprint leaves over. Rolls are their own
+  // inverses as a move set, so one forward BFS from the accepting poses is
+  // the backward distance map.
+  struct GoalClassTables {
+    std::array<uint8_t, 3> dims{}; // sorted multiset, identifies the class
+    std::vector<std::pair<uint8_t, uint8_t>> footprints;
+    // perCluster[c][footIdx * cells + cellIdx]; 0xFFFF = unreachable
+    std::vector<std::vector<uint16_t>> perCluster;
+  };
+  std::vector<GoalClassTables> goalTables_;
+  void prepareGoalTables(const std::vector<Block> &blocks);
+  void fillClassClusterTable(const GoalClassTables &tables, size_t clusterIdx,
+                             std::vector<uint16_t> &dist) const;
+  [[nodiscard]] uint32_t goalPairCost(const Block &block,
+                                      size_t clusterIdx) const;
+
   [[nodiscard]] bool
   isGoalState(const std::vector<Block> &blocks,
               const boost::dynamic_bitset<> &ordinal) const;

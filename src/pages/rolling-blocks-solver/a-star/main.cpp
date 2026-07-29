@@ -5,6 +5,7 @@
 // everything else is narration.
 
 #include "AStar.h"
+#include "AStarOptimizer.h"
 #include "FixtureIo.h"
 #include "Node.h"
 #include "Replay.h"
@@ -130,7 +131,7 @@ int main(const int argc, char **argv) {
   const uint64_t searchEnd = nowMs();
 
   if (opts.postProcess && !turns.empty()) {
-    turns = replay::truncateToEarliestSolve(puzzle, turns);
+    turns = optimizer::optimize(puzzle, std::move(turns), 30000);
   }
 
   const replay::Outcome outcome = replay::replayTurns(puzzle, turns);

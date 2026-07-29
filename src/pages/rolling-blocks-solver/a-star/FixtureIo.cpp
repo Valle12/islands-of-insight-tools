@@ -18,11 +18,22 @@ Tile parseTile(const std::string_view s) {
   return Regular;
 }
 
+Direction parseDirection(const std::string_view s) {
+  using enum Direction;
+  if (s == "UP")
+    return UP;
+  if (s == "RIGHT")
+    return RIGHT;
+  if (s == "DOWN")
+    return DOWN;
+  return LEFT;
+}
+
 } // namespace
 
 namespace fixtureio {
 
-replay::Puzzle load(const std::string &path) {
+replay::Puzzle load(const std::string &path, std::vector<Turn> *turnsOut) {
   std::ifstream f(path);
   if (!f.is_open()) {
     throw std::runtime_error("Cannot open " + path);
@@ -52,6 +63,17 @@ replay::Puzzle load(const std::string &path) {
         static_cast<int8_t>(jb.at("y").get<int>()),
         jb.at("width").get<uint8_t>(), jb.at("depth").get<uint8_t>(),
         jb.at("height").get<uint8_t>());
+  }
+
+  if (turnsOut != nullptr) {
+    turnsOut->clear();
+    if (j.contains("turns") && j.at("turns").is_array()) {
+      for (const auto &jt : j.at("turns")) {
+        turnsOut->push_back(
+            {jt.at("blockId").get<uint8_t>(),
+             parseDirection(jt.at("direction").get<std::string>())});
+      }
+    }
   }
 
   return puzzle;

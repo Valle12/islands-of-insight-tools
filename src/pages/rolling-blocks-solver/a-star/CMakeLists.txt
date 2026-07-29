@@ -19,7 +19,7 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/../../../../cmake/ClangTidyGate.cmake")
 clang_tidy_gate(OPTION RB_CLANG_TIDY PROFILE_LLVM 23)
 
 add_executable(a_star main.cpp Block.cpp AStar.cpp AStarGoals.cpp
-        SolverClock.cpp Replay.cpp FixtureIo.cpp)
+        AStarOptimizer.cpp SolverClock.cpp Replay.cpp FixtureIo.cpp)
 
 find_package(Boost CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)

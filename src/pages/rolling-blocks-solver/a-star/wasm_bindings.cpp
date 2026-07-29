@@ -1,6 +1,7 @@
 #ifdef __EMSCRIPTEN__
 
 #include "AStar.h"
+#include "AStarOptimizer.h"
 #include "Node.h"
 #include "Replay.h"
 
@@ -116,6 +117,8 @@ val solve(const val puzzleVal, const val configVal) {
   cfg.maxHeapBytes = static_cast<uint64_t>(
       opt<double>(configVal, "maxHeapBytes", 0));
   const bool postProcess = opt<bool>(configVal, "postProcess", true);
+  const uint32_t optimizeMaxMs =
+      opt<uint32_t>(configVal, "optimizeMaxMs", 30000);
 
   AStar solver(puzzle.gridWidth, puzzle.gridHeight, puzzle.cells, cfg);
   solver.setOnProgress([](uint32_t nodesExpanded) {
@@ -128,7 +131,7 @@ val solve(const val puzzleVal, const val configVal) {
 
   std::vector<Turn> turns = solver.search(Node(puzzle.blocks));
   if (postProcess && !turns.empty()) {
-    turns = replay::truncateToEarliestSolve(puzzle, turns);
+    turns = optimizer::optimize(puzzle, std::move(turns), optimizeMaxMs);
   }
 
   result.set("turns", turnsToVal(turns));
@@ -142,13 +145,12 @@ val solve(const val puzzleVal, const val configVal) {
   return result;
 }
 
-// Standalone post-processor: replays the given turns and cuts them at the
-// earliest solving prefix. Grows into the full optimizer later; exported now
-// so its interface (and tests against it) are stable.
+// Standalone post-processor: replay-validated rewrites that shorten a
+// solution (see AStarOptimizer.h). Runs with the default budget.
 val optimize(const val puzzleVal, const val turnsVal) {
   const replay::Puzzle puzzle = puzzleFromVal(puzzleVal);
-  const std::vector<Turn> turns = turnsFromVal(turnsVal);
-  return turnsToVal(replay::truncateToEarliestSolve(puzzle, turns));
+  std::vector<Turn> turns = turnsFromVal(turnsVal);
+  return turnsToVal(optimizer::optimize(puzzle, std::move(turns), 30000));
 }
 
 } // namespace

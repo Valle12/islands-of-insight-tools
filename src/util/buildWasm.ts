@@ -104,6 +104,7 @@ await build({
     "wasm_bindings.cpp",
     "AStar.cpp",
     "AStarGoals.cpp",
+    "AStarOptimizer.cpp",
     "Block.cpp",
     "SolverClock.cpp",
     "Replay.cpp",
