@@ -40,7 +40,7 @@ Two suites are opt-in:
 - `ROLLING_BLOCKS_TEST=true` — the wasm fixture sweep in `test/rolling-blocks-solver/aStar.test.ts`. It is a `describe.if`, so without the variable it registers **nothing at all** and the run still looks green. `bun run test`, `bun run rolling-blocks-test` and CI set it; a bare `bun test` does not.
 - `SM_SLOW_E2E=1` — `e2e/shifting-mosaic-solver/heapLimit.slow.test.ts` (~4 min). A `test.skip`, so it at least reports as skipped.
 
-`node --test test/shifting-mosaic-solver/mem64.node.test.mjs` (`bun run test:mem64`) runs under node, not bun: bun cannot instantiate a Memory64 module.
+`bun run test:mem64` runs the two `mem64.node.test.mjs` files (shifting-mosaic + rolling-blocks) under node, not bun: bun cannot instantiate a Memory64 module. Under `bun test` they register as skips.
 
 Playwright aria snapshots are inline. `--update-snapshots` only rewrites *failing* ones; aria matching is **partial**, so a snapshot keeps passing when new nodes appear. Use `--update-snapshots=all` to get a faithful tree — it writes `test-results/playwright/rebaselines.patch` for `git apply`.
 
@@ -67,21 +67,20 @@ The dev server keeps `development: true` for HMR and therefore *does* log that w
 
 ### C++ → WebAssembly
 
-`src/util/buildWasm.ts` drives `em++` (resolved via `Bun.which`, emsdk ≥ 6.0.0 required for `-m64`) and produces:
-
-- **rolling-blocks**: one wasm32 module.
-- **shifting-mosaic**: four variants from the *same* translation units — plain wasm32, `-pthread`, MEMORY64 (8GB heap), and pthreads+MEMORY64 — built concurrently.
+`src/util/buildWasm.ts` drives `em++` (resolved via `Bun.which`, emsdk ≥ 6.0.0 required for `-m64`) and produces **four variants per solver** from the same translation units — plain wasm32, `-pthread`, MEMORY64 (8GB heap), and pthreads+MEMORY64 — built concurrently (rolling-blocks and shifting-mosaic alike). Assets are served/copied under `/rb-wasm/` and `/sm-wasm/` respectively (`serve.ts` allowlist, `build.ts` copies; workers are reached page-relative as `../rb-wasm/astar.worker.js`).
 
 `src/pages/*/wasm/` is generated output and gitignored, **except** `astar.worker.js`, which is hand-written source living in the same directory. Do not delete the directory wholesale.
 
 The source lists are duplicated in three places that must stay in sync: `buildWasm.ts`, the `em++` steps in `.github/workflows/test.yml`, and the C++ `CMakeLists.txt`. A missing TU fails at link time with undefined symbols.
 
-### The two solver bridges differ
+### The two solver bridges
 
-- **rolling-blocks** (`wasmBridge.ts` → `searchRollingBlocksWasm`): one worker, messages `progress | phase | done | error`, returns a `SolverHandle`. The wasm exports are `solve(puzzle, config)` and `optimize(puzzle, turns)` — config keys (all optional): `engine` (`cascade` default | `wastar` | `exact` | `cracker` | `beam` | `greedy`), `weight` (2), `maxMs` (60000), `maxNodes`, `maxStatesStored`, `maxHeapBytes` (0 = unlimited), `seed`, `beamWidth`, `gated`, `postProcess` (true), `optimizeMaxMs` (30000). `solve` returns `{turns, stats:{nodesExpanded, statesStored, stoppedOnMemory, wallMs, engine}}` or `{turns: [], error}` for boards beyond the engine caps (64×64 grid, 255 blocks, dims ≤ 64). The page passes `maxMs: 300_000` so a browser solve can never spin unbounded. Arm selection lives in `SolverArms.cpp` (shared by CLI and bindings): `cascade` chains exact (gated) → cracker (gated) → wastar w2 → beam → cracker jittered → wastar w4 → greedy → wastar w1 with budget shares of the total; gates live in `PuzzleProfile.h` (the cracker takes single-block must-touch-dominant boards — measured: fixtures 37/38/39 fall in 106/60/7907 expansions where weighted A* needed millions).
-- **shifting-mosaic** (`wasmBridge.ts` → `searchShiftingMosaicWasm`): a **portfolio**. `PORTFOLIO` is an ordered array of engine configs; each is one worker racing the others, first non-empty solution wins, and the rest are terminated. Concurrency is bounded by `hardwareConcurrency`, not the arm count — every arm always runs, queued and back-filled. An arm that exhausts the heap retires itself and the race continues. If every arm comes back empty the bridge re-runs them sequentially (`onPhase("sequential")`) so the UI can say the strategy changed. `PORTFOLIO` is exported so `test/shifting-mosaic-solver/wasm.test.ts` races the exact production arm set.
+Both bridges are now **portfolios** with identical mechanics: an exported `PORTFOLIO` array of engine configs, one worker per arm racing the others, first non-empty solution wins, the rest terminated. Concurrency is bounded by `hardwareConcurrency`, not the arm count — every arm always runs, queued and back-filled. An arm that exhausts the heap retires itself and the race continues. Cross-origin isolated pages collapse to ONE worker on the pthreads build, whose in-module race runs the same arm set on real threads (with a sequential in-module fallback announced as `onPhase("sequential")`). Variant priority (threads-mem64 > threads > mem64 > default) comes from the shared probes in `src/util/wasmFeatureProbes.ts`.
 
-The shifting-mosaic page needs `SharedArrayBuffer`, which GitHub Pages cannot grant via headers. `src/common/coiRegister.ts` registers `coi-serviceworker.js` and **reloads once** when it activates. `page.goto()` resolves on the *pre-reload* document, so any e2e interaction in that window can die with "Execution context was destroyed". Always reach that page through `gotoIsolated` / `waitForCoiSettled` in `e2e/coi.ts`.
+- **rolling-blocks** (`wasmBridge.ts` → `searchRollingBlocksWasm`): wasm exports `solve(puzzle, config)` and `optimize(puzzle, turns)` — config keys (all optional): `engine` (`cascade` default | `wastar` | `exact` | `cracker` | `beam` | `greedy`), `weight` (2), `maxMs` (60000), `maxNodes`, `maxStatesStored`, `maxHeapBytes` (0 = unlimited), `seed`, `beamWidth`, `gated`, `postProcess` (true), `optimizeMaxMs` (30000). `solve` returns `{turns, stats:{nodesExpanded, statesStored, stoppedOnMemory, wallMs, engine}}` or `{turns: [], error}` for boards beyond the engine caps (64×64 grid, 255 blocks, dims ≤ 64). Arm selection lives in `SolverArms.cpp` (shared by CLI and bindings; its `kPortfolio` must stay in sync with the bridge's `PORTFOLIO`): `cascade` chains exact (gated) → cracker (gated) → wastar w2 → beam → cracker jittered → wastar w4 → greedy → wastar w1 with budget shares of the total; gates live in `PuzzleProfile.h` (the cracker takes single-block must-touch-dominant boards — measured: fixtures 37/38/39 fall in 106/60/7907 expansions where weighted A* needed millions).
+- **shifting-mosaic** (`wasmBridge.ts` → `searchShiftingMosaicWasm`): the original portfolio; `PORTFOLIO` is exported so `test/shifting-mosaic-solver/wasm.test.ts` races the exact production arm set.
+
+**Both** solver pages need `SharedArrayBuffer` for their threads builds, which GitHub Pages cannot grant via headers. `src/common/coiRegister.ts` registers `coi-serviceworker.js` and **reloads once** when it activates. `page.goto()` resolves on the *pre-reload* document, so any e2e interaction in that window can die with "Execution context was destroyed". Always reach the rolling-blocks AND shifting-mosaic pages through `gotoIsolated` / `waitForCoiSettled` in `e2e/coi.ts`.
 
 ### Config file I/O
 

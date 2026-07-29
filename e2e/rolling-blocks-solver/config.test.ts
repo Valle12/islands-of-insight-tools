@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { gotoIsolated } from "../coi";
 import { readFileSync } from "fs";
 
 // A small, structurally valid config in the editor's download format.
@@ -23,7 +24,7 @@ function cellAt(page: Page, x: number, y: number) {
 
 test.describe("Rolling Blocks Solver config", () => {
   test("uploads a config file and populates the editor", async ({ page }) => {
-    await page.goto("/rolling-blocks-solver");
+    await gotoIsolated(page, "/rolling-blocks-solver");
 
     await page.locator("#config-file-input").setInputFiles({
       name: "puzzle.json",
@@ -48,7 +49,7 @@ test.describe("Rolling Blocks Solver config", () => {
   });
 
   test("loads a config dropped onto the page", async ({ page }) => {
-    await page.goto("/rolling-blocks-solver");
+    await gotoIsolated(page, "/rolling-blocks-solver");
 
     const dataTransfer = await page.evaluateHandle(json => {
       const dt = new DataTransfer();
@@ -66,7 +67,7 @@ test.describe("Rolling Blocks Solver config", () => {
   });
 
   test("rejects an invalid dropped file", async ({ page }) => {
-    await page.goto("/rolling-blocks-solver");
+    await gotoIsolated(page, "/rolling-blocks-solver");
 
     const dataTransfer = await page.evaluateHandle(() => {
       const dt = new DataTransfer();
@@ -85,7 +86,7 @@ test.describe("Rolling Blocks Solver config", () => {
   });
 
   test("solves a real fixture loaded through upload", async ({ page }) => {
-    await page.goto("/rolling-blocks-solver");
+    await gotoIsolated(page, "/rolling-blocks-solver");
 
     const json = readFileSync(
       "test/resources/rolling-blocks-solver/rollingBlocksTest9.json",
@@ -106,7 +107,7 @@ test.describe("Rolling Blocks Solver config", () => {
   });
 
   test("downloads the current configuration as JSON", async ({ page }) => {
-    await page.goto("/rolling-blocks-solver");
+    await gotoIsolated(page, "/rolling-blocks-solver");
 
     // Paint one must-touch cell and place one 2x1 block.
     await page.getByRole("button", { name: "Must-Touch", exact: true }).click();
@@ -139,7 +140,7 @@ test.describe("Rolling Blocks Solver config", () => {
   test("round-trips a downloaded config back through upload", async ({
     page,
   }) => {
-    await page.goto("/rolling-blocks-solver");
+    await gotoIsolated(page, "/rolling-blocks-solver");
 
     await page.getByRole("button", { name: "Must-Touch", exact: true }).click();
     await cellAt(page, 0, 0).click();
@@ -174,7 +175,7 @@ test.describe("Rolling Blocks Solver config", () => {
   });
 
   test("ignores grid sizes beyond the 64 cap", async ({ page }) => {
-    await page.goto("/rolling-blocks-solver");
+    await gotoIsolated(page, "/rolling-blocks-solver");
 
     await page.getByRole("spinbutton", { name: "Grid Width" }).fill("65");
     // The board keeps its previous size: 5x5 = 25 cells.

@@ -1,27 +1,52 @@
-// Worker that loads the A* WASM module and runs the search off the main
-// thread. Message in: { puzzle, config }; messages out: progress (posted by
-// the wasm module itself), done { path, stats }, or error.
+// Worker that loads the requested A* WASM build variant and runs one solve.
+// Message in: { puzzle, config, variant }; messages out: progress and phase
+// (posted by the wasm module itself), done { path, stats }, or error.
 
-let modulePromise = null;
+const modulePromises = new Map();
 
-function getModule() {
-  if (!modulePromise) {
-    modulePromise = (async () => {
-      const url = new URL("./astar.mjs", self.location.href).href;
-      const createModule = (await import(url)).default;
-      return createModule({
-        locateFile: path => new URL(`./${path}`, self.location.href).href,
-      });
-    })();
+function getModule(name) {
+  if (!modulePromises.has(name)) {
+    modulePromises.set(
+      name,
+      (async () => {
+        const url = new URL(`./${name}`, self.location.href).href;
+        const createModule = (await import(url)).default;
+        return createModule({
+          locateFile: path => new URL(`./${path}`, self.location.href).href,
+        });
+      })(),
+    );
   }
-  return modulePromise;
+  return modulePromises.get(name);
+}
+
+const MODULE_BY_VARIANT = {
+  threads: "astar.threads.mjs",
+  "threads-mem64": "astar.threads.mem64.mjs",
+  mem64: "astar.mem64.mjs",
+};
+
+// The bridge only requests variants its probes validated, but validation is
+// not instantiation — fall back to the universal wasm32 build if the
+// preferred module fails to load.
+async function loadModule(variant) {
+  const preferred = MODULE_BY_VARIANT[variant];
+  if (preferred) {
+    try {
+      return await getModule(preferred);
+    } catch (err) {
+      console.error(`Falling back to astar.mjs: ${err}`);
+      modulePromises.delete(preferred);
+    }
+  }
+  return getModule("astar.mjs");
 }
 
 self.onmessage = async event => {
-  const { puzzle, config } = event.data;
+  const { puzzle, config, variant } = event.data;
 
   try {
-    const module = await getModule();
+    const module = await loadModule(variant);
     const result = module.solve(puzzle, config ?? {});
 
     if (result.error) {
@@ -40,6 +65,7 @@ self.onmessage = async event => {
           statesStored: result.stats.statesStored,
           stoppedOnMemory: result.stats.stoppedOnMemory,
           wallMs: result.stats.wallMs,
+          engine: result.stats.engine,
         }
       : undefined;
 

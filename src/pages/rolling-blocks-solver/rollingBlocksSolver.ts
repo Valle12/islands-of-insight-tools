@@ -1,3 +1,4 @@
+import { registerCoiShim } from "../../common/coiRegister";
 import {
   downloadJson,
   readJsonFile,
@@ -59,9 +60,6 @@ export class RollingBlocksSolverEditor {
   private selectedTool: PaintTool = "regular";
   private board: Board;
   private currentWorker: SolverHandle | null = null;
-  // Ceiling for a single browser solve; without it a hopeless search would
-  // spin until the tab dies. Mirrors the shifting-mosaic page's budget.
-  private static readonly SOLVE_BUDGET_MS = 300_000;
 
   constructor() {
     this.board = new Board(
@@ -129,6 +127,7 @@ export class RollingBlocksSolverEditor {
       this.stopCurrentWorker();
       this.showSolving();
 
+      let phaseLabel = "Searching...";
       this.currentWorker = searchRollingBlocksWasm(
         this.gridWidth,
         this.gridHeight,
@@ -136,7 +135,14 @@ export class RollingBlocksSolverEditor {
         this.board.getBlocks().values().toArray(),
         {
           onProgress: nodesExpanded => {
-            this.solutionProgressText.textContent = `Searching... (${nodesExpanded.toLocaleString()} nodes expanded)`;
+            this.solutionProgressText.textContent = `${phaseLabel} (${nodesExpanded.toLocaleString()} nodes expanded)`;
+          },
+          onPhase: phase => {
+            phaseLabel =
+              phase === "sequential"
+                ? "Trying harder — one strategy at a time..."
+                : `Searching (${phase})...`;
+            this.solutionProgressText.textContent = phaseLabel;
           },
           onDone: path => {
             this.currentWorker = null;
@@ -147,7 +153,6 @@ export class RollingBlocksSolverEditor {
             this.showError(err);
           },
         },
-        { maxMs: RollingBlocksSolverEditor.SOLVE_BUDGET_MS },
       );
     });
 
@@ -445,5 +450,9 @@ export class RollingBlocksSolverEditor {
 }
 
 if (process.env.NODE_ENV !== "test") {
+  // Opt this page into cross-origin isolation (wasm threads) where the
+  // browser supports the shim; everything degrades to the worker portfolio
+  // otherwise.
+  registerCoiShim();
   new RollingBlocksSolverEditor();
 }

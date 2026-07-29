@@ -37,4 +37,17 @@ Outcome solve(const replay::Puzzle &puzzle, const ArmSpec &spec,
               const std::function<void(uint32_t)> &onProgress = {},
               const std::function<void(const std::string &)> &onArmStart = {});
 
+#ifdef __EMSCRIPTEN_PTHREADS__
+// The threads build's cascade: every portfolio arm races on its own thread
+// inside ONE module (and one shared heap — each arm gets an 85% heap cap so
+// a greedy arm cannot abort the whole race). First non-empty result wins and
+// cancels the rest; if every arm comes back empty, the single-threaded chain
+// re-runs sequentially with a 90% cap, announced through onArmStart as
+// "sequential" so the page can say the strategy changed.
+Outcome solveParallel(
+    const replay::Puzzle &puzzle, const AStar::Config &cfg,
+    const std::function<void(uint32_t)> &onProgress = {},
+    const std::function<void(const std::string &)> &onArmStart = {});
+#endif
+
 } // namespace arms

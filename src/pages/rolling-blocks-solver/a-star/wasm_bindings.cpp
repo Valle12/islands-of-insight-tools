@@ -150,8 +150,17 @@ val solve(const val puzzleVal, const val configVal) {
     self.call<void>("postMessage", msg);
   };
 
+#ifdef __EMSCRIPTEN_PTHREADS__
+  // The threads build races every arm inside this one module; named engines
+  // still run single-threaded for tests and diagnostics.
+  arms::Outcome outcome =
+      spec.engine == "cascade"
+          ? arms::solveParallel(puzzle, cfg, onProgress, onArmStart)
+          : arms::solve(puzzle, spec, cfg, onProgress, onArmStart);
+#else
   arms::Outcome outcome =
       arms::solve(puzzle, spec, cfg, onProgress, onArmStart);
+#endif
   std::vector<Turn> turns = std::move(outcome.turns);
   if (postProcess && !turns.empty()) {
     turns = optimizer::optimize(puzzle, std::move(turns), optimizeMaxMs);

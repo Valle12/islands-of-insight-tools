@@ -1,11 +1,19 @@
 #include "SolverArms.h"
 
+#include "MemoryProbe.h"
 #include "Node.h"
 #include "PuzzleProfile.h"
 #include "SolverClock.h"
 
 #include <algorithm>
 #include <string_view>
+
+#ifdef __EMSCRIPTEN_PTHREADS__
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <thread>
+#endif
 
 namespace {
 
@@ -165,5 +173,131 @@ Outcome solve(const replay::Puzzle &puzzle, const ArmSpec &spec,
   outcome.arm = "none";
   return outcome;
 }
+
+#ifdef __EMSCRIPTEN_PTHREADS__
+
+namespace {
+
+// One entry per racing thread; mirrors the TS bridge's PORTFOLIO so the
+// isolated and non-isolated paths run the same arm set.
+constexpr SingleArm kPortfolio[] = {
+    {.engine = "exact", .gated = true},
+    {.engine = "cracker", .gated = true},
+    {.engine = "wastar", .weight = 2, .overrideWeight = true},
+    {.engine = "beam", .beamWidth = 50000},
+    {.engine = "wastar", .weight = 4, .overrideWeight = true},
+    {.engine = "greedy"},
+    {.engine = "cracker", .seed = 1},
+    {.engine = "wastar", .weight = 1, .overrideWeight = true},
+};
+constexpr int kArmCount = static_cast<int>(std::size(kPortfolio));
+
+} // namespace
+
+Outcome solveParallel(
+    const replay::Puzzle &puzzle, const AStar::Config &cfg,
+    const std::function<void(uint32_t)> &onProgress,
+    const std::function<void(const std::string &)> &onArmStart) {
+  Outcome outcome;
+  const uint32_t totalMs = cfg.maxMs == 0 ? 300000 : cfg.maxMs;
+  const uint64_t heapMax = memprobe::heapCeilingBytes();
+
+  std::atomic<bool> cancel{false};
+  std::atomic<int> winner{-1};
+  std::atomic<int> finished{0};
+  std::array<std::atomic<uint32_t>, kArmCount> progress{};
+  std::array<std::vector<Turn>, kArmCount> results;
+  std::array<AStar::SearchStats, kArmCount> armStats{};
+
+  {
+    std::array<std::thread, kArmCount> threads;
+    for (int i = 0; i < kArmCount; i++) {
+      threads[static_cast<size_t>(i)] = std::thread([&, i] {
+        AStar::Config armCfg = cfg;
+        armCfg.maxMs = totalMs;
+        armCfg.cancel = &cancel;
+        if (heapMax != 0) {
+          // 85%: all arms allocate into ONE heap, and the probe's live-bytes
+          // reading trails the true peak between checkpoints.
+          armCfg.maxHeapBytes = heapMax / 100 * 85;
+        }
+        auto turns = runSingle(
+            puzzle, kPortfolio[static_cast<size_t>(i)], armCfg,
+            armStats[static_cast<size_t>(i)],
+            [&progress, i](uint32_t n) {
+              progress[static_cast<size_t>(i)].store(
+                  n, std::memory_order_relaxed);
+            },
+            0);
+        if (!turns.empty()) {
+          int expected = -1;
+          if (winner.compare_exchange_strong(expected, i)) {
+            results[static_cast<size_t>(i)] = std::move(turns);
+            cancel.store(true);
+          }
+        }
+        finished.fetch_add(1);
+      });
+    }
+
+    // Only this (the module's own) thread may talk to JS: poll the arm
+    // progress atomics and forward the sum.
+    while (finished.load() < kArmCount) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(200));
+      if (onProgress) {
+        uint64_t sum = 0;
+        for (const auto &p : progress) {
+          sum += p.load(std::memory_order_relaxed);
+        }
+        onProgress(static_cast<uint32_t>(sum));
+      }
+    }
+    for (auto &t : threads) {
+      t.join();
+    }
+  }
+
+  for (int i = 0; i < kArmCount; i++) {
+    outcome.stats.nodesExpanded += armStats[static_cast<size_t>(i)].nodesExpanded;
+    outcome.stats.stoppedOnMemory =
+        outcome.stats.stoppedOnMemory ||
+        armStats[static_cast<size_t>(i)].stoppedOnMemory;
+  }
+
+  if (const int w = winner.load(); w >= 0) {
+    outcome.turns = std::move(results[static_cast<size_t>(w)]);
+    outcome.arm = kPortfolio[static_cast<size_t>(w)].engine;
+    return outcome;
+  }
+
+  // Every arm came back empty inside the race; retry the arms one at a time
+  // with the whole heap to themselves.
+  if (onArmStart) {
+    onArmStart("sequential");
+  }
+  AStar::Config seqCfg = cfg;
+  if (heapMax != 0) {
+    seqCfg.maxHeapBytes = heapMax / 100 * 90;
+  }
+  const uint64_t progressBase = outcome.stats.nodesExpanded;
+  ArmSpec cascade;
+  const Outcome seq = solve(
+      puzzle, cascade, seqCfg,
+      onProgress
+          ? std::function<void(uint32_t)>(
+                [&onProgress, progressBase](uint32_t n) {
+                  onProgress(static_cast<uint32_t>(progressBase + n));
+                })
+          : std::function<void(uint32_t)>{},
+      onArmStart);
+  outcome.turns = seq.turns;
+  outcome.arm = seq.arm;
+  outcome.stats.nodesExpanded += seq.stats.nodesExpanded;
+  outcome.stats.stoppedOnMemory =
+      outcome.stats.stoppedOnMemory || seq.stats.stoppedOnMemory;
+  return outcome;
+}
+
+#endif // __EMSCRIPTEN_PTHREADS__
 
 } // namespace arms

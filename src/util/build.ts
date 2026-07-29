@@ -26,12 +26,26 @@ await Bun.build({
   compile: true,
 });
 
+// Rolling-blocks solver WASM — served under /rb-wasm, mirroring the
+// shifting-mosaic layout below (the old flat astar.* files at the dist root
+// are gone with the single-variant build).
 const wasmDir = resolve(
   import.meta.dir,
   "../pages/rolling-blocks-solver/wasm",
 );
-for (const file of ["astar.mjs", "astar.wasm", "astar.worker.js"]) {
-  copyFileSync(resolve(wasmDir, file), resolve("./dist", file));
+mkdirSync(resolve("./dist", "rb-wasm"), { recursive: true });
+for (const file of [
+  "astar.mjs",
+  "astar.wasm",
+  "astar.worker.js",
+  "astar.threads.mjs",
+  "astar.threads.wasm",
+  "astar.mem64.mjs",
+  "astar.mem64.wasm",
+  "astar.threads.mem64.mjs",
+  "astar.threads.mem64.wasm",
+]) {
+  copyFileSync(resolve(wasmDir, file), resolve("./dist", "rb-wasm", file));
 }
 
 // Shifting-mosaic solver WASM — served under /sm-wasm to avoid the flat

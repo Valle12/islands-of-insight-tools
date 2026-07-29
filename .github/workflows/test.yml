@@ -48,31 +48,42 @@ jobs:
           cp -r /usr/include/boost "$BOOST_DIR/"
           # Keep in sync with the rolling-blocks `sources` in
           # src/util/buildWasm.ts; a missing TU fails at link time.
-          em++ \
-            "$ASTAR_DIR/wasm_bindings.cpp" \
-            "$ASTAR_DIR/AStar.cpp" \
-            "$ASTAR_DIR/AStarGoals.cpp" \
-            "$ASTAR_DIR/AStarOptimizer.cpp" \
-            "$ASTAR_DIR/SearchCracker.cpp" \
-            "$ASTAR_DIR/SearchBeam.cpp" \
-            "$ASTAR_DIR/SolverArms.cpp" \
-            "$ASTAR_DIR/Block.cpp" \
-            "$ASTAR_DIR/SolverClock.cpp" \
-            "$ASTAR_DIR/Replay.cpp" \
-            -o "$OUT_DIR/astar.mjs" \
-            -I "$BOOST_DIR" \
-            -std=c++23 \
-            -O3 \
-            -sWASM=1 \
-            -sMODULARIZE=1 \
-            -sEXPORT_NAME=createAStarModule \
-            -sENVIRONMENT=web,worker \
-            -sALLOW_MEMORY_GROWTH=1 \
-            -sINITIAL_MEMORY=16777216 \
-            -sMAXIMUM_MEMORY=4GB \
-            --bind \
-            -flto \
-            -fno-exceptions
+          SOURCES=(
+            "$ASTAR_DIR/wasm_bindings.cpp"
+            "$ASTAR_DIR/AStar.cpp"
+            "$ASTAR_DIR/AStarGoals.cpp"
+            "$ASTAR_DIR/AStarOptimizer.cpp"
+            "$ASTAR_DIR/SearchCracker.cpp"
+            "$ASTAR_DIR/SearchBeam.cpp"
+            "$ASTAR_DIR/SolverArms.cpp"
+            "$ASTAR_DIR/Block.cpp"
+            "$ASTAR_DIR/SolverClock.cpp"
+            "$ASTAR_DIR/Replay.cpp"
+          )
+          # $1 output name, $2 extra flags, $3 MAXIMUM_MEMORY (default 4GB).
+          build_variant() {
+            em++ \
+              "${SOURCES[@]}" \
+              -o "$OUT_DIR/$1" \
+              $2 \
+              -I "$BOOST_DIR" \
+              -std=c++23 \
+              -O3 \
+              -sWASM=1 \
+              -sMODULARIZE=1 \
+              -sEXPORT_NAME=createAStarModule \
+              -sENVIRONMENT=web,worker \
+              -sALLOW_MEMORY_GROWTH=1 \
+              -sINITIAL_MEMORY=16777216 \
+              -sMAXIMUM_MEMORY="${3:-4GB}" \
+              --bind \
+              -flto \
+              -fno-exceptions
+          }
+          build_variant astar.mjs ""
+          build_variant astar.threads.mjs "-pthread -sPTHREAD_POOL_SIZE=10"
+          build_variant astar.mem64.mjs "-m64" "8GB"
+          build_variant astar.threads.mem64.mjs "-pthread -sPTHREAD_POOL_SIZE=10 -m64" "8GB"
 
       - name: Build shifting-mosaic WASM
         run: |

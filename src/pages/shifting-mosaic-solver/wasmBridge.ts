@@ -1,4 +1,5 @@
 import type { Position } from "../../util/types";
+import { pickWasmVariant } from "../../util/wasmFeatureProbes";
 import { Direction } from "./directions";
 import type { Turn } from "./turn";
 
@@ -96,43 +97,8 @@ function isAlreadySolved(p: ShiftingMosaicPuzzle): boolean {
   return g.x === p.goalAnchor.x && g.y === p.goalAnchor.y;
 }
 
-// Tiny modules declaring a single 64-bit memory. If the engine validates one,
-// it can load the matching MEMORY64 build, whose heap ceiling is 8GB instead of
-// the wasm32 4GB wall — enough that the deep arms stop aborting mid-search on
-// the hardest boards. Browsers enable Memory64 behind a flag today and natively
-// soon; bun cannot load either yet.
-//   - NON-SHARED (flags 0x04 = is64): the single-threaded astar.mem64 build.
-//   - SHARED (flags 0x07 = is64|shared|has_max, min 0 max 1): the pthreads
-//     astar.threads.mem64 build, whose arms race inside one shared 64-bit heap.
-//     This is a distinct capability — an engine can have one without the other.
-const MEMORY64_PROBE = new Uint8Array([
-  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x05, 0x03, 0x01, 0x04, 0x00,
-]);
-const SHARED_MEMORY64_PROBE = new Uint8Array([
-  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x05, 0x04, 0x01, 0x07, 0x00,
-  0x01,
-]);
-// A 64-bit memory is necessary but NOT sufficient: emscripten 6.x emits a
-// 64-bit TABLE (section 4, funcref 0x70, limits flags 0x04 = is64) in every
-// wasm64 build, and an engine can validate a 64-bit memory while still
-// rejecting that table — the ubuntu-24.04 runner's node does. Handing such an
-// engine a mem64 build costs a failed compile before the worker's fallback
-// catches it, so both gates below require the table too.
-const TABLE64_PROBE = new Uint8Array([
-  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x04, 0x04, 0x01, 0x70, 0x04,
-  0x00,
-]);
-function validates(bytes: Uint8Array): boolean {
-  try {
-    return typeof WebAssembly !== "undefined" && WebAssembly.validate(bytes);
-  } catch {
-    return false;
-  }
-}
-const supportsMemory64 = () =>
-  validates(MEMORY64_PROBE) && validates(TABLE64_PROBE);
-const supportsSharedMemory64 = () =>
-  validates(SHARED_MEMORY64_PROBE) && validates(TABLE64_PROBE);
+// The Memory64/table64 capability probes live in src/util/wasmFeatureProbes,
+// shared with the rolling-blocks bridge.
 
 /**
  * Spawns a portfolio of WASM solver workers racing diverse engine configs
@@ -163,12 +129,7 @@ export function searchShiftingMosaicWasm(
   //     shared-memory64 build if the engine validates it, else the wasm32 one.
   //   - non-isolated (one heap per worker): the 8GB non-shared build, else
   //     wasm32. An arm that hits even the 8GB wall still only retires itself.
-  let variant: string;
-  if (isolated) {
-    variant = supportsSharedMemory64() ? "threads-mem64" : "threads";
-  } else {
-    variant = supportsMemory64() ? "mem64" : "default";
-  }
+  const variant = pickWasmVariant(isolated);
   // Every arm, always. poolSize bounds how many run CONCURRENTLY, never which
   // ones exist: slicing the portfolio by core count made capability shrink as
   // the machine improved — a 4-core box raced only the first three arms and

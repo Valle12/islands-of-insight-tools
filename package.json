@@ -11,7 +11,7 @@
     "e2e": "bunx playwright test",
     "bench:sm": "bun run src/util/benchShiftingMosaic.ts",
     "fuzz:sm": "bun run src/util/fuzzShiftingMosaic.ts",
-    "test:mem64": "node --test test/shifting-mosaic-solver/mem64.node.test.mjs",
+    "test:mem64": "node --test test/shifting-mosaic-solver/mem64.node.test.mjs test/rolling-blocks-solver/mem64.node.test.mjs",
     "rolling-blocks-test": "ROLLING_BLOCKS_TEST=true bun test test/rolling-blocks-solver/aStar.test.ts",
     "test": "bun run build:wasm && ROLLING_BLOCKS_TEST=true bun test"
   },

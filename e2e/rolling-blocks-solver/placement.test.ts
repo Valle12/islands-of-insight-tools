@@ -1,7 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import { gotoIsolated } from "../coi";
 
 async function setupSolvedPuzzle(page: Page) {
-  await page.goto("/rolling-blocks-solver");
+  await gotoIsolated(page, "/rolling-blocks-solver");
 
   await page.getByRole("spinbutton", { name: "Grid Width" }).click();
   await page.getByRole("spinbutton", { name: "Grid Width" }).fill("9");
@@ -34,7 +35,7 @@ test.describe("Rolling Blocks Solver", () => {
   test("test if block will not be placed if it covers unplayable cell", async ({
     page,
   }) => {
-    await page.goto("/rolling-blocks-solver");
+    await gotoIsolated(page, "/rolling-blocks-solver");
     await page.getByRole("button", { name: "Unplayable" }).click();
     await page
       .getByRole("button", { name: "Column 1, Row 5, Regular" })

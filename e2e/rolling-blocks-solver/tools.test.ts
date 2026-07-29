@@ -1,7 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import { gotoIsolated } from "../coi";
 
 async function setupSolvedPuzzle(page: Page) {
-  await page.goto("/rolling-blocks-solver");
+  await gotoIsolated(page, "/rolling-blocks-solver");
 
   await page.getByRole("spinbutton", { name: "Grid Width" }).click();
   await page.getByRole("spinbutton", { name: "Grid Width" }).fill("9");
@@ -32,7 +33,7 @@ async function setupSolvedPuzzle(page: Page) {
 
 test.describe("Rolling Blocks Solver", () => {
   test("test if all tools work as expected", async ({ page }) => {
-    await page.goto("/rolling-blocks-solver");
+    await gotoIsolated(page, "/rolling-blocks-solver");
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
     - heading "Rolling Blocks Setup" [level=1]
     - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
