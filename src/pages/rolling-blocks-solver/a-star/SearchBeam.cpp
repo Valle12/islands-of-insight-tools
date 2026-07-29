@@ -55,7 +55,7 @@ std::vector<Turn> AStar::searchBeam(Node root, uint32_t beamWidth) {
     Table::Entry *entry;
   };
 
-  std::vector<Table::Entry *> beam = {rootEntry};
+  std::vector beam = {rootEntry};
   std::vector<Cand> candidates;
 
   for (uint32_t depth = 1; !beam.empty(); depth++) {
@@ -132,14 +132,14 @@ std::vector<Turn> AStar::searchBeam(Node root, uint32_t beamWidth) {
     if (candidates.size() > beamWidth) {
       std::ranges::nth_element(candidates,
                                candidates.begin() +
-                                   static_cast<ptrdiff_t>(beamWidth),
+                                   beamWidth,
                                {}, &Cand::score);
       candidates.resize(beamWidth);
     }
     beam.clear();
     beam.reserve(candidates.size());
-    for (const auto &cand : candidates) {
-      beam.push_back(cand.entry);
+    for (const auto &[score, entry] : candidates) {
+      beam.push_back(entry);
     }
   }
 

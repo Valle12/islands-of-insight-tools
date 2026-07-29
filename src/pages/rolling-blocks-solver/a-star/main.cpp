@@ -11,7 +11,6 @@
 #include "SolverArms.h"
 #include "SolverClock.h"
 
-#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <nlohmann/json.hpp>
@@ -156,10 +155,9 @@ int main(const int argc, char **argv) {
   spec.gated = opts.gated;
 
   const uint64_t searchStart = nowMs();
-  arms::Outcome outcome = arms::solve(
+  auto [turns, stage, stats] = arms::solve(
       puzzle, spec, cfg, {},
       [](const std::string &arm) { std::cout << "arm: " << arm << "\n"; });
-  std::vector<Turn> turns = std::move(outcome.turns);
   const uint64_t searchEnd = nowMs();
 
   if (opts.postProcess && !turns.empty()) {
@@ -182,10 +180,10 @@ int main(const int argc, char **argv) {
   report["alreadySolved"] = alreadySolved;
   report["valid"] = valid;
   report["turns"] = turns.size();
-  report["stage"] = outcome.arm;
-  report["nodesExpanded"] = outcome.stats.nodesExpanded;
-  report["statesStored"] = outcome.stats.statesStored;
-  report["stoppedOnMemory"] = outcome.stats.stoppedOnMemory;
+  report["stage"] = stage;
+  report["nodesExpanded"] = stats.nodesExpanded;
+  report["statesStored"] = stats.statesStored;
+  report["stoppedOnMemory"] = stats.stoppedOnMemory;
   report["searchMs"] = searchEnd - searchStart;
   report["wallMs"] = nowMs() - searchStart;
   emitReport(report);

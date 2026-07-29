@@ -101,14 +101,14 @@ bool applyTurns(const Puzzle &puzzle, const std::vector<Turn> &turns,
     satisfiedOut = block.updateMustTouchCells(puzzle.gridWidth, puzzle.cells,
                                               satisfiedOut);
   }
-  for (const auto &turn : turns) {
+  for (const auto &[blockId, direction] : turns) {
     const auto it = std::ranges::find_if(blocksOut, [&](const Block &b) {
-      return b.id == turn.blockId;
+      return b.id == blockId;
     });
     if (it == blocksOut.end()) {
       return false;
     }
-    it->roll(turn.direction);
+    it->roll(direction);
     if (!it->checkValidity(puzzle.gridWidth, puzzle.gridHeight, puzzle.cells,
                            blocksOut, satisfiedOut)) {
       return false;

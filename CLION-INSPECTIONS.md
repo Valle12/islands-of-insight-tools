@@ -33,7 +33,12 @@ retrofitting them later means a manual IDE pass.
   `boost::dynamic_bitset sat(n)` (only WITH a constructor argument — a
   default-constructed `boost::dynamic_bitset<> b;` still needs the `<>`),
   `std::function(lambda)`. Not applicable when the element type must
-  differ from the literals (`std::array<int8_t, 4>`).
+  differ from the literals (`std::array<int8_t, 4>`). **Never CTAD from a
+  `<cstdint>` limit macro**: `std::vector v(n, UINT16_MAX)` deduces
+  `vector<unsigned short>` under MSVC (its macro is a `ui16` literal) but
+  `vector<int>` under em++ — a silent type/memory divergence between the
+  native and wasm builds, and CLion's own engine reports the deduction as
+  a compiler error. Keep `std::vector<uint16_t> v(n, UINT16_MAX)`.
 - **Redundant parameter list in lambda declarator** — `[&] {` not
   `[&]() {`.
 - **Redundant cast expression** — never cast to the value's own type.

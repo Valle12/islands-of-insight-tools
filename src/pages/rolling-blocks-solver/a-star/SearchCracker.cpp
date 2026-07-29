@@ -94,8 +94,8 @@ std::vector<Turn> AStar::searchCracker(Node root) {
            !blocked && cx < next.x + static_cast<int8_t>(next.width); cx++) {
         for (int8_t cy = next.y;
              cy < next.y + static_cast<int8_t>(next.depth); cy++) {
-          const auto idx = positionToIndex(cx, cy, gridWidth_);
-          if (cells_[idx] == Tile::Unplayable ||
+          if (const auto idx = positionToIndex(cx, cy, gridWidth_);
+              cells_[idx] == Tile::Unplayable ||
               (cells_[idx] == Tile::MustTouch && cellBits.test(idx))) {
             blocked = true;
             break;
@@ -675,31 +675,31 @@ std::vector<Turn> AStar::searchCracker(Node root) {
 
     bool roundExhausted = false;
     while (!frames.empty() && !roundExhausted) {
-      Frame &frame = frames.back();
-      if (frame.next >= frame.moves.size()) {
+      auto &[blocks, cells, ord, moves, next] = frames.back();
+      if (next >= moves.size()) {
         frames.pop_back();
         if (!path.empty()) {
           path.pop_back();
         }
         continue;
       }
-      const auto [order, bi, dir] = frame.moves[frame.next++];
+      const auto [order, bi, dir] = moves[next++];
 
       Frame child;
-      child.blocks = frame.blocks;
+      child.blocks = blocks;
       Block &moved = child.blocks[bi];
       moved.roll(dir);
-      child.cells = frame.cells;
-      child.ord = frame.ord;
+      child.cells = cells;
+      child.ord = ord;
       applyTouch(moved, child.cells, child.ord);
 
-      if (orphansCell(moved, child.blocks, frame.cells, child.cells)) {
+      if (orphansCell(moved, child.blocks, cells, child.cells)) {
         continue;
       }
       if (const bool intactWanted =
               cfg_.coveragePartner != nullptr ||
               (cfg_.jointCoverageIntact && child.blocks.size() == 2);
-          intactWanted && child.ord.count() != frame.ord.count()) {
+          intactWanted && child.ord.count() != ord.count()) {
         const Block &partner = cfg_.coveragePartner != nullptr
                                    ? *cfg_.coveragePartner
                                    : child.blocks[bi == 0 ? 1 : 0];
@@ -712,7 +712,7 @@ std::vector<Turn> AStar::searchCracker(Node root) {
                .second) {
         continue;
       }
-      if (!isReachable(frame.blocks, bi, moved, child.cells, child.ord)) {
+      if (!isReachable(blocks, bi, moved, child.cells, child.ord)) {
         continue;
       }
 
@@ -727,7 +727,7 @@ std::vector<Turn> AStar::searchCracker(Node root) {
       }
 
       path.push_back(
-          {.blockId = frame.blocks[bi].id, .direction = dir});
+          {.blockId = blocks[bi].id, .direction = dir});
       if (legDone(child.blocks, child.ord)) {
         stats_.statesStored = visited.size();
         stats_.wallMs = static_cast<uint32_t>(nowMs() - startMs);

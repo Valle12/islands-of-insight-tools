@@ -16,7 +16,6 @@ dynamic_bitset(T) -> dynamic_bitset<>;
 
 #include <algorithm>
 #include <atomic>
-#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
@@ -54,11 +53,11 @@ void replaySolution(const uint8_t w, const uint8_t h,
   for (const auto &b : blocks) {
     satisfied = b.updateMustTouchCells(w, cells, satisfied);
   }
-  for (const auto &turn : turns) {
+  for (const auto &[blockId, direction] : turns) {
     const auto it = std::ranges::find_if(
-        blocks, [&](const Block &b) { return b.id == turn.blockId; });
+        blocks, [&](const Block &b) { return b.id == blockId; });
     ASSERT_NE(it, blocks.end()) << "turn references unknown block id";
-    it->roll(turn.direction);
+    it->roll(direction);
     ASSERT_TRUE(it->checkValidity(w, h, cells, blocks, satisfied));
     satisfied = it->updateMustTouchCells(w, cells, satisfied);
   }
@@ -238,9 +237,9 @@ TEST(StateEncoding, RealIdAttributionWithInterchangeableBlocks) {
   const auto turns = solver.search(Node(blocks));
   ASSERT_FALSE(turns.empty());
 
-  for (const auto &turn : turns) {
-    EXPECT_TRUE(turn.blockId == 7 || turn.blockId == 9)
-        << "turn attributed to unknown id " << int{turn.blockId};
+  for (const auto &[blockId, direction] : turns) {
+    EXPECT_TRUE(blockId == 7 || blockId == 9)
+        << "turn attributed to unknown id " << int{blockId};
   }
 
   ReplayResult replayed;
@@ -284,7 +283,7 @@ TEST(StateEncoding, MaxNodesBudgetStopsTheSearch) {
   for (uint8_t x = 0; x < gridWidth; x++) {
     for (uint8_t y = 0; y < gridHeight; y++) {
       const auto s = j["cells"][x][y].get<std::string>();
-      Tile tile = Tile::Regular;
+      auto tile = Tile::Regular;
       if (s == "mustTouch") {
         tile = Tile::MustTouch;
       } else if (s == "goal") {

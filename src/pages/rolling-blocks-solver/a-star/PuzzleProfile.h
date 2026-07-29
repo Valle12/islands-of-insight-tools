@@ -2,8 +2,6 @@
 
 #include "Replay.h"
 
-#include <cstddef>
-
 // Cheap structural features of a puzzle, used to gate portfolio arms so a
 // specialist declines instantly on boards outside its class instead of
 // burning its budget (the shifting-mosaic jamProfile lesson).

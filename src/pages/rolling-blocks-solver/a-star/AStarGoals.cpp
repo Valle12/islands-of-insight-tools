@@ -365,19 +365,19 @@ uint32_t AStar::goalPairCost(const Block &block,
                              const size_t clusterIdx) const {
   constexpr auto kUnreachable =
       static_cast<uint32_t>(std::numeric_limits<int>::max() / 2);
-  const auto dims = sortedDims(block);
-  for (const auto &tables : goalTables_) {
-    if (tables.dims != dims) {
+  const auto dimsSorted = sortedDims(block);
+  for (const auto &[dims, footprints, perCluster] : goalTables_) {
+    if (dims != dimsSorted) {
       continue;
     }
-    for (size_t f = 0; f < tables.footprints.size(); f++) {
-      if (const auto &[fw, fd] = tables.footprints[f];
+    for (size_t f = 0; f < footprints.size(); f++) {
+      if (const auto &[fw, fd] = footprints[f];
           fw != block.width || fd != block.depth) {
         continue;
       }
       const size_t totalCells = static_cast<size_t>(gridWidth_) * gridHeight_;
       const uint16_t d =
-          tables.perCluster[clusterIdx]
+          perCluster[clusterIdx]
                            [f * totalCells +
                             positionToIndex(block.x, block.y, gridWidth_)];
       return d == UINT16_MAX ? kUnreachable : d;

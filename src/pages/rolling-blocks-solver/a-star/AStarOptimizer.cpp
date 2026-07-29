@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cstddef>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -112,8 +111,9 @@ bool loopCutPass(const replay::Puzzle &puzzle, std::vector<Turn> &turns) {
   }
   std::unordered_map<std::string, size_t> firstSeen;
   for (size_t k = 0; k < states.size(); k++) {
-    const auto [it, inserted] = firstSeen.try_emplace(stateKey(states[k]), k);
-    if (!inserted) {
+    if (const auto [it, inserted] =
+            firstSeen.try_emplace(stateKey(states[k]), k);
+        !inserted) {
       std::vector<Turn> shorter;
       shorter.reserve(turns.size() - (k - it->second));
       shorter.insert(shorter.end(), turns.begin(),

@@ -2,7 +2,6 @@
 
 #include "Block.h"
 
-#include <cstddef>
 #include <vector>
 
 // Solution replay: the single validity oracle shared by the gtest suite, the

@@ -568,8 +568,8 @@ bool AStar::isReachable(const std::vector<Block> &blocks,
     return true;
   }
 
-  const size_t totalCells = static_cast<size_t>(gridWidth_) * gridHeight_;
-  if (reachStamp_.size() != totalCells) {
+  if (const size_t totalCells = static_cast<size_t>(gridWidth_) * gridHeight_;
+      reachStamp_.size() != totalCells) {
     reachStamp_.assign(totalCells, 0);
     reachEpoch_ = 0;
   }

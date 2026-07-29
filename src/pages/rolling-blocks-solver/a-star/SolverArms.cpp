@@ -111,8 +111,8 @@ std::vector<uint16_t> coverField(const replay::Puzzle &puzzle,
          px++) {
       for (int8_t py = pose.y; py < pose.y + static_cast<int8_t>(pose.depth);
            py++) {
-        const auto idx = positionToIndex(px, py, puzzle.gridWidth);
-        if (puzzle.cells[idx] == Tile::Unplayable || extraWalls.test(idx)) {
+        if (const auto idx = positionToIndex(px, py, puzzle.gridWidth);
+            puzzle.cells[idx] == Tile::Unplayable || extraWalls.test(idx)) {
           return false;
         }
       }
@@ -151,7 +151,7 @@ std::vector<uint16_t> coverField(const replay::Puzzle &puzzle,
   };
 
   std::vector<uint16_t> dist(totalCells * 6, UINT16_MAX);
-  std::vector<Block> frontier{start};
+  std::vector frontier{start};
   dist[stateIdx(start, orientIdx(start))] = 0;
   markCover(start, 0);
   std::vector<Block> next;
@@ -301,17 +301,18 @@ std::vector<Turn> runChunkedAlternation(
       }
     }
     while (!history.empty() && backtracks < kMaxBacktracks) {
-      LegSnap snap = std::move(history.back());
+      auto [snapBlocks, snapSat, snapPlanLen, snapActive, snapBump] =
+          std::move(history.back());
       history.pop_back();
       backtracks++;
-      if (snap.seedBump + 1 >= kMaxLegSeeds) {
+      if (snapBump + 1 >= kMaxLegSeeds) {
         continue; // this decision point is spent; rewind further
       }
-      cur = std::move(snap.blocks);
-      sat = std::move(snap.sat);
-      plan.resize(snap.planLen);
-      active = snap.active;
-      pendingBump = snap.seedBump + 1;
+      cur = std::move(snapBlocks);
+      sat = std::move(snapSat);
+      plan.resize(snapPlanLen);
+      active = snapActive;
+      pendingBump = snapBump + 1;
       stuckHands = 0;
       consecFails = {};
       return true;
@@ -377,8 +378,7 @@ std::vector<Turn> runChunkedAlternation(
   };
 
   while (true) {
-    const uint64_t now = nowMs();
-    if (now >= deadline) {
+    if (nowMs() >= deadline) {
       return {};
     }
     bool anyOpen = false;
@@ -669,15 +669,15 @@ std::vector<Turn> runSplitCoverage(
        {.firstIdx = 1, .wallForeign = false}}};
   const uint32_t perLeg = std::max<uint32_t>(1000, totalMs / 24);
 
-  for (const auto &attempt : kAttempts) {
+  for (const auto &[firstIdx, wallForeign] : kAttempts) {
     const uint64_t now = nowMs();
     if (now >= plainDeadline) {
       break;
     }
-    const Block &first = puzzle.blocks[attempt.firstIdx];
-    const Block &second = puzzle.blocks[1 - attempt.firstIdx];
-    const auto &firstField = fields[attempt.firstIdx];
-    const auto &secondField = fields[1 - attempt.firstIdx];
+    const Block &first = puzzle.blocks[firstIdx];
+    const Block &second = puzzle.blocks[1 - firstIdx];
+    const auto &firstField = fields[firstIdx];
+    const auto &secondField = fields[1 - firstIdx];
 
     // Leg 1: the first block alone against its share of the cells.
     replay::Puzzle sub1{.gridWidth = puzzle.gridWidth,
@@ -693,7 +693,7 @@ std::vector<Turn> runSplitCoverage(
       }
       if (secondField[i] < firstField[i]) {
         sub1.cells[i] =
-            attempt.wallForeign ? Tile::Unplayable : Tile::Regular;
+            wallForeign ? Tile::Unplayable : Tile::Regular;
       }
     }
     std::vector<Turn> leg1;
@@ -795,7 +795,7 @@ std::vector<Turn> runSplitCoverage(
       std::clamp<uint32_t>(totalMs / 24, 2000, 8000);
   const uint64_t chunkDeadline = start + totalMs / 8 * 7;
   uint32_t attemptSeed = base.seed;
-  for (const auto &attempt : kChunkAttempts) {
+  for (const auto &[firstIdx, wallForeign, chunks, farthest] : kChunkAttempts) {
     if (nowMs() >= chunkDeadline) {
       break;
     }
@@ -806,8 +806,8 @@ std::vector<Turn> runSplitCoverage(
     attemptSeed += 7919;
     auto plan = runChunkedAlternation(
         puzzle, chunkCfg, statsOut, onProgress, progressBase, shareOf,
-        attempt.firstIdx, attempt.wallForeign, attempt.chunks,
-        attempt.farthest, legMs, chunkDeadline);
+        firstIdx, wallForeign, chunks,
+        farthest, legMs, chunkDeadline);
     if (!plan.empty()) {
       return plan;
     }
@@ -962,7 +962,7 @@ struct Region {
 
 std::vector<Region> decompose(const replay::Puzzle &puzzle) {
   const size_t totalCells = puzzle.cells.size();
-  std::vector<int> component(totalCells, -1);
+  std::vector component(totalCells, -1);
   int componentCount = 0;
   std::vector<uint16_t> stack;
   for (size_t start = 0; start < totalCells; start++) {
@@ -1021,21 +1021,20 @@ std::vector<Region> decompose(const replay::Puzzle &puzzle) {
   for (const auto &block : puzzle.blocks) {
     const auto anchor =
         static_cast<size_t>(block.x + block.y * puzzle.gridWidth);
-    const int id = component[anchor];
-    if (id >= 0) {
+    if (const int id = component[anchor]; id >= 0) {
       regions[static_cast<size_t>(id)].sub.blocks.push_back(block);
     }
   }
-  for (auto &region : regions) {
+  for (auto &[sub, needsWork, impossible] : regions) {
     bool hasGoal = false;
     for (size_t i = 0; i < totalCells; i++) {
-      if (region.sub.cells[i] == Tile::Goal) {
+      if (sub.cells[i] == Tile::Goal) {
         hasGoal = true;
         break;
       }
     }
-    if ((hasGoal || region.needsWork) && region.sub.blocks.empty()) {
-      region.impossible = true;
+    if ((hasGoal || needsWork) && sub.blocks.empty()) {
+      impossible = true;
     }
   }
   return regions;
@@ -1112,18 +1111,17 @@ Outcome solve(const replay::Puzzle &puzzle, const ArmSpec &spec,
   // solved one after another (cascade only, so a named engine still measures
   // exactly one engine on the whole board).
   if (spec.engine == "cascade") {
-    const auto regions = decompose(puzzle);
-    if (!regions.empty()) {
+    if (const auto regions = decompose(puzzle); !regions.empty()) {
       Outcome outcome;
       const uint32_t totalMs = cfg.maxMs == 0 ? 300000 : cfg.maxMs;
       const uint64_t deadline = nowMs() + totalMs;
-      for (const auto &region : regions) {
-        if (region.impossible) {
+      for (const auto &[regionSub, needsWork, impossible] : regions) {
+        if (impossible) {
           outcome.turns.clear();
           outcome.arm = "decompose:impossible";
           return outcome;
         }
-        if (!region.needsWork) {
+        if (!needsWork) {
           continue;
         }
         const uint64_t now = nowMs();
@@ -1135,8 +1133,8 @@ Outcome solve(const replay::Puzzle &puzzle, const ArmSpec &spec,
         AStar::Config regionCfg = cfg;
         regionCfg.maxMs = static_cast<uint32_t>(deadline - now);
         const uint64_t progressBase = outcome.stats.nodesExpanded;
-        const Outcome sub = solveUndecomposed(
-            region.sub, spec, regionCfg,
+        const auto [subTurns, subArm, subStats] = solveUndecomposed(
+            regionSub, spec, regionCfg,
             onProgress ? std::function(
                              [&onProgress, progressBase](const uint32_t n) {
                                onProgress(static_cast<uint32_t>(
@@ -1144,19 +1142,19 @@ Outcome solve(const replay::Puzzle &puzzle, const ArmSpec &spec,
                              })
                        : std::function<void(uint32_t)>{},
             onArmStart);
-        outcome.stats.nodesExpanded += sub.stats.nodesExpanded;
+        outcome.stats.nodesExpanded += subStats.nodesExpanded;
         outcome.stats.stoppedOnMemory =
-            outcome.stats.stoppedOnMemory || sub.stats.stoppedOnMemory;
-        if (sub.turns.empty()) {
+            outcome.stats.stoppedOnMemory || subStats.stoppedOnMemory;
+        if (subTurns.empty()) {
           outcome.turns.clear();
           outcome.arm = "none";
           return outcome;
         }
-        outcome.turns.insert(outcome.turns.end(), sub.turns.begin(),
-                             sub.turns.end());
-        outcome.arm = outcome.arm.empty() || outcome.arm == sub.arm
-                          ? sub.arm
-                          : outcome.arm + "+" + sub.arm;
+        outcome.turns.insert(outcome.turns.end(), subTurns.begin(),
+                             subTurns.end());
+        outcome.arm = outcome.arm.empty() || outcome.arm == subArm
+                          ? subArm
+                          : outcome.arm + "+" + subArm;
       }
       if (!outcome.turns.empty()) {
         outcome.arm = "decompose:" + outcome.arm;

@@ -4,7 +4,6 @@
 #include "SeededRng.h"
 
 #include <algorithm>
-#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
@@ -58,8 +57,8 @@ bool placeBlock(BoardGen &g, SeededRng &rng, const uint8_t id,
   for (int attempt = 0; attempt < 200; attempt++) {
     const auto x = static_cast<int8_t>(rng.uniform(minX, hiX));
     const auto y = static_cast<int8_t>(rng.uniform(0, hiY));
-    const Block candidate{id, x, y, bw, bd, bh};
-    if (candidate.checkValidity(g.width, g.height, g.cells, g.blocks, empty)) {
+    if (const Block candidate{id, x, y, bw, bd, bh};
+        candidate.checkValidity(g.width, g.height, g.cells, g.blocks, empty)) {
       g.blocks.push_back(candidate);
       return true;
     }
@@ -92,9 +91,9 @@ void scramble(BoardGen &g, SeededRng &rng,
     walk.push_back({.blockId = g.blocks[bi].id, .direction = dir});
     g.accepted++;
   }
-  for (const Turn &move : std::views::reverse(walk)) {
+  for (const auto &[blockId, direction] : std::views::reverse(walk)) {
     forward.push_back(
-        {.blockId = move.blockId, .direction = inverseOf(move.direction)});
+        {.blockId = blockId, .direction = inverseOf(direction)});
   }
 }
 
@@ -429,9 +428,9 @@ void writeFixture(const std::string &path, const BoardGen &g,
   j["blocks"] = std::move(blocks);
   if (storeWitness) {
     auto turns = nlohmann::json::array();
-    for (const auto &t : g.witness) {
+    for (const auto &[blockId, direction] : g.witness) {
       turns.push_back(
-          {{"blockId", t.blockId}, {"direction", directionName(t.direction)}});
+          {{"blockId", blockId}, {"direction", directionName(direction)}});
     }
     j["turns"] = std::move(turns);
   }

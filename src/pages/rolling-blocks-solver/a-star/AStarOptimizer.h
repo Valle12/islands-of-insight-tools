@@ -2,7 +2,6 @@
 
 #include "Replay.h"
 
-#include <cstdint>
 #include <vector>
 
 // Solution post-processing: shortens a valid solution without ever trusting
