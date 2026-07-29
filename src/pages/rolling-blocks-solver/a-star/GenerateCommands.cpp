@@ -45,17 +45,24 @@ struct BoardGen {
   uint64_t accepted = 0;
 };
 
+// Inclusive x band a placement may use — the mixed generator fences each
+// family to its own side of the divider column.
+struct XRange {
+  int min;
+  int max;
+};
+
 bool placeBlock(BoardGen &g, SeededRng &rng, const uint8_t id,
                 const uint8_t bw, const uint8_t bd, const uint8_t bh,
-                const int minX, const int maxX) {
+                const XRange xRange) {
   const boost::dynamic_bitset empty(g.cells.size());
-  const int hiX = std::min(maxX, g.width - bw);
+  const int hiX = std::min(xRange.max, g.width - bw);
   const int hiY = g.height - bd;
-  if (hiX < minX || hiY < 0) {
+  if (hiX < xRange.min || hiY < 0) {
     return false;
   }
   for (int attempt = 0; attempt < 200; attempt++) {
-    const auto x = static_cast<int8_t>(rng.uniform(minX, hiX));
+    const auto x = static_cast<int8_t>(rng.uniform(xRange.min, hiX));
     const auto y = static_cast<int8_t>(rng.uniform(0, hiY));
     if (const Block candidate{id, x, y, bw, bd, bh};
         candidate.checkValidity(g.width, g.height, g.cells, g.blocks, empty)) {
@@ -97,6 +104,69 @@ void scramble(BoardGen &g, SeededRng &rng,
   }
 }
 
+// Marking state of a coverage walk: which cells have ever been under a block,
+// and which must-touch cells are already satisfied — the walk stands on each
+// one the moment it marks it, which is what makes the walk its own witness.
+struct WalkMarks {
+  int markPct = 0;
+  boost::dynamic_bitset<> touched;
+  boost::dynamic_bitset<> satisfied;
+};
+
+// Every cell the block newly covers becomes must-touch with probability
+// markPct, pre-satisfied.
+void touchCells(BoardGen &g, SeededRng &rng, const Block &b,
+                WalkMarks &marks) {
+  for (int8_t cx = b.x; cx < b.x + static_cast<int8_t>(b.width); cx++) {
+    for (int8_t cy = b.y; cy < b.y + static_cast<int8_t>(b.depth); cy++) {
+      const auto idx = positionToIndex(cx, cy, g.width);
+      if (marks.touched.test(idx)) {
+        continue;
+      }
+      marks.touched.set(idx);
+      if (rng.uniform(0, 99) < marks.markPct) {
+        g.cells[idx] = Tile::MustTouch;
+        marks.satisfied.set(idx);
+      }
+    }
+  }
+}
+
+// The marked self-avoiding walk shared by the coverage and mixed generators:
+// random valid rolls among the FIRST `blockCount` blocks (mixed keeps its goal
+// blocks out of it), marking on first touch. The one-shot rule is enforced
+// through `marks.satisfied`, so the accepted rolls are a legal witness.
+void markedWalk(BoardGen &g, SeededRng &rng, const size_t blockCount,
+                const uint64_t walkTarget, WalkMarks &marks) {
+  uint64_t attempts = 0;
+  while (g.accepted < walkTarget && attempts < walkTarget * 8 + 64) {
+    attempts++;
+    const auto bi = static_cast<size_t>(
+        rng.uniform(0, static_cast<int>(blockCount) - 1));
+    const Direction dir = drawDirection(rng);
+    Block trial = g.blocks[bi].clone();
+    trial.roll(dir);
+    if (!trial.checkValidity(g.width, g.height, g.cells, g.blocks,
+                             marks.satisfied)) {
+      continue;
+    }
+    g.blocks[bi] = trial;
+    g.witness.push_back({.blockId = g.blocks[bi].id, .direction = dir});
+    g.accepted++;
+    touchCells(g, rng, trial, marks);
+  }
+}
+
+// A block's own footprint becomes its goal patch: starting on goal is the
+// exact cover that the reversed scramble walks back to.
+void paintGoalFootprint(BoardGen &g, const Block &b) {
+  for (int8_t cx = b.x; cx < b.x + static_cast<int8_t>(b.width); cx++) {
+    for (int8_t cy = b.y; cy < b.y + static_cast<int8_t>(b.depth); cy++) {
+      g.cells[positionToIndex(cx, cy, g.width)] = Tile::Goal;
+    }
+  }
+}
+
 // Goal boards: blocks start ON their goal footprints (exact cover), then get
 // scrambled away — the reversed walk solves by construction.
 BoardGen generateGoal(SeededRng &rng, const uint32_t shuffle) {
@@ -116,7 +186,8 @@ BoardGen generateGoal(SeededRng &rng, const uint32_t shuffle) {
     placeBlock(g, rng, static_cast<uint8_t>(g.blocks.size() + 1),
                static_cast<uint8_t>(rng.uniform(1, 3)),
                static_cast<uint8_t>(rng.uniform(1, 3)),
-               static_cast<uint8_t>(rng.uniform(1, 4)), 0, g.width - 1);
+               static_cast<uint8_t>(rng.uniform(1, 4)),
+               {.min = 0, .max = g.width - 1});
   }
   if (g.blocks.empty()) {
     // Degenerate density; clear a corner and drop a unit cube on it.
@@ -154,12 +225,7 @@ BoardGen generateGoal(SeededRng &rng, const uint32_t shuffle) {
   const int goalBlocks =
       rng.uniform(1, static_cast<int>(mobile.size()));
   for (int k = 0; k < goalBlocks; k++) {
-    const Block &b = g.blocks[mobile[static_cast<size_t>(k)]];
-    for (int8_t cx = b.x; cx < b.x + static_cast<int8_t>(b.width); cx++) {
-      for (int8_t cy = b.y; cy < b.y + static_cast<int8_t>(b.depth); cy++) {
-        g.cells[positionToIndex(cx, cy, g.width)] = Tile::Goal;
-      }
-    }
+    paintGoalFootprint(g, g.blocks[mobile[static_cast<size_t>(k)]]);
   }
 
   std::vector<size_t> movable(g.blocks.size());
@@ -173,11 +239,11 @@ BoardGen generateGoal(SeededRng &rng, const uint32_t shuffle) {
   // are the FIRST forward moves, so they prepend. A board that stays covered
   // anyway is emitted and scored trivial by the harness.
   for (int extra = 0; extra < 3; extra++) {
-    const replay::Puzzle check{.gridWidth = g.width,
-                               .gridHeight = g.height,
-                               .cells = g.cells,
-                               .blocks = g.blocks};
-    if (!replay::replayTurns(check, {}).solvedAtEnd) {
+    if (const replay::Puzzle check{.gridWidth = g.width,
+                                   .gridHeight = g.height,
+                                   .cells = g.cells,
+                                   .blocks = g.blocks};
+        !replay::replayTurns(check, {}).solvedAtEnd) {
       break;
     }
     std::vector<Turn> extraWitness;
@@ -208,60 +274,29 @@ BoardGen generateCoverage(SeededRng &rng, const uint32_t shuffle) {
     const uint8_t bd = shape == 3 ? 2 : 1;
     const uint8_t bh = shape == 1 ? 2 : 1;
     placeBlock(g, rng, static_cast<uint8_t>(g.blocks.size() + 1), bw, bd, bh,
-               0, g.width - 1);
+               {.min = 0, .max = g.width - 1});
   }
   if (g.blocks.empty()) {
     g.blocks.emplace_back(1, 0, 0, 1, 1, 1);
   }
   const std::vector<Block> startBlocks = g.blocks;
 
-  const int markPct = rng.uniform(50, 100);
-  boost::dynamic_bitset touched(g.cells.size());
-  boost::dynamic_bitset satisfied(g.cells.size());
-  const auto touch = [&](const Block &b) {
-    for (int8_t cx = b.x; cx < b.x + static_cast<int8_t>(b.width); cx++) {
-      for (int8_t cy = b.y; cy < b.y + static_cast<int8_t>(b.depth); cy++) {
-        const auto idx = positionToIndex(cx, cy, g.width);
-        if (touched.test(idx)) {
-          continue;
-        }
-        touched.set(idx);
-        if (rng.uniform(0, 99) < markPct) {
-          g.cells[idx] = Tile::MustTouch;
-          satisfied.set(idx);
-        }
-      }
-    }
-  };
+  WalkMarks marks{.markPct = rng.uniform(50, 100),
+                  .touched = boost::dynamic_bitset(g.cells.size()),
+                  .satisfied = boost::dynamic_bitset(g.cells.size())};
   for (const auto &b : g.blocks) {
-    touch(b);
+    touchCells(g, rng, b, marks);
   }
 
   const uint64_t playable = g.cells.size();
   const uint64_t walkTarget =
       std::min<uint64_t>(shuffle, playable * 3);
-  uint64_t attempts = 0;
-  while (g.accepted < walkTarget && attempts < walkTarget * 8 + 64) {
-    attempts++;
-    const auto bi = static_cast<size_t>(
-        rng.uniform(0, static_cast<int>(g.blocks.size()) - 1));
-    const Direction dir = drawDirection(rng);
-    Block trial = g.blocks[bi].clone();
-    trial.roll(dir);
-    if (!trial.checkValidity(g.width, g.height, g.cells, g.blocks,
-                             satisfied)) {
-      continue;
-    }
-    g.blocks[bi] = trial;
-    g.witness.push_back({.blockId = g.blocks[bi].id, .direction = dir});
-    g.accepted++;
-    touch(trial);
-  }
+  markedWalk(g, rng, g.blocks.size(), walkTarget, marks);
 
   // Corridor shaping: cells the walk never reached become walls sometimes.
   const int wallPct = rng.uniform(0, 50);
   for (size_t i = 0; i < g.cells.size(); i++) {
-    if (!touched.test(i) && rng.uniform(0, 99) < wallPct) {
+    if (!marks.touched.test(i) && rng.uniform(0, 99) < wallPct) {
       g.cells[i] = Tile::Unplayable;
     }
   }
@@ -285,8 +320,8 @@ BoardGen generateMixed(SeededRng &rng, const uint32_t shuffle) {
   }
 
   // Coverage side (left of the divider): one small block, marked walk.
-  placeBlock(g, rng, 1, 1, 1, static_cast<uint8_t>(rng.uniform(1, 2)), 0,
-             divider - 1);
+  placeBlock(g, rng, 1, 1, 1, static_cast<uint8_t>(rng.uniform(1, 2)),
+             {.min = 0, .max = divider - 1});
   if (g.blocks.empty()) {
     g.cells[0] = Tile::Regular;
     g.blocks.emplace_back(1, 0, 0, 1, 1, 1);
@@ -294,47 +329,16 @@ BoardGen generateMixed(SeededRng &rng, const uint32_t shuffle) {
   const size_t coverageCount = g.blocks.size();
   const std::vector<Block> coverageStart = g.blocks;
 
-  const int markPct = rng.uniform(50, 100);
-  boost::dynamic_bitset touched(g.cells.size());
-  boost::dynamic_bitset satisfied(g.cells.size());
-  const auto touch = [&](const Block &b) {
-    for (int8_t cx = b.x; cx < b.x + static_cast<int8_t>(b.width); cx++) {
-      for (int8_t cy = b.y; cy < b.y + static_cast<int8_t>(b.depth); cy++) {
-        const auto idx = positionToIndex(cx, cy, g.width);
-        if (touched.test(idx)) {
-          continue;
-        }
-        touched.set(idx);
-        if (rng.uniform(0, 99) < markPct) {
-          g.cells[idx] = Tile::MustTouch;
-          satisfied.set(idx);
-        }
-      }
-    }
-  };
+  WalkMarks marks{.markPct = rng.uniform(50, 100),
+                  .touched = boost::dynamic_bitset(g.cells.size()),
+                  .satisfied = boost::dynamic_bitset(g.cells.size())};
   for (const auto &b : g.blocks) {
-    touch(b);
+    touchCells(g, rng, b, marks);
   }
   const uint64_t leftCells =
       static_cast<uint64_t>(divider) * g.height;
   const uint64_t walkTarget = std::min<uint64_t>(shuffle, leftCells * 3);
-  uint64_t attempts = 0;
-  while (g.accepted < walkTarget && attempts < walkTarget * 8 + 64) {
-    attempts++;
-    const auto bi = static_cast<size_t>(
-        rng.uniform(0, static_cast<int>(coverageCount) - 1));
-    const Direction dir = drawDirection(rng);
-    Block trial = g.blocks[bi].clone();
-    trial.roll(dir);
-    if (!trial.checkValidity(g.width, g.height, g.cells, g.blocks,
-                             satisfied)) {
-      continue;
-    }
-    g.blocks[bi] = trial;
-    g.witness.push_back({.blockId = g.blocks[bi].id, .direction = dir});
-    g.accepted++;
-    touch(trial);
-  }
+  markedWalk(g, rng, coverageCount, walkTarget, marks);
 
   // Goal side (right of the divider): place, paint, scramble.
   const int goalBlocks = rng.uniform(1, 4);
@@ -342,24 +346,19 @@ BoardGen generateMixed(SeededRng &rng, const uint32_t shuffle) {
     placeBlock(g, rng, static_cast<uint8_t>(g.blocks.size() + 1),
                static_cast<uint8_t>(rng.uniform(1, 2)),
                static_cast<uint8_t>(rng.uniform(1, 2)),
-               static_cast<uint8_t>(rng.uniform(1, 3)), divider + 1,
-               g.width - 1);
+               static_cast<uint8_t>(rng.uniform(1, 3)),
+               {.min = divider + 1, .max = g.width - 1});
   }
   std::vector<size_t> goalMovable;
   for (size_t i = coverageCount; i < g.blocks.size(); i++) {
     goalMovable.push_back(i);
-    const Block &b = g.blocks[i];
-    for (int8_t cx = b.x; cx < b.x + static_cast<int8_t>(b.width); cx++) {
-      for (int8_t cy = b.y; cy < b.y + static_cast<int8_t>(b.depth); cy++) {
-        g.cells[positionToIndex(cx, cy, g.width)] = Tile::Goal;
-      }
-    }
+    paintGoalFootprint(g, g.blocks[i]);
   }
   std::vector<Turn> goalWitness;
   if (!goalMovable.empty()) {
     const uint64_t before = g.accepted;
     g.accepted = 0;
-    scramble(g, rng, goalMovable, shuffle, satisfied, goalWitness);
+    scramble(g, rng, goalMovable, shuffle, marks.satisfied, goalWitness);
     g.accepted += before;
   }
 
@@ -482,13 +481,14 @@ int run(const std::string &outPath, const uint32_t seed,
   size_t mustTouch = 0;
   size_t goals = 0;
   size_t playable = 0;
+  using enum Tile;
   for (const Tile cell : g.cells) {
-    if (cell != Tile::Unplayable) {
+    if (cell != Unplayable) {
       playable++;
     }
-    if (cell == Tile::MustTouch) {
+    if (cell == MustTouch) {
       mustTouch++;
-    } else if (cell == Tile::Goal) {
+    } else if (cell == Goal) {
       goals++;
     }
   }

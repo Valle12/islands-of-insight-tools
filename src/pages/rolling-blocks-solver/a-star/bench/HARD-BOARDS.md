@@ -29,7 +29,7 @@ three phases (budget 1/6 → 3/4 → last eighth):
    wall (2 orders × 2 foreign-cell styles), replay-validate the
    concatenation. Cracked 7043; also what now carries fixture 34 fast
    (344 ms / 36 k expansions vs 4.2 s / 1.38 M via wastar before).
-2. **Chunked alternation** (`runChunkedAlternation`): alternate short legs
+2. **Chunked alternation** (`ChunkedAlternation`): alternate short legs
    A1 B1 A2 B2 … where each leg is a *required-subset* cracker search
    (`Config::requiredCells` — succeed once the chunk is satisfied; every
    other must-touch cell keeps real one-shot semantics, so leg plans

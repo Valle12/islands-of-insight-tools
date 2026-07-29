@@ -97,28 +97,7 @@ uint32_t AStar::goalDistanceHeuristic(const std::vector<Block> &blocks) {
   matchDp_.assign(full + 1, kInf);
   matchDp_[0] = 0;
   for (const auto &block : blocks) {
-    for (size_t s = full; s > 0; s--) {
-      if (matchDp_[s] >= kInf) {
-        continue;
-      }
-      for (size_t c = 0; c < numClusters; c++) {
-        if ((s >> c & 1u) != 0) {
-          continue;
-        }
-        const auto d = static_cast<int>(goalPairCost(block, c));
-        if (d >= kInf) {
-          continue;
-        }
-        matchDp_[s | size_t{1} << c] =
-            std::min(matchDp_[s | size_t{1} << c], matchDp_[s] + d);
-      }
-    }
-    // s == 0 seeds single-cluster assignments for this block.
-    for (size_t c = 0; c < numClusters; c++) {
-      if (const auto d = static_cast<int>(goalPairCost(block, c)); d < kInf) {
-        matchDp_[size_t{1} << c] = std::min(matchDp_[size_t{1} << c], d);
-      }
-    }
+    relaxMatchingWithBlock(block, numClusters, kInf);
   }
   // The best over all subsets of maximal size that are actually assignable:
   // clusters no block fits contribute nothing, matching the old behaviour of
@@ -133,6 +112,43 @@ uint32_t AStar::goalDistanceHeuristic(const std::vector<Block> &blocks) {
     }
   }
   return static_cast<uint32_t>(best);
+}
+
+// One block's turn in the subset DP: extend every subset already served by the
+// preceding blocks with this block on one more cluster, then seed the
+// single-cluster assignments (the s == 0 case, which the descending sweep
+// cannot reach).
+void AStar::relaxMatchingWithBlock(const Block &block,
+                                   const size_t numClusters, const int inf) {
+  const size_t full = (size_t{1} << numClusters) - 1;
+  for (size_t s = full; s > 0; s--) {
+    if (matchDp_[s] >= inf) {
+      continue;
+    }
+    extendMatchingSubset(block, s, numClusters, inf);
+  }
+  for (size_t c = 0; c < numClusters; c++) {
+    if (const auto d = static_cast<int>(goalPairCost(block, c)); d < inf) {
+      matchDp_[size_t{1} << c] = std::min(matchDp_[size_t{1} << c], d);
+    }
+  }
+}
+
+// Serving one more cluster out of `subset` with `block`. Every write lands on
+// a strictly larger subset, so reading matchDp_[subset] stays stable here.
+void AStar::extendMatchingSubset(const Block &block, const size_t subset,
+                                 const size_t numClusters, const int inf) {
+  for (size_t c = 0; c < numClusters; c++) {
+    if ((subset >> c & 1u) != 0) {
+      continue;
+    }
+    const auto d = static_cast<int>(goalPairCost(block, c));
+    if (d >= inf) {
+      continue;
+    }
+    matchDp_[subset | size_t{1} << c] =
+        std::min(matchDp_[subset | size_t{1} << c], matchDp_[subset] + d);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +250,16 @@ uint8_t heightFor(const std::array<uint8_t, 3> &dims, const uint8_t w,
   return dims[0]; // unreachable for well-formed poses
 }
 
+// Slot of a footprint in a class's footprint list. SIZE_MAX cannot happen for
+// a pose reached by rolling — a roll always lands on one of the class's own
+// six orientations.
+size_t footIndexOf(const std::vector<std::pair<uint8_t, uint8_t>> &footprints,
+                   const uint8_t w, const uint8_t d) {
+  const auto it = std::ranges::find(footprints, std::pair{w, d});
+  return it == footprints.end() ? SIZE_MAX
+                                : static_cast<size_t>(it - footprints.begin());
+}
+
 } // namespace
 
 void AStar::prepareGoalTables(const std::vector<Block> &blocks) {
@@ -245,9 +271,9 @@ void AStar::prepareGoalTables(const std::vector<Block> &blocks) {
   }
   for (const auto &block : blocks) {
     const auto dims = sortedDims(block);
-    const bool known = std::ranges::any_of(
-        goalTables_, [&](const GoalClassTables &t) { return t.dims == dims; });
-    if (known) {
+    if (std::ranges::any_of(goalTables_, [&dims](const GoalClassTables &t) {
+          return t.dims == dims;
+        })) {
       continue;
     }
     GoalClassTables tables;
@@ -283,36 +309,25 @@ void AStar::fillClassClusterTable(const GoalClassTables &tables,
   const size_t totalCells = static_cast<size_t>(gridWidth_) * gridHeight_;
   dist.assign(tables.footprints.size() * totalCells, UINT16_MAX);
 
-  const auto poseIndex = [&](const size_t footIdx, const int8_t x,
-                             const int8_t y) {
-    return footIdx * totalCells + positionToIndex(x, y, gridWidth_);
-  };
-  const auto footIndexOf = [&](const uint8_t w,
-                               const uint8_t d) -> size_t {
-    for (size_t i = 0; i < tables.footprints.size(); i++) {
-      if (const auto &[fw, fd] = tables.footprints[i]; fw == w && fd == d) {
-        return i;
-      }
-    }
-    return SIZE_MAX;
-  };
-  const auto poseLegal = [&](const Block &b) {
-    if (b.x < 0 || b.y < 0 || b.x + b.width > gridWidth_ ||
-        b.y + b.depth > gridHeight_) {
-      return false;
-    }
-    for (int8_t cx = b.x; cx < b.x + static_cast<int8_t>(b.width); cx++) {
-      for (int8_t cy = b.y; cy < b.y + static_cast<int8_t>(b.depth); cy++) {
-        if (cells_[positionToIndex(cx, cy, gridWidth_)] == Tile::Unplayable) {
-          return false;
-        }
-      }
-    }
-    return true;
-  };
+  std::queue<size_t> frontier;
+  seedAcceptingPoses(tables, goalClusters_[clusterIdx], dist, frontier);
+  // Rolls invert to rolls, so expanding forward from the accepting poses
+  // yields the distance TO them from everywhere.
+  while (!frontier.empty()) {
+    const size_t cur = frontier.front();
+    frontier.pop();
+    expandPoseNeighbors(tables, cur, dist, frontier);
+  }
+}
 
-  const GoalCluster &cluster = goalClusters_[clusterIdx];
-  std::vector<size_t> frontier;
+// The sweep's roots: the class footprints matching the cluster's box exactly,
+// anchored on it and fully on Goal cells. A cluster no orientation can cover
+// gets no roots at all, hence an all-unreachable table.
+void AStar::seedAcceptingPoses(const GoalClassTables &tables,
+                               const GoalCluster &cluster,
+                               std::vector<uint16_t> &dist,
+                               std::queue<size_t> &frontier) const {
+  const size_t totalCells = static_cast<size_t>(gridWidth_) * gridHeight_;
   for (size_t f = 0; f < tables.footprints.size(); f++) {
     const auto [w, d] = tables.footprints[f];
     if (w != cluster.width || d != cluster.depth) {
@@ -320,41 +335,64 @@ void AStar::fillClassClusterTable(const GoalClassTables &tables,
     }
     const Block seed{0, cluster.minX, cluster.minY, w, d,
                      heightFor(tables.dims, w, d)};
-    if (!poseLegal(seed) || !isBlockFullyOnGoal(seed)) {
+    if (!poseFitsPlayable(seed) || !isBlockFullyOnGoal(seed)) {
       continue;
     }
-    const size_t idx = poseIndex(f, seed.x, seed.y);
+    const size_t idx =
+        f * totalCells + positionToIndex(seed.x, seed.y, gridWidth_);
     dist[idx] = 0;
-    frontier.push_back(idx);
+    frontier.push(idx);
   }
+}
 
+// One pose dequeued: roll it four ways and record every pose first reached.
+void AStar::expandPoseNeighbors(const GoalClassTables &tables,
+                                const size_t cur, std::vector<uint16_t> &dist,
+                                std::queue<size_t> &frontier) const {
+  const size_t totalCells = static_cast<size_t>(gridWidth_) * gridHeight_;
+  const size_t footIdx = cur / totalCells;
+  const auto cellIdx = static_cast<uint16_t>(cur % totalCells);
+  const auto [w, d] = tables.footprints[footIdx];
+  const Block pose{0, static_cast<int8_t>(cellIdx % gridWidth_),
+                   static_cast<int8_t>(cellIdx / gridWidth_), w, d,
+                   heightFor(tables.dims, w, d)};
   constexpr std::array kDirs = {Direction::UP, Direction::RIGHT,
                                 Direction::DOWN, Direction::LEFT};
-  // Rolls invert to rolls, so expanding forward from the accepting poses
-  // yields the distance TO them from everywhere.
-  for (size_t head = 0; head < frontier.size(); head++) {
-    const size_t cur = frontier[head];
-    const size_t footIdx = cur / totalCells;
-    const auto cellIdx = static_cast<uint16_t>(cur % totalCells);
-    const auto [w, d] = tables.footprints[footIdx];
-    const Block pose{0, static_cast<int8_t>(cellIdx % gridWidth_),
-                     static_cast<int8_t>(cellIdx / gridWidth_), w, d,
-                     heightFor(tables.dims, w, d)};
-    for (const auto dir : kDirs) {
-      Block next = pose.clone();
-      next.roll(dir);
-      if (!poseLegal(next)) {
-        continue;
+  for (const auto dir : kDirs) {
+    Block next = pose.clone();
+    next.roll(dir);
+    if (!poseFitsPlayable(next)) {
+      continue;
+    }
+    const size_t nidx =
+        footIndexOf(tables.footprints, next.width, next.depth) * totalCells +
+        positionToIndex(next.x, next.y, gridWidth_);
+    if (dist[nidx] != UINT16_MAX) {
+      continue;
+    }
+    dist[nidx] = static_cast<uint16_t>(dist[cur] + 1);
+    frontier.push(nidx);
+  }
+}
+
+// Walls are Unplayable cells only — other blocks and satisfied must-touch
+// cells are ignored, which is the relaxation that keeps every table distance a
+// true lower bound on rolls.
+bool AStar::poseFitsPlayable(const Block &block) const {
+  if (block.x < 0 || block.y < 0 || block.x + block.width > gridWidth_ ||
+      block.y + block.depth > gridHeight_) {
+    return false;
+  }
+  for (int8_t cx = block.x; cx < block.x + static_cast<int8_t>(block.width);
+       cx++) {
+    for (int8_t cy = block.y; cy < block.y + static_cast<int8_t>(block.depth);
+         cy++) {
+      if (cells_[positionToIndex(cx, cy, gridWidth_)] == Tile::Unplayable) {
+        return false;
       }
-      const size_t nf = footIndexOf(next.width, next.depth);
-      const size_t nidx = poseIndex(nf, next.x, next.y);
-      if (dist[nidx] != UINT16_MAX) {
-        continue;
-      }
-      dist[nidx] = static_cast<uint16_t>(dist[cur] + 1);
-      frontier.push_back(nidx);
     }
   }
+  return true;
 }
 
 // Cost of assigning `block` to cluster `clusterIdx` in the matching DP:

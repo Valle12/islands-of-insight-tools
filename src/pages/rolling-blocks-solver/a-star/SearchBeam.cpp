@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <array>
 #include <iostream>
+#include <optional>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -47,20 +49,16 @@ std::vector<Turn> AStar::searchBeam(Node root, uint32_t beamWidth) {
     return {};
   }
 
-  constexpr std::array kDirs = {Direction::UP, Direction::RIGHT,
-                                Direction::DOWN, Direction::LEFT};
-
-  struct Cand {
-    uint64_t score;
-    Table::Entry *entry;
-  };
-
   std::vector beam = {rootEntry};
-  std::vector<Cand> candidates;
+  std::vector<BeamCand> candidates;
 
-  for (uint32_t depth = 1; !beam.empty(); depth++) {
+  // A while loop, not `for (depth = 1; !beam.empty(); …)`: the beam is
+  // rewritten every level, so it cannot serve as a loop stop condition.
+  uint32_t depth = 0;
+  while (!beam.empty()) {
+    depth++;
     candidates.clear();
-    for (Table::Entry  const*entry : beam) {
+    for (const Table::Entry *entry : beam) {
       decodeWorking(entry->key);
 
       stats_.nodesExpanded++;
@@ -75,76 +73,107 @@ std::vector<Turn> AStar::searchBeam(Node root, uint32_t beamWidth) {
         onProgress(static_cast<uint32_t>(stats_.nodesExpanded));
       }
 
-      for (size_t bi = 0; bi < curBlocks_.size(); bi++) {
-        for (const auto dir : kDirs) {
-          Block moved = curBlocks_[bi].clone();
-          moved.roll(dir);
-          if (!moved.checkValidity(gridWidth_, gridHeight_, cells_,
-                                   curBlocks_, curBits_)) {
-            continue;
-          }
-          const bool touchesNew = blockTouchesNewMustTouch(moved, curBits_);
-          if (touchesNew) {
-            childBitsBuf_ = curBits_;
-            childOrdBuf_ = curOrd_;
-            applyTouch(moved, childBitsBuf_, childOrdBuf_);
-          }
-          const auto &cellRef = touchesNew ? childBitsBuf_ : curBits_;
-          const auto &ordRef = touchesNew ? childOrdBuf_ : curOrd_;
-          if (!isReachable(curBlocks_, bi, moved, cellRef, ordRef)) {
-            continue;
-          }
-          childBlocks_ = curBlocks_;
-          childBlocks_[bi] = moved;
-          const NodeKey childKey = encodeStateOrdinal(childBlocks_, ordRef);
-          auto [child, inserted] = states.emplace(childKey);
-          if (!inserted) {
-            continue; // first arrival wins at equal depth; no reopening
-          }
-          child->value.g = depth;
-          child->value.parent = &entry->value;
-          child->value.fromX = static_cast<uint8_t>(curBlocks_[bi].x);
-          child->value.fromY = static_cast<uint8_t>(curBlocks_[bi].y);
-          child->value.dir = static_cast<uint8_t>(dir);
-          child->value.flags = StateInfo::HasParentFlag;
-
-          if (isGoalState(childBlocks_, ordRef)) {
-            stats_.statesStored = states.size();
-            stats_.wallMs = static_cast<uint32_t>(nowMs() - startMs);
-            std::cout << "Beam found solution in " << depth
-                      << " moves, expanded " << stats_.nodesExpanded
-                      << " nodes\n";
-            return reconstructPath(child->value);
-          }
-
-          const uint32_t h = heuristic(childBlocks_, cellRef, ordRef);
-          const uint32_t f = depth + cfg_.weight * h;
-          const uint32_t jitter =
-              mixHash(static_cast<uint32_t>(NodeKeyHash{}(childKey)) ^
-                      cfg_.seed) &
-              0xFFFU;
-          candidates.push_back(
-              {.score = static_cast<uint64_t>(f) << 12 | jitter, .entry = child});
-        }
+      if (auto solved = expandBeamEntry(entry, depth, states, candidates)) {
+        stats_.statesStored = states.size();
+        stats_.wallMs = static_cast<uint32_t>(nowMs() - startMs);
+        std::cout << "Beam found solution in " << depth << " moves, expanded "
+                  << stats_.nodesExpanded << " nodes\n";
+        return *solved;
       }
     }
 
-    if (candidates.size() > beamWidth) {
-      std::ranges::nth_element(candidates,
-                               candidates.begin() +
-                                   beamWidth,
-                               {}, &Cand::score);
-      candidates.resize(beamWidth);
-    }
-    beam.clear();
-    beam.reserve(candidates.size());
-    for (const auto &[score, entry] : candidates) {
-      beam.push_back(entry);
-    }
+    refillBeam(candidates, beamWidth, beam);
   }
 
   stats_.statesStored = states.size();
   stats_.wallMs = static_cast<uint32_t>(nowMs() - startMs);
   std::cout << "Beam exhausted without a solution\n";
   return {};
+}
+
+// One beam entry, fully expanded: every block rolled four ways off the
+// working state `decodeWorking` left behind.
+std::optional<std::vector<Turn>>
+AStar::expandBeamEntry(const Table::Entry *entry, const uint32_t depth,
+                       Table &states, std::vector<BeamCand> &candidates) {
+  using enum Direction;
+  constexpr std::array kDirs = {UP, RIGHT, DOWN, LEFT};
+  for (size_t bi = 0; bi < curBlocks_.size(); bi++) {
+    for (const auto dir : kDirs) {
+      if (auto solved =
+              tryBeamMove(entry, bi, dir, depth, states, candidates)) {
+        return solved;
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+// One candidate roll: dropped when illegal, unreachable or already reached at
+// this or a shallower level; otherwise linked to its parent and scored into
+// the level's candidate pool. Returns the path as soon as one solves.
+std::optional<std::vector<Turn>>
+AStar::tryBeamMove(const Table::Entry *entry, const size_t bi,
+                   const Direction dir, const uint32_t depth, Table &states,
+                   std::vector<BeamCand> &candidates) {
+  Block moved = curBlocks_[bi].clone();
+  moved.roll(dir);
+  if (!moved.checkValidity(gridWidth_, gridHeight_, cells_, curBlocks_,
+                           curBits_)) {
+    return std::nullopt;
+  }
+  const bool touchesNew = blockTouchesNewMustTouch(moved, curBits_);
+  if (touchesNew) {
+    childBitsBuf_ = curBits_;
+    childOrdBuf_ = curOrd_;
+    applyTouch(moved, childBitsBuf_, childOrdBuf_);
+  }
+  const auto &cellRef = touchesNew ? childBitsBuf_ : curBits_;
+  const auto &ordRef = touchesNew ? childOrdBuf_ : curOrd_;
+  if (!isReachable(curBlocks_, bi, moved, cellRef, ordRef)) {
+    return std::nullopt;
+  }
+  childBlocks_ = curBlocks_;
+  childBlocks_[bi] = moved;
+  const NodeKey childKey = encodeStateOrdinal(childBlocks_, ordRef);
+  auto [child, inserted] = states.emplace(childKey);
+  if (!inserted) {
+    return std::nullopt; // first arrival wins at equal depth; no reopening
+  }
+  child->value.g = depth;
+  child->value.parent = &entry->value;
+  child->value.fromX = static_cast<uint8_t>(curBlocks_[bi].x);
+  child->value.fromY = static_cast<uint8_t>(curBlocks_[bi].y);
+  child->value.dir = std::to_underlying(dir);
+  child->value.flags = StateInfo::HasParentFlag;
+
+  if (isGoalState(childBlocks_, ordRef)) {
+    return reconstructPath(child->value);
+  }
+
+  const uint32_t h = heuristic(childBlocks_, cellRef, ordRef);
+  const uint32_t f = depth + cfg_.weight * h;
+  const uint32_t jitter =
+      mixHash(static_cast<uint32_t>(NodeKeyHash{}(childKey)) ^ cfg_.seed) &
+      0xFFFU;
+  candidates.push_back(
+      {.score = static_cast<uint64_t>(f) << 12 | jitter, .entry = child});
+  return std::nullopt;
+}
+
+// Culls the level to the best `beamWidth` scores (nth_element: partial, so
+// linear) and refills the beam from what survives.
+void AStar::refillBeam(std::vector<BeamCand> &candidates,
+                       const uint32_t beamWidth,
+                       std::vector<Table::Entry *> &beam) {
+  if (candidates.size() > beamWidth) {
+    std::ranges::nth_element(candidates, candidates.begin() + beamWidth, {},
+                             &BeamCand::score);
+    candidates.resize(beamWidth);
+  }
+  beam.clear();
+  beam.reserve(candidates.size());
+  for (const auto &[score, entry] : candidates) {
+    beam.push_back(entry);
+  }
 }

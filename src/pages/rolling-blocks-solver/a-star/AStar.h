@@ -11,6 +11,7 @@
 #include <boost/dynamic_bitset.hpp>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <queue>
 #include <vector>
 
@@ -144,6 +145,13 @@ private:
     std::priority_queue<HeapEntry, std::vector<HeapEntry>, HeapCmp> openHeap;
   };
 
+  // One scored beam candidate: f in the high bits, the arm's seed jitter in
+  // the low 12 so portfolio arms walk distinct beams of equal quality.
+  struct BeamCand {
+    uint64_t score;
+    Table::Entry *entry;
+  };
+
   uint8_t gridWidth_;
   uint8_t gridHeight_;
   std::vector<Tile> cells_;
@@ -211,6 +219,23 @@ private:
   // Returns false when the input is outside the engine caps.
   bool prepareSearch(Node &root, boost::dynamic_bitset<> &rootOrd);
 
+  // Per-run state and helpers for searchCracker (transit-field cache, pose
+  // graphs, orphan/coverage prunes, round machinery); defined in
+  // SearchCracker.cpp. Nested so it can reach the private search internals.
+  struct CrackerRun;
+
+  // searchBeam, one level at a time: every entry's expansion, one candidate
+  // roll, and the cull that refills the beam. Defined in SearchBeam.cpp.
+  [[nodiscard]] std::optional<std::vector<Turn>>
+  expandBeamEntry(const Table::Entry *entry, uint32_t depth, Table &states,
+                  std::vector<BeamCand> &candidates);
+  [[nodiscard]] std::optional<std::vector<Turn>>
+  tryBeamMove(const Table::Entry *entry, size_t bi, Direction dir,
+              uint32_t depth, Table &states,
+              std::vector<BeamCand> &candidates);
+  static void refillBeam(std::vector<BeamCand> &candidates, uint32_t beamWidth,
+                         std::vector<Table::Entry *> &beam);
+
   void expandNeighbor(size_t bi, Direction direction,
                       const Table::Entry *curEntry,
                       SearchContext &ctx);
@@ -231,6 +256,11 @@ private:
                             const boost::dynamic_bitset<> &mustTouch);
   [[nodiscard]] uint32_t
   goalDistanceHeuristic(const std::vector<Block> &blocks);
+  // The two inner steps of goalDistanceHeuristic's cluster/block matching DP,
+  // split out to keep each piece flat; `inf` is that DP's own infinity.
+  void relaxMatchingWithBlock(const Block &block, size_t numClusters, int inf);
+  void extendMatchingSubset(const Block &block, size_t subset,
+                            size_t numClusters, int inf);
   [[nodiscard]] bool isBlockFullyOnGoal(const Block &block) const;
 
   [[nodiscard]] bool
@@ -272,6 +302,14 @@ private:
   void prepareGoalTables(const std::vector<Block> &blocks);
   void fillClassClusterTable(const GoalClassTables &tables, size_t clusterIdx,
                              std::vector<uint16_t> &dist) const;
+  void seedAcceptingPoses(const GoalClassTables &tables,
+                          const GoalCluster &cluster,
+                          std::vector<uint16_t> &dist,
+                          std::queue<size_t> &frontier) const;
+  void expandPoseNeighbors(const GoalClassTables &tables, size_t cur,
+                           std::vector<uint16_t> &dist,
+                           std::queue<size_t> &frontier) const;
+  [[nodiscard]] bool poseFitsPlayable(const Block &block) const;
   [[nodiscard]] uint32_t goalPairCost(const Block &block,
                                       size_t clusterIdx) const;
 

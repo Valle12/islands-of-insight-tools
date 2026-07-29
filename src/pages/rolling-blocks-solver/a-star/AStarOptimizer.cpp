@@ -4,8 +4,12 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
+#include <functional>
 #include <optional>
+#include <queue>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -19,6 +23,17 @@ namespace {
 struct State {
   std::vector<Block> blocks;
   boost::dynamic_bitset<> satisfied;
+
+  // dynamic_bitset's move is not noexcept, so neither are the implicit ones —
+  // and States live in vectors. Declaring them defaulted-noexcept costs
+  // nothing and drops the aggregate initialization (hence the assignments in
+  // initialState below).
+  State() = default;
+  State(const State &) = default;
+  State &operator=(const State &) = default;
+  State(State &&) noexcept = default;
+  State &operator=(State &&) noexcept = default;
+  ~State() = default;
 };
 
 std::string stateKey(const State &s) {
@@ -32,20 +47,32 @@ std::string stateKey(const State &s) {
     key.push_back(static_cast<char>(b.height));
   }
   for (size_t i = 0; i < s.satisfied.size(); i += 8) {
-    uint8_t byte = 0;
+    std::byte packed{};
     for (size_t bit = 0; bit < 8 && i + bit < s.satisfied.size(); bit++) {
       if (s.satisfied.test(i + bit)) {
-        byte |= static_cast<uint8_t>(1u << bit);
+        packed |= std::byte{1} << bit;
       }
     }
-    key.push_back(static_cast<char>(byte));
+    key.push_back(std::to_integer<char>(packed));
   }
   return key;
 }
 
+// Transparent hashing on the state keys: lookups by string_view need no
+// std::string temporary, and it is what Sonar asks of a string-keyed
+// container.
+struct StringHash {
+  // Read by the containers, not by this TU — hence [[maybe_unused]].
+  using is_transparent [[maybe_unused]] = void;
+  [[nodiscard]] size_t operator()(const std::string_view key) const noexcept {
+    return std::hash<std::string_view>{}(key);
+  }
+};
+
 State initialState(const replay::Puzzle &puzzle) {
-  State s{.blocks = puzzle.blocks,
-          .satisfied = boost::dynamic_bitset(puzzle.cells.size())};
+  State s;
+  s.blocks = puzzle.blocks;
+  s.satisfied = boost::dynamic_bitset(puzzle.cells.size());
   for (const auto &b : s.blocks) {
     s.satisfied =
         b.updateMustTouchCells(puzzle.gridWidth, puzzle.cells, s.satisfied);
@@ -109,7 +136,8 @@ bool loopCutPass(const replay::Puzzle &puzzle, std::vector<Turn> &turns) {
   if (states.empty()) {
     return false;
   }
-  std::unordered_map<std::string, size_t> firstSeen;
+  std::unordered_map<std::string, size_t, StringHash, std::equal_to<>>
+      firstSeen;
   for (size_t k = 0; k < states.size(); k++) {
     if (const auto [it, inserted] =
             firstSeen.try_emplace(stateKey(states[k]), k);
@@ -163,8 +191,11 @@ bool withoutRange(const replay::Puzzle &puzzle, std::vector<Turn> &turns,
   return true;
 }
 
+// Both removal passes return the moment they rewrite `turns`, so the size is
+// cached: the loop bound has to be invariant, and it is.
 bool inversePairPass(const replay::Puzzle &puzzle, std::vector<Turn> &turns) {
-  for (size_t i = 0; i + 1 < turns.size(); i++) {
+  const size_t count = turns.size();
+  for (size_t i = 0; i + 1 < count; i++) {
     if (isInverse(turns[i], turns[i + 1]) &&
         withoutRange(puzzle, turns, i, 2)) {
       return true;
@@ -175,7 +206,8 @@ bool inversePairPass(const replay::Puzzle &puzzle, std::vector<Turn> &turns) {
 
 bool singleRemovalPass(const replay::Puzzle &puzzle, std::vector<Turn> &turns,
                        const uint64_t deadline) {
-  for (size_t i = 0; i < turns.size(); i++) {
+  const size_t count = turns.size();
+  for (size_t i = 0; i < count; i++) {
     if (deadline != 0 && nowMs() >= deadline) {
       return false;
     }
@@ -193,66 +225,122 @@ bool singleRemovalPass(const replay::Puzzle &puzzle, std::vector<Turn> &turns,
 // blocks the original stretch used keeps the search in THEIR pose space (a
 // single block has at most 64*64*6 poses, so the search completes exactly)
 // instead of the full joint space.
-std::optional<std::vector<Turn>> connect(
-    const replay::Puzzle &puzzle, const State &from,
-    const std::string &targetKey, const size_t maxDepth,
-    const uint64_t deadline, const std::vector<uint8_t> *allowedIds = nullptr,
-    const size_t nodeCap = 20000) {
-  constexpr std::array kDirs = {Direction::UP, Direction::RIGHT,
-                                Direction::DOWN, Direction::LEFT};
+class Reconnector {
+public:
+  Reconnector(const replay::Puzzle &puzzle, const std::string_view targetKey,
+              const size_t maxDepth, const uint64_t deadline,
+              const std::vector<uint8_t> *allowedIds, const size_t nodeCap)
+      : puzzle_(puzzle), targetKey_(targetKey), maxDepth_(maxDepth),
+        deadline_(deadline), allowedIds_(allowedIds), nodeCap_(nodeCap) {}
 
+  std::optional<std::vector<Turn>> run(const State &from) {
+    arena_.push_back(
+        {.state = from, .parent = SIZE_MAX, .turn = {}, .depth = 0});
+    visited_.insert(stateKey(from));
+    pending_.push(0);
+    while (!pending_.empty()) {
+      if (arena_.size() > nodeCap_ ||
+          (deadline_ != 0 && nowMs() >= deadline_)) {
+        return std::nullopt;
+      }
+      const size_t head = pending_.front();
+      pending_.pop();
+      // Copy: growing the arena below may reallocate it.
+      const State current = arena_[head].state;
+      const size_t depth = arena_[head].depth;
+      if (depth >= maxDepth_) {
+        continue;
+      }
+      if (expandNode(current, head, depth)) {
+        return pathToLast();
+      }
+    }
+    return std::nullopt;
+  }
+
+private:
   struct Entry {
     State state;
     size_t parent;
     Turn turn;
     size_t depth;
   };
-  std::vector<Entry> arena;
-  arena.push_back({.state = from, .parent = SIZE_MAX, .turn = {}, .depth = 0});
-  std::unordered_set<std::string> visited;
-  visited.insert(stateKey(from));
 
-  for (size_t head = 0; head < arena.size(); head++) {
-    if (arena.size() > nodeCap || (deadline != 0 && nowMs() >= deadline)) {
-      return std::nullopt;
-    }
-    // Copy: growing the arena below may reallocate it.
-    const State current = arena[head].state;
-    const size_t depth = arena[head].depth;
-    if (depth >= maxDepth) {
-      continue;
-    }
+  // Rolls every allowed block four ways; true as soon as one lands on the
+  // target state.
+  bool expandNode(const State &current, const size_t head,
+                  const size_t depth) {
+    using enum Direction;
+    constexpr std::array kDirs = {UP, RIGHT, DOWN, LEFT};
     for (const auto &block : current.blocks) {
-      if (allowedIds != nullptr &&
-          !std::ranges::contains(*allowedIds, block.id)) {
+      if (allowedIds_ != nullptr &&
+          !std::ranges::contains(*allowedIds_, block.id)) {
         continue;
       }
       for (const auto dir : kDirs) {
-        State next = current;
-        if (!applyTurn(puzzle, next, {.blockId = block.id, .direction = dir})) {
-          continue;
-        }
-        std::string const key = stateKey(next);
-        if (!visited.insert(key).second) {
-          continue;
-        }
-        arena.push_back({.state = std::move(next),
-                         .parent = head,
-                         .turn = {.blockId = block.id, .direction = dir},
-                         .depth = depth + 1});
-        if (key == targetKey) {
-          std::vector<Turn> path;
-          for (size_t k = arena.size() - 1; k != SIZE_MAX && k != 0;
-               k = arena[k].parent) {
-            path.push_back(arena[k].turn);
-          }
-          std::ranges::reverse(path);
-          return path;
+        if (pushChild(current, head, depth,
+                      {.blockId = block.id, .direction = dir})) {
+          return true;
         }
       }
     }
+    return false;
   }
-  return std::nullopt;
+
+  // One candidate roll: dropped when illegal or already seen, appended to the
+  // arena otherwise. True when the state it reaches IS the target.
+  bool pushChild(const State &current, const size_t head, const size_t depth,
+                 const Turn &turn) {
+    State next = current;
+    if (!applyTurn(puzzle_, next, turn)) {
+      return false;
+    }
+    std::string key = stateKey(next);
+    const bool isTarget = key == targetKey_;
+    if (!visited_.insert(std::move(key)).second) {
+      return false;
+    }
+    arena_.push_back({.state = std::move(next),
+                      .parent = head,
+                      .turn = turn,
+                      .depth = depth + 1});
+    pending_.push(arena_.size() - 1);
+    return isTarget;
+  }
+
+  // Turn chain from the root down to the arena's newest entry.
+  [[nodiscard]] std::vector<Turn> pathToLast() const {
+    std::vector<Turn> path;
+    for (size_t k = arena_.size() - 1; k != SIZE_MAX && k != 0;
+         k = arena_[k].parent) {
+      path.push_back(arena_[k].turn);
+    }
+    std::ranges::reverse(path);
+    return path;
+  }
+
+  const replay::Puzzle &puzzle_;
+  std::string_view targetKey_;
+  size_t maxDepth_;
+  uint64_t deadline_;
+  const std::vector<uint8_t> *allowedIds_;
+  size_t nodeCap_;
+  std::vector<Entry> arena_;
+  std::unordered_set<std::string, StringHash, std::equal_to<>> visited_;
+  // Arena indices still to expand: the arena itself must keep every entry for
+  // the parent chain, so the BFS cursor is a separate queue.
+  std::queue<size_t> pending_;
+};
+
+std::optional<std::vector<Turn>>
+connect(const replay::Puzzle &puzzle, const State &from,
+        const std::string_view targetKey, const size_t maxDepth,
+        const uint64_t deadline,
+        const std::vector<uint8_t> *allowedIds = nullptr,
+        const size_t nodeCap = 20000) {
+  Reconnector reconnector(puzzle, targetKey, maxDepth, deadline, allowedIds,
+                          nodeCap);
+  return reconnector.run(from);
 }
 
 // Reconnects every stretch between consecutive must-touch events with a
