@@ -156,6 +156,21 @@ the idiom that satisfies them:
   `boost::dynamic_bitset<>` member makes the implicit move non-noexcept,
   so declare the rule of five with `noexcept = default` moves (plus a
   converting ctor, since the type is no longer an aggregate).
+- **`operator<` on a comparison key wants `operator<=>`** — even when the
+  only consumer is a `std::set` (which rewrites `<` from it). Defaulting it
+  fails if any member lacks `<=>`: `boost::dynamic_bitset<>` has only the
+  relational operators, so return `std::strong_ordering` and spell that
+  member's half out from the same `<` the old operator used (`<compare>`).
+  `std::array` does have `<=>`, so `poses <=> other.poses` is enough.
+- **A generic `throw std::runtime_error` is S112** — derive a named
+  exception (`class FixtureError final : public std::runtime_error { using
+  std::runtime_error::runtime_error; };`). Keeping `std::runtime_error` as
+  the base leaves every `catch (const std::exception &)` site unchanged.
+- **A `for` loop whose body also advances the counter** is "Refactor this
+  loop so that it is less error-prone" — the argv walk where an option
+  consumes the next element. Move the index into a cursor object
+  (`ArgCursor` in `BenchOptions.h` and in the rolling-blocks `main.cpp`) and
+  drive it from a `while`.
 - **If-init statements**: a local used only by the following `if` goes
   into it (same as the CLion inspection above; Sonar flags it too).
 
@@ -187,3 +202,17 @@ code:
   removable, but every one declares symbols the header genuinely uses and
   no project header guarantees them — removing would be include-what-you-
   use-incorrect. Leave them.
+- **`cpp:S1144` "unused member function `operator=`"** on a rule-of-five
+  block written for S5018 (`StateKey` in `SolverArms.cpp`). The five are
+  declared together only to force the moves `noexcept` — a
+  `boost::dynamic_bitset<>` member otherwise costs the implicit move its
+  noexcept — and the keys are only ever move-CONSTRUCTED into the
+  `std::set`, so the move assignment really is uncalled. Sonar can prove it
+  because the struct sits in an anonymous namespace. Deleting just that one
+  breaks the rule of five and, since a user-declared move constructor
+  deletes the implicit copies, leaves the type unassignable by any route.
+  The clang-tidy profile does not enable
+  `cppcoreguidelines-special-member-functions`, so nothing forces the
+  matter either way: two analyzers want opposite things over a 2-minute
+  smell. Leave the five intact — the noexcept guarantee is load-bearing,
+  the unused operator is not.

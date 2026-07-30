@@ -6,7 +6,12 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
+#include <compare>
+#include <iterator>
+#include <map>
 #include <optional>
+#include <set>
 #include <string_view>
 #include <utility>
 
@@ -238,487 +243,711 @@ struct SplitContext {
   uint64_t progressBase = 0;
 };
 
-// Per-attempt knobs for one chunked-alternation run.
+// Per-attempt knobs for one leg-order search.
 struct ChunkOptions {
-  size_t firstIdx = 0;
   bool wallForeign = false;
-  size_t chunkCount = 4;
-  bool farthestFirst = false;
-  uint32_t legMs = 0;
+  // Per-leg cap. Deliberately short: successful legs land in single-digit
+  // milliseconds, so a tight cap costs almost no solutions and buys an
+  // order of magnitude more exploration.
+  uint32_t legMs = 500;
   uint64_t deadline = 0;
+  size_t beamWidth = 12;
 };
 
-constexpr uint32_t kMaxBacktracks = 64;
-constexpr uint32_t kMaxLegSeeds = 3;
+// A board position mid-search: where the blocks stand, which cells are
+// satisfied, and the plan that produced it.
+struct LegState {
+  std::vector<Block> blocks;
+  boost::dynamic_bitset<> sat;
+  std::vector<Turn> plan;
 
-// Chunked alternation, the scheme for boards whose witness INTERLEAVES the
-// two blocks (fuzz-7007's class — an all-A-then-all-B plan walls the second
-// block into pockets). Alternate short legs A1 B1 A2 B2 …: each leg runs
-// the single-block cracker against the active block's nearest still-open
-// chunk of its share, re-planned from the real mid state (satisfied cells
-// and the parked partner are walls). Every leg's plan is applied to the
-// REAL board before the next leg, and the concatenation must survive a full
-// replay at the end.
-class ChunkedAlternation {
-public:
-  ChunkedAlternation(const SplitContext &ctx,
-                     const std::vector<uint8_t> &shareOf,
-                     const ChunkOptions &opts)
-      : ctx_(ctx), shareOf_(shareOf), opts_(opts),
-        totalCells_(ctx.puzzle.cells.size()), cur_(ctx.puzzle.blocks),
-        sat_(ctx.puzzle.cells.size()), active_(opts.firstIdx) {
-    for (size_t i = 0; i < totalCells_; i++) {
-      if (ctx_.puzzle.cells[i] == Tile::MustTouch) {
-        chunkSize_[shareOf_[i]]++;
+  // dynamic_bitset is generic over allocators and so does not mark its move
+  // noexcept, which makes the implicit move here potentially throwing — and
+  // LegStates live inside Nodes inside vectors, where that means every
+  // relocation copies the bitset instead of stealing it. With the default
+  // allocator the move is a vector move and cannot throw. Declaring these
+  // drops the aggregate initialization (hence the assignments in run()).
+  LegState() = default;
+  LegState(const LegState &) = default;
+  LegState &operator=(const LegState &) = default;
+  LegState(LegState &&) noexcept = default;
+  LegState &operator=(LegState &&) noexcept = default;
+  ~LegState() = default;
+};
+
+// One leg's shape: which block moves, which of its reachable cells it
+// aims at (by rank in the distance ordering, optionally counted from the
+// far end), and how many consecutive cells it tries to take at once.
+//
+// Small targets are the whole point. A leg that asks for a big chunk of a
+// dense blob usually FAILS, and a failed leg costs its entire time budget
+// while telling the search nothing — measured on the 7007 endgame, 14 of
+// 15 whole-share legs came back empty and the frontier never grew past one
+// node. One-cell legs land in milliseconds, so the search gets the breadth
+// it needs and the thing being searched becomes the cell ORDER.
+struct LegChoice {
+  size_t active = 0;
+  size_t targetRank = 0;
+  size_t chunk = 1;
+  bool farthest = false;
+};
+
+// A cell is passable while it is not a wall: satisfied must-touch cells are
+// walls forever (the game's one-shot rule), so passability only shrinks.
+bool cellPassable(const replay::Puzzle &puzzle,
+                  const boost::dynamic_bitset<> &sat, const size_t idx) {
+  return puzzle.cells[idx] != Tile::Unplayable &&
+         !(puzzle.cells[idx] == Tile::MustTouch && sat.test(idx));
+}
+
+// Open cells with at most one way in. A pocket-end has to be entered from
+// its single neighbour and left the same way, so every one of them is a
+// future deadlock the ordering has to spend a visit on.
+size_t countFragile(const replay::Puzzle &puzzle,
+                    const boost::dynamic_bitset<> &sat) {
+  size_t fragile = 0;
+  for (size_t i = 0; i < puzzle.cells.size(); i++) {
+    if (puzzle.cells[i] != Tile::MustTouch || sat.test(i)) {
+      continue;
+    }
+    size_t ways = 0;
+    forEachNeighbor(puzzle.gridWidth, puzzle.gridHeight,
+                    static_cast<uint16_t>(i),
+                    [&puzzle, &sat, &ways](const uint16_t nidx) {
+                      ways += cellPassable(puzzle, sat, nidx) ? 1 : 0;
+                    });
+    if (ways <= 1) {
+      fragile++;
+    }
+  }
+  return fragile;
+}
+
+// Connected pieces of still-passable floor that hold open cells: the
+// remaining work split into how many separate errands. Each extra piece is
+// a transit the blocks may no longer be able to make.
+size_t countOpenRegions(const replay::Puzzle &puzzle,
+                        const boost::dynamic_bitset<> &sat) {
+  const size_t totalCells = puzzle.cells.size();
+  std::vector<bool> seen(totalCells, false);
+  std::vector<uint16_t> stack;
+  size_t regions = 0;
+  for (size_t start = 0; start < totalCells; start++) {
+    if (seen[start] || !cellPassable(puzzle, sat, start)) {
+      continue;
+    }
+    bool hasOpen = false;
+    seen[start] = true;
+    stack.push_back(static_cast<uint16_t>(start));
+    while (!stack.empty()) {
+      const uint16_t idx = stack.back();
+      stack.pop_back();
+      hasOpen = hasOpen || puzzle.cells[idx] == Tile::MustTouch;
+      forEachNeighbor(puzzle.gridWidth, puzzle.gridHeight, idx,
+                      [&puzzle, &sat, &seen, &stack](const uint16_t nidx) {
+                        if (seen[nidx] || !cellPassable(puzzle, sat, nidx)) {
+                          return;
+                        }
+                        seen[nidx] = true;
+                        stack.push_back(nidx);
+                      });
+    }
+    if (hasOpen) {
+      regions++;
+    }
+  }
+  return regions;
+}
+
+// How healthy a position is. `open` is the progress axis; `dead` is the
+// hard gate (a cell neither block can reach any more is a lost board); the
+// other two are the SHAPE of what is left, which is what separates two
+// equally-far-along positions into one that finishes and one that
+// deadlocks three legs later.
+struct StateScore {
+  size_t open = 0;
+  size_t dead = 0;
+  size_t fragile = 0;
+  size_t regions = 0;
+};
+
+StateScore scoreState(const replay::Puzzle &puzzle, const LegState &state) {
+  const auto reachA = coverField(puzzle, state.blocks[0], state.sat);
+  const auto reachB = coverField(puzzle, state.blocks[1], state.sat);
+  StateScore score;
+  for (size_t i = 0; i < puzzle.cells.size(); i++) {
+    if (puzzle.cells[i] != Tile::MustTouch || state.sat.test(i)) {
+      continue;
+    }
+    score.open++;
+    if (reachA[i] == UINT16_MAX && reachB[i] == UINT16_MAX) {
+      score.dead++;
+    }
+  }
+  score.fragile = countFragile(puzzle, state.sat);
+  score.regions = countOpenRegions(puzzle, state.sat);
+  return score;
+}
+
+constexpr uint64_t kOpenWeight = 1000;
+
+// Lower is better, and progress is LEXICALLY first: the shape terms are
+// capped below the per-cell weight so they can only order positions that
+// are equally far along. Letting them cross that line was measured to
+// stall the search outright — a leg that satisfies one cell but leaves
+// three new pocket-ends scored worse than its own parent, so the frontier
+// kept abandoning the line it had just advanced and thrashed among shallow
+// positions (227 open where a plain greedy dive reaches 96).
+uint64_t stateCost(const StateScore &score) {
+  const uint64_t shape = 2ULL * score.fragile + 4ULL * score.regions;
+  return kOpenWeight * score.open + std::min<uint64_t>(shape, kOpenWeight - 1);
+}
+
+// The split scheme is two-block by construction — runSplitCoverage returns
+// empty for any other count — which is what lets a pose key be a fixed-size
+// array instead of a vector.
+constexpr size_t kSplitBlocks = 2;
+constexpr size_t kPoseBytes = 5;
+
+// Closed-set key. The satisfied set is monotone and the blocks' poses are
+// the rest of the state, so an exact repeat means a different leg order
+// reached the same position — the one that got there first was at least as
+// cheap, and re-expanding is pure waste.
+struct StateKey {
+  std::array<uint8_t, kSplitBlocks * kPoseBytes> poses{};
+  boost::dynamic_bitset<> sat;
+
+  // Keys live in a std::set, which only ever needs `<` — but a three-way
+  // comparison is what the ordering actually is, and `<` is rewritten from
+  // it. dynamic_bitset has no <=> of its own, so its half is spelled out
+  // from the same `<` the previous operator used: same order, same set.
+  std::strong_ordering operator<=>(const StateKey &other) const {
+    if (const auto cmp = poses <=> other.poses;
+        cmp != std::strong_ordering::equal) {
+      return cmp;
+    }
+    if (sat < other.sat) {
+      return std::strong_ordering::less;
+    }
+    if (other.sat < sat) {
+      return std::strong_ordering::greater;
+    }
+    return std::strong_ordering::equal;
+  }
+
+  // As for LegState: a dynamic_bitset member costs the implicit move its
+  // noexcept, and these keys are moved into the closed set.
+  StateKey() = default;
+  StateKey(const StateKey &) = default;
+  StateKey &operator=(const StateKey &) = default;
+  StateKey(StateKey &&) noexcept = default;
+  StateKey &operator=(StateKey &&) noexcept = default;
+  ~StateKey() = default;
+};
+
+StateKey makeKey(const LegState &state) {
+  // `poses` is sized for the two blocks the scheme is gated on; a third
+  // would run off the end rather than fail a comparison.
+  assert(state.blocks.size() <= kSplitBlocks);
+  StateKey key;
+  key.sat = state.sat;
+  size_t at = 0;
+  for (const auto &b : state.blocks) {
+    key.poses[at++] = static_cast<uint8_t>(b.x);
+    key.poses[at++] = static_cast<uint8_t>(b.y);
+    key.poses[at++] = b.width;
+    key.poses[at++] = b.depth;
+    key.poses[at++] = b.height;
+  }
+  return key;
+}
+
+// The cells this leg may chase: the active block's own share first, and
+// when that is exhausted or walled off, the partner's too — the
+// nearest-block partition is a heuristic, not a commitment. Ordered by
+// pose-space distance, nearest or deepest first per the choice.
+std::vector<uint16_t> collectCandidates(const SplitContext &ctx,
+                                        const std::vector<uint8_t> &shareOf,
+                                        const LegState &state,
+                                        const size_t active) {
+  const size_t totalCells = ctx.puzzle.cells.size();
+  boost::dynamic_bitset<> walls = state.sat;
+  for (const uint16_t idx :
+       blockFootprint(state.blocks[1 - active], ctx.puzzle.gridWidth)) {
+    walls.set(idx);
+  }
+  const auto field = coverField(ctx.puzzle, state.blocks[active], walls);
+
+  std::vector<uint16_t> candidates;
+  const auto gather = [&](const bool ownShareOnly) {
+    for (size_t i = 0; i < totalCells; i++) {
+      if (ctx.puzzle.cells[i] != Tile::MustTouch || state.sat.test(i) ||
+          field[i] == UINT16_MAX) {
+        continue;
+      }
+      if (!ownShareOnly || shareOf[i] == active) {
+        candidates.push_back(static_cast<uint16_t>(i));
       }
     }
-    for (auto &size : chunkSize_) {
-      size = std::max<size_t>(1, (size + opts_.chunkCount - 1) /
-                                     opts_.chunkCount);
+  };
+  gather(true);
+  if (candidates.empty()) {
+    gather(false);
+  }
+  std::ranges::sort(candidates, {},
+                    [&field](const uint16_t c) { return field[c]; });
+  return candidates;
+}
+
+// The single-block sub-puzzle for one leg. "Avoid" style walls every
+// foreign must-touch cell (interaction-free but heavily constrained);
+// subset style keeps the real one-shot semantics everywhere and merely
+// tells the cracker which cells this leg is responsible for, so the plan
+// replays legally on the full board by construction.
+std::pair<replay::Puzzle, std::vector<uint16_t>>
+buildLegPuzzle(const SplitContext &ctx, const LegState &state,
+               const size_t active, const std::vector<uint16_t> &targets,
+               const bool wallForeign) {
+  const size_t totalCells = ctx.puzzle.cells.size();
+  replay::Puzzle sub{.gridWidth = ctx.puzzle.gridWidth,
+                     .gridHeight = ctx.puzzle.gridHeight,
+                     .cells = ctx.puzzle.cells,
+                     .blocks = {state.blocks[active]}};
+  for (const uint16_t idx :
+       blockFootprint(state.blocks[1 - active], ctx.puzzle.gridWidth)) {
+    sub.cells[idx] = Tile::Unplayable;
+  }
+  std::vector<uint16_t> requiredVec;
+  if (wallForeign) {
+    boost::dynamic_bitset wanted(totalCells);
+    for (const uint16_t idx : targets) {
+      wanted.set(idx);
     }
-    for (const auto &b : cur_) {
-      sat_ = b.updateMustTouchCells(ctx_.puzzle.gridWidth, ctx_.puzzle.cells,
-                                    sat_);
+    for (size_t i = 0; i < totalCells; i++) {
+      if (ctx.puzzle.cells[i] == Tile::MustTouch && !wanted.test(i)) {
+        sub.cells[i] = Tile::Unplayable;
+      }
     }
-    baselineDead_ = deadCount();
+  } else {
+    for (size_t i = 0; i < totalCells; i++) {
+      if (ctx.puzzle.cells[i] == Tile::MustTouch && state.sat.test(i)) {
+        sub.cells[i] = Tile::Unplayable;
+      }
+    }
+    requiredVec = targets;
+  }
+  return {std::move(sub), std::move(requiredVec)};
+}
+
+// Apply the leg's legal PREFIX to `state`. A subset-style leg replays whole
+// by construction; a prefix that dies early still carries real progress.
+// Returns whether anything new got satisfied.
+bool applyLegPrefix(const SplitContext &ctx, LegState &state,
+                    const std::vector<Turn> &legTurns) {
+  const size_t before = state.sat.count();
+  for (const auto &turn : legTurns) {
+    const auto it = std::ranges::find_if(
+        state.blocks,
+        [&turn](const Block &b) { return b.id == turn.blockId; });
+    if (it == state.blocks.end()) {
+      return false;
+    }
+    it->roll(turn.direction);
+    if (!it->checkValidity(ctx.puzzle.gridWidth, ctx.puzzle.gridHeight,
+                           ctx.puzzle.cells, state.blocks, state.sat)) {
+      using enum Direction;
+      constexpr std::array kInverse = {DOWN, LEFT, UP, RIGHT};
+      it->roll(kInverse[std::to_underlying(turn.direction)]);
+      break;
+    }
+    state.sat = it->updateMustTouchCells(ctx.puzzle.gridWidth,
+                                         ctx.puzzle.cells, state.sat);
+    state.plan.push_back(turn);
+  }
+  return state.sat.count() > before;
+}
+
+// Once the alternation has shrunk the board to a small endgame, hand the
+// WHOLE remainder (both blocks, real one-shot semantics, satisfied cells as
+// walls) to the joint cracker: the joint walk drowns on a 300-cell board
+// but a sub-100-cell endgame is exactly its size.
+constexpr size_t kJointFinishOpen = 100;
+constexpr uint64_t kJointFinishMs = 10000;
+constexpr uint64_t kBulkLegFactor = 6;
+constexpr size_t kBulkShareDivisor = 8;
+constexpr size_t kChildrenPerExpansion = 4;
+constexpr size_t kMaxReserve = 4000;
+
+std::vector<Turn> jointFinish(const SplitContext &ctx, const LegState &state,
+                              const uint32_t budgetMs, const uint32_t seed) {
+  replay::Puzzle fin{.gridWidth = ctx.puzzle.gridWidth,
+                     .gridHeight = ctx.puzzle.gridHeight,
+                     .cells = ctx.puzzle.cells,
+                     .blocks = state.blocks};
+  for (size_t i = 0; i < ctx.puzzle.cells.size(); i++) {
+    if (ctx.puzzle.cells[i] == Tile::MustTouch && state.sat.test(i)) {
+      fin.cells[i] = Tile::Unplayable;
+    }
+  }
+  AStar::Config finCfg = ctx.base;
+  finCfg.seed = seed;
+  finCfg.jointCoverageIntact = true;
+  return crackLeg(fin, finCfg, budgetMs, ctx.stats, ctx.onProgress,
+                  ctx.progressBase + ctx.stats.nodesExpanded);
+}
+
+// A real search over leg ORDER — the scheme for boards whose witness
+// INTERLEAVES the two blocks (fuzz-7007's class, where an
+// all-A-then-all-B plan walls the second block into pockets).
+//
+// Its predecessor walked ONE greedy chunk sequence and could only repair it
+// by rewinding a bounded number of legs, which was measured to be far too
+// little: the mistake on those boards is the ORDER itself, usually several
+// legs back, and the position that pays for it still looks like the best
+// one available. So here every position is a node, every leg is an edge,
+// and the frontier is expanded best-first on how healthy the REMAINING
+// board looks (see stateCost). A promising-but-doomed line simply loses to
+// a sibling instead of having to be unwound step by step.
+class LegOrderSearch {
+public:
+  LegOrderSearch(const SplitContext &ctx, const std::vector<uint8_t> &shareOf,
+                 const ChunkOptions &opts)
+      : ctx_(ctx), shareOf_(shareOf), opts_(opts) {
+    for (size_t i = 0; i < ctx_.puzzle.cells.size(); i++) {
+      if (ctx_.puzzle.cells[i] == Tile::MustTouch) {
+        bulkChunk_[shareOf_[i]]++;
+      }
+    }
+    for (auto &size : bulkChunk_) {
+      size = std::max<size_t>(1, size / kBulkShareDivisor);
+    }
   }
 
   std::vector<Turn> run() {
-    using enum Step;
-    while (true) {
-      if (nowMs() >= opts_.deadline) {
-        return {};
-      }
-      if (!anyOpenCell()) {
+    LegState root;
+    root.blocks = ctx_.puzzle.blocks;
+    root.sat = boost::dynamic_bitset(ctx_.puzzle.cells.size());
+    for (const auto &b : root.blocks) {
+      root.sat = b.updateMustTouchCells(ctx_.puzzle.gridWidth,
+                                        ctx_.puzzle.cells, root.sat);
+    }
+    const StateScore rootScore = scoreState(ctx_.puzzle, root);
+    baselineDead_ = rootScore.dead;
+    push(std::move(root), rootScore);
+
+    while (nowMs() < opts_.deadline) {
+      if (frontier_.empty() && !refillFromReserve()) {
         break;
       }
-      const Step step = runStep();
-      if (step == Solved) {
-        return plan_;
+      if (auto solved = expand(popBest()); !solved.empty()) {
+        return solved;
       }
-      if (step == Dead) {
-        return {};
-      }
-    }
-    if (const auto outcome = replay::replayTurns(ctx_.puzzle, plan_);
-        outcome.legal && outcome.solvedAtEnd) {
-      return plan_;
     }
     return {};
   }
 
 private:
-  enum class Step : uint8_t { Continue, Solved, Dead };
-  enum class HandOutcome : uint8_t { Done, Failed, Aborted };
-  enum class ApplyResult : uint8_t { Progress, NoProgress, UnknownBlock };
-  struct Leg {
-    std::vector<Turn> turns;
-    bool aborted = false;
-  };
-  // Hand-level backtracking: greedy leg ORDER is what paints the scheme
-  // into corners, so every successful leg snapshots the state before it.
-  // When both hands are stuck, rewind to the most recent leg that still
-  // has unused seed variants and replay it differently instead of
-  // discarding the whole attempt.
-  struct LegSnap {
-    std::vector<Block> blocks;
-    boost::dynamic_bitset<> sat;
-    size_t planLen = 0;
-    size_t active = 0;
-    uint32_t seedBump = 0;
-
-    LegSnap(std::vector<Block> blocksIn, boost::dynamic_bitset<> satIn,
-            const size_t planLenIn, const size_t activeIn,
-            const uint32_t seedBumpIn)
-        : blocks(std::move(blocksIn)), sat(std::move(satIn)),
-          planLen(planLenIn), active(activeIn), seedBump(seedBumpIn) {}
-    LegSnap(const LegSnap &) = default;
-    LegSnap &operator=(const LegSnap &) = default;
-    LegSnap(LegSnap &&) noexcept = default;
-    LegSnap &operator=(LegSnap &&) noexcept = default;
-    ~LegSnap() = default;
-  };
-
-  Step runStep() {
-    using enum Step;
-    const auto candidates = collectCandidates();
-    if (candidates.empty()) {
-      // Nothing reachable for this block right now — hand over. Two
-      // consecutive stuck hands mean neither block can progress from here;
-      // rewind to an earlier leg (satisfied cells only accumulate, so
-      // waiting cannot help).
-      return handOver();
-    }
-    if (consecFails_[active_] >= 3 && stuckHands_ == 0) {
-      // This block keeps failing; let the partner mop at full speed
-      // instead of paying a full hand budget every other turn. It gets a
-      // real try again once the partner is stuck too (or after a rewind).
-      active_ = 1 - active_;
-      return Continue;
-    }
-    const HandOutcome hand = runHand(candidates);
-    if (hand == HandOutcome::Aborted) {
-      return Dead;
-    }
-    if (hand == HandOutcome::Failed) {
-      consecFails_[active_]++;
-      return handOver();
-    }
-    consecFails_[active_] = 0;
-    pendingBump_ = 0;
-    stuckHands_ = 0;
-    active_ = 1 - active_;
-    return tryJointFinish(false) ? Solved : Continue;
-  }
-
-  // The current hand cannot progress: pass to the partner, and once both
-  // hands are stuck in a row, try the joint finisher and then rewind.
-  Step handOver() {
-    using enum Step;
-    if (++stuckHands_ >= 2) {
-      if (tryJointFinish(true)) {
-        return Solved;
-      }
-      return rewind() ? Continue : Dead;
-    }
-    pendingBump_ = 0;
-    active_ = 1 - active_;
-    return Continue;
-  }
-
-  [[nodiscard]] std::vector<uint16_t> collectCandidates() const {
-    boost::dynamic_bitset<> walls = sat_;
-    for (const uint16_t idx :
-         blockFootprint(cur_[1 - active_], ctx_.puzzle.gridWidth)) {
-      walls.set(idx);
-    }
-    const auto field = coverField(ctx_.puzzle, cur_[active_], walls);
-
-    // The active block's own share first; when that is exhausted or walled
-    // off, mop up the partner's share too — the nearest-block assignment is
-    // a heuristic, not a commitment.
-    std::vector<uint16_t> candidates;
-    for (size_t i = 0; i < totalCells_; i++) {
-      if (ctx_.puzzle.cells[i] == Tile::MustTouch && !sat_.test(i) &&
-          shareOf_[i] == active_ && field[i] != UINT16_MAX) {
-        candidates.push_back(static_cast<uint16_t>(i));
-      }
-    }
-    if (candidates.empty()) {
-      for (size_t i = 0; i < totalCells_; i++) {
-        if (ctx_.puzzle.cells[i] == Tile::MustTouch && !sat_.test(i) &&
-            field[i] != UINT16_MAX) {
-          candidates.push_back(static_cast<uint16_t>(i));
-        }
-      }
-    }
-    // Nearest-first mops outward from the block; farthest-first fills the
-    // deepest pockets before they get walled shut and retreats outward —
-    // the discipline a coverage walk's witness follows.
-    std::ranges::sort(candidates, {},
-                      [&field](const uint16_t c) { return field[c]; });
-    if (opts_.farthestFirst) {
-      std::ranges::reverse(candidates);
-    }
-    // Backtracked re-runs need STRUCTURAL variety — the ordering terms
-    // dominate the seeded jitter, so a reseeded identical hand replays the
-    // identical leg. Bump 1 flips the target order, bump 2 rotates it.
-    if (pendingBump_ == 1) {
-      std::ranges::reverse(candidates);
-    } else if (pendingBump_ == 2 && candidates.size() > 1) {
-      std::ranges::rotate(candidates, candidates.begin() + 1);
-    }
-    return candidates;
-  }
-
-  // A hand gets a few seed-diversified tries. Each try solves a leg
-  // (adaptively halving the target chunk down to one cell when the
-  // cracker declines), applies its legal prefix to the real board, and
-  // passes two gates: it must satisfy something new, and it must not
-  // strand a cell (deadCount growing means some still-open cell became
-  // uncoverable by BOTH blocks — walls only accumulate, so that loss is
-  // permanent and the leg gets rolled back).
-  HandOutcome runHand(const std::vector<uint16_t> &candidates) {
-    const std::vector<Block> handCur = cur_;
-    const boost::dynamic_bitset<> handSat = sat_;
-    const size_t handPlanLen = plan_.size();
-    // A hand never gets more than ~1.5 legs of wall clock: a block that is
-    // about to fail otherwise burns retries x ladder x legMs while its
-    // partner has real work waiting.
-    const uint64_t handDeadline = std::min<uint64_t>(
-        opts_.deadline, nowMs() + opts_.legMs + opts_.legMs / 2);
-    for (uint32_t retry = 0; retry < 2; retry++) {
-      Leg leg = solveLeg(candidates, retry, handDeadline);
-      if (leg.aborted) {
-        return HandOutcome::Aborted;
-      }
-      if (leg.turns.empty()) {
-        continue;
-      }
-      const ApplyResult applied = applyLegPrefix(leg.turns);
-      if (applied == ApplyResult::UnknownBlock) {
-        return HandOutcome::Aborted;
-      }
-      if (applied == ApplyResult::NoProgress) {
-        continue;
-      }
-      history_.emplace_back(handCur, handSat, handPlanLen, active_,
-                            pendingBump_);
-      return HandOutcome::Done;
-    }
-    return HandOutcome::Failed;
-  }
-
-  [[nodiscard]] Leg solveLeg(const std::vector<uint16_t> &candidates,
-                             const uint32_t retry,
-                             const uint64_t handDeadline) const {
-    AStar::Config legCfg = ctx_.base;
-    legCfg.seed = ctx_.base.seed + (pendingBump_ * 2 + retry) * 104729;
-    // Every touching move inside the leg must keep every open cell
-    // coverable by the active block or the parked partner — the prune
-    // that stops dense-blob sweeps from walling off whole regions.
-    legCfg.coveragePartner = &cur_[1 - active_];
-
-    size_t tryCount = std::min(candidates.size(), chunkSize_[active_]);
-    while (true) {
-      const auto [sub, requiredVec] = buildLegPuzzle(candidates, tryCount);
-      const uint64_t legNow = nowMs();
-      if (legNow >= opts_.deadline) {
-        return {.aborted = true};
-      }
-      if (legNow >= handDeadline) {
-        return {};
-      }
-      if (auto legTurns =
-              crackLeg(sub, legCfg,
-                       static_cast<uint32_t>(std::min<uint64_t>(
-                           opts_.legMs, handDeadline - legNow)),
-                       ctx_.stats, ctx_.onProgress,
-                       ctx_.progressBase + ctx_.stats.nodesExpanded,
-                       requiredVec.empty() ? nullptr : &requiredVec);
-          !legTurns.empty() || tryCount == 1) {
-        return {.turns = std::move(legTurns)};
-      }
-      // The coverage-intact prune makes smaller legs strictly easier, so
-      // shrink aggressively instead of a long halving ladder.
-      tryCount = tryCount > 4 ? tryCount / 4 : 1;
-    }
-  }
-
-  [[nodiscard]] std::pair<replay::Puzzle, std::vector<uint16_t>>
-  buildLegPuzzle(const std::vector<uint16_t> &candidates,
-                 const size_t tryCount) const {
-    replay::Puzzle sub{.gridWidth = ctx_.puzzle.gridWidth,
-                       .gridHeight = ctx_.puzzle.gridHeight,
-                       .cells = ctx_.puzzle.cells,
-                       .blocks = {cur_[active_]}};
-    for (const uint16_t idx :
-         blockFootprint(cur_[1 - active_], ctx_.puzzle.gridWidth)) {
-      sub.cells[idx] = Tile::Unplayable;
-    }
-    std::vector<uint16_t> requiredVec;
-    if (opts_.wallForeign) {
-      // "Avoid" style: everything outside the target chunk is a wall —
-      // interaction-free but heavily constrained.
-      boost::dynamic_bitset target(totalCells_);
-      for (size_t t = 0; t < tryCount; t++) {
-        target.set(candidates[t]);
-      }
-      for (size_t i = 0; i < totalCells_; i++) {
-        if (ctx_.puzzle.cells[i] == Tile::MustTouch && !target.test(i)) {
-          sub.cells[i] = Tile::Unplayable;
-        }
-      }
-    } else {
-      // Subset style: every must-touch cell keeps its real one-shot
-      // semantics (crossable once, then a wall the engine tracks), and
-      // the cracker is told to chase only the target chunk. Leg plans
-      // found this way replay legally on the full board by construction.
-      for (size_t i = 0; i < totalCells_; i++) {
-        if (ctx_.puzzle.cells[i] == Tile::MustTouch && sat_.test(i)) {
-          sub.cells[i] = Tile::Unplayable;
-        }
-      }
-      if (tryCount == 1 && opts_.farthestFirst) {
-        // Single-cell fallback always goes for the NEAREST cell — a
-        // lone farthest target is the hardest ask in the scheme.
-        requiredVec.assign(1, candidates.back());
-      } else {
-        requiredVec.assign(candidates.begin(),
-                           candidates.begin() +
-                               static_cast<ptrdiff_t>(tryCount));
-      }
-    }
-    return {std::move(sub), std::move(requiredVec)};
-  }
-
-  // Apply the leg's legal PREFIX to the real board. A subset-style leg
-  // replays fully by construction; a free prefix that dies early still
-  // carries real progress. Snapshot first so the gates can roll back.
-  ApplyResult applyLegPrefix(const std::vector<Turn> &legTurns) {
-    const std::vector<Block> curSnap = cur_;
-    const boost::dynamic_bitset<> satSnap = sat_;
-    const size_t planLen = plan_.size();
-    for (const auto &turn : legTurns) {
-      const auto it = std::ranges::find_if(
-          cur_, [&turn](const Block &b) { return b.id == turn.blockId; });
-      if (it == cur_.end()) {
-        return ApplyResult::UnknownBlock;
-      }
-      it->roll(turn.direction);
-      if (!it->checkValidity(ctx_.puzzle.gridWidth, ctx_.puzzle.gridHeight,
-                             ctx_.puzzle.cells, cur_, sat_)) {
-        using enum Direction;
-        constexpr std::array kInverse = {DOWN, LEFT, UP, RIGHT};
-        it->roll(kInverse[std::to_underlying(turn.direction)]);
-        break;
-      }
-      sat_ = it->updateMustTouchCells(ctx_.puzzle.gridWidth, ctx_.puzzle.cells,
-                                      sat_);
-      plan_.push_back(turn);
-    }
-    if (sat_.count() == satSnap.count() || deadCount() > baselineDead_) {
-      cur_ = curSnap;
-      sat_ = satSnap;
-      plan_.resize(planLen);
-      return ApplyResult::NoProgress;
-    }
-    return ApplyResult::Progress;
-  }
-
-  bool rewind() {
-    // Periodic deep rewind: shallow rewinds keep reconverging when the
-    // real mistake is a giant early leg, so occasionally jump straight
-    // back toward it (but never drain a short history — those snapshots
-    // are the only retry capital an attempt has).
-    if (backtracks_ % 6 == 5 && history_.size() > 8) {
-      const size_t target = history_.size() / 2;
-      while (history_.size() > target) {
-        history_.pop_back();
-      }
-    }
-    while (!history_.empty() && backtracks_ < kMaxBacktracks) {
-      LegSnap snap = std::move(history_.back());
-      history_.pop_back();
-      backtracks_++;
-      if (snap.seedBump + 1 >= kMaxLegSeeds) {
-        continue; // this decision point is spent; rewind further
-      }
-      cur_ = std::move(snap.blocks);
-      sat_ = std::move(snap.sat);
-      plan_.resize(snap.planLen);
-      active_ = snap.active;
-      pendingBump_ = snap.seedBump + 1;
-      stuckHands_ = 0;
-      consecFails_ = {};
-      return true;
-    }
-    return false;
-  }
-
-  // The joint finisher: once the alternation has shrunk the board to a
-  // small endgame, hand the WHOLE remaining sub-puzzle (both blocks, real
-  // one-shot semantics, satisfied cells as walls) to the joint cracker.
-  // The joint walk drowned on the full 306-cell board but a sub-100-cell
-  // endgame is exactly its size; gated on the open count improving so a
-  // stuck plateau does not pay for it repeatedly.
-  bool tryJointFinish(const bool atStuckPoint) {
+  struct Node {
+    LegState state;
+    uint64_t cost = 0;
     size_t open = 0;
-    for (size_t i = 0; i < totalCells_; i++) {
-      if (ctx_.puzzle.cells[i] == Tile::MustTouch && !sat_.test(i)) {
-        open++;
+    size_t lastActive = SIZE_MAX;
+  };
+
+  // The successor set of every position, per block. It has to span chunk
+  // SIZES, not just which cell comes next: big sweeps are where the cheap
+  // progress is (one leg can land dozens of cells when the neighbourhood
+  // is open), while single-cell legs are the ones that still land in a
+  // dense blob where every big ask fails. Offering both lets the search
+  // take bulk progress while it is available and switch to precision when
+  // it is not — the greedy scheme had to be configured for one or the
+  // other up front, per attempt.
+  static constexpr std::array<LegChoice, 12> kChoices = {{
+      {.active = 0, .targetRank = 0, .chunk = 0, .farthest = false},
+      {.active = 1, .targetRank = 0, .chunk = 0, .farthest = false},
+      {.active = 0, .targetRank = 0, .chunk = 8, .farthest = false},
+      {.active = 1, .targetRank = 0, .chunk = 8, .farthest = false},
+      {.active = 0, .targetRank = 0, .chunk = 1, .farthest = false},
+      {.active = 1, .targetRank = 0, .chunk = 1, .farthest = false},
+      {.active = 0, .targetRank = 1, .chunk = 1, .farthest = false},
+      {.active = 1, .targetRank = 1, .chunk = 1, .farthest = false},
+      {.active = 0, .targetRank = 2, .chunk = 1, .farthest = false},
+      {.active = 1, .targetRank = 2, .chunk = 1, .farthest = false},
+      {.active = 0, .targetRank = 0, .chunk = 1, .farthest = true},
+      {.active = 1, .targetRank = 0, .chunk = 1, .farthest = true},
+  }};
+
+  enum class Step : uint8_t { None, Solved };
+
+  // One side's worth of successors. `wanted` is the block that should move
+  // (SIZE_MAX at the root, where either may); a solved child short-circuits
+  // the whole search through `out`.
+  Step expandSide(const Node &node, const size_t wanted, size_t &born,
+                  std::vector<Turn> &out) {
+    for (const auto &choice : kChoices) {
+      if (nowMs() >= opts_.deadline || born >= kChildrenPerExpansion) {
+        return Step::None;
+      }
+      if (wanted != SIZE_MAX && choice.active != wanted) {
+        continue;
+      }
+      auto child = growChild(node, choice);
+      if (!child) {
+        continue;
+      }
+      if (child->open == 0) {
+        if (auto plan = validated(child->state.plan); !plan.empty()) {
+          out = std::move(plan);
+          return Step::Solved;
+        }
+        continue;
+      }
+      child->lastActive = choice.active;
+      born++;
+      pushNode(std::move(*child));
+    }
+    return Step::None;
+  }
+
+  std::vector<Turn> expand(const Node &node) {
+    if (auto finished = tryJointFinish(node); !finished.empty()) {
+      return finished;
+    }
+    std::vector<Turn> out;
+    // ALTERNATE first. Cost is dominated by progress, so a frontier left
+    // to its own devices keeps handing the next leg to whichever block
+    // just gained the most — it mono-block dives and walls itself in,
+    // which is the exact failure the two-block scheme exists to avoid
+    // (measured: without this the search stalled at 227 open where the
+    // alternating predecessor reached 96). Same-block legs are still
+    // available, but only once the partner has nothing to offer.
+    size_t born = 0;
+    // The root has no previous mover, so neither side is "the partner" and
+    // every choice is allowed — which is exactly expandSide's SIZE_MAX
+    // wildcard. Spelled out because `1 - lastActive` reached the same
+    // children only by wrapping to 2, matching no choice, and falling
+    // through to the second pass.
+    const size_t partner =
+        node.lastActive == SIZE_MAX ? SIZE_MAX : 1 - node.lastActive;
+    if (const Step step = expandSide(node, partner, born, out);
+        step != Step::None) {
+      return out;
+    }
+    if (born == 0 && partner != SIZE_MAX) {
+      if (const Step step = expandSide(node, node.lastActive, born, out);
+          step != Step::None) {
+        return out;
       }
     }
-    if (open == 0 || open > 100) {
-      return false;
+    return {};
+  }
+
+  // A stable per-choice salt so siblings get different cracker walks.
+  [[nodiscard]] static uint32_t seedOf(const LegChoice &choice) {
+    return static_cast<uint32_t>(choice.active * 7U + choice.targetRank * 3U +
+                                 choice.chunk + (choice.farthest ? 1U : 0U));
+  }
+
+  // The cells this choice aims at: a slice of the distance ordering,
+  // counted from the near end or (farthest) the deep end. Candidates are
+  // recomputed per choice because the two blocks see different fields.
+  [[nodiscard]] std::vector<uint16_t>
+  pickTargets(const LegState &state, const LegChoice &choice) const {
+    const auto candidates =
+        collectCandidates(ctx_, shareOf_, state, choice.active);
+    if (choice.targetRank >= candidates.size()) {
+      return {};
     }
-    // The after-leg site is gated on (open, backtracks) so a plateau does
-    // not pay for the finisher repeatedly; a genuine stuck point is the
-    // valuable state and always gets its shot.
-    const size_t finisherKey = open * 1000 + backtracks_;
-    if (!atStuckPoint && finisherKey == lastFinisherOpen_) {
-      return false;
+    if (choice.farthest) {
+      return {candidates.back()};
     }
-    lastFinisherOpen_ = finisherKey;
+    const size_t from = choice.targetRank;
+    const size_t want = choice.chunk == 0 ? bulkChunk_[choice.active]
+                                          : choice.chunk;
+    const size_t to = std::min(candidates.size(), from + want);
+    return {candidates.begin() + static_cast<ptrdiff_t>(from),
+            candidates.begin() + static_cast<ptrdiff_t>(to)};
+  }
+
+  // One leg from `node`: pick the targets, solve them with the
+  // single-block cracker, apply the legal prefix, and keep the result only
+  // if it made progress without stranding a cell for good.
+  [[nodiscard]] std::optional<Node> growChild(const Node &node,
+                                              const LegChoice &choice) const {
+    const auto targets = pickTargets(node.state, choice);
+    if (targets.empty()) {
+      return std::nullopt;
+    }
+    const auto [sub, requiredVec] = buildLegPuzzle(
+        ctx_, node.state, choice.active, targets, opts_.wallForeign);
+
     const uint64_t now = nowMs();
     if (now >= opts_.deadline) {
-      return false;
+      return std::nullopt;
     }
-    replay::Puzzle fin{.gridWidth = ctx_.puzzle.gridWidth,
-                       .gridHeight = ctx_.puzzle.gridHeight,
-                       .cells = ctx_.puzzle.cells,
-                       .blocks = cur_};
-    for (size_t i = 0; i < totalCells_; i++) {
-      if (ctx_.puzzle.cells[i] == Tile::MustTouch && sat_.test(i)) {
-        fin.cells[i] = Tile::Unplayable;
-      }
+    AStar::Config legCfg = ctx_.base;
+    // Every touching move inside the leg must keep every open cell
+    // coverable by the active block or the parked partner.
+    legCfg.coveragePartner = &node.state.blocks[1 - choice.active];
+    // Distinct seed per (position, choice): with one shared seed the
+    // cracker's restarts and jitter reproduce the same walk for every
+    // sibling, which collapses them into duplicates the closed set then
+    // throws away — the frontier starves on its own determinism.
+    legCfg.seed = ctx_.base.seed +
+                  static_cast<uint32_t>(node.state.plan.size() * 2654435761U +
+                                        seedOf(choice) * 104729U);
+    const uint64_t legBudget =
+        opts_.legMs * (targets.size() >= 8 ? kBulkLegFactor : 1);
+    const auto legTurns = crackLeg(
+        sub, legCfg,
+        static_cast<uint32_t>(
+            std::min<uint64_t>(legBudget, opts_.deadline - now)),
+        ctx_.stats, ctx_.onProgress,
+        ctx_.progressBase + ctx_.stats.nodesExpanded,
+        requiredVec.empty() ? nullptr : &requiredVec);
+    if (legTurns.empty()) {
+      return std::nullopt;
     }
-    AStar::Config finCfg = ctx_.base;
-    finCfg.seed = ctx_.base.seed + 31337 + backtracks_;
-    finCfg.jointCoverageIntact = true;
-    const auto finTurns =
-        crackLeg(fin, finCfg,
-                 static_cast<uint32_t>(std::min<uint64_t>(
-                     4ULL * opts_.legMs, opts_.deadline - now)),
-                 ctx_.stats, ctx_.onProgress,
-                 ctx_.progressBase + ctx_.stats.nodesExpanded);
+
+    LegState next = node.state;
+    if (!applyLegPrefix(ctx_, next, legTurns)) {
+      return std::nullopt;
+    }
+    const StateScore score = scoreState(ctx_.puzzle, next);
+    if (score.dead > baselineDead_) {
+      return std::nullopt; // this leg stranded a cell permanently
+    }
+    return Node{.state = std::move(next),
+                .cost = stateCost(score),
+                .open = score.open};
+  }
+
+  // Gated on a NEW best open count: the finisher is worth a real slice of
+  // budget exactly once per depth the search has never reached before.
+  std::vector<Turn> tryJointFinish(const Node &node) {
+    if (node.open == 0 || node.open > kJointFinishOpen ||
+        node.open >= bestFinishOpen_) {
+      return {};
+    }
+    bestFinishOpen_ = node.open;
+    const uint64_t now = nowMs();
+    if (now >= opts_.deadline) {
+      return {};
+    }
+    // A real slice, not a multiple of the (deliberately tiny) leg cap: the
+    // finisher is a whole two-block endgame search, and it only runs on
+    // positions deeper than anything the search has reached before.
+    const auto finTurns = jointFinish(
+        ctx_, node.state,
+        static_cast<uint32_t>(
+            std::min<uint64_t>(kJointFinishMs, opts_.deadline - now)),
+        ctx_.base.seed + 31337 + static_cast<uint32_t>(node.open));
     if (finTurns.empty()) {
+      return {};
+    }
+    std::vector<Turn> plan = node.state.plan;
+    plan.insert(plan.end(), finTurns.begin(), finTurns.end());
+    return validated(plan);
+  }
+
+  [[nodiscard]] std::vector<Turn>
+  validated(const std::vector<Turn> &plan) const {
+    if (const auto outcome = replay::replayTurns(ctx_.puzzle, plan);
+        outcome.legal && outcome.solvedAtEnd) {
+      return plan;
+    }
+    return {};
+  }
+
+  void push(LegState state, const StateScore &score) {
+    pushNode({.state = std::move(state),
+              .cost = stateCost(score),
+              .open = score.open});
+  }
+
+  void pushNode(Node node) {
+    if (!closed_.insert(makeKey(node.state)).second) {
+      return;
+    }
+    frontier_.push_back(std::move(node));
+    if (frontier_.size() > opts_.beamWidth * 4) {
+      prune();
+    }
+  }
+
+  // The frontier is a bounded beam, but two things go wrong if pruning
+  // simply keeps the best-cost nodes and drops the rest.
+  //
+  // It collapses onto ONE lineage: cost is dominated by progress, so the
+  // deepest line's siblings crowd out everything else and the search
+  // degenerates into the greedy dive it exists to replace — and when that
+  // line turns out to be doomed, every position left shares its fatal
+  // prefix. Capping how many survivors sit at the same depth keeps
+  // genuinely earlier, less-committed positions to back out to.
+  //
+  // And it STARVES: most legs fail on a dense board, so nodes routinely
+  // produce no surviving child, and a frontier that can only shrink hits
+  // zero (measured on fuzz-7007: exhausted after 2.3 s of a 180 s budget).
+  // The overflow goes to a reserve the search refills from instead.
+  void prune() {
+    std::ranges::sort(frontier_, {}, &Node::cost);
+    const size_t perDepth = std::max<size_t>(4, opts_.beamWidth / 2);
+    std::map<size_t, size_t> keptAtDepth;
+    std::vector<Node> kept;
+    kept.reserve(opts_.beamWidth);
+    for (auto &node : frontier_) {
+      size_t &atDepth = keptAtDepth[node.open];
+      if (kept.size() < opts_.beamWidth && atDepth < perDepth) {
+        atDepth++;
+        kept.push_back(std::move(node));
+      } else {
+        reserve_.push_back(std::move(node));
+      }
+    }
+    frontier_ = std::move(kept);
+    if (reserve_.size() > kMaxReserve) {
+      std::ranges::sort(reserve_, {}, &Node::cost);
+      reserve_.resize(kMaxReserve);
+    }
+  }
+
+  // Beam-with-backtracking: an emptied frontier means every line currently
+  // in hand dead-ended, so resume from the best positions set aside
+  // earlier rather than declaring the whole search finished.
+  bool refillFromReserve() {
+    if (reserve_.empty()) {
       return false;
     }
-    const size_t planLen = plan_.size();
-    plan_.insert(plan_.end(), finTurns.begin(), finTurns.end());
-    if (const auto outcome = replay::replayTurns(ctx_.puzzle, plan_);
-        outcome.legal && outcome.solvedAtEnd) {
-      return true;
-    }
-    plan_.resize(planLen);
-    return false;
+    std::ranges::sort(reserve_, {}, &Node::cost);
+    const size_t take = std::min(opts_.beamWidth, reserve_.size());
+    frontier_.assign(std::make_move_iterator(reserve_.begin()),
+                     std::make_move_iterator(reserve_.begin() +
+                                             static_cast<ptrdiff_t>(take)));
+    reserve_.erase(reserve_.begin(),
+                   reserve_.begin() + static_cast<ptrdiff_t>(take));
+    return true;
   }
 
-  [[nodiscard]] bool anyOpenCell() const {
-    for (size_t i = 0; i < totalCells_; i++) {
-      if (ctx_.puzzle.cells[i] == Tile::MustTouch && !sat_.test(i)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  // Straggler gate: cells no block can cover any more (pose-BFS with the
-  // satisfied cells as walls; the partner is ignored — it can move away, so
-  // only the monotone satisfied set counts). A leg that grows this set has
-  // stranded a cell for good and gets rolled back.
-  [[nodiscard]] size_t deadCount() const {
-    const auto f0 = coverField(ctx_.puzzle, cur_[0], sat_);
-    const auto f1 = coverField(ctx_.puzzle, cur_[1], sat_);
-    size_t dead = 0;
-    for (size_t i = 0; i < totalCells_; i++) {
-      if (ctx_.puzzle.cells[i] == Tile::MustTouch && !sat_.test(i) &&
-          f0[i] == UINT16_MAX && f1[i] == UINT16_MAX) {
-        dead++;
-      }
-    }
-    return dead;
+  Node popBest() {
+    const auto best = std::ranges::min_element(frontier_, {}, &Node::cost);
+    Node node = std::move(*best);
+    frontier_.erase(best);
+    return node;
   }
 
   const SplitContext &ctx_;
   const std::vector<uint8_t> &shareOf_;
   ChunkOptions opts_;
-  size_t totalCells_ = 0;
-  // Counters first (the constructor tallies each share's cells into them),
-  // then divided into per-hand chunk sizes with a floor of 1.
-  std::array<size_t, 2> chunkSize_ = {0, 0};
-  std::vector<Turn> plan_;
-  std::vector<Block> cur_;
-  boost::dynamic_bitset<> sat_;
+  // A bulk leg asks for this many of a block's own cells at once — the
+  // size the greedy predecessor used, which on fuzz-7007 turned a 20-cell
+  // ask into an 80-cell sweep because the walk satisfies whatever else it
+  // crosses on the way.
+  std::array<size_t, 2> bulkChunk_ = {0, 0};
+  std::vector<Node> frontier_;
+  std::vector<Node> reserve_;
+  std::set<StateKey> closed_;
   size_t baselineDead_ = 0;
-  std::vector<LegSnap> history_;
-  uint32_t backtracks_ = 0;
-  uint32_t pendingBump_ = 0;
-  size_t active_ = 0;
-  int stuckHands_ = 0;
-  std::array<uint32_t, 2> consecFails_{};
-  size_t lastFinisherOpen_ = SIZE_MAX;
+  size_t bestFinishOpen_ = SIZE_MAX;
 };
 
 // One plain-sequential attempt: which block goes first, and whether the
@@ -828,46 +1057,54 @@ std::vector<Turn> runSequentialAttempt(
   return {};
 }
 
+// One leg-order search configuration: how foreign cells are treated, how
+// wide the frontier is, and what fraction of the phase budget it gets.
 struct ChunkAttempt {
-  size_t firstIdx = 0;
   bool wallForeign = false;
-  size_t chunks = 4;
-  bool farthest = false;
+  size_t beamWidth = 12;
+  uint32_t share = 1;
 };
 
-// Phase 2: chunked alternation over whatever budget remains. Free style
+// Phase 2: the leg-order search over whatever budget remains. Free style
 // first — interleaving witnesses thread through each other's shares, so
-// walling foreign cells is usually what deadlocked phase 1; fine chunks
-// before coarse for the same reason.
+// walling foreign cells is usually what deadlocked phase 1. The attempts
+// vary only what the search cannot vary internally: chunk granularity,
+// foreign-cell style, and how much breadth the frontier keeps.
 std::vector<Turn> runChunkedPhase(const SplitContext &ctx,
                                   const std::vector<uint8_t> &shareOf,
                                   const uint32_t totalMs,
                                   const uint64_t start) {
-  // The adaptive hand-flipping makes firstIdx nearly irrelevant (a failed
-  // hand just passes to the partner), so the attempts vary the chunk
-  // discipline instead. Nearest-first before farthest-first: with the
-  // coverage-intact prune the near sweep is disciplined anyway, and its
-  // legs are far cheaper.
-  constexpr std::array<ChunkAttempt, 6> kChunkAttempts = {{
-      {.firstIdx = 0, .wallForeign = false, .chunks = 8, .farthest = false},
-      {.firstIdx = 0, .wallForeign = false, .chunks = 8, .farthest = true},
-      {.firstIdx = 1, .wallForeign = false, .chunks = 4, .farthest = false},
-      {.firstIdx = 1, .wallForeign = false, .chunks = 4, .farthest = true},
-      {.firstIdx = 0, .wallForeign = false, .chunks = 16, .farthest = false},
-      {.firstIdx = 0, .wallForeign = true, .chunks = 8, .farthest = false},
+  // Measured on fuzz-7007 at a 180 s budget: the narrow free-style search
+  // reached 92 open cells and was still improving when its slice ran out,
+  // while the same window spent on the "avoid" style reached only 235. So
+  // the productive configuration gets the bulk of the phase and the wider
+  // frontier gets the rest; walling foreign cells is left to phase 1,
+  // which is built around exactly that relaxation.
+  constexpr std::array<ChunkAttempt, 2> kChunkAttempts = {{
+      {.wallForeign = false, .beamWidth = 12, .share = 2},
+      {.wallForeign = false, .beamWidth = 40, .share = 1},
   }};
   // Absolute cap on leg time: scaling legs with the budget just makes each
-  // hand slower without adding exploration — more legs and more backtracks
+  // leg slower without adding exploration — more legs and more branching
   // beat longer legs (measured on fuzz-7007: 570 s explored no more leg
   // orders than 300 s when legs scaled).
-  const uint32_t legMs = std::clamp<uint32_t>(totalMs / 24, 2000, 8000);
+  const uint32_t legMs = std::clamp<uint32_t>(totalMs / 120, 200, 1000);
   const uint64_t chunkDeadline = start + totalMs / 8 * 7;
   uint32_t attemptSeed = ctx.base.seed;
-  for (const auto &[firstIdx, wallForeign, chunks, farthest] :
-       kChunkAttempts) {
-    if (nowMs() >= chunkDeadline) {
+  uint32_t sharesLeft = 0;
+  for (const auto &attempt : kChunkAttempts) {
+    sharesLeft += attempt.share;
+  }
+  for (const auto &[wallForeign, beamWidth, share] : kChunkAttempts) {
+    const uint64_t now = nowMs();
+    if (now >= chunkDeadline) {
       break;
     }
+    // Proportional slices, with whatever an exhausted attempt leaves behind
+    // rolling into the next one.
+    const uint64_t attemptDeadline =
+        now + (chunkDeadline - now) * share / sharesLeft;
+    sharesLeft -= share;
     // Each attempt gets its own seed so the leg crackers explore different
     // walk orders instead of replaying one deterministic failure.
     AStar::Config chunkCfg = ctx.base;
@@ -878,14 +1115,12 @@ std::vector<Turn> runChunkedPhase(const SplitContext &ctx,
                                   .stats = ctx.stats,
                                   .onProgress = ctx.onProgress,
                                   .progressBase = ctx.progressBase};
-    ChunkedAlternation alternation(attemptCtx, shareOf,
-                                   {.firstIdx = firstIdx,
-                                    .wallForeign = wallForeign,
-                                    .chunkCount = chunks,
-                                    .farthestFirst = farthest,
-                                    .legMs = legMs,
-                                    .deadline = chunkDeadline});
-    if (auto plan = alternation.run(); !plan.empty()) {
+    LegOrderSearch search(attemptCtx, shareOf,
+                          {.wallForeign = wallForeign,
+                           .legMs = legMs,
+                           .deadline = attemptDeadline,
+                           .beamWidth = beamWidth});
+    if (auto plan = search.run(); !plan.empty()) {
       return plan;
     }
   }
@@ -929,7 +1164,7 @@ std::vector<Turn> runJointPhase(const SplitContext &ctx,
 // Four attempts (2 orders x 2 styles) open the budget; every candidate plan
 // must survive a full replay of the REAL puzzle, so the sub-puzzle
 // relaxations can suggest but never certify. The bulk of the budget goes to
-// chunked alternation (ChunkedAlternation above) for the boards where
+// the leg-order search (LegOrderSearch above) for the boards where
 // sequential legs are structurally impossible.
 std::vector<Turn> runSplitCoverage(
     const replay::Puzzle &puzzle, const AStar::Config &base,

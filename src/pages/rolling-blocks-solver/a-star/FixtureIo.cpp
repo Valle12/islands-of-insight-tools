@@ -2,7 +2,6 @@
 
 #include <fstream>
 #include <nlohmann/json.hpp>
-#include <stdexcept>
 #include <string_view>
 
 namespace {
@@ -36,7 +35,7 @@ namespace fixtureio {
 replay::Puzzle load(const std::string &path, std::vector<Turn> *turnsOut) {
   std::ifstream f(path);
   if (!f.is_open()) {
-    throw std::runtime_error("Cannot open " + path);
+    throw FixtureError("Cannot open " + path);
   }
   const nlohmann::json j = nlohmann::json::parse(f);
 

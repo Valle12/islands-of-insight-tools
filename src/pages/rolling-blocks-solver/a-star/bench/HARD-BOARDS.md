@@ -17,8 +17,14 @@ drowns in the positions × 2^mustTouch space.
 
 | board | size | blocks | mustTouch | status |
 |---|---|---|---|---|
-| fuzz-7007-hard | 64×28 | 2 (2×1×1 dominoes) | 306 | STILL OPEN — chunked alternation now covers ~80% (241/306) before the dense right blob deadlocks |
+| fuzz-7007-hard | 64×28 | 2 (2×1×1 dominoes) | 306 | STILL OPEN — the leg-order search covers 215/306 before the dense right blob deadlocks |
 | fuzz-7043-hard | 15×43 | 2 | 65 | SOLVED by the split scheme (82 turns, ~54 s via the region cascade) |
+
+An earlier revision of this file claimed the alternation reached 241/306.
+That was a misread: the `total=` field in its diagnostics was the plan
+length in TURNS, not cells covered. Both the greedy scheme and the search
+that replaced it are measured by the `open` count — cells still
+unsatisfied — and the honest numbers are 96 (greedy) and 91 (search).
 
 The two-block machinery in `SolverArms.cpp::runSplitCoverage`, all wired
 into the cracker arm behind the widened `coverageProfile` gate, is now
@@ -29,35 +35,89 @@ three phases (budget 1/6 → 3/4 → last eighth):
    wall (2 orders × 2 foreign-cell styles), replay-validate the
    concatenation. Cracked 7043; also what now carries fixture 34 fast
    (344 ms / 36 k expansions vs 4.2 s / 1.38 M via wastar before).
-2. **Chunked alternation** (`ChunkedAlternation`): alternate short legs
-   A1 B1 A2 B2 … where each leg is a *required-subset* cracker search
-   (`Config::requiredCells` — succeed once the chunk is satisfied; every
-   other must-touch cell keeps real one-shot semantics, so leg plans
-   replay legally by construction). Guardrails, all of which exist because
-   7007 failed without them: a pose-space coverability field per hand (a
-   domino needs two consecutive free cells to stand up — cell BFS lies),
-   an orphan prune plus a **coverage-intact prune** inside the cracker
-   (`Config::coveragePartner`: after every touching move, every open cell
-   must stay coverable by the active block or the parked partner via a
-   two-seed pose BFS), adaptive chunk shrinking, mop-up of the partner's
-   share, fail-streak throttling, and hand-level backtracking with
-   structural retry variants (reversed / rotated target order — seed
-   jitter alone replays identical legs).
+2. **Leg-order search** (`LegOrderSearch`): every position is a node,
+   every leg an edge, and the frontier is expanded best-first on how
+   healthy the REMAINING board looks. Each leg is a *required-subset*
+   cracker search (`Config::requiredCells` — succeed once the target cells
+   are satisfied; every other must-touch cell keeps real one-shot
+   semantics, so leg plans replay legally by construction), and the
+   successor set spans both blocks, several target ranks, and chunk sizes
+   from a share-proportional bulk sweep down to a single cell. Guardrails,
+   all of which exist because 7007 failed without them: a pose-space
+   coverability field (a domino needs two consecutive free cells to stand
+   up — cell BFS lies), an orphan prune plus a **coverage-intact prune**
+   inside the cracker (`Config::coveragePartner`: after every touching
+   move, every open cell must stay coverable by the active block or the
+   parked partner via a two-seed pose BFS), and a dead-cell gate on every
+   child.
+
+   This replaced a greedy chunk sequence with bounded rewinding. Four
+   things were measured on the way and are worth not rediscovering:
+   progress must dominate the position score LEXICALLY (a shape penalty
+   big enough to outweigh one satisfied cell makes the frontier abandon
+   the line it just advanced, and the search thrashes at 227 open); the
+   frontier needs a reserve to fall back on (a pure bounded beam starved
+   to zero in 2.3 s of a 180 s budget, because most legs fail); the bulk
+   chunk must be share-proportional, not a constant (share/8 turns a
+   20-cell ask into an 80-cell sweep, since the walk satisfies whatever it
+   crosses — a fixed 32 just fails); and alternation has to be structural,
+   because a score dominated by progress otherwise hands every leg to
+   whichever block just gained the most and mono-block dives into a wall.
 3. **Joint finisher / joint last word**: the two-block cracker with the
    same intact prune in joint mode (`Config::jointCoverageIntact`), on the
    remaining endgame once it shrinks under ~100 cells, and on the whole
    board as the final phase.
 
-7007 still resists: the alternation reliably reaches ~241/306, but its
-dense right-hand blob demands a near-witness-quality global ordering — at
-the recorded stuck states (see `fuzz-7007-endgame.json`, the frozen
-endgame as a standalone fixture) every touching move by either block
-strands some cell, and the joint search plateaus around 50/96 across
-seeds and diversification rounds. Bounded backtracking (64 rewinds, 3
-variants per leg) explores far too little of the leg-order space.
-Remaining candidates: leg-order search with a real budget (the current
-scheme is one greedy path with local repair), or a constraint/SAT-style
-formulation of the cell ORDER within the blob.
+7007 still resists, and the leg-order search says something useful about
+why. It reaches 91 open where the greedy scheme reached 96 — an
+improvement, but a marginal one — and quadrupling its expansions (1819 vs
+521 at 300 s) buys exactly one more cell. Both attempts end with a live
+frontier, so this is not a budget wall: the search has plenty of
+alternatives left and none of them help. Around 90 open cells the dense
+right-hand blob simply has no leg-granular ordering that works, which
+means searching leg order harder is the wrong axis.
+
+The constraint/SAT candidate was then tried in its tractable half —
+propagation — and **measured as already subsumed**, which is worth
+recording so nobody builds it twice.
+
+The propagator: satisfied cells are walls forever, so the passable floor
+only fragments, and a block can never leave the region it stands in
+(every roll needs its whole footprint on passable cells). Therefore a
+region still holding open cells but holding no block is dead, whatever
+order the rest is done in. Implemented as a hard gate on every child of
+the leg-order search, it fired **0 times in 847 children** on fuzz-7007.
+The reason is structural: the cracker's `coveragePartner` prune already
+requires every open cell to be pose-BFS reachable by the active block or
+the parked partner after each touching move, and a region with no block
+in it is reachable by neither — so such a leg is rejected inside the
+cracker long before a child exists to gate. The code was reverted; it
+cost a flood fill per child and bought nothing.
+
+That leaves only the *sequencing* half of the constraint idea, and it is
+much less promising than it looks. What the existing prune does not
+enforce is that ONE block can cover SEVERAL cells in sequence, since the
+cells it covers en route become walls that may cut off the rest —
+checking which is the original NP-hard question. The cheap sound
+approximations are either subsumed (reachability, above) or cost a
+pose-BFS per cell PAIR, i.e. thousands per node. And a real SAT encoding
+inherits the same state space: bounded model checking over ~2400 poses
+for the ~400-move walk these boards need is roughly a million pose
+variables and clauses in the millions, which is a shape SAT is good at
+REFUTING at shallow depths and bad at finding deep plans in. It would
+also reopen the dependency decision taken at the start of the overhaul
+(the vendored CaDiCaL was deleted) and add a solver to a build that must
+also produce four wasm variants.
+
+Recommendation: leave 7007 open. It is a synthetic board 4.5x beyond
+anything the game has shown, every real fixture solves, and the two
+cheap levers left (better cracker move ordering, more restart diversity)
+are worth more per hour than either remaining formulation.
+
+`fuzz-7007-endgame.json` is the frozen stuck state as a standalone
+fixture, for iterating on the hard core in seconds instead of minutes —
+but treat it as a probe, not a target: it is a position the OLD scheme
+painted itself into and may simply be lost.
 
 Note the reality anchor: real captured game boards top out at 13×15 with 83
 must-touch cells — 7007 is a 64×28 stress artifact 4.5× beyond anything the

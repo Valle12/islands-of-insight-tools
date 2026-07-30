@@ -14,7 +14,26 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cstddef>
 #include <iostream>
+#include <utility>
+
+namespace {
+
+// The key's must-touch bit block, addressed by ORDINAL k: bit k lives in bit
+// k & 7 of byte k >> 3. NodeKey stores uint8_t, so the value round-trips
+// through std::byte here — the twiddling itself is byte-oriented, and both
+// halves of the layout invariant sit in one place.
+bool testOrdinalBit(const uint8_t *bits, const size_t k) {
+  return ((std::byte{bits[k >> 3]} >> (k & 7u)) & std::byte{1}) != std::byte{};
+}
+
+void setOrdinalBit(uint8_t *bits, const size_t k) {
+  const std::byte bit = std::byte{1} << (k & 7u);
+  bits[k >> 3] = std::to_integer<uint8_t>(std::byte{bits[k >> 3]} | bit);
+}
+
+} // namespace
 
 AStar::AStar(const uint8_t gridWidth, const uint8_t gridHeight,
              std::vector<Tile> cells, const uint8_t weight)
@@ -88,7 +107,7 @@ NodeKey AStar::encodeState(const std::vector<Block> &blocks,
   const size_t numOrdinals = cellOfOrdinal_.size();
   for (size_t k = 0; k < numOrdinals; k++) {
     if (mustTouchCells.test(cellOfOrdinal_[k])) {
-      d[k >> 3] |= static_cast<uint8_t>(1u << (k & 7u));
+      setOrdinalBit(d, k);
     }
   }
   return key;
@@ -126,7 +145,7 @@ void AStar::decodeWorking(const NodeKey &key) {
   curOrd_.reset();
   const size_t numOrdinals = cellOfOrdinal_.size();
   for (size_t k = 0; k < numOrdinals; k++) {
-    if (d[k >> 3] >> (k & 7u) & 1u) {
+    if (testOrdinalBit(d, k)) {
       curBits_.set(cellOfOrdinal_[k]);
       curOrd_.set(k);
     }
@@ -167,7 +186,7 @@ void AStar::decodeState(const NodeKey &key, std::vector<Block> &blocks,
   mustTouchCells.reset();
   const size_t numOrdinals = cellOfOrdinal_.size();
   for (size_t k = 0; k < numOrdinals; k++) {
-    if (d[k >> 3] >> (k & 7u) & 1u) {
+    if (testOrdinalBit(d, k)) {
       mustTouchCells.set(cellOfOrdinal_[k]);
     }
   }
@@ -223,8 +242,9 @@ void AStar::expandNeighbor(const size_t bi, const Direction direction,
 
   const uint32_t newG = curEntry->value.g + 1;
   auto [child, inserted] = ctx.states.emplace(newKey);
-  if (!inserted && ((child->value.flags & StateInfo::ClosedFlag) != 0 ||
-                    newG >= child->value.g)) {
+  if (!inserted &&
+      ((child->value.flags & StateInfo::ClosedFlag) != std::byte{} ||
+       newG >= child->value.g)) {
     return;
   }
 
@@ -232,7 +252,7 @@ void AStar::expandNeighbor(const size_t bi, const Direction direction,
   child->value.parent = &curEntry->value;
   child->value.fromX = static_cast<uint8_t>(curBlocks_[bi].x);
   child->value.fromY = static_cast<uint8_t>(curBlocks_[bi].y);
-  child->value.dir = static_cast<uint8_t>(direction);
+  child->value.dir = std::to_underlying(direction);
   child->value.flags = StateInfo::HasParentFlag;
 
   const uint32_t h = heuristic(childBlocks_, mustTouchRef, ordinalRef);
@@ -373,7 +393,7 @@ std::vector<Turn> AStar::search(Node root) {
     ctx.openHeap.pop();
 
     Table::Entry *entry = current.entry;
-    if ((entry->value.flags & StateInfo::ClosedFlag) != 0 ||
+    if ((entry->value.flags & StateInfo::ClosedFlag) != std::byte{} ||
         entry->value.g < current.g) {
       continue;
     }
@@ -426,7 +446,8 @@ std::vector<Turn> AStar::reconstructPath(const StateInfo &goalInfo) const {
   };
   std::vector<Step> steps;
   for (const StateInfo *info = &goalInfo;
-       (info->flags & StateInfo::HasParentFlag) != 0; info = info->parent) {
+       (info->flags & StateInfo::HasParentFlag) != std::byte{};
+       info = info->parent) {
     steps.push_back(
         {.fromX = info->fromX,
          .fromY = info->fromY,

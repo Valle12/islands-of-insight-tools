@@ -10,6 +10,7 @@
 
 #include <filesystem>
 #include <format>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
@@ -42,11 +43,24 @@ INSTANTIATE_TEST_SUITE_P(RollingBlocks, RollingBlocksSearchTest,
 TEST_P(RollingBlocksSearchTest, ShouldFindValidSolution) {
   const auto &filename = GetParam();
   replay::Puzzle puzzle;
+  // Two failure modes, two verdicts. A fixture that is not THERE is a
+  // checkout problem, not a solver regression, so it skips. One that will
+  // not PARSE is a broken checked-in file: that fails, because skipping it
+  // would let a malformed fixture silently stop testing anything.
+  std::string readError;
+  std::string parseError;
   try {
     puzzle = fixtureio::load(
         (std::filesystem::path(TEST_RESOURCES_DIR) / filename).string());
-  } catch (const std::exception &e) {
-    GTEST_SKIP() << "Cannot load " << filename << ": " << e.what();
+  } catch (const fixtureio::FixtureError &e) {
+    readError = e.what();
+  } catch (const nlohmann::json::exception &e) {
+    parseError = e.what();
+  }
+  ASSERT_TRUE(parseError.empty())
+      << "Malformed fixture " << filename << ": " << parseError;
+  if (!readError.empty()) {
+    GTEST_SKIP() << "Cannot read " << filename << ": " << readError;
   }
 
   AStar solver(puzzle.gridWidth, puzzle.gridHeight, puzzle.cells);

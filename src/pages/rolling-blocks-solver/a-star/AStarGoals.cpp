@@ -118,8 +118,8 @@ uint32_t AStar::goalDistanceHeuristic(const std::vector<Block> &blocks) {
 // preceding blocks with this block on one more cluster, then seed the
 // single-cluster assignments (the s == 0 case, which the descending sweep
 // cannot reach).
-void AStar::relaxMatchingWithBlock(const Block &block,
-                                   const size_t numClusters, const int inf) {
+void AStar::relaxMatchingWithBlock(const Block &block, const size_t numClusters,
+                                   const int inf) {
   const size_t full = (size_t{1} << numClusters) - 1;
   for (size_t s = full; s > 0; s--) {
     if (matchDp_[s] >= inf) {
@@ -209,7 +209,10 @@ std::vector<GoalCluster> AStar::precomputeGoalClusters() const {
         minY = std::min(minY, cy);
         maxY = std::max(maxY, cy);
       }
-      clusters.push_back({.minX = minX, .maxX = maxX, .minY = minY, .maxY = maxY,
+      clusters.push_back({.minX = minX,
+                          .maxX = maxX,
+                          .minY = minY,
+                          .maxY = maxY,
                           .width = static_cast<uint8_t>(maxX - minX + 1),
                           .depth = static_cast<uint8_t>(maxY - minY + 1)});
     }
@@ -333,8 +336,8 @@ void AStar::seedAcceptingPoses(const GoalClassTables &tables,
     if (w != cluster.width || d != cluster.depth) {
       continue;
     }
-    const Block seed{0, cluster.minX, cluster.minY, w, d,
-                     heightFor(tables.dims, w, d)};
+    const Block seed{
+        0, cluster.minX, cluster.minY, w, d, heightFor(tables.dims, w, d)};
     if (!poseFitsPlayable(seed) || !isBlockFullyOnGoal(seed)) {
       continue;
     }
@@ -346,15 +349,18 @@ void AStar::seedAcceptingPoses(const GoalClassTables &tables,
 }
 
 // One pose dequeued: roll it four ways and record every pose first reached.
-void AStar::expandPoseNeighbors(const GoalClassTables &tables,
-                                const size_t cur, std::vector<uint16_t> &dist,
+void AStar::expandPoseNeighbors(const GoalClassTables &tables, const size_t cur,
+                                std::vector<uint16_t> &dist,
                                 std::queue<size_t> &frontier) const {
   const size_t totalCells = static_cast<size_t>(gridWidth_) * gridHeight_;
   const size_t footIdx = cur / totalCells;
   const auto cellIdx = static_cast<uint16_t>(cur % totalCells);
   const auto [w, d] = tables.footprints[footIdx];
-  const Block pose{0, static_cast<int8_t>(cellIdx % gridWidth_),
-                   static_cast<int8_t>(cellIdx / gridWidth_), w, d,
+  const Block pose{0,
+                   static_cast<int8_t>(cellIdx % gridWidth_),
+                   static_cast<int8_t>(cellIdx / gridWidth_),
+                   w,
+                   d,
                    heightFor(tables.dims, w, d)};
   constexpr std::array kDirs = {Direction::UP, Direction::RIGHT,
                                 Direction::DOWN, Direction::LEFT};
@@ -415,9 +421,8 @@ uint32_t AStar::goalPairCost(const Block &block,
       }
       const size_t totalCells = static_cast<size_t>(gridWidth_) * gridHeight_;
       const uint16_t d =
-          perCluster[clusterIdx]
-                           [f * totalCells +
-                            positionToIndex(block.x, block.y, gridWidth_)];
+          perCluster[clusterIdx][f * totalCells +
+                                 positionToIndex(block.x, block.y, gridWidth_)];
       return d == UINT16_MAX ? kUnreachable : d;
     }
     return kUnreachable;

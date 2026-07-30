@@ -3,6 +3,7 @@
 #include "AStar.h"
 #include "Replay.h"
 
+#include <array>
 #include <functional>
 #include <string>
 #include <vector>
@@ -14,8 +15,8 @@
 // only selection, gating, budget slicing and stats aggregation.
 namespace arms {
 
-inline constexpr const char *kEngines[] = {"cascade", "wastar", "exact",
-                                           "cracker", "beam",   "greedy"};
+inline constexpr auto kEngines = std::to_array<const char *>(
+    {"cascade", "wastar", "exact", "cracker", "beam", "greedy"});
 
 [[nodiscard]] bool knownEngine(const std::string &engine);
 
