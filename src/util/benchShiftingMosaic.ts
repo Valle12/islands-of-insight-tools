@@ -11,6 +11,7 @@
 
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { parseFlags } from "./solverCli";
 
 const projectRoot = resolve(import.meta.dir, "../..");
 const defaultExe = resolve(
@@ -64,24 +65,17 @@ function parseArgs(argv: string[]) {
     filter: "",
     diff: [] as string[],
   };
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
-    const next = () => {
-      const v = argv[++i];
-      if (v === undefined) throw new Error(`Missing value for ${arg}`);
-      return v;
-    };
-    if (arg === "--exe") opts.exe = resolve(next());
-    else if (arg === "--engine") opts.engine = next();
-    else if (arg === "--weight") opts.weight = Number(next());
-    else if (arg === "--budget-ms") opts.budgetMs = Number(next());
-    else if (arg === "--max-nodes") opts.maxNodes = Number(next());
-    else if (arg === "--settled") opts.settled = true;
-    else if (arg === "--out") opts.out = resolve(next());
-    else if (arg === "--filter") opts.filter = next();
-    else if (arg === "--diff") opts.diff = [resolve(next()), resolve(next())];
-    else throw new Error(`Unknown argument: ${arg}`);
-  }
+  parseFlags(argv, {
+    "--exe": next => (opts.exe = resolve(next())),
+    "--engine": next => (opts.engine = next()),
+    "--weight": next => (opts.weight = Number(next())),
+    "--budget-ms": next => (opts.budgetMs = Number(next())),
+    "--max-nodes": next => (opts.maxNodes = Number(next())),
+    "--settled": () => (opts.settled = true),
+    "--out": next => (opts.out = resolve(next())),
+    "--filter": next => (opts.filter = next()),
+    "--diff": next => (opts.diff = [resolve(next()), resolve(next())]),
+  });
   return opts;
 }
 

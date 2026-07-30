@@ -1,0 +1,104 @@
+{
+  "gridWidth": 8,
+  "gridHeight": 9,
+  "cells": [
+    [
+      "regular",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "regular",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "regular"
+    ],
+    [
+      "mustTouch",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "mustTouch",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "mustTouch"
+    ],
+    [
+      "mustTouch",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "mustTouch",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "mustTouch"
+    ],
+    [
+      "mustTouch",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "regular",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "regular"
+    ],
+    [
+      "regular",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "regular",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "mustTouch"
+    ],
+    [
+      "mustTouch",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "mustTouch",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "mustTouch"
+    ],
+    [
+      "mustTouch",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "mustTouch",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "mustTouch"
+    ],
+    [
+      "regular",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "regular",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "regular"
+    ]
+  ],
+  "blocks": [
+    {
+      "id": 1,
+      "x": 4,
+      "y": 0,
+      "width": 1,
+      "depth": 1,
+      "height": 1
+    }
+  ]
+}

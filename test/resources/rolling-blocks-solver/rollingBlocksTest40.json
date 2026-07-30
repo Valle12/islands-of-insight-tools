@@ -1,0 +1,121 @@
+{
+  "gridWidth": 7,
+  "gridHeight": 13,
+  "cells": [
+    [
+      "regular",
+      "regular",
+      "regular",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "regular",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "regular",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "regular",
+      "regular",
+      "regular",
+      "unplayable",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "mustTouch",
+      "regular",
+      "regular",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "regular",
+      "regular",
+      "regular",
+      "unplayable",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "regular",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable"
+    ],
+    [
+      "regular",
+      "regular",
+      "regular",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "mustTouch",
+      "regular",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable",
+      "unplayable"
+    ]
+  ],
+  "blocks": [
+    {
+      "id": 1,
+      "x": 3,
+      "y": 0,
+      "width": 1,
+      "depth": 2,
+      "height": 1
+    }
+  ]
+}

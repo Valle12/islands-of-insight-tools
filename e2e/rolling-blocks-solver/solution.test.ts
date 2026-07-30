@@ -1,7 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import { gotoIsolated } from "../coi";
 
 async function setupSolvedPuzzle(page: Page) {
-  await page.goto("/rolling-blocks-solver");
+  await gotoIsolated(page, "/rolling-blocks-solver");
 
   await page.getByRole("spinbutton", { name: "Grid Width" }).click();
   await page.getByRole("spinbutton", { name: "Grid Width" }).fill("9");
@@ -34,7 +35,7 @@ test.describe("Rolling Blocks Solver", () => {
   test("should show spinner on calculate click and display solution", async ({
     page,
   }) => {
-    await page.goto("/rolling-blocks-solver");
+    await gotoIsolated(page, "/rolling-blocks-solver");
 
     // Set grid to 9x9
     await page.getByRole("spinbutton", { name: "Grid Width" }).click();
@@ -154,7 +155,7 @@ test.describe("Rolling Blocks Solver", () => {
   test("should restart calculation when clicking calculate again", async ({
     page,
   }) => {
-    await page.goto("/rolling-blocks-solver");
+    await gotoIsolated(page, "/rolling-blocks-solver");
 
     // Set up the same simple puzzle
     await page.getByRole("spinbutton", { name: "Grid Width" }).click();

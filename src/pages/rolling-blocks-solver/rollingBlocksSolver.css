@@ -223,8 +223,15 @@ h2 {
 
 #action-buttons {
   display: flex;
+  align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+#config-io {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 #blocks-panel {

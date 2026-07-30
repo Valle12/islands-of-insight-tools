@@ -1,5 +1,11 @@
-import type { PaintTool, Position, Tile } from "../../util/types";
+import type {
+  PaintTool,
+  Position,
+  RollingBlocksTest,
+  Tile,
+} from "../../util/types";
 import { Block } from "./block";
+import { MAX_BLOCKS } from "./config";
 import type { RollingBlocksSolverEditor } from "./rollingBlocksSolver";
 
 export class Board {
@@ -215,18 +221,31 @@ export class Board {
     });
   }
 
+  private rectangleIsFree(
+    minX: number,
+    maxX: number,
+    minY: number,
+    maxY: number,
+  ): boolean {
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        if (this.blockAssignments[x]?.[y] !== 0) return false;
+        if (this.cells[x]?.[y] === "unplayable") return false;
+      }
+    }
+    return true;
+  }
+
   private commitBlockRectangle(start: Position, end: Position) {
+    // Block ids are uint8_t in the solver, with 0 reserved for "no block".
+    if (this.blocks.size >= MAX_BLOCKS) return;
+
     const minX = Math.min(start.x, end.x);
     const maxX = Math.max(start.x, end.x);
     const minY = Math.min(start.y, end.y);
     const maxY = Math.max(start.y, end.y);
 
-    for (let y = minY; y <= maxY; y++) {
-      for (let x = minX; x <= maxX; x++) {
-        if (this.blockAssignments[x]?.[y] !== 0) return;
-        if (this.cells[x]?.[y] === "unplayable") return;
-      }
-    }
+    if (!this.rectangleIsFree(minX, maxX, minY, maxY)) return;
 
     const blockId = this.nextBlockId++;
     const block = new Block(
@@ -280,6 +299,39 @@ export class Board {
 
   getCells() {
     return this.cells;
+  }
+
+  /**
+   * Replaces the board contents with a validated config. The caller must have
+   * constructed the board with the config's grid size; blocks arrive with
+   * ids 1..n from the validator, matching the renumbering invariant.
+   */
+  loadConfig(config: RollingBlocksTest) {
+    this.resetBoardData();
+    for (let x = 0; x < this.gridWidth; x++) {
+      for (let y = 0; y < this.gridHeight; y++) {
+        this.cells[x]![y] = config.cells[x]![y]!;
+      }
+    }
+    for (const block of config.blocks) {
+      this.blocks.set(
+        block.id,
+        new Block(
+          block.id,
+          block.x,
+          block.y,
+          block.width,
+          block.depth,
+          block.height,
+        ),
+      );
+      for (let x = block.x; x < block.x + block.width; x++) {
+        for (let y = block.y; y < block.y + block.depth; y++) {
+          this.blockAssignments[x]![y] = block.id;
+        }
+      }
+    }
+    this.nextBlockId = config.blocks.length + 1;
   }
 
   private commitGoalRectangle(start: Position, end: Position) {

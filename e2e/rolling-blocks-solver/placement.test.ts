@@ -1,7 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import { gotoIsolated } from "../coi";
 
 async function setupSolvedPuzzle(page: Page) {
-  await page.goto("/rolling-blocks-solver");
+  await gotoIsolated(page, "/rolling-blocks-solver");
 
   await page.getByRole("spinbutton", { name: "Grid Width" }).click();
   await page.getByRole("spinbutton", { name: "Grid Width" }).fill("9");
@@ -34,7 +35,7 @@ test.describe("Rolling Blocks Solver", () => {
   test("test if block will not be placed if it covers unplayable cell", async ({
     page,
   }) => {
-    await page.goto("/rolling-blocks-solver");
+    await gotoIsolated(page, "/rolling-blocks-solver");
     await page.getByRole("button", { name: "Unplayable" }).click();
     await page
       .getByRole("button", { name: "Column 1, Row 5, Regular" })
@@ -55,7 +56,7 @@ test.describe("Rolling Blocks Solver", () => {
     await block1Source.dragTo(block1Target);
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
     - heading "Rolling Blocks Setup" [level=1]
-    - paragraph: Build the board layout and block definitions. Solver logic comes later.
+    - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
     - text: Grid Height
@@ -108,7 +109,7 @@ test.describe("Rolling Blocks Solver", () => {
     await block2Source.dragTo(block2Target);
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
     - heading "Rolling Blocks Setup" [level=1]
-    - paragraph: Build the board layout and block definitions. Solver logic comes later.
+    - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
     - text: Grid Height
@@ -161,7 +162,7 @@ test.describe("Rolling Blocks Solver", () => {
     await block3Source.dragTo(block3Target);
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
     - heading "Rolling Blocks Setup" [level=1]
-    - paragraph: Build the board layout and block definitions. Solver logic comes later.
+    - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
     - text: Grid Height

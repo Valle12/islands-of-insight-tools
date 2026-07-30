@@ -22,42 +22,29 @@ const server = Bun.serve({
   },
   async fetch(req) {
     const url = new URL(req.url);
-    if (url.pathname === "/astar.mjs") {
-      const file = Bun.file(resolve(wasmDir, "astar.mjs"));
-      return new Response(file, {
-        headers: { "Content-Type": "application/javascript" },
-      });
-    }
-    if (url.pathname === "/astar.wasm") {
-      const file = Bun.file(resolve(wasmDir, "astar.wasm"));
-      return new Response(file, {
-        headers: { "Content-Type": "application/wasm" },
-      });
-    }
-    if (url.pathname === "/astar.worker.js") {
-      const file = Bun.file(resolve(wasmDir, "astar.worker.js"));
-      return new Response(file, {
-        headers: { "Content-Type": "application/javascript" },
-      });
-    }
-    // Shifting-mosaic solver assets (all build variants: wasm32, pthreads,
-    // MEMORY64). Served by extension — bun can hand the browser the mem64
-    // binary even though it cannot instantiate it itself.
-    if (url.pathname.startsWith("/sm-wasm/")) {
-      const name = url.pathname.slice("/sm-wasm/".length);
-      const allowed = new Set([
-        "astar.mjs",
-        "astar.wasm",
-        "astar.worker.js",
-        "astar.threads.mjs",
-        "astar.threads.wasm",
-        "astar.mem64.mjs",
-        "astar.mem64.wasm",
-        "astar.threads.mem64.mjs",
-        "astar.threads.mem64.wasm",
-      ]);
-      if (allowed.has(name)) {
-        return new Response(Bun.file(resolve(shiftingMosaicWasmDir, name)), {
+    // Solver wasm assets (all build variants: wasm32, pthreads, MEMORY64),
+    // one directory per solver. Served by extension — bun can hand the
+    // browser the mem64 binary even though it cannot instantiate it itself.
+    const wasmVariantFiles = new Set([
+      "astar.mjs",
+      "astar.wasm",
+      "astar.worker.js",
+      "astar.threads.mjs",
+      "astar.threads.wasm",
+      "astar.mem64.mjs",
+      "astar.mem64.wasm",
+      "astar.threads.mem64.mjs",
+      "astar.threads.mem64.wasm",
+    ]);
+    const wasmDirs: Record<string, string> = {
+      "/rb-wasm/": wasmDir,
+      "/sm-wasm/": shiftingMosaicWasmDir,
+    };
+    for (const [prefix, dir] of Object.entries(wasmDirs)) {
+      if (!url.pathname.startsWith(prefix)) continue;
+      const name = url.pathname.slice(prefix.length);
+      if (wasmVariantFiles.has(name)) {
+        return new Response(Bun.file(resolve(dir, name)), {
           headers: {
             "Content-Type": name.endsWith(".wasm")
               ? "application/wasm"

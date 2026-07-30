@@ -97,14 +97,44 @@ async function build({
   }
 }
 
-await build({
-  aStarDir: resolve(projectRoot, "src/pages/rolling-blocks-solver/a-star"),
-  outDir: resolve(projectRoot, "src/pages/rolling-blocks-solver/wasm"),
-  sources: ["wasm_bindings.cpp", "AStar.cpp", "AStarGoals.cpp", "Block.cpp"],
-  outputJs: "astar.mjs",
-  exportName: "createAStarModule",
-  needsBoost: true,
-});
+// The rolling-blocks variants mirror the shifting-mosaic set below: same
+// TUs, differing only in output name / memory model / -pthread. threads =
+// in-module arm race on cross-origin isolated pages; mem64 = 8GB heap
+// ceiling where the runtime can load Memory64.
+const ROLLING_BLOCKS_VARIANTS = [
+  { outputJs: "astar.mjs" },
+  { outputJs: "astar.threads.mjs", threads: true },
+  { outputJs: "astar.mem64.mjs", memory64: true },
+  { outputJs: "astar.threads.mem64.mjs", threads: true, memory64: true },
+] as const;
+
+await Promise.all(
+  ROLLING_BLOCKS_VARIANTS.map(variant =>
+    build({
+      aStarDir: resolve(projectRoot, "src/pages/rolling-blocks-solver/a-star"),
+      outDir: resolve(projectRoot, "src/pages/rolling-blocks-solver/wasm"),
+      sources: [
+        "wasm_bindings.cpp",
+        "AStar.cpp",
+        "AStarGoals.cpp",
+        "AStarOptimizer.cpp",
+        "SearchCracker.cpp",
+        "SearchBeam.cpp",
+        "SolverArms.cpp",
+        "Block.cpp",
+        "SolverClock.cpp",
+        "Replay.cpp",
+      ],
+      outputJs: variant.outputJs,
+      exportName: "createAStarModule",
+      needsBoost: true,
+      memory64: "memory64" in variant,
+      maxMemory: "memory64" in variant ? "8GB" : "4GB",
+      extraArgs:
+        "threads" in variant ? ["-pthread", "-sPTHREAD_POOL_SIZE=10"] : [],
+    }),
+  ),
+);
 
 // The four shifting-mosaic variants compile the SAME translation units and
 // differ only in output name / memory model / -pthread, so they are listed
