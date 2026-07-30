@@ -4,11 +4,38 @@
 
 namespace {
 
+// A block counts towards goal coverage only if its WHOLE footprint is on goal
+// tiles — a block half on a goal contributes nothing.
+bool footprintAllGoal(const replay::Puzzle &puzzle, const Block &block) {
+  const uint8_t w = puzzle.gridWidth;
+  for (int8_t cx = block.x; cx < block.x + static_cast<int8_t>(block.width);
+       cx++) {
+    for (int8_t cy = block.y; cy < block.y + static_cast<int8_t>(block.depth);
+         cy++) {
+      if (puzzle.cells[positionToIndex(cx, cy, w)] != Tile::Goal) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+void markFootprint(const replay::Puzzle &puzzle, const Block &block,
+                   boost::dynamic_bitset<> &covered) {
+  const uint8_t w = puzzle.gridWidth;
+  for (int8_t cx = block.x; cx < block.x + static_cast<int8_t>(block.width);
+       cx++) {
+    for (int8_t cy = block.y; cy < block.y + static_cast<int8_t>(block.depth);
+         cy++) {
+      covered.set(positionToIndex(cx, cy, w));
+    }
+  }
+}
+
 // Strict solved test: all must-touch cells satisfied AND the set of goal
 // cells under fully-on-goal blocks is every goal cell.
 bool isSolved(const replay::Puzzle &puzzle, const std::vector<Block> &blocks,
               const boost::dynamic_bitset<> &satisfied) {
-  const uint8_t w = puzzle.gridWidth;
   size_t goalCells = 0;
   for (size_t i = 0; i < puzzle.cells.size(); i++) {
     if (puzzle.cells[i] == Tile::MustTouch && !satisfied.test(i)) {
@@ -23,27 +50,8 @@ bool isSolved(const replay::Puzzle &puzzle, const std::vector<Block> &blocks,
   }
   boost::dynamic_bitset covered(puzzle.cells.size());
   for (const auto &block : blocks) {
-    bool fullyOnGoal = true;
-    for (int8_t cx = block.x;
-         fullyOnGoal && cx < block.x + static_cast<int8_t>(block.width);
-         cx++) {
-      for (int8_t cy = block.y; cy < block.y + static_cast<int8_t>(block.depth);
-           cy++) {
-        if (puzzle.cells[positionToIndex(cx, cy, w)] != Tile::Goal) {
-          fullyOnGoal = false;
-          break;
-        }
-      }
-    }
-    if (!fullyOnGoal) {
-      continue;
-    }
-    for (int8_t cx = block.x; cx < block.x + static_cast<int8_t>(block.width);
-         cx++) {
-      for (int8_t cy = block.y; cy < block.y + static_cast<int8_t>(block.depth);
-           cy++) {
-        covered.set(positionToIndex(cx, cy, w));
-      }
+    if (footprintAllGoal(puzzle, block)) {
+      markFootprint(puzzle, block, covered);
     }
   }
   return covered.count() == goalCells;

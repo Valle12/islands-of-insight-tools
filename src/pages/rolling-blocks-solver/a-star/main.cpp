@@ -49,9 +49,48 @@ void printUsage() {
          "The last stdout line starting with '{' is the JSON report.\n";
 }
 
-bool parseArgs(const int argc, char * const*argv, CliOptions &opts) {
-  for (int i = 1; i < argc; i++) {
-    const std::string_view arg = argv[i];
+// Walks argv. The index lives here rather than in a for-loop counter that the
+// body also advances: an option with a value has to consume the next element,
+// and a loop whose counter is written inside it is exactly the shape static
+// analysis (and readers) trip over. Same idea as the shifting-mosaic CLI's
+// ArgCursor, minus the deferred errors — this CLI reports one and gives up.
+class ArgCursor {
+public:
+  ArgCursor(const int argc, char *const *const argv)
+      : argc_(argc), argv_(argv) {}
+
+  [[nodiscard]] bool hasMore() const { return index_ < argc_; }
+
+  // Consumes the next element as an option name and remembers it for messages.
+  std::string_view takeFlag() {
+    flag_ = argv_[index_];
+    index_++;
+    return flag_;
+  }
+
+  // Consumes the current option's value, or nullptr when there is none — the
+  // message is emitted here so every call site is one early return.
+  const char *value() {
+    if (index_ >= argc_) {
+      std::cerr << flag_ << " needs a value\n";
+      return nullptr;
+    }
+    const char *const v = argv_[index_];
+    index_++;
+    return v;
+  }
+
+private:
+  int argc_;
+  char *const *argv_;
+  int index_ = 1;
+  std::string_view flag_;
+};
+
+bool parseArgs(const int argc, char *const *argv, CliOptions &opts) {
+  ArgCursor cursor(argc, argv);
+  while (cursor.hasMore()) {
+    const std::string_view arg = cursor.takeFlag();
     if (arg == "--json") {
       // Accepted for harness compatibility; the report is always emitted.
       continue;
@@ -64,11 +103,10 @@ bool parseArgs(const int argc, char * const*argv, CliOptions &opts) {
       opts.gated = true;
       continue;
     }
-    if (i + 1 >= argc) {
-      std::cerr << arg << " needs a value\n";
+    const char *const value = cursor.value();
+    if (value == nullptr) {
       return false;
     }
-    const char *value = argv[++i];
     if (arg == "--fixture") {
       opts.fixture = value;
     } else if (arg == "--generate") {

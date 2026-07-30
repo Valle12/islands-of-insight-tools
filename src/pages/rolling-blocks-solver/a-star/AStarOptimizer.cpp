@@ -150,8 +150,8 @@ bool loopCutPass(const replay::Puzzle &puzzle, std::vector<Turn> &turns,
       shorter.reserve(turns.size() - (k - it->second));
       shorter.insert(shorter.end(), turns.begin(),
                      turns.begin() + static_cast<ptrdiff_t>(it->second));
-      shorter.insert(shorter.end(),
-                     turns.begin() + static_cast<ptrdiff_t>(k), turns.end());
+      shorter.insert(shorter.end(), turns.begin() + static_cast<ptrdiff_t>(k),
+                     turns.end());
       if (validates(puzzle, shorter)) {
         turns = std::move(shorter);
         return true;
@@ -276,8 +276,7 @@ private:
 
   // Rolls every allowed block four ways; true as soon as one lands on the
   // target state.
-  bool expandNode(const State &current, const size_t head,
-                  const size_t depth) {
+  bool expandNode(const State &current, const size_t head, const size_t depth) {
     using enum Direction;
     constexpr std::array kDirs = {UP, RIGHT, DOWN, LEFT};
     for (const auto &block : current.blocks) {
@@ -393,9 +392,8 @@ bool segmentPass(const replay::Puzzle &puzzle, std::vector<Turn> &turns,
         movedIds.push_back(turns[t].blockId);
       }
     }
-    const auto shorter =
-        connect(puzzle, states[a], stateKey(states[b]), b - a - 1, deadline,
-                &movedIds, 150000);
+    const auto shorter = connect(puzzle, states[a], stateKey(states[b]),
+                                 b - a - 1, deadline, &movedIds, 150000);
     if (!shorter) {
       continue;
     }
@@ -420,7 +418,8 @@ bool windowPass(const replay::Puzzle &puzzle, std::vector<Turn> &turns,
   if (states.empty()) {
     return false;
   }
-  for (size_t i = 0; i + 2 < states.size(); i += std::max<size_t>(1, window / 2)) {
+  for (size_t i = 0; i + 2 < states.size();
+       i += std::max<size_t>(1, window / 2)) {
     if (deadline != 0 && nowMs() >= deadline) {
       return false;
     }

@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <compare>
 #include <iterator>
 #include <map>
 #include <optional>
@@ -258,6 +259,19 @@ struct LegState {
   std::vector<Block> blocks;
   boost::dynamic_bitset<> sat;
   std::vector<Turn> plan;
+
+  // dynamic_bitset is generic over allocators and so does not mark its move
+  // noexcept, which makes the implicit move here potentially throwing — and
+  // LegStates live inside Nodes inside vectors, where that means every
+  // relocation copies the bitset instead of stealing it. With the default
+  // allocator the move is a vector move and cannot throw. Declaring these
+  // drops the aggregate initialization (hence the assignments in run()).
+  LegState() = default;
+  LegState(const LegState &) = default;
+  LegState &operator=(const LegState &) = default;
+  LegState(LegState &&) noexcept = default;
+  LegState &operator=(LegState &&) noexcept = default;
+  ~LegState() = default;
 };
 
 // One leg's shape: which block moves, which of its reachable cells it
@@ -329,7 +343,7 @@ size_t countOpenRegions(const replay::Puzzle &puzzle,
       stack.pop_back();
       hasOpen = hasOpen || puzzle.cells[idx] == Tile::MustTouch;
       forEachNeighbor(puzzle.gridWidth, puzzle.gridHeight, idx,
-                      [&](const uint16_t nidx) {
+                      [&puzzle, &sat, &seen, &stack](const uint16_t nidx) {
                         if (seen[nidx] || !cellPassable(puzzle, sat, nidx)) {
                           return;
                         }
@@ -396,16 +410,37 @@ struct StateKey {
   std::array<uint8_t, 10> poses{};
   boost::dynamic_bitset<> sat;
 
-  bool operator<(const StateKey &other) const {
-    if (poses != other.poses) {
-      return poses < other.poses;
+  // Keys live in a std::set, which only ever needs `<` — but a three-way
+  // comparison is what the ordering actually is, and `<` is rewritten from
+  // it. dynamic_bitset has no <=> of its own, so its half is spelled out
+  // from the same `<` the previous operator used: same order, same set.
+  std::strong_ordering operator<=>(const StateKey &other) const {
+    if (const auto cmp = poses <=> other.poses;
+        cmp != std::strong_ordering::equal) {
+      return cmp;
     }
-    return sat < other.sat;
+    if (sat < other.sat) {
+      return std::strong_ordering::less;
+    }
+    if (other.sat < sat) {
+      return std::strong_ordering::greater;
+    }
+    return std::strong_ordering::equal;
   }
+
+  // As for LegState: a dynamic_bitset member costs the implicit move its
+  // noexcept, and these keys are moved into the closed set.
+  StateKey() = default;
+  StateKey(const StateKey &) = default;
+  StateKey &operator=(const StateKey &) = default;
+  StateKey(StateKey &&) noexcept = default;
+  StateKey &operator=(StateKey &&) noexcept = default;
+  ~StateKey() = default;
 };
 
 StateKey makeKey(const LegState &state) {
-  StateKey key{.poses = {}, .sat = state.sat};
+  StateKey key;
+  key.sat = state.sat;
   size_t at = 0;
   for (const auto &b : state.blocks) {
     key.poses[at++] = static_cast<uint8_t>(b.x);
@@ -579,9 +614,9 @@ public:
   }
 
   std::vector<Turn> run() {
-    LegState root{.blocks = ctx_.puzzle.blocks,
-                  .sat = boost::dynamic_bitset(ctx_.puzzle.cells.size()),
-                  .plan = {}};
+    LegState root;
+    root.blocks = ctx_.puzzle.blocks;
+    root.sat = boost::dynamic_bitset(ctx_.puzzle.cells.size());
     for (const auto &b : root.blocks) {
       root.sat = b.updateMustTouchCells(ctx_.puzzle.gridWidth,
                                         ctx_.puzzle.cells, root.sat);
@@ -721,7 +756,7 @@ private:
   // single-block cracker, apply the legal prefix, and keep the result only
   // if it made progress without stranding a cell for good.
   [[nodiscard]] std::optional<Node> growChild(const Node &node,
-                                              const LegChoice &choice) {
+                                              const LegChoice &choice) const {
     const auto targets = pickTargets(node.state, choice);
     if (targets.empty()) {
       return std::nullopt;

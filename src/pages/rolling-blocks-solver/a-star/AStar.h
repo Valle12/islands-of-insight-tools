@@ -9,6 +9,7 @@
 
 #include <atomic>
 #include <boost/dynamic_bitset.hpp>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -106,8 +107,10 @@ private:
   // StateTable arena (entries never move), replacing the full NodeKey copy
   // the previous StateInfo carried — that copy was 72 of its 80 bytes.
   struct StateInfo {
-    static constexpr uint8_t ClosedFlag = 1;
-    static constexpr uint8_t HasParentFlag = 2;
+    // std::byte, not uint8_t: these are a bit set, and the only operations on
+    // them are bitwise. Still one byte, so the 12 above is unchanged.
+    static constexpr std::byte ClosedFlag{1};
+    static constexpr std::byte HasParentFlag{2};
 
     uint32_t g = UINT32_MAX;
     const StateInfo *parent = nullptr;
@@ -117,7 +120,7 @@ private:
     uint8_t fromX = 0;
     uint8_t fromY = 0;
     uint8_t dir = 0;
-    uint8_t flags = 0;
+    std::byte flags{};
   };
 
   using Table = StateTable<StateInfo>;
