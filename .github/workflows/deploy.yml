@@ -35,7 +35,7 @@ jobs:
         run: git checkout -b version
 
       - name: Bump version
-        uses: phips28/gh-action-bump-version@fdad52b3b3bbe8fad96b8ca18c56127a96f603db
+        uses: phips28/gh-action-bump-version@e25d05e139958e4b7688a467846f673eaf86ce47 # v12.0.0
         with:
           version-type: ${{ inputs.version }}
           skip-tag: true
