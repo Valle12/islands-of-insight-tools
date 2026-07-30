@@ -102,7 +102,7 @@ E2e traps for the rolling-blocks page: several inline aria snapshots include the
 
 `src/pages/match-three-solver/palette.ts` owns `COLOR_NAMES` — 28 curated CSS color names — and hands out a **random unused** one per "Add Color". The config's `colors` array is the slot → name mapping that makes a saved board reload looking identical. Colors are add-only; Reset is the way back to one. Two consequences worth knowing:
 
-- Grid cells are labelled `Column 3, Row 2, Color 1` — by slot, never by color name — precisely so the e2e aria snapshots stay deterministic. **Assert on `data-color-index` / the `Color N` label in e2e, never a color name or a computed `background-color`.** Unit tests pin the draw with `spyOn(crypto, "getRandomValues")`; e2e cannot, which is the whole reason for the rule.
+- Grid cells are labelled `Column 3, Row 2, Color 1` — by slot, never by color name — precisely so the e2e aria snapshots stay deterministic. **Assert on `data-color-index` / the `Color N` label in e2e, never a color name or a computed `background-color`.** Unit tests pin the draw with `spyOn(crypto, "getRandomValues")`; e2e cannot, which is the whole reason for the rule. Anything about the fill itself — that a slot renders at all, that two slots render *differently* — belongs in `test/match-three-solver/board.test.ts` instead.
 - `pickUnusedColor` draws from `crypto.getRandomValues`, not `Math.random`, only to keep the page's one random draw off Sonar's `typescript:S2245` without a suppression.
 
 Color cells take their fill from an inline `style.backgroundColor` in `board.ts` (the value is dynamic), so `matchThreeSolver.css` styles `.grid-cell[data-kind="color"]` for everything *but* the fill.

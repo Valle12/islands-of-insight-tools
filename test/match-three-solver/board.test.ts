@@ -164,6 +164,25 @@ describe("Board (match-three)", () => {
       expect(cell.getAttribute("aria-label")).toBe("Column 1, Row 2, Color 2");
       expect(cell.style.backgroundColor).toBe("gold");
     });
+
+    /**
+     * The e2e suite may not read a color back off the page (the palette is
+     * random), so "two slots actually look different" is pinned here, against
+     * a palette the handout produced itself.
+     */
+    test("two palette slots render as two different fills", () => {
+      const board = makeBoard(2, 1);
+      board.addColor();
+      board.getCells()[0]![0] = colorCell(0);
+      board.getCells()[1]![0] = colorCell(1);
+      board.renderGrid();
+
+      const first = cellAt(0, 0).style.backgroundColor;
+      const second = cellAt(1, 0).style.backgroundColor;
+      expect(first).not.toBe("");
+      expect(second).not.toBe("");
+      expect(first).not.toBe(second);
+    });
   });
 
   describe("AddColor", () => {

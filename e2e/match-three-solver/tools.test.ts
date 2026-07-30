@@ -95,18 +95,10 @@ test.describe("Match Three Solver tools", () => {
     await expect(cellAt(page, 0, 0)).toHaveAttribute("data-color-index", "0");
   });
 
-  test("each color chip paints a distinct fill", async ({ page }) => {
-    await page.getByRole("button", { name: "Add Color" }).click();
-    await cellAt(page, 0, 0).click();
-    await chips(page).first().click();
-    await cellAt(page, 1, 0).click();
-
-    const fill = (x: number, y: number) =>
-      cellAt(page, x, y).evaluate(
-        el => getComputedStyle(el).backgroundColor,
-      );
-    expect(await fill(0, 0)).not.toBe(await fill(1, 0));
-  });
+  // That two slots render as two *different* fills is checked in
+  // test/match-three-solver/board.test.ts, where the palette is pinned. It
+  // cannot be checked here without reading a color back off the page, which
+  // this suite does not do.
 
   test("resizing keeps the colors but clears the board", async ({ page }) => {
     await page.getByRole("button", { name: "Add Color" }).click();
