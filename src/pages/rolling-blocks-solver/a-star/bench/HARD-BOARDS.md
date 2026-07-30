@@ -77,12 +77,42 @@ alternatives left and none of them help. Around 90 open cells the dense
 right-hand blob simply has no leg-granular ordering that works, which
 means searching leg order harder is the wrong axis.
 
-That leaves the second candidate, and the evidence now points at it
-directly: a constraint/SAT-style formulation of the cell ORDER inside the
-blob, which reasons about the covering sequence itself instead of
-sampling it one cracker call at a time. Note this would reopen the SAT
-decision taken at the start of the overhaul (the vendored CaDiCaL was
-deleted) and add a solver dependency to the wasm build.
+The constraint/SAT candidate was then tried in its tractable half —
+propagation — and **measured as already subsumed**, which is worth
+recording so nobody builds it twice.
+
+The propagator: satisfied cells are walls forever, so the passable floor
+only fragments, and a block can never leave the region it stands in
+(every roll needs its whole footprint on passable cells). Therefore a
+region still holding open cells but holding no block is dead, whatever
+order the rest is done in. Implemented as a hard gate on every child of
+the leg-order search, it fired **0 times in 847 children** on fuzz-7007.
+The reason is structural: the cracker's `coveragePartner` prune already
+requires every open cell to be pose-BFS reachable by the active block or
+the parked partner after each touching move, and a region with no block
+in it is reachable by neither — so such a leg is rejected inside the
+cracker long before a child exists to gate. The code was reverted; it
+cost a flood fill per child and bought nothing.
+
+That leaves only the *sequencing* half of the constraint idea, and it is
+much less promising than it looks. What the existing prune does not
+enforce is that ONE block can cover SEVERAL cells in sequence, since the
+cells it covers en route become walls that may cut off the rest —
+checking which is the original NP-hard question. The cheap sound
+approximations are either subsumed (reachability, above) or cost a
+pose-BFS per cell PAIR, i.e. thousands per node. And a real SAT encoding
+inherits the same state space: bounded model checking over ~2400 poses
+for the ~400-move walk these boards need is roughly a million pose
+variables and clauses in the millions, which is a shape SAT is good at
+REFUTING at shallow depths and bad at finding deep plans in. It would
+also reopen the dependency decision taken at the start of the overhaul
+(the vendored CaDiCaL was deleted) and add a solver to a build that must
+also produce four wasm variants.
+
+Recommendation: leave 7007 open. It is a synthetic board 4.5x beyond
+anything the game has shown, every real fixture solves, and the two
+cheap levers left (better cracker move ordering, more restart diversity)
+are worth more per hour than either remaining formulation.
 
 `fuzz-7007-endgame.json` is the frozen stuck state as a standalone
 fixture, for iterating on the hard core in seconds instead of minutes —
