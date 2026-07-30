@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <compare>
 #include <iterator>
 #include <map>
@@ -402,12 +403,18 @@ uint64_t stateCost(const StateScore &score) {
   return kOpenWeight * score.open + std::min<uint64_t>(shape, kOpenWeight - 1);
 }
 
+// The split scheme is two-block by construction — runSplitCoverage returns
+// empty for any other count — which is what lets a pose key be a fixed-size
+// array instead of a vector.
+constexpr size_t kSplitBlocks = 2;
+constexpr size_t kPoseBytes = 5;
+
 // Closed-set key. The satisfied set is monotone and the blocks' poses are
 // the rest of the state, so an exact repeat means a different leg order
 // reached the same position — the one that got there first was at least as
 // cheap, and re-expanding is pure waste.
 struct StateKey {
-  std::array<uint8_t, 10> poses{};
+  std::array<uint8_t, kSplitBlocks * kPoseBytes> poses{};
   boost::dynamic_bitset<> sat;
 
   // Keys live in a std::set, which only ever needs `<` — but a three-way
@@ -439,6 +446,9 @@ struct StateKey {
 };
 
 StateKey makeKey(const LegState &state) {
+  // `poses` is sized for the two blocks the scheme is gated on; a third
+  // would run off the end rather than fail a comparison.
+  assert(state.blocks.size() <= kSplitBlocks);
   StateKey key;
   key.sat = state.sat;
   size_t at = 0;
@@ -712,11 +722,18 @@ private:
     // alternating predecessor reached 96). Same-block legs are still
     // available, but only once the partner has nothing to offer.
     size_t born = 0;
-    if (const Step step = expandSide(node, 1 - node.lastActive, born, out);
+    // The root has no previous mover, so neither side is "the partner" and
+    // every choice is allowed — which is exactly expandSide's SIZE_MAX
+    // wildcard. Spelled out because `1 - lastActive` reached the same
+    // children only by wrapping to 2, matching no choice, and falling
+    // through to the second pass.
+    const size_t partner =
+        node.lastActive == SIZE_MAX ? SIZE_MAX : 1 - node.lastActive;
+    if (const Step step = expandSide(node, partner, born, out);
         step != Step::None) {
       return out;
     }
-    if (born == 0) {
+    if (born == 0 && partner != SIZE_MAX) {
       if (const Step step = expandSide(node, node.lastActive, born, out);
           step != Step::None) {
         return out;

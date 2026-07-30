@@ -43,20 +43,24 @@ INSTANTIATE_TEST_SUITE_P(RollingBlocks, RollingBlocksSearchTest,
 TEST_P(RollingBlocksSearchTest, ShouldFindValidSolution) {
   const auto &filename = GetParam();
   replay::Puzzle puzzle;
-  // Caught by name: FixtureError for a fixture that is not there, nlohmann's
-  // for one that will not parse. Either way this skips rather than fails — a
-  // missing fixture is a checkout problem, not a solver regression.
-  std::string loadError;
+  // Two failure modes, two verdicts. A fixture that is not THERE is a
+  // checkout problem, not a solver regression, so it skips. One that will
+  // not PARSE is a broken checked-in file: that fails, because skipping it
+  // would let a malformed fixture silently stop testing anything.
+  std::string readError;
+  std::string parseError;
   try {
     puzzle = fixtureio::load(
         (std::filesystem::path(TEST_RESOURCES_DIR) / filename).string());
   } catch (const fixtureio::FixtureError &e) {
-    loadError = e.what();
+    readError = e.what();
   } catch (const nlohmann::json::exception &e) {
-    loadError = e.what();
+    parseError = e.what();
   }
-  if (!loadError.empty()) {
-    GTEST_SKIP() << "Cannot load " << filename << ": " << loadError;
+  ASSERT_TRUE(parseError.empty())
+      << "Malformed fixture " << filename << ": " << parseError;
+  if (!readError.empty()) {
+    GTEST_SKIP() << "Cannot read " << filename << ": " << readError;
   }
 
   AStar solver(puzzle.gridWidth, puzzle.gridHeight, puzzle.cells);
