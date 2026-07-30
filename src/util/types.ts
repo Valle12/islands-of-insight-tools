@@ -61,6 +61,23 @@ export type RollingBlocksTest = {
   turns: Turn[] | undefined;
 };
 
+/**
+ * A match-three cell, encoded as a single index — see
+ * `src/pages/match-three-solver/cell.ts` for the constants. 0 is empty, 1 is a
+ * fixed obstacle, and 2+ are palette *slots*. Slots are deliberately not
+ * colors: the palette is handed out at random, so the config carries the
+ * slot -> color mapping that makes a saved board reload looking identical.
+ */
+export type MatchThreeCell = number;
+
+export type MatchThreeTest = {
+  gridWidth: number;
+  gridHeight: number;
+  /** Slot index -> CSS color name. */
+  colors: string[];
+  cells: MatchThreeCell[][];
+};
+
 export type ShiftingMosaicTest = {
   gridWidth: number;
   gridHeight: number;
@@ -80,6 +97,13 @@ export type PaintTool =
   | "block"
   | "fillRegular"
   | "fillMustTouch"
+  | "reset";
+
+export type MatchThreeTool =
+  | "empty"
+  | "blocked"
+  | "color"
+  | "addColor"
   | "reset";
 
 export type BlockType = "obstruction" | "goal";

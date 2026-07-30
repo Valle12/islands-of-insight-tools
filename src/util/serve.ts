@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import index from "./../pages/index.html";
+import matchThreeSolver from "./../pages/match-three-solver/index.html";
 import phasicDialSolver from "./../pages/phasic-dial-solver/index.html";
 import rollingBlocksSolver from "./../pages/rolling-blocks-solver/index.html";
 import shiftingMosaicSolver from "./../pages/shifting-mosaic-solver/index.html";
@@ -16,6 +17,7 @@ const shiftingMosaicWasmDir = resolve(
 const server = Bun.serve({
   routes: {
     "/": index,
+    "/match-three-solver": matchThreeSolver,
     "/phasic-dial-solver": phasicDialSolver,
     "/rolling-blocks-solver": rollingBlocksSolver,
     "/shifting-mosaic-solver": shiftingMosaicSolver,

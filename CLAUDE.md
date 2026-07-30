@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A static, zero-framework site of three puzzle solvers for the game *Islands of Insight*, deployed to GitHub Pages. Each solver is a page under `src/pages/`; two of them run their search in C++ compiled to WebAssembly. There is no backend and no client-side router — `src/util/serve.ts` maps four URLs to four HTML entry points, and `bun run build` emits the same four pages into `dist/`.
+A static, zero-framework site of four puzzle solvers for the game *Islands of Insight*, deployed to GitHub Pages. Each solver is a page under `src/pages/`; two of them run their search in C++ compiled to WebAssembly. There is no backend and no client-side router — `src/util/serve.ts` maps five URLs to five HTML entry points, and `bun run build` emits the same five pages into `dist/`.
+
+**match-three is a board editor only.** Its search algorithm is deliberately a future project: `#solve-puzzle` opens `#solution-panel` on a static `#solution-placeholder`, and there is no worker, no wasm and no `config.ts` engine cap. Everything else on the page (grid, tools, palette, config I/O, tests) is complete, so the engine can drop in without touching layout or serialisation.
 
 (`README.md` is unmodified `bun init` boilerplate — its `bun run index.ts` instruction is wrong, there is no `index.ts`.)
 
@@ -88,9 +90,32 @@ Both bridges are now **portfolios** with identical mechanics: an exported `PORTF
 
 ### Config file I/O
 
-`src/util/configFile.ts` holds `downloadJson` / `readJsonFile` / `setupDragAndDrop`, shared by all three solver pages. Each page keeps its own `config.ts` validator returning `{ ok: true, config } | { ok: false, error }` with a human-readable first-failure message, and its own `applyLoadedConfig`. The download filename matches the fixture family (`phasicDialTest.json`, `shiftingMosaicTest.json`, `rollingBlocksTest.json`) so a downloaded file is directly usable as a test fixture. `#warning-banner` / `#drop-overlay` / `.hidden` styles live in `src/common/common.css`. The rolling-blocks validator also enforces the engine caps (64×64 grid, 255 blocks, dims ≤ 64 — same constants the UI fields and the wasm boundary use) and renumbers block ids to 1..n on load; **this validator** ignores a fixture's optional `turns` key. That is a page-level rule, not a repo-wide one — the native `fixtureio::load` deliberately does the opposite and parses `turns` back out, because that key is where `--generate` stores the replay-validated witness.
+`src/util/configFile.ts` holds `downloadJson` / `readJsonFile` / `setupDragAndDrop`, shared by all four solver pages. Each page keeps its own `config.ts` validator returning `{ ok: true, config } | { ok: false, error }` with a human-readable first-failure message, and its own `applyLoadedConfig`. The download filename matches the fixture family (`phasicDialTest.json`, `shiftingMosaicTest.json`, `rollingBlocksTest.json`, `matchThreeTest.json`) so a downloaded file is directly usable as a test fixture. `#warning-banner` / `#drop-overlay` / `.hidden` styles live in `src/common/common.css`. The rolling-blocks validator also enforces the engine caps (64×64 grid, 255 blocks, dims ≤ 64 — same constants the UI fields and the wasm boundary use) and renumbers block ids to 1..n on load; **this validator** ignores a fixture's optional `turns` key. That is a page-level rule, not a repo-wide one — the native `fixtureio::load` deliberately does the opposite and parses `turns` back out, because that key is where `--generate` stores the replay-validated witness.
 
 E2e traps for the rolling-blocks page: several inline aria snapshots include the page subtitle text, and Material components expose an inner `#button` in their shadow DOM — never target buttons by `#button` index (adding any icon button shifts every index; use the app's own `data-block-delete-id` style hooks).
+
+### The match-three cell encoding
+
+`src/pages/match-three-solver/cell.ts` is the single definition: **a cell is one number**, never a string. `EMPTY = 0`, `BLOCKED = 1`, `FIRST_COLOR = 2`, and palette slot `i` is stored as `FIRST_COLOR + i` — so `cells` in the config JSON is a flat integer grid and `isColor` is one comparison. Go through `colorCell` / `colorSlotOf` / `isColor` rather than open-coding the `+ 2`. The `data-kind` DOM attribute (`empty` / `blocked` / `color`) is a *rendering* detail for CSS and e2e selectors — it is not what the model stores.
+
+### The match-three palette
+
+`src/pages/match-three-solver/palette.ts` owns `COLOR_NAMES` — 28 curated CSS color names — and hands out a **random unused** one per "Add Color". The config's `colors` array is the slot → name mapping that makes a saved board reload looking identical. Colors are add-only; Reset is the way back to one. Two consequences worth knowing:
+
+- Grid cells are labelled `Column 3, Row 2, Color 1` — by slot, never by color name — precisely so the e2e aria snapshots stay deterministic. **Assert on `data-color-index` / the `Color N` label in e2e, never a color name or a computed `background-color`.** Unit tests pin the draw with `spyOn(crypto, "getRandomValues")`; e2e cannot, which is the whole reason for the rule.
+- `pickUnusedColor` draws from `crypto.getRandomValues`, not `Math.random`, only to keep the page's one random draw off Sonar's `typescript:S2245` without a suppression.
+
+Color cells take their fill from an inline `style.backgroundColor` in `board.ts` (the value is dynamic), so `matchThreeSolver.css` styles `.grid-cell[data-kind="color"]` for everything *but* the fill.
+
+### Match-three rendering (the reason a 32×32 board stays responsive)
+
+Unlike the rolling-blocks page, this editor does **not** rebuild the grid on every edit. Three rules, all of them load-bearing at the 32×32 cap (1024 cells, where one full rebuild measures ~3.5 ms and a pointermove-per-cell drag would have run one per event):
+
+- `Board.renderGrid` is the only full rebuild. It fills a `DocumentFragment` and `replaceChildren`s it in one go, and caches the buttons in `cellElements`.
+- `paintCell` rewrites that one cached button via `dressCell` and returns early when the cell already holds the value — a drag fires many pointermoves per cell, and all but the first must be free. It calls `solver.hideSolution()` only, **never** `solver.render()`.
+- Picking a tool or a color calls `renderTools()` (the two chip rows), not `render()`. Only a board *replacement* — resize, reset, config load — calls `render()`.
+
+`Board` registers all its listeners against an internal `AbortController`, and the editor's `replaceBoard` calls `dispose()` before swapping. `#grid` outlives any single `Board`, so a board that kept listening would keep painting into its own dead `cells` and make every later stroke do the work once per board ever created — which typing a two-digit grid size creates several of.
 
 ### Long searches on the main thread
 
@@ -98,11 +123,13 @@ E2e traps for the rolling-blocks page: several inline aria snapshots include the
 
 ## Test layout
 
-`test/` and `e2e/` mirror `src/pages/` with kebab-case folders (`phasic-dial-solver`, `rolling-blocks-solver`, `shifting-mosaic-solver`); shared tests sit at the root of each. `test/resources/` is split the same way. Fixtures are produced by the app's own download button, so the JSON *is* the download format.
+`test/` and `e2e/` mirror `src/pages/` with kebab-case folders (`match-three-solver`, `phasic-dial-solver`, `rolling-blocks-solver`, `shifting-mosaic-solver`); shared tests sit at the root of each. `test/resources/` is split the same way. Fixtures are produced by the app's own download button, so the JSON *is* the download format.
 
 `test/resources/phasic-dial-solver/` is discovered by directory listing rather than a hard-coded list, so dropping a captured `phasicDialTest*.json` in makes it run with no code change. Every other fixture family is enumerated explicitly: the C++ suites run rollingBlocksTest 1–48 and shiftingMosaicTest 1–43, and `test/rolling-blocks-solver/aStar.test.ts` runs the same full 1–48 range through wasm on the cascade engine (120 s per-test timeout, 90 s solve budget). Real captured rolling-blocks boards top out at 13×15 / 8 blocks / dimension-6 blocks / 83 must-touch — the 64×64 caps and fuzz sizes are stress headroom, not game reality.
 
-Fixture paths appear in nine places — the two `TEST_RESOURCES_DIR` macros in the C++ test `CMakeLists.txt`, four TS/MJS test files, `src/util/benchShiftingMosaic.ts` (regex over `readdirSync`), `src/util/benchWasmSimd.ts`, and a **cwd-relative** literal in `e2e/shifting-mosaic-solver/config.test.ts`. Renaming or moving a fixture means touching all of them.
+`test/resources/match-three-solver/` holds `matchThreeTest1.json` (6×6, 3 colors, blocked cells and an open top) and `matchThreeTest2.json` (8×5, 2 colors, dense), both named explicitly by `test/match-three-solver/config.test.ts` and `e2e/match-three-solver/config.test.ts` (the latter cwd-relative). The colors in them are whatever the random palette handed out when they were captured — that is the point, since round-tripping them proves the slot → name mapping survives.
+
+Rolling-blocks and shifting-mosaic fixture paths appear in nine places — the two `TEST_RESOURCES_DIR` macros in the C++ test `CMakeLists.txt`, four TS/MJS test files, `src/util/benchShiftingMosaic.ts` (regex over `readdirSync`), `src/util/benchWasmSimd.ts`, and a **cwd-relative** literal in `e2e/shifting-mosaic-solver/config.test.ts`. Match-three adds three more (its unit `config.test.ts`, its `matchThreeSolver.test.ts`, and a cwd-relative literal in its e2e `config.test.ts`). Renaming or moving a fixture means touching all of them.
 
 ## Native C++ builds
 
