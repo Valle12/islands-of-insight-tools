@@ -633,6 +633,11 @@ private:
 
   static PoseGraph buildPoseGraph(const Block &seed) {
     PoseGraph graph;
+    // A dims multiset has at most 6 orientations; reserving up front means
+    // findOrAdd never reallocates while the closure loop below holds
+    // indices into the vectors.
+    graph.orients.reserve(6);
+    graph.trans.reserve(6);
     const auto findOrAdd = [&graph](const std::array<uint8_t, 3> &o) {
       for (size_t i = 0; i < graph.orients.size(); i++) {
         if (graph.orients[i] == o) {
@@ -649,14 +654,22 @@ private:
       // Mirrors Block::roll — UP moves y by -h and swaps depth/height;
       // RIGHT moves x by +w and swaps width/height; DOWN moves y by +d and
       // swaps depth/height; LEFT moves x by -h and swaps width/height.
+      // findOrAdd runs BEFORE any trans[o] access: `trans[o][k] = {...
+      // findOrAdd(...)}` computes the element address first (the braced
+      // RHS is an operator= argument, sequenced after the postfix
+      // expression), so a push_back inside findOrAdd would leave the
+      // assignment writing through a dangling pointer — glibc aborted on
+      // exactly that (heap-use-after-free, found by ASan on fixture 34).
+      const uint8_t vertical = findOrAdd({w, h, d});
+      const uint8_t horizontal = findOrAdd({h, d, w});
       graph.trans[o][0] = {.dx = 0, .dy = static_cast<int8_t>(-h),
-                           .next = findOrAdd({w, h, d})};
+                           .next = vertical};
       graph.trans[o][1] = {.dx = static_cast<int8_t>(w), .dy = 0,
-                           .next = findOrAdd({h, d, w})};
+                           .next = horizontal};
       graph.trans[o][2] = {.dx = 0, .dy = static_cast<int8_t>(d),
-                           .next = findOrAdd({w, h, d})};
+                           .next = vertical};
       graph.trans[o][3] = {.dx = static_cast<int8_t>(-h), .dy = 0,
-                           .next = findOrAdd({h, d, w})};
+                           .next = horizontal};
     }
     return graph;
   }
