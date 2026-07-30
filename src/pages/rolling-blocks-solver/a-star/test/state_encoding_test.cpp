@@ -64,28 +64,34 @@ void replaySolution(const uint8_t w, const uint8_t h,
   out = {.blocks = std::move(blocks), .satisfied = std::move(satisfied)};
 }
 
+// The cell indices a block sits on. Walking (cx, cy) here rather than at
+// each use keeps the callers two levels deep.
+std::vector<size_t> footprintCells(const uint8_t w, const Block &b) {
+  std::vector<size_t> indices;
+  indices.reserve(static_cast<size_t>(b.width) * b.depth);
+  for (int8_t cx = b.x; cx < b.x + static_cast<int8_t>(b.width); cx++) {
+    for (int8_t cy = b.y; cy < b.y + static_cast<int8_t>(b.depth); cy++) {
+      indices.push_back(positionToIndex(cx, cy, w));
+    }
+  }
+  return indices;
+}
+
 // Exact goal cover: the set of goal cells under fully-on-goal blocks must be
-// every goal cell.
+// every goal cell. A block half on a goal contributes nothing.
 void assertGoalsCovered(const uint8_t w, const uint8_t h,
                         const std::vector<Tile> &cells,
                         const std::vector<Block> &blocks) {
   boost::dynamic_bitset covered(static_cast<size_t>(w) * h);
   for (const auto &b : blocks) {
-    bool fullyOnGoal = true;
-    for (int8_t cx = b.x; cx < b.x + static_cast<int8_t>(b.width); cx++) {
-      for (int8_t cy = b.y; cy < b.y + static_cast<int8_t>(b.depth); cy++) {
-        if (cells[positionToIndex(cx, cy, w)] != Tile::Goal) {
-          fullyOnGoal = false;
-        }
-      }
-    }
-    if (!fullyOnGoal) {
+    const auto foot = footprintCells(w, b);
+    if (!std::ranges::all_of(foot, [&cells](const size_t i) {
+          return cells[i] == Tile::Goal;
+        })) {
       continue;
     }
-    for (int8_t cx = b.x; cx < b.x + static_cast<int8_t>(b.width); cx++) {
-      for (int8_t cy = b.y; cy < b.y + static_cast<int8_t>(b.depth); cy++) {
-        covered.set(positionToIndex(cx, cy, w));
-      }
+    for (const size_t i : foot) {
+      covered.set(i);
     }
   }
   for (size_t i = 0; i < cells.size(); i++) {
@@ -282,14 +288,15 @@ TEST(StateEncoding, MaxNodesBudgetStopsTheSearch) {
                     Tile::Regular);
   for (uint8_t x = 0; x < gridWidth; x++) {
     for (uint8_t y = 0; y < gridHeight; y++) {
+      using enum Tile;
       const auto s = j["cells"][x][y].get<std::string>();
-      auto tile = Tile::Regular;
+      auto tile = Regular;
       if (s == "mustTouch") {
-        tile = Tile::MustTouch;
+        tile = MustTouch;
       } else if (s == "goal") {
-        tile = Tile::Goal;
+        tile = Goal;
       } else if (s == "unplayable") {
-        tile = Tile::Unplayable;
+        tile = Unplayable;
       }
       cells[x + y * gridWidth] = tile;
     }

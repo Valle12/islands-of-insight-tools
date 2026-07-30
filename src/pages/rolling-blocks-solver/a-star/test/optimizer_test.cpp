@@ -11,6 +11,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
@@ -107,12 +108,22 @@ TEST(Optimizer, NeverLengthensRecordedFixtureSolutions) {
         "rollingBlocksTest25.json"}) {
     std::vector<Turn> turns;
     replay::Puzzle puzzle;
+    // Both of load()'s failure modes are caught by name: FixtureError for a
+    // fixture that is not there, nlohmann's for one that will not parse.
+    // Either way the test skips rather than fails — a missing fixture is a
+    // checkout problem, not an optimizer regression.
+    std::string loadError;
     try {
       puzzle = fixtureio::load(
           (std::filesystem::path(TEST_RESOURCES_DIR) / name).string(),
           &turns);
-    } catch (const std::exception &e) {
-      GTEST_SKIP() << "Cannot load " << name << ": " << e.what();
+    } catch (const fixtureio::FixtureError &e) {
+      loadError = e.what();
+    } catch (const nlohmann::json::exception &e) {
+      loadError = e.what();
+    }
+    if (!loadError.empty()) {
+      GTEST_SKIP() << "Cannot load " << name << ": " << loadError;
     }
     if (turns.empty()) {
       GTEST_SKIP() << name << " carries no recorded turns";

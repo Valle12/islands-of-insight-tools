@@ -10,6 +10,7 @@
 
 #include <filesystem>
 #include <format>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
@@ -42,11 +43,20 @@ INSTANTIATE_TEST_SUITE_P(RollingBlocks, RollingBlocksSearchTest,
 TEST_P(RollingBlocksSearchTest, ShouldFindValidSolution) {
   const auto &filename = GetParam();
   replay::Puzzle puzzle;
+  // Caught by name: FixtureError for a fixture that is not there, nlohmann's
+  // for one that will not parse. Either way this skips rather than fails — a
+  // missing fixture is a checkout problem, not a solver regression.
+  std::string loadError;
   try {
     puzzle = fixtureio::load(
         (std::filesystem::path(TEST_RESOURCES_DIR) / filename).string());
-  } catch (const std::exception &e) {
-    GTEST_SKIP() << "Cannot load " << filename << ": " << e.what();
+  } catch (const fixtureio::FixtureError &e) {
+    loadError = e.what();
+  } catch (const nlohmann::json::exception &e) {
+    loadError = e.what();
+  }
+  if (!loadError.empty()) {
+    GTEST_SKIP() << "Cannot load " << filename << ": " << loadError;
   }
 
   AStar solver(puzzle.gridWidth, puzzle.gridHeight, puzzle.cells);

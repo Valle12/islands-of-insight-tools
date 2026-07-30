@@ -146,7 +146,8 @@ inline uint64_t liveAllocatedBytes() {
   std::FILE *f = std::fopen("/proc/self/statm", "r");
   if (!f)
     return 0;
-  unsigned long total = 0, resident = 0;
+  unsigned long total = 0;
+  unsigned long resident = 0;
   const int got = std::fscanf(f, "%lu %lu", &total, &resident);
   std::fclose(f);
   if (got != 2)
