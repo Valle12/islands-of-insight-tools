@@ -78,6 +78,17 @@ default, so it stays in the fast lane.
   in miniature, which is why a corpus-is-non-empty test sits outside it.)
 - `SM_SLOW_E2E=1` — `e2e/shifting-mosaic-solver/heapLimit.slow.test.ts` (~4 min).
   Still opt-in, and a `test.skip`, so it reports as skipped.
+- `MT_SLOW_E2E=1` — `e2e/match-three-solver/corpusTiming.slow.test.ts` (~5 min),
+  same shape. Not an assertion but a measurement: it drives all 52 captured
+  boards through the real page and reports time-to-answer against
+  time-to-settle. Measured 2026-08-01, cross-origin isolated on 16 cores — the
+  49 provable boards settle in a **median 361 ms** (16.9 s for all 49), and the
+  three unprovable ones produce answers at 1.8 s, 3.2 s and 10.2 s and then
+  search to the 300 s budget. `bench/QUALITY.md` carries the table.
+  **Reload the page per fixture**: reusing one leaves the previous board's
+  "Step 1 of 7" in the solution counter and the poll reads it as this board's
+  answer within milliseconds — which is how the first version of this reported a
+  46 ms median and move counts belonging to other boards.
 
 `bun test` takes multiple positional substring filters, which is what the
 per-page scripts use (`test:sm` = the page directory plus `configFile.test.ts`
