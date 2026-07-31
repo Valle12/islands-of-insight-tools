@@ -9,6 +9,8 @@
     "build:wasm": "bun run src/util/buildWasm.ts",
     "dev": "bun run src/util/serve.ts",
     "e2e": "bunx playwright test",
+    "e2e:install": "playwright install --with-deps chromium",
+    "typecheck": "tsc --noEmit",
     "bench:sm": "bun run src/util/benchShiftingMosaic.ts",
     "fuzz:sm": "bun run src/util/fuzzShiftingMosaic.ts",
     "bench:rb": "bun run src/util/benchRollingBlocks.ts",

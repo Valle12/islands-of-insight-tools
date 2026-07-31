@@ -55,7 +55,7 @@ jobs:
 
       - name: Setup bun
         if: steps.wasm-cache.outputs.cache-hit != 'true'
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
       - name: Setup wasm toolchain
         if: steps.wasm-cache.outputs.cache-hit != 'true'
@@ -132,13 +132,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
       - name: Setup bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - name: Install dependencies
         run: bun ci
       # CLAUDE.md makes this mandatory before calling work done, and CI never
-      # ran it.
+      # ran it. `bun run`, not `bunx`: the script resolves the typescript
+      # pinned in bun.lock instead of letting bunx fetch a version nothing
+      # pinned (Sonar githubactions:S8543).
       - name: tsc --noEmit
-        run: bunx tsc --noEmit
+        run: bun run typecheck
 
   # Between them these four shards run EVERY test under test/ — there is no env
   # gate that can leave a suite silently unregistered.
@@ -166,7 +168,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
       - name: Setup bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - name: Cache bun dependencies
         uses: actions/cache@v6
         with:
@@ -197,7 +199,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
       - name: Setup bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - name: Install dependencies
         run: bun ci
       - name: Download wasm
@@ -207,20 +209,20 @@ jobs:
           path: src/pages
 
       - name: Cache Playwright browsers
-        id: pw-cache
         uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
-      # `install --with-deps` alone pulls chromium AND firefox AND webkit;
-      # playwright.config.ts declares a single chromium project, so two thirds of
-      # that download was waste. The apt half is cheap and not cacheable.
-      - name: Install Playwright system dependencies
-        run: bunx playwright install-deps chromium
+      # Naming chromium matters: a bare `install --with-deps` pulls firefox and
+      # webkit too, and playwright.config.ts declares a single chromium
+      # project. The browser download is a no-op once the cache above restored
+      # it, so this needs no cache-hit condition — only the apt half re-runs.
+      #
+      # `bun run`, not `bunx`, so the playwright pinned in bun.lock is used
+      # rather than one bunx resolves at run time (Sonar githubactions:S8543).
       - name: Install Playwright chromium
-        if: steps.pw-cache.outputs.cache-hit != 'true'
-        run: bunx playwright install chromium
+        run: bun run e2e:install
 
       # Sharded across runners rather than raising `workers` above 1: each spec
       # drives a multi-arm wasm portfolio inside the browser, so two runners at
@@ -281,7 +283,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
       - name: Setup bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - name: Install dependencies
         run: bun ci
       - name: Download wasm

@@ -25,7 +25,9 @@ bun run test:fast        # everything except the three *.slow.test.ts suites (~5
 bun run test:slow        # only those three
 bun run test:changed     # only the files affected by the diff vs origin/main
 bun run test:mt          # one page + the two shared root suites (also :pd :rb :sm)
+bun run typecheck        # tsc --noEmit
 bun run e2e              # playwright, spins up its own webServer
+bun run e2e:install      # chromium + its system deps (what CI installs)
 
 bun run bench:sm         # shifting-mosaic bench; --diff before.json after.json
 bun run fuzz:sm          # generate-and-solve campaign into test-results/sm-fuzz
@@ -263,7 +265,7 @@ Both solvers gate on clang-tidy through `cmake/ClangTidyGate.cmake` and fail on 
 
 ### TypeScript / JavaScript
 
-1. `bunx tsc --noEmit` — always, on any `.ts`/`.js` change.
+1. `bun run typecheck` (`tsc --noEmit`) — always, on any `.ts`/`.js` change. CI runs it too, in its own job.
 2. **SonarQube MCP `analyze_code_snippet`** on every file you added or changed. This is not the "last analysis report" — it analyzes whatever content you pass, so it works on uncommitted and unsaved code. Verified 2026-07-28 against a snippet that exists nowhere in the repo.
    - Pass the **complete** file as `fileContent` and set `language` (`ts`/`tsx`/`js`/`jsx`/`css`/`scss`/`html`) and `scope` (`MAIN`, or `TEST` for anything under `test/` or `e2e/`).
    - **Do not pass `codeSnippet` for a review pass** — it *filters* the output to issues inside that snippet, so an unrelated problem elsewhere in the file reads as "clean".
@@ -326,6 +328,16 @@ wasm ──┬──▶ bun-test [4 shards]
   checked that before) and publishes the artifact `deploy.yml` reuses.
 - `.github/actions/setup-wasm` is a composite action shared with `deploy.yml`, so
   the emsdk pin and the `BOOST_INCLUDE` symlink cannot drift between them.
+
+Sonar's `githubactions` rules gate this repo, and two of them shape the YAML:
+
+- **S7637** — third-party actions are pinned to a commit SHA with the tag in a
+  trailing comment (`oven-sh/setup-bun@0c5077e… # v2.2.0`). `actions/*` are
+  first-party and exempt.
+- **S8543** — no `bunx <pkg>` in a workflow, because Sonar cannot see that the
+  package is already pinned in `bun.lock`. Both call sites went through
+  package.json instead (`bun run typecheck`, `bun run e2e:install`), which also
+  guarantees the pinned version rather than whatever bunx resolves.
 
 Two rules that are easy to get wrong:
 
