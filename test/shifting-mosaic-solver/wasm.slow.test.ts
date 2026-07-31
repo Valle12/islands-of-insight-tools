@@ -144,7 +144,10 @@ function validateSolution(
   return { valid: true, reason: "" };
 }
 
-describe("WASM solver (shifting-mosaic)", () => {
+// The heaviest suite in the repo (~244s): 43 fixtures, each racing the full
+// production arm portfolio in its own worker. Runs by DEFAULT — opt OUT with
+// IOI_SKIP_SLOW=1, which reports it as skipped rather than silently dropping it.
+describe.skipIf(Bun.env.IOI_SKIP_SLOW === "1")("WASM solver (shifting-mosaic)", () => {
   // test37's winning cascade arm alone exceeds the ordinary per-arm budget
   // (see LONG_BUDGET_MS above), so it runs as its own long case at the end.
   const LONG_BUDGET_FIXTURES = new Set<string>(["shiftingMosaicTest37.json"]);
@@ -154,6 +157,14 @@ describe("WASM solver (shifting-mosaic)", () => {
     cases.push([`shiftingMosaicTest${i}.json`]);
   }
   const activeCases = cases.filter(([f]) => !LONG_BUDGET_FIXTURES.has(f));
+
+  // The list is built from a hardcoded range and then read off disk, so a
+  // mis-resolved path or a renamed fixture would shrink the sweep instead of
+  // failing it. Assert the arity so that can never pass quietly.
+  test("the fixture corpus is complete", () => {
+    expect(cases).toHaveLength(44);
+    expect(activeCases).toHaveLength(43);
+  });
 
   // Race the FULL production portfolio (one worker thread per arm, each
   // with its own wasm module instance — an arm that exhausts the wasm32

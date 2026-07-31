@@ -19,8 +19,12 @@ bun run dev              # dev server on :3000 (src/util/serve.ts)
 bun run build            # -> dist/ (runs build:wasm first via an import side effect)
 bun run build:wasm       # em++ only; skips variants whose inputs have not moved
 
-bun test                 # unit tests (bunfig.toml pins root = "test")
-bun run test             # build:wasm + the full suite with the rolling-blocks gate on
+bun test                 # every unit test (bunfig.toml pins root = "test")
+bun run test             # build:wasm + every unit test — no env gates
+bun run test:fast        # everything except the three *.slow.test.ts suites (~5s)
+bun run test:slow        # only those three
+bun run test:changed     # only the files affected by the diff vs origin/main
+bun run test:mt          # one page + the two shared root suites (also :pd :rb :sm)
 bun run e2e              # playwright, spins up its own webServer
 
 bun run bench:sm         # shifting-mosaic bench; --diff before.json after.json
@@ -41,10 +45,35 @@ bunx playwright test e2e/phasic-dial-solver
 bunx playwright test e2e/shifting-mosaic-solver/config.test.ts:60
 ```
 
-Two suites are opt-in:
+The expensive unit suites are opt-**out**, never opt-in. Three files carry
+`.slow.test.ts`, and they run by default — including in CI, which sets nothing:
 
-- `ROLLING_BLOCKS_TEST=true` — the wasm fixture sweep in `test/rolling-blocks-solver/aStar.test.ts`. It is a `describe.if`, so without the variable it registers **nothing at all** and the run still looks green. `bun run test`, `bun run rolling-blocks-test` and CI set it; a bare `bun test` does not.
-- `SM_SLOW_E2E=1` — `e2e/shifting-mosaic-solver/heapLimit.slow.test.ts` (~4 min). A `test.skip`, so it at least reports as skipped.
+| File | Measured |
+| --- | --- |
+| `test/shifting-mosaic-solver/wasm.slow.test.ts` | ~244s |
+| `test/rolling-blocks-solver/aStar.slow.test.ts` | ~60s |
+| `test/match-three-solver/engine.solve.slow.test.ts` | ~44s |
+
+Every other file under `test/` measures 300–780ms, except
+`test/phasic-dial-solver/turnSolver.test.ts` at ~3.9s — still inside bun's 5 s
+default, so it stays in the fast lane.
+
+- `IOI_SKIP_SLOW=1` (what `bun run test:fast` sets) skips those three. They are
+  `describe.skipIf`, so they **report as skipped**. This replaced
+  `ROLLING_BLOCKS_TEST`, which was a `describe.if`: unset, it registered
+  **nothing at all** and a 48-fixture sweep sat disabled behind a green run.
+  **Never reintroduce `describe.if` for a cost gate** — inverting the default so
+  forgetting a variable costs time rather than coverage is the whole point.
+  (`describe.if(fixtures.length > 0)` in `turnSolver.test.ts` is the same trap
+  in miniature, which is why a corpus-is-non-empty test sits outside it.)
+- `SM_SLOW_E2E=1` — `e2e/shifting-mosaic-solver/heapLimit.slow.test.ts` (~4 min).
+  Still opt-in, and a `test.skip`, so it reports as skipped.
+
+`bun test` takes multiple positional substring filters, which is what the
+per-page scripts use (`test:sm` = the page directory plus `configFile.test.ts`
+and `utilMethods.test.ts`). `bun test slow` selects the three by name.
+`bun test --changed=<ref>` walks the import graph — measured: on the match-three
+commit it selected exactly the match-three files.
 
 `bun run test:mem64` runs the two `mem64.node.test.mjs` files (shifting-mosaic + rolling-blocks) under node, not bun: bun cannot instantiate a Memory64 module. Under `bun test` they register as skips.
 
@@ -96,7 +125,7 @@ The source lists are duplicated in three places that must stay in sync: `buildWa
 Both bridges are now **portfolios** with identical mechanics: an exported `PORTFOLIO` array of engine configs, one worker per arm racing the others, first non-empty solution wins, the rest terminated. Concurrency is bounded by `hardwareConcurrency`, not the arm count — every arm always runs, queued and back-filled. An arm that exhausts the heap retires itself and the race continues. Cross-origin isolated pages collapse to ONE worker on the pthreads build, whose in-module race runs the same arm set on real threads (with a sequential in-module fallback announced as `onPhase("sequential")`). Variant priority (threads-mem64 > threads > mem64 > default) comes from the shared probes in `src/util/wasmFeatureProbes.ts`.
 
 - **rolling-blocks** (`wasmBridge.ts` → `searchRollingBlocksWasm`): wasm exports `solve(puzzle, config)` and `optimize(puzzle, turns)` — config keys (all optional): `engine` (`cascade` default | `wastar` | `exact` | `cracker` | `beam` | `greedy`), `weight` (2), `maxMs` (60000), `maxNodes`, `maxStatesStored`, `maxHeapBytes` (0 = unlimited), `seed`, `beamWidth`, `gated`, `postProcess` (true), `optimizeMaxMs` (30000). `solve` returns `{turns, stats:{nodesExpanded, statesStored, stoppedOnMemory, wallMs, engine}}` or `{turns: [], error}` for boards beyond the engine caps (64×64 grid, 255 blocks, dims ≤ 64). Arm selection lives in `SolverArms.cpp` (shared by CLI and bindings; its `kPortfolio` must stay in sync with the bridge's `PORTFOLIO`): `cascade` first **decomposes** the board into independent playable regions (a rectangular footprint can never straddle an Unplayable cell, so blocks are confined to their starting region forever — sub-puzzles solve separately and plans concatenate; this took the first fuzz campaign from 21/30 to 30/30), then chains exact (gated) → cracker (gated) → wastar w2 → greedy → beam → cracker jittered → wastar w4 → wastar w1 with budget shares of the total (order re-measured on that campaign — greedy solo cracked boards wastar and beam both missed). Gates live in `PuzzleProfile.h` (the cracker takes must-touch-dominant boards with ≤ 2 blocks — measured: fixtures 37/38/39 fall in 106/60/7907 expansions where weighted A* needed millions; via the cascade they solve in 5–141 ms, see `a-star/bench/baseline-cascade.json`). Two-block coverage boards route through the three-phase split scheme in `SolverArms.cpp` (plain sequential split → `LegOrderSearch`, a best-first search over LEG ORDER with required-subset cracker legs, pose-space coverability and orphan + coverage-intact prunes → joint finisher; every candidate plan is full-replay-validated; it carries fixture 34 in well under a second where wastar needed 4 s). The cracker-only `Config` fields `requiredCells` / `coveragePartner` / `jointCoverageIntact` exist for these legs and are never exposed at the wasm/CLI boundary; `a-star/bench/HARD-BOARDS.md` documents the scheme and the still-open fuzz-7007 board.
-- **shifting-mosaic** (`wasmBridge.ts` → `searchShiftingMosaicWasm`): the original portfolio; `PORTFOLIO` is exported so `test/shifting-mosaic-solver/wasm.test.ts` races the exact production arm set.
+- **shifting-mosaic** (`wasmBridge.ts` → `searchShiftingMosaicWasm`): the original portfolio; `PORTFOLIO` is exported so `test/shifting-mosaic-solver/wasm.slow.test.ts` races the exact production arm set.
 
 **Both** solver pages need `SharedArrayBuffer` for their threads builds, which GitHub Pages cannot grant via headers. `src/common/coiRegister.ts` registers `coi-serviceworker.js` and **reloads once** when it activates. `page.goto()` resolves on the *pre-reload* document, so any e2e interaction in that window can die with "Execution context was destroyed". Always reach the rolling-blocks AND shifting-mosaic pages through `gotoIsolated` / `waitForCoiSettled` in `e2e/coi.ts`.
 
@@ -165,7 +194,7 @@ Unlike the rolling-blocks page, this editor does **not** rebuild the grid on eve
 
 `test/` and `e2e/` mirror `src/pages/` with kebab-case folders (`match-three-solver`, `phasic-dial-solver`, `rolling-blocks-solver`, `shifting-mosaic-solver`); shared tests sit at the root of each. `test/resources/` is split the same way. Fixtures are produced by the app's own download button, so the JSON *is* the download format.
 
-`test/resources/phasic-dial-solver/` and `test/resources/match-three-solver/` are discovered by directory listing rather than a hard-coded list, so dropping a captured fixture in makes it run with no code change. The other fixture families are enumerated explicitly: the C++ suites run rollingBlocksTest 1–48 and shiftingMosaicTest 1–43, and `test/rolling-blocks-solver/aStar.test.ts` runs the same full 1–48 range through wasm on the cascade engine (120 s per-test timeout, 90 s solve budget). Real captured rolling-blocks boards top out at 13×15 / 8 blocks / dimension-6 blocks / 83 must-touch — the 64×64 caps and fuzz sizes are stress headroom, not game reality.
+`test/resources/phasic-dial-solver/` and `test/resources/match-three-solver/` are discovered by directory listing rather than a hard-coded list, so dropping a captured fixture in makes it run with no code change. The other fixture families are enumerated explicitly: the C++ suites run rollingBlocksTest 1–48 and shiftingMosaicTest 1–43, and `test/rolling-blocks-solver/aStar.slow.test.ts` runs the same full 1–48 range through wasm on the cascade engine (120 s per-test timeout, 90 s solve budget). Real captured rolling-blocks boards top out at 13×15 / 8 blocks / dimension-6 blocks / 83 must-touch — the 64×64 caps and fuzz sizes are stress headroom, not game reality.
 
 `test/resources/match-three-solver/` holds 52 boards captured from the game (`matchThreeTest.json`, then `matchThreeTest1..51.json`), swept by directory listing in both `config.test.ts` (format) and `engine.test.ts` (settled, solvable, witness replayed). They span 2×2 to 13×23, 1 to 14 moves, with and without blockades, and between them use every symbol.
 

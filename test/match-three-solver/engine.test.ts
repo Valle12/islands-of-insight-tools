@@ -1,31 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { readdirSync } from "node:fs";
 import { solveMatchThree } from "../../src/pages/match-three-solver/engine";
 import {
-  applyMove,
   boardProblem,
-  blockCount,
   toBoard,
-  type MatchThreeBoard,
-  type Move,
 } from "../../src/pages/match-three-solver/rules";
 import type { MatchThreeTest } from "../../src/util/types";
-import { board, CASCADE } from "./boards";
+import {
+  board,
+  CASCADE,
+  clearsBoard,
+  FIXTURE_DIR,
+  FIXTURES,
+} from "./boards";
 
-/**
- * Replays a solution the way the player would. Every move has to still be
- * legal at the point it is played, and the board has to end up empty — an
- * answer that does not survive this is not an answer.
- */
-function clearsBoard(start: MatchThreeBoard, moves: Move[]): boolean {
-  let current = start;
-  for (const move of moves) {
-    const outcome = applyMove(current, move);
-    if (!outcome) return false;
-    current = outcome.board;
-  }
-  return blockCount(current) === 0;
-}
+// The corpus's solvability half lives in engine.solve.slow.test.ts: it costs
+// ~44s, where everything here finishes in well under a second. The cheap
+// legality sweep stays, because that is the half that catches a broken fixture.
 
 function solve(rows: string[], budgetMs?: number) {
   return solveMatchThree(board(rows), budgetMs === undefined ? {} : { budgetMs });
@@ -156,78 +146,21 @@ describe("solveMatchThree", () => {
   /**
    * Every board captured from the game, discovered by listing rather than
    * enumerated — dropping another export in makes it run with no code change.
-   * The whole point of the corpus: a real board is always a state the game
-   * could be in, and is always clearable.
+   * Half the point of the corpus: a real board is always a state the game could
+   * be in. The other half — that it is always clearable — is the expensive one
+   * and lives in engine.solve.slow.test.ts.
    */
   describe("Captured boards", () => {
-    const DIR = `${import.meta.dir}/../resources/match-three-solver`;
-    const FIXTURES = readdirSync(DIR).filter(name => name.endsWith(".json"));
-
-    /**
-     * The captured boards the search cannot yet finish. They are legal game
-     * states like every other fixture, and nothing suggests they are anything
-     * but clearable — the engine simply runs out of budget before it can prove
-     * a length. Named here rather than dropped from the sweep so that the day
-     * one of them becomes solvable, this test is what says so.
-     */
-    const BEYOND_BUDGET = new Set([
-      "matchThreeTest47.json",
-      "matchThreeTest50.json",
-      "matchThreeTest51.json",
-    ]);
-
-    /** Enough to notice one of them turning easy, without paying the full budget. */
-    const PROBE_MS = 2_000;
-
-    /** The slowest board that does finish needs ~13s; leave room on a busy CI. */
-    const SWEEP_TIMEOUT_MS = 60_000;
-
     test("there are captured boards to solve", () => {
       expect(FIXTURES.length).toBeGreaterThan(0);
     });
 
-    test.each(FIXTURES)(
-      "%s is a legal game state",
-      async name => {
-        const config = (await Bun.file(
-          `${DIR}/${name}`,
-        ).json()) as MatchThreeTest;
-        expect(boardProblem(toBoard(config))).toBeNull();
-      },
-    );
-
-    test.each(FIXTURES.filter(name => !BEYOND_BUDGET.has(name)))(
-      "%s is clearable",
-      async name => {
-        const config = (await Bun.file(
-          `${DIR}/${name}`,
-        ).json()) as MatchThreeTest;
-        const start = toBoard(config);
-
-        const result = solveMatchThree(start);
-        expect(result.status).toBe("solved");
-        if (result.status !== "solved") return;
-        expect(result.moves.length).toBeGreaterThan(0);
-        // The move list is only an answer if it survives being played.
-        expect(clearsBoard(start, result.moves)).toBeTrue();
-      },
-      SWEEP_TIMEOUT_MS,
-    );
-
-    test.each([...BEYOND_BUDGET])(
-      "%s still outruns the budget",
-      async name => {
-        expect(FIXTURES).toContain(name);
-        const config = (await Bun.file(
-          `${DIR}/${name}`,
-        ).json()) as MatchThreeTest;
-        const result = solveMatchThree(toBoard(config), {
-          budgetMs: PROBE_MS,
-        });
-        // Never "unsolvable": that would be a proof, and no proof was reached.
-        expect(result.status).toBe("budget");
-      },
-    );
+    test.each(FIXTURES)("%s is a legal game state", async name => {
+      const config = (await Bun.file(
+        `${FIXTURE_DIR}/${name}`,
+      ).json()) as MatchThreeTest;
+      expect(boardProblem(toBoard(config))).toBeNull();
+    });
   });
 
   describe("Grouping", () => {

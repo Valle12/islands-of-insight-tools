@@ -1,7 +1,11 @@
+import { readdirSync } from "node:fs";
 import { BLOCKED, symbolCell, EMPTY } from "../../src/pages/match-three-solver/cell";
 import {
+  applyMove,
+  blockCount,
   cellAt,
   type MatchThreeBoard,
+  type Move,
 } from "../../src/pages/match-three-solver/rules";
 
 /**
@@ -56,3 +60,29 @@ export function marked(
  * onto the bottom row next to two more.
  */
 export const CASCADE = ["...", "b..", "a..", "a..", "ca.", "abb"];
+
+/**
+ * Replays a solution the way the player would. Every move has to still be
+ * legal at the point it is played, and the board has to end up empty — an
+ * answer that does not survive this is not an answer.
+ *
+ * Here rather than in a test file because both halves of the split engine suite
+ * need it: engine.test.ts for the hand-made cases, engine.solve.slow.test.ts
+ * for the captured corpus.
+ */
+export function clearsBoard(start: MatchThreeBoard, moves: Move[]): boolean {
+  let current = start;
+  for (const move of moves) {
+    const outcome = applyMove(current, move);
+    if (!outcome) return false;
+    current = outcome.board;
+  }
+  return blockCount(current) === 0;
+}
+
+/** Every board captured from the game, discovered by listing rather than enumerated. */
+export const FIXTURE_DIR = `${import.meta.dir}/../resources/match-three-solver`;
+
+export const FIXTURES = readdirSync(FIXTURE_DIR).filter(name =>
+  name.endsWith(".json"),
+);

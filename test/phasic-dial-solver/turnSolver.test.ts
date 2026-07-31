@@ -195,6 +195,13 @@ const fixtures = readdirSync(fixtureDir)
       Number(/(\d*)\.json$/.exec(b)![1] || 0),
   );
 
+// Outside the describe below, which registers nothing when the listing comes
+// back empty — a resources path that stops resolving would otherwise be a green
+// run with zero fixtures swept.
+test("there are captured puzzles to solve", () => {
+  expect(fixtures.length).toBeGreaterThan(0);
+});
+
 describe.if(fixtures.length > 0)("TurnSolver fixtures", () => {
   test.each(fixtures)("%s", async filename => {
     const data = await Bun.file(join(fixtureDir, filename)).json();

@@ -56,7 +56,14 @@ function toPuzzle(data: RollingBlocksTest) {
   };
 }
 
-describe.if(Bun.env.ROLLING_BLOCKS_TEST === "true")("Rolling Blocks A*", () => {
+// Runs by DEFAULT — including in CI, which sets nothing. Opt OUT with
+// IOI_SKIP_SLOW=1 for a fast local loop.
+//
+// skipIf, never `describe.if`: `describe.if(false)` registers NOTHING, so this
+// 48-fixture sweep used to sit disabled behind ROLLING_BLOCKS_TEST while the
+// run still reported green. skipIf registers the suite and reports it as
+// skipped, so what was traded away is always visible.
+describe.skipIf(Bun.env.IOI_SKIP_SLOW === "1")("Rolling Blocks A*", () => {
   const solvableCases = [
     ["rollingBlocksTest.json"],
     ["rollingBlocksTest1.json"],

@@ -14,8 +14,14 @@
     "bench:rb": "bun run src/util/benchRollingBlocks.ts",
     "fuzz:rb": "bun run src/util/fuzzRollingBlocks.ts",
     "test:mem64": "node --test test/shifting-mosaic-solver/mem64.node.test.mjs test/rolling-blocks-solver/mem64.node.test.mjs",
-    "rolling-blocks-test": "ROLLING_BLOCKS_TEST=true bun test test/rolling-blocks-solver/aStar.test.ts",
-    "test": "bun run build:wasm && ROLLING_BLOCKS_TEST=true bun test"
+    "test": "bun run build:wasm && bun test",
+    "test:fast": "IOI_SKIP_SLOW=1 bun test",
+    "test:slow": "bun test slow",
+    "test:changed": "bun test --changed=origin/main",
+    "test:mt": "bun test test/match-three-solver test/configFile.test.ts test/utilMethods.test.ts",
+    "test:pd": "bun test test/phasic-dial-solver test/configFile.test.ts test/utilMethods.test.ts",
+    "test:rb": "bun test test/rolling-blocks-solver test/configFile.test.ts test/utilMethods.test.ts",
+    "test:sm": "bun test test/shifting-mosaic-solver test/configFile.test.ts test/utilMethods.test.ts"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^20.9.0",
