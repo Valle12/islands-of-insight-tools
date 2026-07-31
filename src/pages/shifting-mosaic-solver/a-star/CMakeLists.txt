@@ -34,12 +34,11 @@ find_package(Threads REQUIRED)
 # AStar.cpp and DragSolver.cpp are each split across several translation units
 # (AStar*.cpp / DragSolver*.cpp) purely for file size; they define one class
 # apiece and must always be compiled together.
-add_executable(shifting_mosaic_a_star
-    main.cpp
-    BenchFixture.cpp
-    BenchCommands.cpp
-    BenchOptions.cpp
-    BenchEngines.cpp
+#
+# Compiled ONCE and consumed by both the bench CLI and the gtest binary. These
+# TUs used to be listed in both targets, so every one of them was compiled (and
+# clang-tidied) twice per build.
+add_library(shifting_mosaic_core OBJECT
     SolverClock.cpp
     AStar.cpp
     AStarHeuristics.cpp
@@ -53,7 +52,18 @@ add_executable(shifting_mosaic_a_star
     DragSolverArms.cpp
     DragSolverBeam.cpp
 )
-target_link_libraries(shifting_mosaic_a_star PRIVATE nlohmann_json::nlohmann_json Threads::Threads)
+target_include_directories(shifting_mosaic_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(shifting_mosaic_core PUBLIC nlohmann_json::nlohmann_json Threads::Threads)
+
+# The Bench* TUs are the CLI's own; the test binary has no reason to link them.
+add_executable(shifting_mosaic_a_star
+    main.cpp
+    BenchFixture.cpp
+    BenchCommands.cpp
+    BenchOptions.cpp
+    BenchEngines.cpp
+)
+target_link_libraries(shifting_mosaic_a_star PRIVATE shifting_mosaic_core)
 
 include(CTest)
 if (BUILD_TESTING)

@@ -177,7 +177,38 @@ Rolling-blocks and shifting-mosaic fixture paths appear in nine places — the t
 
 ## Native C++ builds
 
-`bun run build:wasm` compiles with emscripten; the gtest suites are a separate native build per solver (`src/pages/*/a-star/`, needs boost + nlohmann_json + gtest). CI configures fresh Release build dirs; locally there are pre-configured ones (`cmake-build-release-visual-studio`, `build-native`) that must be driven by **CLion's** bundled CMake, from an MSVC environment (`vcvars64.bat`) for the Ninja dirs. The rolling-blocks dirs are Ninja despite their `-visual-studio` names, so the clang-tidy gate is live there.
+`bun run build:wasm` compiles with emscripten; the gtest suites are a separate native build per solver (`src/pages/*/a-star/`, needs boost + nlohmann_json + gtest). Locally there are pre-configured dirs (`cmake-build-release-visual-studio`, `build-native`) that must be driven by **CLion's** bundled CMake, from an MSVC environment (`vcvars64.bat`) for the Ninja dirs. The rolling-blocks dirs are Ninja despite their `-visual-studio` names, so the clang-tidy gate is live there.
+
+### The root `CMakeLists.txt` is an aggregate
+
+The repo root carries a `CMakeLists.txt` that `add_subdirectory()`s both solvers, which is what CI uses:
+
+```bash
+cmake -B build-ci -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake --build build-ci -j                            # ~82 s
+ctest --test-dir build-ci -j 4 --output-on-failure   # 236 tests, ~132 s
+```
+
+**`-j` is never implicit — you have to pass it.** Neither `cmake --build` nor
+`ctest` parallelises by default, and the `-j` in `.github/workflows/test.yml` is
+only in that YAML. CLion passes its own `-j` when *it* drives a build, which is
+why the pre-configured dirs feel parallel and a hand-run `cmake --build` does
+not. To make it automatic in a shell, export the two standard env vars:
+
+```bash
+export CMAKE_BUILD_PARALLEL_LEVEL=16   # what `cmake --build` uses without -j
+export CTEST_PARALLEL_LEVEL=4          # what `ctest` uses without -j
+```
+
+It is **additive only** — each `src/pages/*/a-star` stays independently configurable, because CLion's profiles point straight at them. Never move something a child needs up into the root. `-DIOI_ROLLING_BLOCKS=OFF` / `-DIOI_SHIFTING_MOSAIC=OFF` drop a solver from the aggregate. A fresh CLion "Open project" on the **repo root** now loads the aggregate rather than a page; the existing per-page profiles are unaffected.
+
+Three things are load-bearing and easy to undo:
+
+- **`${PROJECT_SOURCE_DIR}`, never `${CMAKE_SOURCE_DIR}`, in the two `test/CMakeLists.txt`.** Under the aggregate the latter is the repo root, so `TEST_RESOURCES_DIR` would resolve *outside* the repo — where the rolling-blocks fixture tests `GTEST_SKIP()` rather than fail. A silently green run.
+- **`a_star_core` / `shifting_mosaic_core` are `OBJECT` libraries** consumed by both the CLI and the gtest binary. The solver TUs used to be listed in both targets and compiled (and clang-tidied) twice. This is only correct because `TEST_RESOURCES_DIR` is the sole per-target compile definition and no solver TU reads it — **if a solver TU ever needs a target-specific define, the object library has to be split.**
+- **`PROCESSORS 8` on the shifting-mosaic `gtest_discover_tests`** (`SM_TEST_PROCESSORS`, kept in sync with `ARMS` in `ParallelCascade.h`). Each fixture spawns 8 `std::thread`s, so it claims 8 ctest slots — one per thread it really runs — and ctest never oversubscribes: at `-j 4` the count exceeds the parallel level so the test runs **alone**, and at `-j 16` two run at a time. The 165 cheap rolling-blocks tests fill the remaining slots. Without it `ctest -j` runs them 4- or 16-wide, they starve each other, and `shiftingMosaicTest37` blows its per-arm budget — which reads as a regression and is not one. Measured at `-j 4`: 236/236, test37 alone at 112 s.
+
+`gtest_discover_tests` also sets `LABELS`, so a single page's suite runs as `ctest --test-dir build-ci -L rolling-blocks` (or `-L shifting-mosaic`).
 
 Both solvers now have a real CLI (`a_star.exe` for rolling-blocks): `--fixture <path> [--engine cascade|wastar|exact|cracker|beam|greedy] [--weight N] [--budget-ms N] [--max-nodes N] [--max-states N] [--max-heap-bytes N] [--seed N] [--beam N] [--gated] [--no-post] [--json]`, plus `--generate <path> --seed N [--shuffle N] [--kind goal|coverage|mixed]`; the LAST stdout line starting with `{` is the JSON report (same protocol as the shifting-mosaic CLI), with `stage` naming the winning arm and `alreadySolved` flagging boards solved before any move. All four bench/fuzz harnesses speak that protocol through `src/util/solverCli.ts` (`runCli` child-process runner + `parseFlags` flag-map parser) — extend it there, not per-harness. Fixture loading and the replay validity oracle live in `Replay.{h,cpp}` (wasm + native); `FixtureIo.{h,cpp}` and `GenerateCommands.{h,cpp}` are native only — they drag in nlohmann + exceptions, so they must never join the wasm source lists. Generator invariants worth knowing: goal boards paint goals only under blocks with at least one legal roll (a frozen block keeps its own patch covered through any scramble — measured on seed 42) and re-scramble up to 3× if the start is still solved; coverage walks mark cells must-touch on first touch, which makes the walk itself the forward witness; mixed boards keep the two families in regions split by an unplayable divider column so the witnesses cannot interact.
 

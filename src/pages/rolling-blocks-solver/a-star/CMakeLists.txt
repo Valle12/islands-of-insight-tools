@@ -18,13 +18,25 @@ endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../../../cmake/ClangTidyGate.cmake")
 clang_tidy_gate(OPTION RB_CLANG_TIDY PROFILE_LLVM 23)
 
-add_executable(a_star main.cpp Block.cpp AStar.cpp AStarGoals.cpp
-        AStarOptimizer.cpp SearchCracker.cpp SearchBeam.cpp SolverArms.cpp
-        SolverClock.cpp Replay.cpp FixtureIo.cpp GenerateCommands.cpp)
-
 find_package(Boost CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
-target_link_libraries(a_star PRIVATE Boost::boost nlohmann_json::nlohmann_json)
+
+# Compiled ONCE and consumed by both the CLI and the gtest binary. These TUs
+# used to be listed in both targets, so every one of them was compiled (and
+# clang-tidied) twice per build. FixtureIo.cpp belongs here because both native
+# targets use it — but it must never join the wasm source list in
+# src/util/buildWasm.ts, which is exception-free and has no nlohmann.
+add_library(a_star_core OBJECT
+        Block.cpp AStar.cpp AStarGoals.cpp AStarOptimizer.cpp
+        SearchCracker.cpp SearchBeam.cpp SolverArms.cpp
+        SolverClock.cpp Replay.cpp FixtureIo.cpp)
+target_include_directories(a_star_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(a_star_core PUBLIC Boost::boost nlohmann_json::nlohmann_json)
+
+# GenerateCommands.cpp stays out of the core: only the CLI's --generate path
+# uses it, and the test binary has no reason to link it.
+add_executable(a_star main.cpp GenerateCommands.cpp)
+target_link_libraries(a_star PRIVATE a_star_core)
 
 include(CTest)
 if (BUILD_TESTING)
