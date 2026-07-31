@@ -22,7 +22,7 @@ export function board(rows: string[]): MatchThreeBoard {
       const char = rows[y]![x]!;
       if (char === "#") cells[y * width + x] = BLOCKED;
       else if (char !== ".") {
-        cells[y * width + x] = symbolCell(char.charCodeAt(0) - 97);
+        cells[y * width + x] = symbolCell(char.codePointAt(0)! - 97);
       }
     }
   }
@@ -36,7 +36,7 @@ export function draw(value: MatchThreeBoard): string[] {
       const cell = cellAt(value, x, y);
       if (cell === EMPTY) return ".";
       if (cell === BLOCKED) return "#";
-      return String.fromCharCode(97 + cell - symbolCell(0));
+      return String.fromCodePoint(97 + cell - symbolCell(0));
     }).join(""),
   );
 }

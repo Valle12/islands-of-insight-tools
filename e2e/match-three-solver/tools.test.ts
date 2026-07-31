@@ -34,8 +34,11 @@ test.describe("Match Three Solver tools", () => {
   test("opens on an empty board offering every symbol", async ({ page }) => {
     const symbols = await pageSymbols(page);
 
-    await expect(page.locator(".grid-cell")).toHaveCount(36);
-    await expect(page.locator('.grid-cell[data-kind="empty"]')).toHaveCount(36);
+    // #grid-scoped: #solution-grid reuses .grid-cell with the same attributes.
+    await expect(page.locator("#grid .grid-cell")).toHaveCount(36);
+    await expect(
+      page.locator('#grid .grid-cell[data-kind="empty"]'),
+    ).toHaveCount(36);
     expect(symbols.length).toBeGreaterThan(1);
     // The status names the kind of tool; the selected chip shows which tile.
     await expect(page.locator("#tool-status")).toHaveText(
@@ -85,7 +88,9 @@ test.describe("Match Three Solver tools", () => {
     });
     await page.mouse.up();
 
-    await expect(page.locator('.grid-cell[data-kind="blocked"]')).toHaveCount(4);
+    await expect(
+      page.locator('#grid .grid-cell[data-kind="blocked"]'),
+    ).toHaveCount(4);
   });
 
   test("switches between symbols from the chip row", async ({ page }) => {

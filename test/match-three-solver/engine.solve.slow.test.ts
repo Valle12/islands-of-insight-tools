@@ -57,5 +57,8 @@ describe.skipIf(Bun.env.IOI_SKIP_SLOW === "1")("Captured boards are solvable", (
     const result = solveMatchThree(toBoard(config), { budgetMs: PROBE_MS });
     // Never "unsolvable": that would be a proof, and no proof was reached.
     expect(result.status).toBe("budget");
-  });
+    // Explicit, because PROBE_MS is 2s of bun's 5s default and the budget
+    // check is not instantaneous — a loaded runner would report a timeout
+    // failure instead of the assertion this test is actually making.
+  }, SWEEP_TIMEOUT_MS);
 });

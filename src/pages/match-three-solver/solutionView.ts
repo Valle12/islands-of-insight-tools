@@ -1,6 +1,7 @@
 import { dressCell } from "./cellView";
 import {
   applyMove,
+  blockCount,
   cellAt,
   type MatchThreeBoard,
   type Move,
@@ -32,7 +33,11 @@ function positionText(position: { x: number; y: number }): string {
  */
 export class SolutionView {
   private readonly steps: Step[];
-  /** The board once every step has been played — always empty of blocks. */
+  /**
+   * The board the walk ended on. Empty of blocks for a real solution — but the
+   * replay stops at the first move that will not play, so `renderControls`
+   * asks it rather than assuming.
+   */
   private readonly finalBoard: MatchThreeBoard;
   private viewIndex = 0;
 
@@ -57,6 +62,8 @@ export class SolutionView {
     let current = data.board;
     for (const move of data.moves) {
       const outcome = applyMove(current, move);
+      // The walk ends where the moves stop being playable. renderControls
+      // checks the board it ended on rather than assuming it is empty.
       if (!outcome) break;
       // `board` is the state the move is played *on*, not what it produces.
       this.steps.push({
@@ -152,9 +159,20 @@ export class SolutionView {
           : `That clears ${blocks}.`;
       this.stepText.innerHTML = `${this.describeSwap(step)} ${outcome}`;
     } else {
+      // Asks the board rather than assuming. The replay above stops at the
+      // first move that will not play, so the end of the walk is not always an
+      // empty board — and announcing a clear one over the blocks still sitting
+      // there would be the view telling the player something untrue.
       const total = this.steps.length;
-      this.stepCounter.textContent = `Solved in ${total} move${total === 1 ? "" : "s"}`;
-      this.stepText.innerHTML = "All moves done — the board is clear. 🎉";
+      const plural = total === 1 ? "" : "s";
+      if (blockCount(this.finalBoard) === 0) {
+        this.stepCounter.textContent = `Solved in ${total} move${plural}`;
+        this.stepText.innerHTML = "All moves done — the board is clear. 🎉";
+      } else {
+        this.stepCounter.textContent = `Stopped after ${total} move${plural}`;
+        this.stepText.innerHTML =
+          "The rest of the solution could not be played on this board.";
+      }
     }
 
     this.prevBtn.toggleAttribute("disabled", this.viewIndex === 0);

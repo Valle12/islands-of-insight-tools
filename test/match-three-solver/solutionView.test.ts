@@ -21,7 +21,7 @@ const CASCADE = ["c..", "b..", "a..", "a..", "cac", "abb"];
 const HORIZONTAL_SWAP: Move = { a: { x: 0, y: 4 }, b: { x: 1, y: 4 } };
 
 describe("SolutionView", () => {
-  let view: SolutionView;
+  let view: SolutionView | undefined;
 
   const byId = (id: string) => document.getElementById(id)!;
   const cells = () =>
@@ -43,7 +43,11 @@ describe("SolutionView", () => {
   });
 
   afterEach(() => {
-    view.dispose();
+    // Guarded and cleared: `view` is assigned per test, so a constructor that
+    // throws would otherwise make this dispose() the PREVIOUS test's instance
+    // (or undefined) and report that instead of the real failure.
+    view?.dispose();
+    view = undefined;
     document.body.innerHTML = "";
   });
 
@@ -85,7 +89,7 @@ describe("SolutionView", () => {
       open(ONE_MOVE, [VERTICAL_SWAP]);
       expect(cellAt(2, 0).dataset.swapAxis).toBe("vertical");
 
-      view.dispose();
+      view!.dispose();
       open(CASCADE, [HORIZONTAL_SWAP]);
       expect(cellAt(0, 4).dataset.swapAxis).toBe("horizontal");
     });
@@ -172,7 +176,7 @@ describe("SolutionView", () => {
 
     test("dispose leaves the buttons inert", () => {
       open(ONE_MOVE, [VERTICAL_SWAP]);
-      view.dispose();
+      view!.dispose();
       byId("solution-next").click();
 
       expect(byId("solution-step-counter").textContent).toBe("Step 1 of 1");
@@ -186,5 +190,22 @@ describe("SolutionView", () => {
     ]);
 
     expect(byId("solution-step-counter").textContent).toBe("Step 1 of 1");
+  });
+
+  /**
+   * The end of a truncated walk is not an empty board, so it must not be
+   * announced as one. ONE_MOVE happens to clear on its first move, so this
+   * board keeps a `c` that no move ever takes.
+   */
+  test("a walk that ends with blocks left does not claim a clear board", () => {
+    open(["aabc", "bbac"], [{ a: { x: 2, y: 0 }, b: { x: 2, y: 1 } }]);
+    byId("solution-next").click();
+
+    expect(byId("solution-step-counter").textContent).toBe(
+      "Stopped after 1 move",
+    );
+    const text = byId("solution-step-text").textContent!;
+    expect(text).not.toContain("board is clear");
+    expect(text).toContain("could not be played");
   });
 });

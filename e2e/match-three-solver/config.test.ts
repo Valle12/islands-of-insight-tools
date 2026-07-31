@@ -15,7 +15,10 @@ const SAMPLE_CONFIG = {
 };
 
 function cellAt(page: Page, x: number, y: number) {
-  return page.locator(`.grid-cell[data-x="${x}"][data-y="${y}"]`);
+  // Scoped to #grid: the solution view's #solution-grid uses .grid-cell with
+  // the same data-x/data-y, so an unscoped locator matches two elements once a
+  // solution has rendered.
+  return page.locator(`#grid .grid-cell[data-x="${x}"][data-y="${y}"]`);
 }
 
 /** The blockade *tile* — it leads the chip row rather than the tool row. */
@@ -34,7 +37,7 @@ test.describe("Match Three Solver config", () => {
       buffer: Buffer.from(JSON.stringify(SAMPLE_CONFIG)),
     });
 
-    await expect(page.locator(".grid-cell")).toHaveCount(6);
+    await expect(page.locator("#grid .grid-cell")).toHaveCount(6);
     await expect(
       page.getByRole("spinbutton", { name: "Grid Width" }),
     ).toHaveValue("3");
@@ -68,7 +71,7 @@ test.describe("Match Three Solver config", () => {
 
     await page.dispatchEvent("body", "drop", { dataTransfer });
 
-    await expect(page.locator(".grid-cell")).toHaveCount(6);
+    await expect(page.locator("#grid .grid-cell")).toHaveCount(6);
     await expect(page.locator("#drop-overlay")).toBeHidden();
   });
 
@@ -88,7 +91,7 @@ test.describe("Match Three Solver config", () => {
     await page.dispatchEvent("body", "drop", { dataTransfer });
 
     await expect(page.locator("#warning-banner")).toBeVisible();
-    await expect(page.locator(".grid-cell")).toHaveCount(36);
+    await expect(page.locator("#grid .grid-cell")).toHaveCount(36);
   });
 
   test("reports why a config was rejected", async ({ page }) => {
@@ -196,9 +199,9 @@ test.describe("Match Three Solver config", () => {
 
     await page.getByRole("spinbutton", { name: "Grid Width" }).fill("33");
     // The board keeps its previous size: 6x6 = 36 cells.
-    await expect(page.locator(".grid-cell")).toHaveCount(36);
+    await expect(page.locator("#grid .grid-cell")).toHaveCount(36);
 
     await page.getByRole("spinbutton", { name: "Grid Width" }).fill("32");
-    await expect(page.locator(".grid-cell")).toHaveCount(32 * 6);
+    await expect(page.locator("#grid .grid-cell")).toHaveCount(32 * 6);
   });
 });
