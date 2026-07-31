@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "fs";
+import { gotoIsolated, MATCH_THREE_URL } from "../coi";
 import { maxCellValue, pageSymbols } from "./symbols";
 
 // A small, structurally valid config in the editor's download format. Cells
@@ -29,7 +30,7 @@ function blockedTool(page: Page) {
 // Symbols are a fixed, append-only list, so assertions key off `data-symbol`.
 test.describe("Match Three Solver config", () => {
   test("uploads a config file and populates the editor", async ({ page }) => {
-    await page.goto("/match-three-solver");
+    await gotoIsolated(page, MATCH_THREE_URL);
 
     await page.locator("#config-file-input").setInputFiles({
       name: "puzzle.json",
@@ -59,7 +60,7 @@ test.describe("Match Three Solver config", () => {
   });
 
   test("loads a config dropped onto the page", async ({ page }) => {
-    await page.goto("/match-three-solver");
+    await gotoIsolated(page, MATCH_THREE_URL);
 
     const dataTransfer = await page.evaluateHandle(json => {
       const dt = new DataTransfer();
@@ -76,7 +77,7 @@ test.describe("Match Three Solver config", () => {
   });
 
   test("rejects an invalid dropped file", async ({ page }) => {
-    await page.goto("/match-three-solver");
+    await gotoIsolated(page, MATCH_THREE_URL);
 
     const dataTransfer = await page.evaluateHandle(() => {
       const dt = new DataTransfer();
@@ -95,7 +96,7 @@ test.describe("Match Three Solver config", () => {
   });
 
   test("reports why a config was rejected", async ({ page }) => {
-    await page.goto("/match-three-solver");
+    await gotoIsolated(page, MATCH_THREE_URL);
     const max = await maxCellValue(page);
 
     await page.locator("#config-file-input").setInputFiles({
@@ -120,7 +121,7 @@ test.describe("Match Three Solver config", () => {
   });
 
   test("loads a real downloaded fixture", async ({ page }) => {
-    await page.goto("/match-three-solver");
+    await gotoIsolated(page, MATCH_THREE_URL);
 
     const json = readFileSync(
       "test/resources/match-three-solver/matchThreeTest28.json",
@@ -138,7 +139,7 @@ test.describe("Match Three Solver config", () => {
   });
 
   test("downloads the current configuration as JSON", async ({ page }) => {
-    await page.goto("/match-three-solver");
+    await gotoIsolated(page, MATCH_THREE_URL);
 
     await blockedTool(page).click();
     await cellAt(page, 0, 0).click();
@@ -163,7 +164,7 @@ test.describe("Match Three Solver config", () => {
   test("round-trips a downloaded config back through upload", async ({
     page,
   }) => {
-    await page.goto("/match-three-solver");
+    await gotoIsolated(page, MATCH_THREE_URL);
 
     await page.locator("#symbol-row .symbol-chip[data-symbol-index]").nth(1).click();
     await cellAt(page, 2, 3).click();
@@ -195,7 +196,7 @@ test.describe("Match Three Solver config", () => {
   });
 
   test("ignores grid sizes beyond the 32 cap", async ({ page }) => {
-    await page.goto("/match-three-solver");
+    await gotoIsolated(page, MATCH_THREE_URL);
 
     await page.getByRole("spinbutton", { name: "Grid Width" }).fill("33");
     // The board keeps its previous size: 6x6 = 36 cells.

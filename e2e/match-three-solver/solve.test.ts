@@ -1,10 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "fs";
+import { gotoIsolated, MATCH_THREE_URL } from "../coi";
 import { pageSymbols } from "./symbols";
 
 /** Loads a fixture through the page's own file input. */
 async function loadFixture(page: Page, name: string) {
-  await page.goto("/match-three-solver");
+  await gotoIsolated(page, MATCH_THREE_URL);
   const json = readFileSync(
     `test/resources/match-three-solver/${name}`,
     "utf8",
@@ -131,7 +132,7 @@ test.describe("Match Three Solver solving", () => {
   });
 
   test("says so when a board cannot be cleared", async ({ page }) => {
-    await page.goto("/match-three-solver");
+    await gotoIsolated(page, MATCH_THREE_URL);
     await page.locator("#config-file-input").setInputFiles({
       name: "unsolvable.json",
       mimeType: "application/json",
@@ -150,7 +151,7 @@ test.describe("Match Three Solver solving", () => {
   });
 
   test("refuses a board that has not settled", async ({ page }) => {
-    await page.goto("/match-three-solver");
+    await gotoIsolated(page, MATCH_THREE_URL);
 
     // A block painted anywhere but the bottom row is left hanging in mid-air.
     await editorCell(page, 0, 0).click();
@@ -164,7 +165,7 @@ test.describe("Match Three Solver solving", () => {
   });
 
   test("refuses a board that still has a line of three", async ({ page }) => {
-    await page.goto("/match-three-solver");
+    await gotoIsolated(page, MATCH_THREE_URL);
 
     for (const x of [0, 1, 2]) {
       await editorCell(page, x, 5).click();
@@ -178,7 +179,7 @@ test.describe("Match Three Solver solving", () => {
   });
 
   test("an empty board needs no moves", async ({ page }) => {
-    await page.goto("/match-three-solver");
+    await gotoIsolated(page, MATCH_THREE_URL);
 
     await page.getByRole("button", { name: "Solve Puzzle" }).click();
 
@@ -208,7 +209,7 @@ test.describe("Match Three Solver solving", () => {
   });
 
   test("editing the board drops the solution", async ({ page }) => {
-    await page.goto("/match-three-solver");
+    await gotoIsolated(page, MATCH_THREE_URL);
     await page.locator("#config-file-input").setInputFiles({
       name: "unsolvable.json",
       mimeType: "application/json",

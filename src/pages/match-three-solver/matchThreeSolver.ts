@@ -1,3 +1,4 @@
+import { registerCoiShim } from "./../../common/coiRegister";
 import {
   downloadJson,
   readJsonFile,
@@ -582,5 +583,10 @@ export class MatchThreeSolverEditor {
 export const page: { editor?: MatchThreeSolverEditor } = {};
 
 if (process.env.NODE_ENV !== "test") {
+  // SharedArrayBuffer is what the wasm arms' threads build needs, and GitHub
+  // Pages cannot grant it with real headers. The shim reloads the page once
+  // when its service worker activates, which is why every e2e visit here has
+  // to go through gotoIsolated.
+  registerCoiShim();
   page.editor = new MatchThreeSolverEditor();
 }
