@@ -110,11 +110,13 @@ The dev server keeps `development: true` for HMR and therefore *does* log that w
 
 The source lists are duplicated in two places that must stay in sync: `buildWasm.ts` and the C++ `CMakeLists.txt`. A missing TU fails at link time with undefined symbols. (There used to be a third copy — a hand-written `em++` loop in `.github/workflows/test.yml`. CI now calls `bun run build:wasm`, which also made it concurrent rather than eight serial builds.)
 
-**Variants are skipped when their inputs have not moved.** Each writes an `astar*.mjs.stamp` next to its output holding a sha256 over the `sources`, **every `*.h` in the a-star directory root**, and the full argv, plus the `em++ --version` string. All four inputs are load-bearing:
+**Variants are skipped when their inputs have not moved.** Each writes an `astar*.mjs.stamp` next to its output holding a sha256 over the `sources`, **every `*.h` in the a-star directory root**, and the compiler **flags**, plus the `em++ --version` string. All four inputs are load-bearing:
 
 - the headers because `AStar.h`, `PuzzleProfile.h`, `ParallelCascade.h` and friends are in no `sources` list yet absolutely change the output. Only the a-star **root** is hashed — `bench/` and `test/` are native-only and must not invalidate the wasm;
-- the argv because it carries `SM_SIMD`, `-m64`, `-pthread`, `BOOST_INCLUDE` and the memory ceilings;
+- the flags because they carry `SM_SIMD`, `-m64`, `-pthread`, `EXPORT_NAME` and the memory ceilings;
 - **content, never mtimes** — a fresh `git checkout` and an `actions/cache` restore both rewrite mtimes wholesale, so an mtime check would trust a restored-but-stale output.
+
+**Flags only — never the full argv, and never an absolute path.** `build()` keeps `flagArgs` separate from the source list, the `-o` target and the `-I $BOOST_INCLUDE` for exactly this reason. Hashing the whole argv broke CI on the first run: the composite action sets `BOOST_INCLUDE` in the job that compiles and not in the job that only bundles, so one commit produced two different hashes and the second job tried to rebuild with no compiler. `needsBoost` is hashed as a boolean in the path's place, so switching a solver's boost dependency still invalidates while the machine-specific path does not.
 
 `FORCE_WASM=1` rebuilds regardless. The stamp is deliberately **not** a dotfile: `actions/upload-artifact` v4+ drops hidden files unless told otherwise, and a stamp that failed to travel with its binary would make the CI `dist` job try to compile.
 

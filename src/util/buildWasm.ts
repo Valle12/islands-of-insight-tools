@@ -24,10 +24,14 @@ const boostInclude =
 // whose wasm is already current needs no compiler at all. `bun run build` (and
 // therefore the CI `dist` job, and deploy on a cache hit) has to work on a
 // runner that never installed emsdk. Only an actual rebuild demands it.
-let emccResolved: string | null | undefined;
+// Boxed, because `null` is a RESULT here and not an empty cache: em++ really
+// is absent on the CI paths that only bundle. Caching the bare `string | null`
+// and filling it with `??=` would rescan PATH once per variant every time the
+// answer was "not found" — which is exactly the eight-variant no-compiler case.
+let emccResolved: { readonly path: string | null } | undefined;
 function resolveEmcc(): string | null {
-  emccResolved ??= Bun.which("em++");
-  return emccResolved;
+  emccResolved ??= { path: Bun.which("em++") };
+  return emccResolved.path;
 }
 
 function requireEmcc(): string {
@@ -76,6 +80,12 @@ interface Stamp {
  * ParallelCascade.h and friends are not in any `sources` list but absolutely
  * change the generated code. Only the a-star directory ROOT is hashed —
  * `bench/` and `test/` are native-only and must not invalidate the wasm.
+ *
+ * `args` must be the FLAGS only, never the absolute paths. Hashing the full
+ * argv broke CI: `-I $BOOST_INCLUDE` is present in the job that compiles and
+ * absent in the one that only bundles, so the same commit produced two
+ * different hashes and the second job tried to rebuild without a compiler.
+ * Absolute paths also make a stamp non-portable between machines.
  */
 function sourcesHashFor(aStarDir: string, sources: string[], args: string[]) {
   const headers = readdirSync(aStarDir)
@@ -135,11 +145,11 @@ async function build({
 }) {
   mkdirSync(outDir, { recursive: true });
 
-  const args = [
-    ...sources.map(s => resolve(aStarDir, s)),
-    "-o",
-    resolve(outDir, outputJs),
-    ...(needsBoost && boostInclude ? ["-I", boostInclude] : []),
+  // Split into paths and flags. Only the flags are hashed into the stamp —
+  // see sourcesHashFor. `needsBoost` stands in for the -I below, so that
+  // switching a solver's boost dependency on or off still invalidates while
+  // the machine-specific path does not.
+  const flagArgs = [
     // Optional wasm SIMD (needs no cross-origin isolation): SM_SIMD=1.
     ...(process.env.SM_SIMD === "1" ? ["-msimd128"] : []),
     // `-m64`, not `-sMEMORY64=1`: emscripten 6.0.0 made the standard compiler
@@ -171,6 +181,14 @@ async function build({
     "-fno-exceptions",
   ];
 
+  const args = [
+    ...sources.map(s => resolve(aStarDir, s)),
+    "-o",
+    resolve(outDir, outputJs),
+    ...(needsBoost && boostInclude ? ["-I", boostInclude] : []),
+    ...flagArgs,
+  ];
+
   // An LTO build of these TUs costs minutes, and `bun run build`, `bun run
   // test` and both CI workflows all pay for all eight variants. Skip the ones
   // whose inputs have not moved.
@@ -179,7 +197,11 @@ async function build({
   // fails to travel with its binary would make the CI dist job try to compile.
   const stampPath = resolve(outDir, `${outputJs}.stamp`);
   const wasmPath = resolve(outDir, outputJs.replace(/\.mjs$/, ".wasm"));
-  const hash = sourcesHashFor(aStarDir, sources, args);
+  const hash = sourcesHashFor(aStarDir, sources, [
+    outputJs,
+    String(needsBoost),
+    ...flagArgs,
+  ]);
 
   if (!forceRebuild && existsSync(resolve(outDir, outputJs)) && existsSync(wasmPath)) {
     const stamp = readStamp(stampPath);
