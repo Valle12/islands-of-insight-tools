@@ -4,18 +4,18 @@ add_executable(shifting_mosaic_a_star_tests
     dragsolver_search_test.cpp
     json_test.cpp
     optimizer_test.cpp
-    ${CMAKE_SOURCE_DIR}/SolverClock.cpp
-    ${CMAKE_SOURCE_DIR}/AStar.cpp
-    ${CMAKE_SOURCE_DIR}/AStarHeuristics.cpp
-    ${CMAKE_SOURCE_DIR}/AStarSearch.cpp
-    ${CMAKE_SOURCE_DIR}/AStarOptimizer.cpp
-    ${CMAKE_SOURCE_DIR}/DragSolver.cpp
-    ${CMAKE_SOURCE_DIR}/DragSolverHeuristics.cpp
-    ${CMAKE_SOURCE_DIR}/DragSolverSearch.cpp
-    ${CMAKE_SOURCE_DIR}/DragSolverExpand.cpp
-    ${CMAKE_SOURCE_DIR}/DragSolverAssembly.cpp
-    ${CMAKE_SOURCE_DIR}/DragSolverArms.cpp
-    ${CMAKE_SOURCE_DIR}/DragSolverBeam.cpp
+    ${PROJECT_SOURCE_DIR}/SolverClock.cpp
+    ${PROJECT_SOURCE_DIR}/AStar.cpp
+    ${PROJECT_SOURCE_DIR}/AStarHeuristics.cpp
+    ${PROJECT_SOURCE_DIR}/AStarSearch.cpp
+    ${PROJECT_SOURCE_DIR}/AStarOptimizer.cpp
+    ${PROJECT_SOURCE_DIR}/DragSolver.cpp
+    ${PROJECT_SOURCE_DIR}/DragSolverHeuristics.cpp
+    ${PROJECT_SOURCE_DIR}/DragSolverSearch.cpp
+    ${PROJECT_SOURCE_DIR}/DragSolverExpand.cpp
+    ${PROJECT_SOURCE_DIR}/DragSolverAssembly.cpp
+    ${PROJECT_SOURCE_DIR}/DragSolverArms.cpp
+    ${PROJECT_SOURCE_DIR}/DragSolverBeam.cpp
 )
 
 find_package(Threads REQUIRED)
@@ -27,10 +27,10 @@ target_link_libraries(shifting_mosaic_a_star_tests PRIVATE
     Threads::Threads
 )
 
-target_include_directories(shifting_mosaic_a_star_tests PRIVATE ${CMAKE_SOURCE_DIR})
+target_include_directories(shifting_mosaic_a_star_tests PRIVATE ${PROJECT_SOURCE_DIR})
 
 target_compile_definitions(shifting_mosaic_a_star_tests PRIVATE
-    TEST_RESOURCES_DIR="${CMAKE_SOURCE_DIR}/../../../../test/resources/shifting-mosaic-solver"
+    TEST_RESOURCES_DIR="${PROJECT_SOURCE_DIR}/../../../../test/resources/shifting-mosaic-solver"
 )
 
 # 1200s absorbs shiftingMosaicTest37 on slow CI runners: its winning arm
