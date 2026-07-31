@@ -1,4 +1,9 @@
 import { resolve } from "node:path";
+import {
+  bundleMatchThreeWorker,
+  WORKER_DIR,
+  WORKER_FILE,
+} from "./buildWorker";
 import index from "./../pages/index.html";
 import matchThreeSolver from "./../pages/match-three-solver/index.html";
 import phasicDialSolver from "./../pages/phasic-dial-solver/index.html";
@@ -54,6 +59,14 @@ const server = Bun.serve({
           },
         });
       }
+    }
+    // Bundled per request rather than once at startup: HMR does not reach the
+    // worker, so rebuilding here is what makes a reload pick up an edit to the
+    // engine it pulls in. The bundle is small enough that it costs milliseconds.
+    if (url.pathname === `/${WORKER_DIR}/${WORKER_FILE}`) {
+      return new Response(await bundleMatchThreeWorker(), {
+        headers: { "Content-Type": "application/javascript" },
+      });
     }
     if (url.pathname === "/coi-serviceworker.js") {
       const file = Bun.file(

@@ -1,6 +1,11 @@
 import { copyFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import "./buildWasm";
+import {
+  bundleMatchThreeWorker,
+  WORKER_DIR,
+  WORKER_FILE,
+} from "./buildWorker";
 import { pngDataUrl, sassCompiler } from "./plugins";
 
 // NOTE: this file must be launched with NODE_ENV=production — the `build`
@@ -75,6 +80,14 @@ for (const file of [
     resolve("./dist", "sm-wasm", file),
   );
 }
+
+// The match-three search worker — a second bundle pass, because the HTML
+// entrypoints above leave `new Worker(new URL("./x.ts", …))` untransformed.
+mkdirSync(resolve("./dist", WORKER_DIR), { recursive: true });
+await Bun.write(
+  resolve("./dist", WORKER_DIR, WORKER_FILE),
+  await bundleMatchThreeWorker(),
+);
 
 // COOP/COEP service-worker shim — must live at the site root so its scope
 // covers every page (GitHub Pages cannot set real response headers).

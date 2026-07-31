@@ -64,17 +64,15 @@ export type RollingBlocksTest = {
 /**
  * A match-three cell, encoded as a single index — see
  * `src/pages/match-three-solver/cell.ts` for the constants. 0 is empty, 1 is a
- * fixed obstacle, and 2+ are palette *slots*. Slots are deliberately not
- * colors: the palette is handed out at random, so the config carries the
- * slot -> color mapping that makes a saved board reload looking identical.
+ * fixed obstacle, and 2+ index the fixed symbol list in `symbols.ts`. That
+ * list is append-only, which is what lets a saved board keep its meaning as
+ * new symbols are added.
  */
 export type MatchThreeCell = number;
 
 export type MatchThreeTest = {
   gridWidth: number;
   gridHeight: number;
-  /** Slot index -> CSS color name. */
-  colors: string[];
   cells: MatchThreeCell[][];
 };
 
@@ -99,12 +97,7 @@ export type PaintTool =
   | "fillMustTouch"
   | "reset";
 
-export type MatchThreeTool =
-  | "empty"
-  | "blocked"
-  | "color"
-  | "addColor"
-  | "reset";
+export type MatchThreeTool = "empty" | "blocked" | "symbol" | "reset";
 
 export type BlockType = "obstruction" | "goal";
 

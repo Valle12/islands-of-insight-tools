@@ -1,6 +1,6 @@
 import type { MatchThreeCell, MatchThreeTest } from "../../util/types";
 import { cellLimit } from "./cell";
-import { isKnownColor, MAX_COLORS } from "./palette";
+import { SYMBOL_COUNT } from "./symbols";
 
 /**
  * Hard ceiling on either grid side. Real match-three boards in the game are
@@ -9,7 +9,13 @@ import { isKnownColor, MAX_COLORS } from "./palette";
  */
 export const MAX_GRID_SIDE = 32;
 
-export { MAX_COLORS };
+/**
+ * How long the search may run before it gives up. The solver only ever reports
+ * a move count it has *proven* minimal, which means exhausting every shorter
+ * length first — so a board that is too big has to be refused rather than
+ * answered approximately.
+ */
+export const SOLVE_BUDGET_MS = 30_000;
 
 export type ConfigParseResult =
   | { ok: true; config: MatchThreeTest }
@@ -23,41 +29,24 @@ function intInRange(value: unknown, min: number, max: number): value is number {
   );
 }
 
-/** Returns the first problem with the palette, or null when it is valid. */
-function colorsError(colors: unknown): string | null {
-  if (
-    !Array.isArray(colors) ||
-    colors.length < 1 ||
-    colors.length > MAX_COLORS
-  ) {
-    return `colors must hold between 1 and ${MAX_COLORS} colors.`;
-  }
-  if (!colors.every(isKnownColor)) {
-    return "colors may only contain known color names.";
-  }
-  if (new Set(colors).size !== colors.length) {
-    return "colors must not repeat a color.";
-  }
-  return null;
-}
-
 /** Returns the first problem with the cells grid, or null when it is valid. */
 function cellsError(
   cells: unknown,
   gridWidth: number,
   gridHeight: number,
-  colorCount: number,
 ): string | null {
   if (!Array.isArray(cells) || cells.length !== gridWidth) {
     return `cells must be an array of ${gridWidth} columns.`;
   }
-  const maxCell = cellLimit(colorCount) - 1;
+  // Bounded by every symbol the app knows, not by the board: a cell names a
+  // symbol outright, so there is no per-board palette left to overrun.
+  const maxCell = cellLimit(SYMBOL_COUNT) - 1;
   for (const column of cells) {
     if (!Array.isArray(column) || column.length !== gridHeight) {
       return `Every cells column must have ${gridHeight} entries.`;
     }
     if (!column.every(cell => intInRange(cell, 0, maxCell))) {
-      return `Cells must be integers between 0 and ${maxCell} (0 empty, 1 blocked, 2+ colors).`;
+      return `Cells must be integers between 0 and ${maxCell} (0 empty, 1 blocked, 2+ symbols).`;
     }
   }
   return null;
@@ -89,22 +78,11 @@ export function validateConfig(data: unknown): ConfigParseResult {
   const gridWidth = raw.gridWidth as number;
   const gridHeight = raw.gridHeight as number;
 
-  const colorsProblem = colorsError(raw.colors);
-  if (colorsProblem !== null) {
-    return { ok: false, error: colorsProblem };
-  }
-  const colors = raw.colors as string[];
-
-  const cellsProblem = cellsError(
-    raw.cells,
-    gridWidth,
-    gridHeight,
-    colors.length,
-  );
+  const cellsProblem = cellsError(raw.cells, gridWidth, gridHeight);
   if (cellsProblem !== null) {
     return { ok: false, error: cellsProblem };
   }
   const cells = raw.cells as MatchThreeCell[][];
 
-  return { ok: true, config: { gridWidth, gridHeight, colors, cells } };
+  return { ok: true, config: { gridWidth, gridHeight, cells } };
 }

@@ -33,98 +33,128 @@
 
     <div id="container">
       <div id="editor-card">
-        <h1>Match Three Setup</h1>
-        <p id="subtitle">
-          Paint the board with obstacles and colored blocks, then solve it.
-        </p>
-
-        <div id="size-controls">
-          <md-outlined-text-field
-            id="grid-width"
-            type="number"
-            label="Grid Width"
-            value="6"
-            min="1"
-            max="32"
-          ></md-outlined-text-field>
-          <md-outlined-text-field
-            id="grid-height"
-            type="number"
-            label="Grid Height"
-            value="6"
-            min="1"
-            max="32"
-          ></md-outlined-text-field>
-        </div>
-
-        <div id="warning-banner" class="hidden"></div>
-
-        <div id="grid-shell">
-          <div id="grid" aria-label="Match three grid editor"></div>
-        </div>
-
-        <div id="tool-status">Selected tool: Color 1</div>
-
-        <div id="tool-row" aria-label="Editor tools">
-          <button class="tool-button" data-tool="blocked" type="button">
-            Blocked
-          </button>
-          <button class="tool-button" data-tool="empty" type="button">
-            Eraser
-          </button>
-          <button class="tool-button" data-tool="addColor" type="button">
-            Add Color
-          </button>
-          <button class="tool-button" data-tool="reset" type="button">
-            Reset
-          </button>
-        </div>
-
-        <div id="color-row" aria-label="Colors"></div>
-
-        <div id="action-buttons">
-          <md-filled-button id="solve-puzzle">Solve Puzzle</md-filled-button>
-          <span id="config-io">
-            <md-icon-button
-              id="upload-config"
-              title="Load config from disk"
-              aria-label="Load config from disk"
-            >
-              <md-icon>upload</md-icon>
-            </md-icon-button>
-            <md-icon-button
-              id="download-config"
-              title="Download config"
-              aria-label="Download config"
-            >
-              <md-icon>download</md-icon>
-            </md-icon-button>
-          </span>
-          <input
-            id="config-file-input"
-            type="file"
-            accept="application/json,.json"
-            aria-label="Upload config"
-            hidden
-          />
-        </div>
-
-        <div id="solution-panel" class="hidden">
-          <div id="solution-header">
-            <h2>Solution</h2>
-            <span id="solution-status"></span>
-          </div>
-          <p id="solution-placeholder">
-            The match three solver is not implemented yet. The board editor
-            above already saves and loads the puzzles it will run on.
+        <div id="editor-section">
+          <h1>Match Three Setup</h1>
+          <p id="subtitle">
+            Paint the board with obstacles and blocks, then solve it.
           </p>
+
+          <div id="size-controls">
+            <md-outlined-text-field
+              id="grid-width"
+              type="number"
+              label="Grid Width"
+              value="6"
+              min="1"
+              max="32"
+            ></md-outlined-text-field>
+            <md-outlined-text-field
+              id="grid-height"
+              type="number"
+              label="Grid Height"
+              value="6"
+              min="1"
+              max="32"
+            ></md-outlined-text-field>
+          </div>
+
+          <div id="warning-banner" class="hidden"></div>
+
+          <div id="grid-shell">
+            <div id="grid" aria-label="Match three grid editor"></div>
+          </div>
+
+          <div id="tool-status">Selected tool: Color</div>
+
+          <div id="tool-row" aria-label="Editor tools">
+            <button
+              class="tool-button icon-tool"
+              data-tool="empty"
+              type="button"
+              title="Eraser"
+              aria-label="Eraser"
+            >
+              <md-icon>ink_eraser</md-icon>
+            </button>
+            <button
+              class="tool-button icon-tool"
+              data-tool="reset"
+              type="button"
+              title="Reset"
+              aria-label="Reset"
+            >
+              <md-icon>refresh</md-icon>
+            </button>
+          </div>
+
+          <div id="symbol-row" aria-label="Blocks"></div>
+
+          <div id="action-buttons">
+            <md-filled-button id="solve-puzzle">Solve Puzzle</md-filled-button>
+            <span id="config-io">
+              <md-icon-button
+                id="upload-config"
+                title="Load config from disk"
+                aria-label="Load config from disk"
+              >
+                <md-icon>upload</md-icon>
+              </md-icon-button>
+              <md-icon-button
+                id="download-config"
+                title="Download config"
+                aria-label="Download config"
+              >
+                <md-icon>download</md-icon>
+              </md-icon-button>
+            </span>
+            <input
+              id="config-file-input"
+              type="file"
+              accept="application/json,.json"
+              aria-label="Upload config"
+              hidden
+            />
+          </div>
+
+          <div id="solution-panel" class="hidden">
+            <div id="solution-header">
+              <h2>Solver</h2>
+              <span id="solution-status"></span>
+            </div>
+            <div id="solution-spinner" class="hidden">
+              <md-circular-progress indeterminate></md-circular-progress>
+              <span id="solution-progress-text">Searching…</span>
+              <md-text-button id="solution-cancel">Cancel</md-text-button>
+            </div>
+            <div id="solution-message"></div>
+          </div>
+        </div>
+
+        <div id="solution-view" class="hidden">
+          <div id="solution-view-header">
+            <h2>Solution</h2>
+            <span id="solution-step-counter"></span>
+          </div>
+
+          <div id="solution-grid-shell">
+            <div id="solution-grid" aria-label="Match three solution"></div>
+          </div>
+
+          <div id="solution-step-text"></div>
+
+          <div id="solution-view-controls">
+            <md-text-button id="solution-prev">Previous</md-text-button>
+            <md-filled-button id="solution-next">Next</md-filled-button>
+          </div>
+
+          <md-text-button id="solution-exit">Back to editor</md-text-button>
         </div>
 
         <md-dialog id="reset-dialog">
           <div slot="headline">Reset Board?</div>
           <div slot="content">
-            This will reset the board to the default grid size, clear every
-            cell and drop back to a single color.
+            This will reset the board to the default grid size and clear every
+            cell.
           </div>
           <div slot="actions">
             <md-text-button id="reset-cancel">Cancel</md-text-button>
