@@ -20,14 +20,20 @@ scratch.
 | | test47 | test50 | test51 |
 | --- | --- | --- | --- |
 | TS engine, 30 s | nothing, ruled out 9 | nothing, ruled out 8 | nothing, ruled out 7 |
+| TS engine, 120 s | **20 moves** | — | — |
 | TS engine, 300 s | — | nothing, ruled out 10 | nothing, ruled out 10 |
 | native cascade, 30 s | **20 moves**, ruled out 8 | nothing, ruled out 8 | nothing, ruled out 7 |
-| native cascade, 300 s | **20 moves**, ruled out 13 | nothing, ruled out 10 | (see below) |
+| native cascade, 300 s | **20 moves**, ruled out 13 | nothing, ruled out 10 | nothing, ruled out 10 |
+| the page, isolated, 6 arms, 300 s | **20 moves in ~25 s**, ruled out 10 | nothing, ruled out 10 | nothing, ruled out 9 |
+
+The page row is Chromium on the real dev server, cross-origin isolated, with the
+in-module race live. It gets through ~320 M positions in the 300 s budget (about
+1.07 M/s across six threads) and still finds nothing on test50 or test51.
 
 `20 moves` is the optimum: a deepening run with the budget lifted proved it
-minimal in 46 min 42 s (2026-07-31, before this work). So the native cascade
-finds the best possible answer for test47 in seconds — it simply cannot prove
-that no 19-move answer exists.
+minimal in 46 min 42 s (2026-07-31, before this work). So both engines find the
+best possible answer for test47 in seconds — neither can prove that no 19-move
+answer exists.
 
 ## Why the proof is out of reach, and what the arms actually do
 

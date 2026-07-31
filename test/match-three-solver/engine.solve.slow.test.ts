@@ -12,10 +12,12 @@ import { clearsBoard, FIXTURE_DIR, FIXTURES } from "./boards";
 
 describe.skipIf(Bun.env.IOI_SKIP_SLOW === "1")("Captured boards are solvable", () => {
   /**
-   * The captured boards the sweep cannot yet prove within its budget. They
-   * are legal game states like every other fixture, and nothing suggests
-   * they are anything but clearable — the engine simply cannot exhaust every
-   * shorter length in time. A fixture leaves this set the day the sweep
+   * The captured boards no engine can PROVE. Membership says nothing about
+   * whether an answer exists: matchThreeTest47's is 20 moves, the dive finds it
+   * at longer budgets, and a 46-minute run in July confirmed it is optimal —
+   * what cannot be done is exhausting the nineteen shorter lengths, which at
+   * the measured x2.5 per level is orders of magnitude away
+   * (a-star/bench/HARD-BOARDS.md). A fixture leaves this set the day the sweep
    * proves it at SWEEP_BUDGET_MS, and this test is what says so.
    */
   const BEYOND_BUDGET = new Set([
