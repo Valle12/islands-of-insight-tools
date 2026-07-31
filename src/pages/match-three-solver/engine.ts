@@ -1,6 +1,7 @@
 import { EMPTY, FIRST_SYMBOL, isSymbol, symbolIndexOf } from "./cell";
 import { SOLVE_BUDGET_MS } from "./config";
 import { beamSearch, greedySearch } from "./fastSolvers";
+import { anyForcedCount, forcedBound, NO_BOUND } from "./forcedClear";
 import { runNrpa } from "./nrpa";
 import {
   applyGravity,
@@ -432,6 +433,14 @@ class Search {
     }
     if (remaining === 0) return;
     if (this.hasStrandedSymbol()) return;
+    // The forced-single-clear bound. Admissible, so a proof stays a proof: it
+    // only ever says "this needs MORE moves than are left". Gated on the counts
+    // the search already maintains, so the board walk behind it runs only where
+    // it can possibly say something. See forcedClear.ts.
+    if (anyForcedCount(this.symbolCounts)) {
+      const need = forcedBound(board);
+      if (need !== NO_BOUND && need > remaining) return;
+    }
     if (this.table.probe(board.cells, remaining)) return;
 
     const found = this.solutions;

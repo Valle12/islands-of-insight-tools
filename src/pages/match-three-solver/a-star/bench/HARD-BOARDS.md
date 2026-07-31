@@ -216,6 +216,50 @@ The check is also arithmetically complete: every count ≥3 can be written as a 
 of removals of ≥3 (3, 4, 5, 3+3, …), so one and two are the only counts a
 counting argument alone can refute. There is no cheap extension here.
 
+## The forced-single-clear bound (shipped)
+
+`ForcedClear.h` and `forcedClear.ts`. The one admissible lower bound here that
+earns its keep — it takes test47's proof floor from **11 to 12** and does it with
+*fewer* nodes.
+
+The stranded prune catches a symbol down to one or two blocks. Four and five say
+something stronger. Every clear takes at least three blocks of the symbol it
+clears, so a symbol's clears partition its blocks into parts of ≥3 — and for four
+the only partition is {4}, for five it is {5}. **A symbol at exactly four or five
+blocks must lose all of them in a single clear**; taking three would leave one or
+two behind, which the stranded prune then calls dead.
+
+So all of them must reach one clearing shape together, and that costs moves, by
+the displacement argument in "Ideas measured and rejected" below: a block changes
+column only via a horizontal swap of one column, and such a swap moves blocks of
+two *different* symbols, so a given symbol gains at most one unit of horizontal
+displacement per move.
+
+Two shapes matter, and getting the second one wrong is how this goes silently
+wrong. Four cells can only clear as a **straight run of four** — four cells
+cannot be two runs of three, since a perpendicular overlap is five cells and a
+collinear one merges into a run of four. Five cells can clear as a run of five
+**or as a T/L/plus**, a perpendicular 3+3 sharing one cell. Pricing five as a
+straight run only would *over*-estimate, and an over-estimating bound in a prover
+is not conservative, it is wrong. `forcedClear.test.ts` pins exactly that case.
+
+Measured at a 60 s `iddfs` budget:
+
+| board | ruledOut without | ruledOut with | nodes without | nodes with |
+| --- | --- | --- | --- | --- |
+| test47 | 11 | **12** | 49.9 M | 46.2 M |
+| test50 | 9 | 9 | 35.7 M | 34.1 M |
+| test51 | 9 | 9 | 38.4 M | 36.8 M |
+
+Sampled by random deep walks — **not** a truncated BFS, which only ever sees the
+first few moves' subtrees and hid this bound's whole value the first time — it
+fires on 20–90% of the deep states a proof visits and cuts 20–52% of them on
+test51, 6–12% on test47. A cut at depth d removes the entire subtree beneath it,
+which is why a modest firing rate deep in the tree is worth a whole level.
+
+It is gated on the per-symbol counts the search already maintains, so the board
+walk behind it runs only where it can possibly say something.
+
 ## Ideas measured and rejected
 
 - **Region decomposition — refuted 2026-07-31.** Rolling-blocks got its biggest
@@ -273,7 +317,18 @@ counting argument alone can refute. There is no cheap extension here.
 
   The bound is below what the deepening already establishes on every single
   board, and on test51 it is identically zero at every state — a board with five
-  symbols and 90 blocks always has three of something nearly aligned. The
-  "vertical positions are free" relaxation is what costs most of the strength,
-  and tightening it means reasoning about which vertical arrangements gravity can
-  actually produce, which is a much harder problem than the one being solved.
+  symbols and 90 blocks always has three of something nearly aligned.
+
+  **Its stronger sibling does pay, and ships** — see "The forced-single-clear
+  bound" below. What was wrong here is not the displacement argument, it is
+  asking only for *three* blocks to line up. Ask for a symbol's blocks to line up
+  *all at once*, which counts of 4 and 5 force, and the same argument becomes a
+  prune that gains a depth level.
+- **Incremental move generation — measured 2026-08-01, not worth the risk.** The
+  plan gated it on the dirty-column band being narrow, and it is: a move dirties
+  a median of 3 columns out of 9–13. What kills it is the other measurement.
+  Generation is only **8–22% of a node** (mean ~14%); the cascade is the rest. A
+  4x faster generator therefore buys under 1.25x overall, against the ~2.5x that
+  one extra depth level costs. Since it is also the highest-risk change available
+  — it decides every solution's legality — the trade is clearly bad. If this is
+  ever revisited, the target is the CASCADE, not generation.

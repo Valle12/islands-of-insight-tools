@@ -1,4 +1,5 @@
 #include "Budget.h"
+#include "ForcedClear.h"
 #include "Search.h"
 #include "TransTable.h"
 
@@ -266,6 +267,15 @@ void Prover::explore(const Board &board, const int remaining, const int blocks) 
     return;
   if (hasStrandedSymbol())
     return;
+  // The forced-single-clear bound. Admissible, so a proof stays a proof: it
+  // only ever says "this needs MORE moves than are left". Gated on the counts
+  // the search already maintains, so the O(cells) scan behind it runs only
+  // where it can possibly say something. See ForcedClear.h.
+  if (forced::anyForcedCount(symbolCounts_)) {
+    const int need = forced::bound(board);
+    if (need != forced::kNoBound && need > remaining)
+      return;
+  }
   if (table_.probe(board, remaining))
     return;
 
