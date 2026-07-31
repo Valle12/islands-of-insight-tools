@@ -236,3 +236,44 @@ counting argument alone can refute. There is no cheap extension here.
   the bound cuts off exactly the cascade solutions worth finding. Tried in the
   TypeScript engine and reverted; `engine.test.ts`'s `CASCADE_CLEARS` is the
   case that catches it.
+- **The alignment bound — derived, correct, and far too weak. Measured
+  2026-08-01, do not rebuild it.** This is the one genuinely admissible lower
+  bound this puzzle has, so it is worth writing down properly, and worth writing
+  down that it does not pay.
+
+  The argument. A block changes column **only** via a horizontal swap, exactly
+  one column at a time — gravity and cascades are vertical. A swap of two *equal*
+  symbols is not a legal move (`rules.ts`, `Rules.cpp`), so a horizontal swap
+  moves exactly two blocks of two *different* symbols by one column each.
+  Therefore **per move a given symbol gains at most one unit of horizontal
+  displacement**, and a move contributes at most two units in total. To clear
+  symbol `s` at all, three of its blocks must at some point be
+  collinear-adjacent: three in one column, or one in each of three consecutive
+  columns of one row. Blocks are never created, so those three come from the ones
+  present now. Let `cost(s)` be the least total horizontal displacement reaching
+  either shape (vertical positions treated as free, which is what keeps it
+  admissible — it under-estimates). Then
+
+      moves >= max_s cost(s)                and    moves >= ceil(sum_s cost(s) / 2)
+
+  Take the max of both. Unlike the rejected `remaining × 3` bound this one is
+  immune to cascades, because cascades move nothing horizontally.
+
+  What it is worth: **nothing.** Computed over the full depth-1..5 frontier of
+  test47, test50, test51, test44 and test13 — about 15 000 states — it pruned
+  **zero** of them.
+
+  | board | root bound | max bound seen to depth 5 | what the prover already proves |
+  | --- | --- | --- | --- |
+  | test47 | 1 | 7 | 13 |
+  | test50 | 7 | 7 | 8–10 |
+  | test51 | **0** | 0 | 9–10 |
+  | test44 | 2 | 4 | 14 (proven optimal) |
+  | test13 | 6 | 9 | 10 (proven optimal) |
+
+  The bound is below what the deepening already establishes on every single
+  board, and on test51 it is identically zero at every state — a board with five
+  symbols and 90 blocks always has three of something nearly aligned. The
+  "vertical positions are free" relaxation is what costs most of the strength,
+  and tightening it means reasoning about which vertical arrangements gravity can
+  actually produce, which is a much harder problem than the one being solved.

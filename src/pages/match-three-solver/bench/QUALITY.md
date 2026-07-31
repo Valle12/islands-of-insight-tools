@@ -44,6 +44,20 @@ ever to change — see `../a-star/bench/HARD-BOARDS.md`.
 | matchThreeTest50 (9×23, 105 blocks) | Gave up at any budget | **23 moves**, 0.9–32 s |
 | matchThreeTest51 (13×14, 90 blocks) | Gave up at any budget | **15 moves**, 1.9–12 s |
 
+Verified on the real page, not only in the harnesses (Chromium against the dev
+server, cross-origin isolated, 16 cores — so the whole portfolio races inside one
+module on real threads). Loading `matchThreeTest50.json` through the page's own
+upload button and pressing Solve, the page reads
+
+> Best so far: 23 moves (not yet proven shortest) — ruling out 10 moves —
+> 161,103,669 positions checked
+
+with the Cancel button now offering *"Stop — use best so far"*. Pressing it hands
+over the solution rather than discarding the search: **Step 1 of 23**, the two
+cells ringed, and the step text *"Swap the block at Column 2, Row 22 with the one
+at Column 2, Row 23. That clears 6 blocks."* Stepping to 23 of 23 leaves exactly
+the six blocks that last swap takes. The unproven note is visible throughout.
+
 How sub-optimal are the two that have no proof at all? Unknown, and honestly so —
 the page labels them unproven. Two things bound the guess. Every seed that solves
 test50 returns **23 moves** and every seed that solves test51 returns 15 or 16,
