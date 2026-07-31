@@ -5,7 +5,12 @@ import {
 } from "./../../util/configFile";
 import type { MatchThreeTest, MatchThreeTool } from "./../../util/types";
 import { Board } from "./board";
-import { MAX_COLORS, MAX_GRID_SIDE, validateConfig } from "./config";
+import { MAX_GRID_SIDE, validateConfig } from "./config";
+import type { SolveResult } from "./engine";
+import { boardProblem, toBoard, type Move } from "./rules";
+import { searchMatchThree, type SolveHandle } from "./solveClient";
+import { SolutionView } from "./solutionView";
+import { BLOCKER_IMAGE, SYMBOLS } from "./symbols";
 
 export class MatchThreeSolverEditor {
   private static readonly DEFAULT_GRID_WIDTH = 6;
@@ -20,16 +25,34 @@ export class MatchThreeSolverEditor {
   private readonly statusEl = document.getElementById(
     "tool-status",
   ) as HTMLDivElement;
-  private readonly colorRow = document.getElementById(
-    "color-row",
+  private readonly symbolRow = document.getElementById(
+    "symbol-row",
   ) as HTMLDivElement;
 
+  private readonly editorSection = document.getElementById(
+    "editor-section",
+  ) as HTMLDivElement;
   private readonly solutionPanel = document.getElementById(
     "solution-panel",
   ) as HTMLDivElement;
   private readonly solutionStatus = document.getElementById(
     "solution-status",
   ) as HTMLSpanElement;
+  private readonly solutionSpinner = document.getElementById(
+    "solution-spinner",
+  ) as HTMLDivElement;
+  private readonly solutionProgress = document.getElementById(
+    "solution-progress-text",
+  ) as HTMLSpanElement;
+  private readonly solutionMessage = document.getElementById(
+    "solution-message",
+  ) as HTMLDivElement;
+  private readonly solutionViewEl = document.getElementById(
+    "solution-view",
+  ) as HTMLDivElement;
+  private readonly solveButton = document.getElementById(
+    "solve-puzzle",
+  ) as HTMLButtonElement;
 
   private readonly warningBanner = document.getElementById(
     "warning-banner",
@@ -44,9 +67,18 @@ export class MatchThreeSolverEditor {
 
   private gridWidth = MatchThreeSolverEditor.DEFAULT_GRID_WIDTH;
   private gridHeight = MatchThreeSolverEditor.DEFAULT_GRID_HEIGHT;
-  private selectedTool: MatchThreeTool = "color";
-  private selectedColorIndex = 0;
+  private selectedTool: MatchThreeTool = "symbol";
+  private selectedSymbol = 0;
   private board: Board;
+
+  private solutionView: SolutionView | null = null;
+  private search: SolveHandle | null = null;
+  /**
+   * Bumped whenever a running search stops mattering. A worker that reports
+   * back under an old generation is answering about a board that no longer
+   * exists, so its result is dropped.
+   */
+  private solveGeneration = 0;
 
   constructor() {
     this.board = this.createBoard();
@@ -59,25 +91,24 @@ export class MatchThreeSolverEditor {
    * so its listeners would otherwise stay attached and every later stroke
    * would do the work once per board ever created.
    */
-  private replaceBoard(palette?: readonly string[]) {
+  private replaceBoard() {
     this.board.dispose();
-    this.board = this.createBoard(palette);
+    this.board = this.createBoard();
   }
 
-  private createBoard(palette?: readonly string[]) {
+  private createBoard() {
     return new Board(
       this,
       this.gridWidth,
       this.gridHeight,
       this.selectedTool,
-      this.selectedColorIndex,
-      palette,
+      this.selectedSymbol,
     );
   }
 
   private addListeners() {
-    // Scoped to #tool-row: the color chips share the `.tool-button` class for
-    // its styling but are driven by the delegated #color-row handler instead.
+    // Scoped to #tool-row: the symbol chips share the `.tool-button` class for
+    // its styling but are driven by the delegated #symbol-row handler instead.
     const toolButtons = document.querySelectorAll<HTMLButtonElement>(
       "#tool-row .tool-button",
     );
@@ -87,15 +118,21 @@ export class MatchThreeSolverEditor {
       });
     });
 
-    // The color chips are re-rendered on every Add Color, so per-chip
-    // listeners would not survive; the row handles their clicks instead.
-    this.colorRow.addEventListener("click", event => {
+    // The chips are re-rendered whenever the selection moves, so per-chip
+    // listeners would not survive; the row handles their clicks.
+    this.symbolRow.addEventListener("click", event => {
       const target = event.target as HTMLElement;
-      const chip = target.closest(".color-chip") as HTMLElement | null;
+      const chip = target.closest(".symbol-chip") as HTMLElement | null;
       if (!chip) return;
-      const index = Number(chip.dataset.colorIndex);
+      // The blockade shares the row but paints a structural value, so it
+      // carries `data-tool` where the symbols carry an index.
+      if (chip.dataset.tool) {
+        this.handleToolClick(chip.dataset.tool as MatchThreeTool);
+        return;
+      }
+      const index = Number(chip.dataset.symbolIndex);
       if (!Number.isInteger(index)) return;
-      this.selectColor(index);
+      this.selectSymbol(index);
     });
 
     const resetCancelBtn = document.getElementById("reset-cancel");
@@ -115,9 +152,16 @@ export class MatchThreeSolverEditor {
       resetDialog.close();
     });
 
-    document.getElementById("solve-puzzle")?.addEventListener("click", () => {
-      this.showSolverPlaceholder();
+    this.solveButton.addEventListener("click", () => this.solve());
+
+    document.getElementById("solution-cancel")?.addEventListener("click", () => {
+      this.cancelSearch();
+      this.solutionStatus.textContent = "Cancelled";
     });
+
+    document
+      .getElementById("solution-exit")
+      ?.addEventListener("click", () => this.exitSolutionView());
 
     document
       .getElementById("download-config")
@@ -142,13 +186,8 @@ export class MatchThreeSolverEditor {
     this.heightField.addEventListener("input", () => this.handleSizeUpdate());
   }
 
-  /** Paint tools select; `addColor` and `reset` are commands, not tools. */
+  /** Paint tools select; `reset` is a command, not a tool. */
   private handleToolClick(tool: MatchThreeTool) {
-    if (tool === "addColor") {
-      this.addColor();
-      return;
-    }
-
     if (tool === "reset") {
       (document.getElementById("reset-dialog") as HTMLDialogElement).show();
       return;
@@ -159,20 +198,11 @@ export class MatchThreeSolverEditor {
     this.renderTools();
   }
 
-  private addColor() {
-    if (!this.board.addColor()) {
-      this.showWarning(`A board may use at most ${MAX_COLORS} colors.`);
-      return;
-    }
-    // Selecting the new color is what the user is after nine times out of ten.
-    this.selectColor(this.board.getPalette().length - 1);
-  }
-
-  private selectColor(index: number) {
-    this.selectedTool = "color";
-    this.selectedColorIndex = index;
-    this.board.setSelectedTool("color");
-    this.board.setSelectedColorIndex(index);
+  private selectSymbol(index: number) {
+    this.selectedTool = "symbol";
+    this.selectedSymbol = index;
+    this.board.setSelectedTool("symbol");
+    this.board.setSelectedSymbol(index);
     this.renderTools();
   }
 
@@ -191,9 +221,9 @@ export class MatchThreeSolverEditor {
     }
     this.gridWidth = parsedWidth;
     this.gridHeight = parsedHeight;
-    // Resizing clears the cells but keeps the colors already collected —
-    // losing the palette on every keystroke in the size field would be worse.
-    this.replaceBoard(this.board.getPalette());
+    // A resize means a different puzzle, so the cells go with it. The symbols
+    // are the game's own fixed set, so there is nothing there to reset.
+    this.replaceBoard();
     this.hideSolution();
     this.render();
   }
@@ -211,8 +241,8 @@ export class MatchThreeSolverEditor {
     this.gridHeight = MatchThreeSolverEditor.DEFAULT_GRID_HEIGHT;
     this.widthField.value = String(this.gridWidth);
     this.heightField.value = String(this.gridHeight);
-    this.selectedTool = "color";
-    this.selectedColorIndex = 0;
+    this.selectedTool = "symbol";
+    this.selectedSymbol = 0;
     this.replaceBoard();
   }
 
@@ -223,18 +253,18 @@ export class MatchThreeSolverEditor {
   }
 
   /**
-   * Redraws the two chip rows alone. Picking a tool or a color leaves every
+   * Redraws the two chip rows alone. Picking a tool or a symbol leaves every
    * cell untouched, so rebuilding the grid for it would repaint the whole
    * board for nothing.
    */
   private renderTools() {
     this.renderToolButtons();
-    this.renderColorTools();
+    this.renderSymbolTools();
   }
 
   private renderToolButtons() {
-    // Scoped to #tool-row: the color chips share the `.tool-button` class for
-    // its styling but are driven by the delegated #color-row handler instead.
+    // Scoped to #tool-row: the symbol chips share the `.tool-button` class for
+    // its styling but are driven by the delegated #symbol-row handler instead.
     const toolButtons = document.querySelectorAll<HTMLButtonElement>(
       "#tool-row .tool-button",
     );
@@ -243,6 +273,8 @@ export class MatchThreeSolverEditor {
       button.classList.toggle("selected", tool === this.selectedTool);
     });
 
+    // The kind of tool, not which tile: the selected chip already shows that,
+    // and naming the tile meant printing "Purple 2" at the player.
     let label: string;
     switch (this.selectedTool) {
       case "blocked":
@@ -252,30 +284,165 @@ export class MatchThreeSolverEditor {
         label = "Eraser";
         break;
       default:
-        label = `Color ${this.selectedColorIndex + 1}`;
+        label = "Color";
     }
 
     this.statusEl.textContent = `Selected tool: ${label}`;
   }
 
-  private renderColorTools() {
-    this.colorRow.innerHTML = this.board
-      .getPalette()
-      .map((color, index) => {
-        const selected =
-          this.selectedTool === "color" && this.selectedColorIndex === index;
-        return `
-          <button class="tool-button color-chip${selected ? " selected" : ""}"
-            type="button" data-color-index="${index}"
-            style="--chip-color: ${color}">Color ${index + 1}</button>
-        `;
-      })
-      .join("");
+  private chip(
+    label: string,
+    image: string,
+    selected: boolean,
+    attributes: string,
+  ) {
+    return `
+      <button class="tool-button symbol-chip${selected ? " selected" : ""}"
+        type="button" ${attributes} title="${label}" aria-label="${label}">
+        <img src="${image}" alt="" width="28" height="28" />
+      </button>
+    `;
   }
 
-  private showSolverPlaceholder() {
+  /**
+   * The paint tiles: the blockade first, then every symbol the game has. The
+   * chip is the tile and nothing else — the artwork is what the player matches
+   * against on screen, and a name beside each only added noise. The name stays
+   * as the accessible one, which is also what the e2e suite reads.
+   *
+   * The blockade leads the row but is NOT a symbol: it paints the structural
+   * `BLOCKED` value, so it carries `data-tool` rather than a `data-symbol-index`
+   * and never shifts the indices a saved board refers to.
+   */
+  private renderSymbolTools() {
+    const blocked = this.chip(
+      "Blocked",
+      BLOCKER_IMAGE,
+      this.selectedTool === "blocked",
+      'data-tool="blocked"',
+    );
+
+    const symbols = SYMBOLS.map((symbol, index) =>
+      this.chip(
+        symbol.label,
+        symbol.image,
+        this.selectedTool === "symbol" && this.selectedSymbol === index,
+        `data-symbol-index="${index}" data-symbol="${symbol.id}"`,
+      ),
+    ).join("");
+
+    this.symbolRow.innerHTML = blocked + symbols;
+  }
+
+  private currentConfig(): MatchThreeTest {
+    return {
+      gridWidth: this.gridWidth,
+      gridHeight: this.gridHeight,
+      cells: this.board.getCells(),
+    };
+  }
+
+  private solve() {
+    const config = this.currentConfig();
+
+    // A board the game could never show — a block hanging in mid-air, or a
+    // line still standing — would be solved from a position the player never
+    // had, so it is refused rather than quietly settled first.
+    const problem = boardProblem(toBoard(config));
+    if (problem !== null) {
+      this.hideSolution();
+      this.showWarning(problem);
+      return;
+    }
+
+    const generation = ++this.solveGeneration;
+    const isCurrent = () => generation === this.solveGeneration;
+    this.showSolving();
+
+    this.search = searchMatchThree(config, {
+      onProgress: progress => {
+        if (!isCurrent()) return;
+        this.solutionProgress.textContent =
+          `Ruling out ${progress.depth} move${progress.depth === 1 ? "" : "s"}` +
+          ` — ${progress.nodes.toLocaleString()} positions checked`;
+      },
+      onResult: result => {
+        if (!isCurrent()) return;
+        this.search = null;
+        this.showResult(config, result);
+      },
+      onError: message => {
+        if (!isCurrent()) return;
+        this.search = null;
+        this.setSolving(false);
+        this.solutionMessage.textContent = message;
+      },
+    });
+  }
+
+  private showResult(config: MatchThreeTest, result: SolveResult) {
+    this.setSolving(false);
+
+    if (result.status === "unsolvable") {
+      this.solutionStatus.textContent = "No solution";
+      this.solutionMessage.textContent =
+        "This board cannot be cleared. Every sequence of swaps was tried.";
+      return;
+    }
+
+    if (result.status === "budget") {
+      this.solutionStatus.textContent = "Gave up";
+      this.solutionMessage.textContent =
+        `No solution of ${result.depth} moves or fewer exists, and the search ` +
+        `ran out of time before it could rule out longer ones. Only a solution ` +
+        `proven to be the shortest is reported.`;
+      return;
+    }
+
+    if (result.moves.length === 0) {
+      this.solutionStatus.textContent = "Already solved";
+      this.solutionMessage.textContent = "This board has no blocks to clear.";
+      return;
+    }
+
+    this.enterSolutionView(config, result.moves);
+  }
+
+  private enterSolutionView(config: MatchThreeTest, moves: Move[]) {
+    this.solutionPanel.classList.add("hidden");
+    this.editorSection.classList.add("hidden");
+    this.solutionViewEl.classList.remove("hidden");
+    this.solutionView?.dispose();
+    this.solutionView = new SolutionView({ board: toBoard(config), moves });
+  }
+
+  private exitSolutionView() {
+    this.solutionView?.dispose();
+    this.solutionView = null;
+    this.solutionViewEl.classList.add("hidden");
+    this.editorSection.classList.remove("hidden");
+    this.solutionPanel.classList.add("hidden");
+    this.render();
+  }
+
+  private showSolving() {
     this.solutionPanel.classList.remove("hidden");
-    this.solutionStatus.textContent = "Not available yet";
+    this.solutionStatus.textContent = "";
+    this.solutionMessage.textContent = "";
+    this.solutionProgress.textContent = "Searching…";
+    this.setSolving(true);
+  }
+
+  private setSolving(solving: boolean) {
+    this.solveButton.toggleAttribute("disabled", solving);
+    this.solutionSpinner.classList.toggle("hidden", !solving);
+  }
+
+  private cancelSearch() {
+    this.solveGeneration++;
+    this.search?.cancel();
+    this.search = null;
+    this.setSolving(false);
   }
 
   private showWarning(message: string) {
@@ -291,15 +458,7 @@ export class MatchThreeSolverEditor {
   }
 
   private downloadCurrentConfig() {
-    downloadJson(
-      {
-        gridWidth: this.gridWidth,
-        gridHeight: this.gridHeight,
-        colors: this.board.getPalette(),
-        cells: this.board.getCells(),
-      },
-      "matchThreeTest.json",
-    );
+    downloadJson(this.currentConfig(), "matchThreeTest.json");
   }
 
   /** Reads a dropped/picked file, validates it, and populates the editor. */
@@ -326,19 +485,20 @@ export class MatchThreeSolverEditor {
     this.gridHeight = config.gridHeight;
     this.widthField.value = String(this.gridWidth);
     this.heightField.value = String(this.gridHeight);
-    // A config may carry fewer colors than the board had selected.
-    this.selectedColorIndex = Math.min(
-      this.selectedColorIndex,
-      config.colors.length - 1,
-    );
-    this.replaceBoard(config.colors);
+    this.replaceBoard();
     this.board.loadConfig(config);
-    this.board.setSelectedColorIndex(this.selectedColorIndex);
     this.render();
   }
 
+  /**
+   * Drops whatever the solver last said. Called on every board edit, so it
+   * does nothing unless there is something to drop — a drag fires it once per
+   * cell and must stay free.
+   */
   hideSolution() {
+    if (this.search) this.cancelSearch();
     this.solutionPanel.classList.add("hidden");
+    if (this.solutionView) this.exitSolutionView();
   }
 }
 

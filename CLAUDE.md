@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A static, zero-framework site of four puzzle solvers for the game *Islands of Insight*, deployed to GitHub Pages. Each solver is a page under `src/pages/`; two of them run their search in C++ compiled to WebAssembly. There is no backend and no client-side router — `src/util/serve.ts` maps five URLs to five HTML entry points, and `bun run build` emits the same five pages into `dist/`.
 
-**match-three is a board editor only.** Its search algorithm is deliberately a future project: `#solve-puzzle` opens `#solution-panel` on a static `#solution-placeholder`, and there is no worker, no wasm and no `config.ts` engine cap. Everything else on the page (grid, tools, palette, config I/O, tests) is complete, so the engine can drop in without touching layout or serialisation.
+**match-three is the one solver written in pure TypeScript.** No wasm: its search runs in a bundled TS Web Worker (`solverWorker.ts`), and 6×6 boards land in a median ~40 ms. See "The match-three solver" below.
 
 (`README.md` is unmodified `bun init` boilerplate — its `bun run index.ts` instruction is wrong, there is no `index.ts`.)
 
@@ -65,6 +65,8 @@ The solver class is instantiated at module scope behind `if (process.env.NODE_EN
 - `pngDataUrl` inlines every PNG *except* `favicon.png` as a base64 data URL. A new image needs only an `import`, no copy step — but `dist/` has no `images/` directory, so anything referenced by URL rather than imported will 404.
 - `sassCompiler` compiles `.scss`.
 
+**Bun's HTML entrypoints do not bundle Web Workers.** `new Worker(new URL("./x.ts", import.meta.url), …)` survives minification with the `.ts` specifier intact, so it 404s in `dist/` — measured, and it fails silently at build time. The match-three worker therefore gets its own `Bun.build` pass in `src/util/buildWorker.ts`, called from both `build.ts` (writes `dist/mt-worker/solverWorker.js`) and `serve.ts` (bundles per request, since HMR does not reach a worker). The page reaches it as `../mt-worker/solverWorker.js`: relative to `/match-three-solver` (dev, no trailing slash) *and* `/match-three-solver/index.html` (Pages), that resolves to the same absolute path — the same trick the emscripten workers use with `../rb-wasm/`.
+
 Material Symbols icons come from a **subset URL** in `src/common/common.css` (`icon_names=add,cancel,delete,download,…`). A `<md-icon>` naming a glyph not in that list renders as garbage text, not a missing icon.
 
 **The production build must run as `bun run build`**, which pins `NODE_ENV=production`. Material Web pulls in Lit, whose package exports carry a `development` condition; Bun's bundler selects it otherwise and ships the development build of Lit, which logs "Lit is in dev mode" on every page load. Setting it inside `build.ts` does **not** work — `Bun.build` does not read `process.env.NODE_ENV` at call time (measured: all 20 dev-mode sites stayed in the bundle), so it has to be on the process from the start. Invoking `bun src/util/build.ts` directly silently produces a dev-mode bundle.
@@ -94,18 +96,46 @@ Both bridges are now **portfolios** with identical mechanics: an exported `PORTF
 
 E2e traps for the rolling-blocks page: several inline aria snapshots include the page subtitle text, and Material components expose an inner `#button` in their shadow DOM — never target buttons by `#button` index (adding any icon button shifts every index; use the app's own `data-block-delete-id` style hooks).
 
+### The match-three solver
+
+The rules are in `rules.ts`, the search in `engine.ts`, and both are pure and synchronous so the unit tests never touch a worker. Worth knowing before changing either:
+
+- **Matches** are the union of every horizontal run ≥3 and every vertical run ≥3. `+`, `T` and `L` need no special case — they are just cells that both passes mark. Gravity is per column and stops at `BLOCKED`, so a column is a set of independent segments; clear/drop repeats until stable (a *cascade*).
+- **A move** swaps two orthogonally adjacent cells that are both blocks and hold different symbols, and is legal only if it clears something. `legalMoves` only probes right/down neighbours (all four would offer each swap twice) and only checks the two moved cells, since a new match must pass through one of them.
+- **The board must already have settled.** `boardProblem` refuses a floating block or a line still standing rather than repairing it — solving a repaired board would answer a puzzle the player never had. This is a *solver*-level check, deliberately not a validator one: `config.ts` passes any well-formed file, so the editor will happily hold a half-drawn board that Solve then refuses by name.
+- **The search is IDDFS, and only ever reports a proven-minimal move count.** Depth `d` is reported only once every shorter length has been searched out. It terminates on its own — every move clears ≥3 cells, so `maxDepth = floor(blocks / 3)` — which is what makes `unsolvable` a proof rather than a timeout. The three outcomes are `solved` / `unsolvable` / `budget`, and `budget` deliberately reports *nothing* rather than an unproven length.
+- **Do not add a "`remaining` moves clear at most `remaining * 3` cells" prune.** A move clears *at least* three, never at most: one swap can cascade the whole board away. That bound was tried and it cut off exactly the cascade solutions (caught by `engine.test.ts`'s `CASCADE_CLEARS`).
+- The load-bearing prune is `hasStrandedSymbol` — a symbol down to one or two blocks can never line up again. With it plus the transposition table, random 6×6 boards measure median 39 ms / p90 1.5 s, and the hardest of 400 finished in under 8 s against the 30 s `SOLVE_BUDGET_MS`.
+- The transposition table records only subtrees searched **to the end** with nothing found; an entry from a budget-aborted subtree would prune away the answer.
+- Among minimal solutions the search then prefers one that groups same-symbol moves, on whatever budget is left. `groupingProven: false` means only that tie-break went unproven — the move count is never reported unproven.
+
+`solutionView.ts` replays the move list through `rules.applyMove` rather than being handed board snapshots, so the engine stays the single source of truth. It marks **only** the two cells to swap (`data-swap="a"|"b"`, plus a `↔`/`↕` badge straddling the gap between them). Outlining what the move clears as well was tried and removed: on a move that takes a dozen blocks it left the board unreadable, and the step text gives the count anyway.
+
+The step text names cells by **position, never by tile** — several tiles cannot be named usefully ("Purple 2", "Nude"), the ringed cells already say which two, and every symbol appended makes naming worse.
+
 ### The match-three cell encoding
 
-`src/pages/match-three-solver/cell.ts` is the single definition: **a cell is one number**, never a string. `EMPTY = 0`, `BLOCKED = 1`, `FIRST_COLOR = 2`, and palette slot `i` is stored as `FIRST_COLOR + i` — so `cells` in the config JSON is a flat integer grid and `isColor` is one comparison. Go through `colorCell` / `colorSlotOf` / `isColor` rather than open-coding the `+ 2`. The `data-kind` DOM attribute (`empty` / `blocked` / `color`) is a *rendering* detail for CSS and e2e selectors — it is not what the model stores.
+`src/pages/match-three-solver/cell.ts` is the single definition: **a cell is one number**, never a string. `EMPTY = 0`, `BLOCKED = 1`, `FIRST_SYMBOL = 2`, and the symbol at index `i` of `symbols.ts` is stored as `FIRST_SYMBOL + i` — so `cells` in the config JSON is a flat integer grid and `isSymbol` is one comparison. Go through `symbolCell` / `symbolIndexOf` / `isSymbol` rather than open-coding the `+ 2`. The `data-kind` DOM attribute (`empty` / `blocked` / `symbol`) is a *rendering* detail for CSS and e2e selectors — it is not what the model stores.
 
-### The match-three palette
+### The match-three symbols
 
-`src/pages/match-three-solver/palette.ts` owns `COLOR_NAMES` — 28 curated CSS color names — and hands out a **random unused** one per "Add Color". The config's `colors` array is the slot → name mapping that makes a saved board reload looking identical. Colors are add-only; Reset is the way back to one. Two consequences worth knowing:
+`src/pages/match-three-solver/symbols.ts` owns `SYMBOLS`, an ordered list of the game's own block tiles (`id`, `label`, and the PNG from `images/`). There is **no per-board palette**: a cell stores an index into this global list, the tool row always offers every symbol, and the config carries no symbol mapping at all.
 
-- Grid cells are labelled `Column 3, Row 2, Color 1` — by slot, never by color name — precisely so the e2e aria snapshots stay deterministic. **Assert on `data-color-index` / the `Color N` label in e2e, never a color name or a computed `background-color`.** Unit tests pin the draw with `spyOn(crypto, "getRandomValues")`; e2e cannot, which is the whole reason for the rule. Anything about the fill itself — that a slot renders at all, that two slots render *differently* — belongs in `test/match-three-solver/board.test.ts` instead.
-- `pickUnusedColor` draws from `crypto.getRandomValues`, not `Math.random`, only to keep the page's one random draw off Sonar's `typescript:S2245` without a suppression.
+**The list is append-only.** Inserting or reordering an entry silently repaints every board ever saved, because saved boards reference symbols by index. Appending is always safe and needs no migration — a board simply never mentions the indices it does not use, which is what lets new tiles land without touching existing fixtures.
 
-Color cells take their fill from an inline `style.backgroundColor` in `board.ts` (the value is dynamic), so `matchThreeSolver.css` styles `.grid-cell[data-kind="color"]` for everything *but* the fill.
+Renaming an entry is safe — nothing is stored by name, only by position — but **moving one is not**. Index 2 was `pink` before the tile now at index 5 arrived; only the ids changed, the artwork stayed put.
+
+To add one: drop a 96px PNG in `images/` (`ffmpeg -i in.png -vf scale=96:96:flags=lanczos out.png` if it is bigger — `pngDataUrl` inlines every PNG into the page as base64, so full-resolution art costs ~90 KB a tile), then append an entry to `SYMBOLS`. Nothing else needs editing: the chip row, the validator's cell ceiling and the e2e suite all read the list's length.
+
+The chips show the tile and nothing else — with eight symbols a name beside each was noise. The label survives as the chip's `aria-label`/`title`, which is what `e2e/match-three-solver/symbols.ts` reads. `#tool-status` names the *kind* of tool only ("Color", "Blocked", "Eraser") for the same reason: which tile is selected is the highlighted chip's job to show, and printing "Purple 2" at the player was not useful.
+
+`BLOCKER_IMAGE` is the game's blockade texture and is deliberately **not** in `SYMBOLS`: a blocked cell is the structural value `BLOCKED`, and giving it a slot would shift every index and repaint every saved board. It only renders alongside them — as the cell background, and as the chip that *leads* the row carrying `data-tool="blocked"` instead of a `data-symbol-index`. Any selector that means "the symbols" must therefore say `[data-symbol-index]`; an unscoped `.symbol-chip` includes the blockade.
+
+Eraser and Reset are `md-icon` buttons (`ink_eraser`, `refresh`). Both names had to be added to the `icon_names` subset in `src/common/common.css` — without that they render as garbage text, not a missing icon.
+
+Cells get their tile from a `--symbol-image` custom property set by `cellView.ts`, with `background-image: var(--symbol-image)` in the stylesheet. Not set as `background-image` directly, for two reasons: which image is a runtime choice but *that* it is the background is a rule, and happy-dom silently rejects a `background-image` whose URL is a Windows path — which is exactly what a PNG import resolves to under `bun test`, where there is no `pngDataUrl` plugin. Assert on `style.getPropertyValue("--symbol-image")`, never `style.backgroundImage`.
+
+Because symbols are fixed and named, e2e assertions may use them: cells are labelled `Column 3, Row 2, Blue` and carry `data-symbol="blue"`. The e2e suite still does not import `symbols.ts` — Playwright's loader cannot resolve the PNG imports — so `e2e/match-three-solver/symbols.ts` reads the list off the page's own chip row instead, and appending a symbol needs no e2e edit.
 
 ### Match-three rendering (the reason a 32×32 board stays responsive)
 
@@ -113,7 +143,7 @@ Unlike the rolling-blocks page, this editor does **not** rebuild the grid on eve
 
 - `Board.renderGrid` is the only full rebuild. It fills a `DocumentFragment` and `replaceChildren`s it in one go, and caches the buttons in `cellElements`.
 - `paintCell` rewrites that one cached button via `dressCell` and returns early when the cell already holds the value — a drag fires many pointermoves per cell, and all but the first must be free. It calls `solver.hideSolution()` only, **never** `solver.render()`.
-- Picking a tool or a color calls `renderTools()` (the two chip rows), not `render()`. Only a board *replacement* — resize, reset, config load — calls `render()`.
+- Picking a tool or a symbol calls `renderTools()` (the two chip rows), not `render()`. Only a board *replacement* — resize, reset, config load — calls `render()`.
 
 `Board` registers all its listeners against an internal `AbortController`, and the editor's `replaceBoard` calls `dispose()` before swapping. `#grid` outlives any single `Board`, so a board that kept listening would keep painting into its own dead `cells` and make every later stroke do the work once per board ever created — which typing a two-digit grid size creates several of.
 
@@ -125,11 +155,25 @@ Unlike the rolling-blocks page, this editor does **not** rebuild the grid on eve
 
 `test/` and `e2e/` mirror `src/pages/` with kebab-case folders (`match-three-solver`, `phasic-dial-solver`, `rolling-blocks-solver`, `shifting-mosaic-solver`); shared tests sit at the root of each. `test/resources/` is split the same way. Fixtures are produced by the app's own download button, so the JSON *is* the download format.
 
-`test/resources/phasic-dial-solver/` is discovered by directory listing rather than a hard-coded list, so dropping a captured `phasicDialTest*.json` in makes it run with no code change. Every other fixture family is enumerated explicitly: the C++ suites run rollingBlocksTest 1–48 and shiftingMosaicTest 1–43, and `test/rolling-blocks-solver/aStar.test.ts` runs the same full 1–48 range through wasm on the cascade engine (120 s per-test timeout, 90 s solve budget). Real captured rolling-blocks boards top out at 13×15 / 8 blocks / dimension-6 blocks / 83 must-touch — the 64×64 caps and fuzz sizes are stress headroom, not game reality.
+`test/resources/phasic-dial-solver/` and `test/resources/match-three-solver/` are discovered by directory listing rather than a hard-coded list, so dropping a captured fixture in makes it run with no code change. The other fixture families are enumerated explicitly: the C++ suites run rollingBlocksTest 1–48 and shiftingMosaicTest 1–43, and `test/rolling-blocks-solver/aStar.test.ts` runs the same full 1–48 range through wasm on the cascade engine (120 s per-test timeout, 90 s solve budget). Real captured rolling-blocks boards top out at 13×15 / 8 blocks / dimension-6 blocks / 83 must-touch — the 64×64 caps and fuzz sizes are stress headroom, not game reality.
 
-`test/resources/match-three-solver/` holds `matchThreeTest1.json` (6×6, 3 colors, blocked cells and an open top) and `matchThreeTest2.json` (8×5, 2 colors, dense), both named explicitly by `test/match-three-solver/config.test.ts` and `e2e/match-three-solver/config.test.ts` (the latter cwd-relative). The colors in them are whatever the random palette handed out when they were captured — that is the point, since round-tripping them proves the slot → name mapping survives.
+`test/resources/match-three-solver/` holds 52 boards captured from the game (`matchThreeTest.json`, then `matchThreeTest1..51.json`), swept by directory listing in both `config.test.ts` (format) and `engine.test.ts` (settled, solvable, witness replayed). They span 2×2 to 13×23, 1 to 14 moves, with and without blockades, and between them use every symbol.
 
-Rolling-blocks and shifting-mosaic fixture paths appear in nine places — the two `TEST_RESOURCES_DIR` macros in the C++ test `CMakeLists.txt`, four TS/MJS test files, `src/util/benchShiftingMosaic.ts` (regex over `readdirSync`), `src/util/benchWasmSimd.ts`, and a **cwd-relative** literal in `e2e/shifting-mosaic-solver/config.test.ts`. Match-three adds three more (its unit `config.test.ts`, its `matchThreeSolver.test.ts`, and a cwd-relative literal in its e2e `config.test.ts`). Renaming or moving a fixture means touching all of them.
+**Every one is expected to be a legal game state** — that half of the corpus's assertion covers all 52 and stays cheap. Solvability no longer does: `matchThreeTest47/50/51.json` (69–105 blocks) outrun the 30 s budget, so `engine.test.ts` names them in a `BEYOND_BUDGET` set, probes them at 2 s and asserts they come back `budget` — never `unsolvable`, which would be a proof the search never reached. **The set is the checklist**: make the search faster and those tests go red, which is the signal to move a name out of it. The sweep costs ~47 s now, nearly all of it `matchThreeTest44.json` (12×12, 71 blocks, 14 moves, ~13 s), so the solvable half carries a 60 s per-test timeout — Bun's 5 s default would fail it.
+
+What those three actually cost, measured with the budget lifted (2026-07-31):
+
+- **`matchThreeTest47.json` is solvable** — 11×12, 69 blocks, **20 moves in 46 min 42 s**, proven minimal and replay-validated. So it is a budget problem, nothing worse.
+- **`matchThreeTest50.json` and `51.json` were never reached.** Both were still on depth 12 after 30 min when the OS killed them at 19.1 GB and 7.4 GB RSS — 26.5 GB between them on a 32 GB machine. **Memory is the wall before time is**, and the transposition table is what spends it: one `boardKey` string per state searched out, ~200 chars for a 9×23 board.
+- Cost per extra depth measured ~1.6–3.0× in both time and RSS (`d10`→`d11` alone: 765 s / 616 s). Extrapolating the corpus's 3.5–5.1 blocks-per-move, those two want roughly 20–30 moves, so the gap is orders of magnitude — not a budget bump. Any attempt to reach them has to cap or shrink the table first (bounded/evicting map, or a packed key instead of a string); raising `SOLVE_BUDGET_MS` alone just runs into the same kill.
+
+A consequence: there is no unsolvable fixture any more. `e2e/match-three-solver/solve.test.ts` builds its "cannot be cleared" board inline instead.
+
+Two fixtures *are* named, only as a stable example with blockades in it — `matchThreeTest28.json` (6×6, 5 moves, blockades in both bottom corners) in `matchThreeSolver.test.ts` and the two e2e suites.
+
+Both grids on the page use `.grid-cell` with the same `data-x`/`data-y`, so **every editor selector in a test must be scoped to `#grid`** and every solution selector to `#solution-grid`; an unscoped one silently matches two elements once the solution view has rendered.
+
+Rolling-blocks and shifting-mosaic fixture paths appear in nine places — the two `TEST_RESOURCES_DIR` macros in the C++ test `CMakeLists.txt`, four TS/MJS test files, `src/util/benchShiftingMosaic.ts` (regex over `readdirSync`), `src/util/benchWasmSimd.ts`, and a **cwd-relative** literal in `e2e/shifting-mosaic-solver/config.test.ts`. Match-three needs none of that — its suites list the directory — beyond the `matchThreeTest28.json` example named in three files.
 
 ## Native C++ builds
 

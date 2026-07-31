@@ -4,26 +4,18 @@ import type {
   MatchThreeTool,
   Position,
 } from "../../util/types";
-import {
-  BLOCKED,
-  colorCell,
-  colorSlotOf,
-  EMPTY,
-  isColor,
-} from "./cell";
+import { BLOCKED, EMPTY, symbolCell } from "./cell";
+import { dressCell } from "./cellView";
 import type { MatchThreeSolverEditor } from "./matchThreeSolver";
-import { MAX_COLORS, pickUnusedColor } from "./palette";
 
 export class Board {
   private readonly gridWidth: number;
   private readonly gridHeight: number;
   private isPainting = false;
   private selectedTool: MatchThreeTool;
-  private selectedColorIndex: number;
+  private selectedSymbol: number;
   private readonly solver: MatchThreeSolverEditor;
   private cells: MatchThreeCell[][] = [];
-  /** Slot index -> CSS color name. Never empty: a board always has one. */
-  private palette: string[] = [];
   /**
    * The rendered cell buttons, indexed like `cells`. Painting rewrites the one
    * button it touched rather than re-running `renderGrid`; on a 32x32 board
@@ -40,15 +32,14 @@ export class Board {
     gridWidth: number,
     gridHeight: number,
     selectedTool: MatchThreeTool,
-    selectedColorIndex: number,
-    palette?: readonly string[],
+    selectedSymbol: number,
   ) {
     this.solver = solver;
     this.gridWidth = gridWidth;
     this.gridHeight = gridHeight;
     this.selectedTool = selectedTool;
-    this.selectedColorIndex = selectedColorIndex;
-    this.resetBoardData(palette);
+    this.selectedSymbol = selectedSymbol;
+    this.resetBoardData();
     this.addListeners();
   }
 
@@ -65,41 +56,19 @@ export class Board {
     this.selectedTool = tool;
   }
 
-  setSelectedColorIndex(index: number) {
-    this.selectedColorIndex = index;
+  setSelectedSymbol(index: number) {
+    this.selectedSymbol = index;
   }
 
-  /**
-   * Clears every cell. A palette carries over when one is handed in (resizing
-   * the grid keeps the colors the user has already collected); otherwise the
-   * board opens on a single random color.
-   */
-  resetBoardData(palette?: readonly string[]) {
+  /** Clears every cell. */
+  resetBoardData() {
     this.cells = Array.from({ length: this.gridWidth }, () =>
       Array.from({ length: this.gridHeight }, () => EMPTY),
     );
-    this.palette =
-      palette && palette.length > 0 ? [...palette] : [pickUnusedColor([])!];
   }
 
   getCells() {
     return this.cells;
-  }
-
-  getPalette() {
-    return this.palette;
-  }
-
-  /**
-   * Appends a random still-unused color. Returns false once every name in the
-   * curated list is taken, which the editor turns into a warning.
-   */
-  addColor(): boolean {
-    if (this.palette.length >= MAX_COLORS) return false;
-    const color = pickUnusedColor(this.palette);
-    if (color === null) return false;
-    this.palette.push(color);
-    return true;
   }
 
   renderGrid() {
@@ -131,34 +100,7 @@ export class Board {
 
   /** Writes the current value of (x, y) onto its button. */
   private dressCell(cell: HTMLButtonElement, x: number, y: number) {
-    const value = this.cells[x]?.[y] ?? EMPTY;
-
-    if (isColor(value)) {
-      const slot = colorSlotOf(value);
-      cell.dataset.kind = "color";
-      cell.dataset.colorIndex = String(slot);
-      // The color comes from the palette at runtime, so it cannot be a static
-      // rule in the stylesheet.
-      cell.style.backgroundColor = this.palette[slot] ?? "";
-    } else {
-      cell.dataset.kind = value === BLOCKED ? "blocked" : "empty";
-      delete cell.dataset.colorIndex;
-      cell.style.backgroundColor = "";
-    }
-
-    cell.setAttribute("aria-label", this.describeCell(x, y, value));
-  }
-
-  /**
-   * Labels a cell by palette *slot*, never by color name: the palette is
-   * randomised, so a name here would make the e2e aria snapshots flaky.
-   */
-  private describeCell(x: number, y: number, value: MatchThreeCell): string {
-    const position = `Column ${x + 1}, Row ${y + 1}`;
-    if (isColor(value)) {
-      return `${position}, Color ${colorSlotOf(value) + 1}`;
-    }
-    return `${position}, ${value === BLOCKED ? "Blocked" : "Empty"}`;
+    dressCell(cell, this.cells[x]?.[y] ?? EMPTY, x, y);
   }
 
   /**
@@ -166,7 +108,7 @@ export class Board {
    * constructed the board with the config's grid size.
    */
   loadConfig(config: MatchThreeTest) {
-    this.resetBoardData(config.colors);
+    this.resetBoardData();
     for (let x = 0; x < this.gridWidth; x++) {
       for (let y = 0; y < this.gridHeight; y++) {
         this.cells[x]![y] = config.cells[x]![y]!;
@@ -251,8 +193,8 @@ export class Board {
         return EMPTY;
       case "blocked":
         return BLOCKED;
-      case "color":
-        return colorCell(this.selectedColorIndex);
+      case "symbol":
+        return symbolCell(this.selectedSymbol);
       default:
         return null;
     }

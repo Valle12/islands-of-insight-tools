@@ -10,14 +10,11 @@ import {
 import { Board } from "../../src/pages/match-three-solver/board";
 import {
   BLOCKED,
-  colorCell,
+  symbolCell,
   EMPTY,
 } from "../../src/pages/match-three-solver/cell";
 import type { MatchThreeSolverEditor } from "../../src/pages/match-three-solver/matchThreeSolver";
-import {
-  COLOR_NAMES,
-  MAX_COLORS,
-} from "../../src/pages/match-three-solver/palette";
+import { SYMBOLS } from "../../src/pages/match-three-solver/symbols";
 import type { MatchThreeTool } from "../../src/util/types";
 
 describe("Board (match-three)", () => {
@@ -26,21 +23,19 @@ describe("Board (match-three)", () => {
     hideSolution: ReturnType<typeof mock>;
   };
 
-  /** Builds a board on a fresh `#grid`, with the palette pinned. */
+  /** Builds a board on a fresh `#grid`. */
   function makeBoard(
     width = 4,
     height = 3,
-    tool: MatchThreeTool = "color",
-    colorIndex = 0,
-    palette?: readonly string[],
+    tool: MatchThreeTool = "symbol",
+    symbol = 0,
   ) {
     return new Board(
       editorMock as unknown as MatchThreeSolverEditor,
       width,
       height,
       tool,
-      colorIndex,
-      palette,
+      symbol,
     );
   }
 
@@ -59,11 +54,6 @@ describe("Board (match-three)", () => {
   beforeEach(() => {
     document.body.innerHTML = '<div id="grid"></div>';
     editorMock = { render: mock(() => {}), hideSolution: mock(() => {}) };
-    // pickUnusedColor picks at random; pin it so the palette is predictable.
-    spyOn(crypto, "getRandomValues").mockImplementation((array: unknown) => {
-      (array as Uint32Array)[0] = 0;
-      return array as Uint32Array;
-    });
   });
 
   afterEach(() => {
@@ -82,35 +72,20 @@ describe("Board (match-three)", () => {
       ]);
     });
 
-    test("starts with exactly one color", () => {
-      expect(makeBoard().getPalette()).toEqual([COLOR_NAMES[0]!]);
-    });
-
-    test("keeps a palette handed to the constructor", () => {
-      const board = makeBoard(2, 2, "color", 0, ["teal", "gold"]);
-      expect(board.getPalette()).toEqual(["teal", "gold"]);
-    });
-
-    test("copies the handed-in palette instead of aliasing it", () => {
-      const palette = ["teal"];
-      const board = makeBoard(2, 2, "color", 0, palette);
-      board.addColor();
-      expect(palette).toEqual(["teal"]);
-    });
   });
 
   describe("Cell encoding", () => {
-    test("empty and blocked share the index space with the colors", () => {
+    test("empty and blocked share the index space with the symbols", () => {
       expect(EMPTY).toBe(0);
       expect(BLOCKED).toBe(1);
-      expect(colorCell(0)).toBe(2);
-      expect(colorCell(3)).toBe(5);
+      expect(symbolCell(0)).toBe(2);
+      expect(symbolCell(3)).toBe(5);
     });
 
     test("every cell value is a number", () => {
       const board = makeBoard(2, 2, "blocked");
       board.getCells()[0]![0] = BLOCKED;
-      board.getCells()[1]![1] = colorCell(0);
+      board.getCells()[1]![1] = symbolCell(0);
       for (const column of board.getCells()) {
         for (const cell of column) expect(typeof cell).toBe("number");
       }
@@ -141,7 +116,7 @@ describe("Board (match-three)", () => {
       makeBoard().renderGrid();
       const cell = cellAt(0, 0);
       expect(cell.dataset.kind).toBe("empty");
-      expect(cell.dataset.colorIndex).toBeUndefined();
+      expect(cell.dataset.symbol).toBeUndefined();
       expect(cell.getAttribute("aria-label")).toBe("Column 1, Row 1, Empty");
     });
 
@@ -154,59 +129,45 @@ describe("Board (match-three)", () => {
       expect(cell.getAttribute("aria-label")).toBe("Column 2, Row 1, Blocked");
     });
 
-    test("color cells label by slot, never by color name", () => {
-      const board = makeBoard(2, 2, "color", 0, ["teal", "gold"]);
-      board.getCells()[0]![1] = colorCell(1);
+    test("block cells carry their symbol and its name", () => {
+      const board = makeBoard(2, 2);
+      board.getCells()[0]![1] = symbolCell(1);
       board.renderGrid();
       const cell = cellAt(0, 1);
-      expect(cell.dataset.kind).toBe("color");
-      expect(cell.dataset.colorIndex).toBe("1");
-      expect(cell.getAttribute("aria-label")).toBe("Column 1, Row 2, Color 2");
-      expect(cell.style.backgroundColor).toBe("gold");
+      expect(cell.dataset.kind).toBe("symbol");
+      expect(cell.dataset.symbol).toBe(SYMBOLS[1]!.id);
+      expect(cell.getAttribute("aria-label")).toBe(
+        `Column 1, Row 2, ${SYMBOLS[1]!.label}`,
+      );
     });
 
     /**
-     * The e2e suite may not read a color back off the page (the palette is
-     * random), so "two slots actually look different" is pinned here, against
-     * a palette the handout produced itself.
+     * Two symbols have to *look* different, which no selector can assert — the
+     * e2e suite reads `data-symbol`, so the artwork itself is pinned here.
      */
-    test("two palette slots render as two different fills", () => {
+    test("two symbols render as two different images", () => {
       const board = makeBoard(2, 1);
-      board.addColor();
-      board.getCells()[0]![0] = colorCell(0);
-      board.getCells()[1]![0] = colorCell(1);
+      board.getCells()[0]![0] = symbolCell(0);
+      board.getCells()[1]![0] = symbolCell(1);
       board.renderGrid();
 
-      const first = cellAt(0, 0).style.backgroundColor;
-      const second = cellAt(1, 0).style.backgroundColor;
+      const image = (x: number, y: number) =>
+        cellAt(x, y).style.getPropertyValue("--symbol-image");
+      const first = image(0, 0);
+      const second = image(1, 0);
       expect(first).not.toBe("");
       expect(second).not.toBe("");
       expect(first).not.toBe(second);
     });
   });
 
-  describe("AddColor", () => {
-    test("appends a color that is not already in the palette", () => {
-      const board = makeBoard(2, 2, "color", 0, [COLOR_NAMES[0]!]);
-      expect(board.addColor()).toBe(true);
-      expect(board.getPalette()).toEqual([COLOR_NAMES[0]!, COLOR_NAMES[1]!]);
-    });
-
-    test("refuses once every color is taken", () => {
-      const board = makeBoard(2, 2, "color", 0, COLOR_NAMES);
-      expect(board.getPalette()).toHaveLength(MAX_COLORS);
-      expect(board.addColor()).toBe(false);
-      expect(board.getPalette()).toHaveLength(MAX_COLORS);
-    });
-  });
-
   describe("Painting", () => {
-    test("pointerdown paints with the selected color", () => {
-      const board = makeBoard(3, 3, "color", 0, ["teal", "gold"]);
-      board.setSelectedColorIndex(1);
+    test("pointerdown paints with the selected symbol", () => {
+      const board = makeBoard(3, 3);
+      board.setSelectedSymbol(1);
       board.renderGrid();
       dispatch(cellAt(2, 1), "pointerdown");
-      expect(board.getCells()[2]![1]).toBe(colorCell(1));
+      expect(board.getCells()[2]![1]).toBe(symbolCell(1));
       expect(editorMock.hideSolution).toHaveBeenCalled();
     });
 
@@ -290,16 +251,18 @@ describe("Board (match-three)", () => {
       expect(editorMock.render).not.toHaveBeenCalled();
     });
 
-    test("clears the color fill when a color cell is erased", () => {
-      const board = makeBoard(3, 3, "color", 0, ["teal"]);
+    test("clears the artwork when a block is erased", () => {
+      const board = makeBoard(3, 3);
       board.renderGrid();
       dispatch(cellAt(0, 0), "pointerdown");
-      expect(cellAt(0, 0).style.backgroundColor).toBe("teal");
+      expect(
+        cellAt(0, 0).style.getPropertyValue("--symbol-image"),
+      ).not.toBe("");
 
       board.setSelectedTool("empty");
       dispatch(cellAt(0, 0), "pointerdown");
-      expect(cellAt(0, 0).style.backgroundColor).toBe("");
-      expect(cellAt(0, 0).dataset.colorIndex).toBeUndefined();
+      expect(cellAt(0, 0).style.getPropertyValue("--symbol-image")).toBe("");
+      expect(cellAt(0, 0).dataset.symbol).toBeUndefined();
     });
   });
 
@@ -317,21 +280,19 @@ describe("Board (match-three)", () => {
   });
 
   describe("LoadConfig", () => {
-    test("replaces cells and palette", () => {
+    test("replaces every cell", () => {
       const board = makeBoard(2, 2);
       board.loadConfig({
         gridWidth: 2,
         gridHeight: 2,
-        colors: ["teal", "gold"],
         cells: [
-          [colorCell(0), BLOCKED],
-          [EMPTY, colorCell(1)],
+          [symbolCell(0), BLOCKED],
+          [EMPTY, symbolCell(1)],
         ],
       });
-      expect(board.getPalette()).toEqual(["teal", "gold"]);
       expect(board.getCells()).toEqual([
-        [colorCell(0), BLOCKED],
-        [EMPTY, colorCell(1)],
+        [symbolCell(0), BLOCKED],
+        [EMPTY, symbolCell(1)],
       ]);
     });
 
@@ -341,10 +302,9 @@ describe("Board (match-three)", () => {
       board.loadConfig({
         gridWidth: 2,
         gridHeight: 2,
-        colors: ["teal"],
         cells: [
           [EMPTY, EMPTY],
-          [EMPTY, colorCell(0)],
+          [EMPTY, symbolCell(0)],
         ],
       });
       expect(board.getCells()[0]![0]).toBe(EMPTY);

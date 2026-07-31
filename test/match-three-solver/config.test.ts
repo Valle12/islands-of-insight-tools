@@ -1,46 +1,32 @@
 import { describe, expect, test } from "bun:test";
+import { readdirSync } from "node:fs";
 import {
   BLOCKED,
-  colorCell,
+  symbolCell,
   EMPTY,
 } from "../../src/pages/match-three-solver/cell";
 import {
-  MAX_COLORS,
   MAX_GRID_SIDE,
   validateConfig,
 } from "../../src/pages/match-three-solver/config";
-import { COLOR_NAMES } from "../../src/pages/match-three-solver/palette";
+import { SYMBOL_COUNT } from "../../src/pages/match-three-solver/symbols";
 import type { MatchThreeCell } from "../../src/util/types";
 
 const VALID = {
   gridWidth: 3,
   gridHeight: 2,
-  colors: ["teal", "gold"],
   cells: [
-    [colorCell(0), BLOCKED],
-    [EMPTY, colorCell(1)],
-    [colorCell(1), colorCell(0)],
+    [symbolCell(0), BLOCKED],
+    [EMPTY, symbolCell(1)],
+    [symbolCell(1), symbolCell(0)],
   ] as MatchThreeCell[][],
 };
 
-/** The highest legal cell value for a two-color board. */
-const MAX_CELL = colorCell(1);
+/** The highest legal cell value: every symbol the app knows. */
+const MAX_CELL = symbolCell(SYMBOL_COUNT - 1);
 
 function clone(): typeof VALID {
   return JSON.parse(JSON.stringify(VALID));
-}
-
-/** A config whose palette is `colors` and whose cells are all `fill`. */
-function withPalette(colors: unknown, fill: MatchThreeCell = EMPTY) {
-  return {
-    gridWidth: 2,
-    gridHeight: 2,
-    colors,
-    cells: [
-      [fill, fill],
-      [fill, fill],
-    ],
-  };
 }
 
 describe("Match three validateConfig", () => {
@@ -48,37 +34,37 @@ describe("Match three validateConfig", () => {
     const result = validateConfig(clone());
     expect(result.ok).toBeTrue();
     if (!result.ok) return;
-    expect(result.config.colors).toEqual(["teal", "gold"]);
-    expect(result.config.cells[1]![1]).toBe(colorCell(1));
+    expect(result.config.cells[1]![1]).toBe(symbolCell(1));
   });
 
-  test("accepts every legal cell value for the palette size", () => {
+  test("accepts every symbol the app knows", () => {
     const result = validateConfig({
-      gridWidth: 2,
-      gridHeight: 2,
-      colors: ["teal", "gold"],
+      gridWidth: 1,
+      gridHeight: SYMBOL_COUNT,
       cells: [
-        [EMPTY, BLOCKED],
-        [colorCell(0), colorCell(1)],
+        Array.from({ length: SYMBOL_COUNT }, (_, i) => symbolCell(i)),
       ],
     });
     expect(result.ok).toBeTrue();
   });
 
-  test("accepts a real downloaded fixture", async () => {
-    const fixture = await Bun.file(
-      `${import.meta.dir}/../resources/match-three-solver/matchThreeTest1.json`,
-    ).json();
-    const result = validateConfig(fixture);
-    expect(result.ok).toBeTrue();
-    if (!result.ok) return;
-    expect(result.config.gridWidth).toBe(6);
-    expect(result.config.colors).toHaveLength(3);
+  // Discovered by listing, not enumerated: the fixtures are boards captured
+  // from the game, so dropping another one in has to need no code change. The
+  // validator checks the *file format* only — that a board is a state the game
+  // could be in is the solver's business, and engine.test.ts checks it there.
+  const FIXTURES = readdirSync(
+    `${import.meta.dir}/../resources/match-three-solver`,
+  ).filter(name => name.endsWith(".json"));
+
+  test("there are captured boards to check", () => {
+    expect(FIXTURES.length).toBeGreaterThan(0);
   });
 
-  test("accepts the full palette", () => {
-    const result = validateConfig(withPalette([...COLOR_NAMES]));
-    expect(result.ok).toBeTrue();
+  test.each(FIXTURES)("accepts captured board %s", async name => {
+    const fixture = await Bun.file(
+      `${import.meta.dir}/../resources/match-three-solver/${name}`,
+    ).json();
+    expect(validateConfig(fixture).ok).toBeTrue();
   });
 
   const rejections: [string, unknown, string][] = [
@@ -105,36 +91,6 @@ describe("Match three validateConfig", () => {
       `gridHeight must be an integer between 1 and ${MAX_GRID_SIDE}.`,
     ],
     [
-      "a missing palette",
-      withPalette(undefined),
-      `colors must hold between 1 and ${MAX_COLORS} colors.`,
-    ],
-    [
-      "an empty palette",
-      withPalette([]),
-      `colors must hold between 1 and ${MAX_COLORS} colors.`,
-    ],
-    [
-      "a palette longer than the color list",
-      withPalette([...COLOR_NAMES, "teal"]),
-      `colors must hold between 1 and ${MAX_COLORS} colors.`,
-    ],
-    [
-      "an unknown color",
-      withPalette(["teal", "notacolor"]),
-      "colors may only contain known color names.",
-    ],
-    [
-      "a non-string color",
-      withPalette(["teal", 3]),
-      "colors may only contain known color names.",
-    ],
-    [
-      "a repeated color",
-      withPalette(["teal", "teal"]),
-      "colors must not repeat a color.",
-    ],
-    [
       "cells that are not an array",
       { ...clone(), cells: "nope" },
       "cells must be an array of 3 columns.",
@@ -152,22 +108,22 @@ describe("Match three validateConfig", () => {
     [
       "a cell that is not a number",
       { ...clone(), cells: [[0, "blocked"], [0, 1], [0, 1]] },
-      `Cells must be integers between 0 and ${MAX_CELL} (0 empty, 1 blocked, 2+ colors).`,
+      `Cells must be integers between 0 and ${MAX_CELL} (0 empty, 1 blocked, 2+ symbols).`,
     ],
     [
       "a fractional cell",
       { ...clone(), cells: [[0, 1.5], [0, 1], [0, 1]] },
-      `Cells must be integers between 0 and ${MAX_CELL} (0 empty, 1 blocked, 2+ colors).`,
+      `Cells must be integers between 0 and ${MAX_CELL} (0 empty, 1 blocked, 2+ symbols).`,
     ],
     [
-      "a color index past the palette",
+      "a symbol index past the list",
       { ...clone(), cells: [[0, MAX_CELL + 1], [0, 1], [0, 1]] },
-      `Cells must be integers between 0 and ${MAX_CELL} (0 empty, 1 blocked, 2+ colors).`,
+      `Cells must be integers between 0 and ${MAX_CELL} (0 empty, 1 blocked, 2+ symbols).`,
     ],
     [
       "a negative cell",
       { ...clone(), cells: [[0, -1], [0, 1], [0, 1]] },
-      `Cells must be integers between 0 and ${MAX_CELL} (0 empty, 1 blocked, 2+ colors).`,
+      `Cells must be integers between 0 and ${MAX_CELL} (0 empty, 1 blocked, 2+ symbols).`,
     ],
   ];
 

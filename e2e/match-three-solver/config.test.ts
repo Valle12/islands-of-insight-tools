@@ -1,12 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "fs";
+import { maxCellValue, pageSymbols } from "./symbols";
 
 // A small, structurally valid config in the editor's download format. Cells
-// are plain indices: 0 empty, 1 blocked, 2+ a palette slot.
+// are plain indices: 0 empty, 1 blocked, 2+ a symbol.
 const SAMPLE_CONFIG = {
   gridWidth: 3,
   gridHeight: 2,
-  colors: ["teal", "gold"],
   cells: [
     [2, 1],
     [0, 3],
@@ -18,8 +18,12 @@ function cellAt(page: Page, x: number, y: number) {
   return page.locator(`.grid-cell[data-x="${x}"][data-y="${y}"]`);
 }
 
-// The palette is handed out at random, so nothing here may assert a color
-// name — only the slot index the editor paints with.
+/** The blockade *tile* — it leads the chip row rather than the tool row. */
+function blockedTool(page: Page) {
+  return page.locator('#symbol-row .symbol-chip[data-tool="blocked"]');
+}
+
+// Symbols are a fixed, append-only list, so assertions key off `data-symbol`.
 test.describe("Match Three Solver config", () => {
   test("uploads a config file and populates the editor", async ({ page }) => {
     await page.goto("/match-three-solver");
@@ -31,7 +35,6 @@ test.describe("Match Three Solver config", () => {
     });
 
     await expect(page.locator(".grid-cell")).toHaveCount(6);
-    await expect(page.locator("#color-row .color-chip")).toHaveCount(2);
     await expect(
       page.getByRole("spinbutton", { name: "Grid Width" }),
     ).toHaveValue("3");
@@ -40,8 +43,15 @@ test.describe("Match Three Solver config", () => {
     ).toHaveValue("2");
     await expect(cellAt(page, 0, 1)).toHaveAttribute("data-kind", "blocked");
     await expect(cellAt(page, 1, 0)).toHaveAttribute("data-kind", "empty");
-    await expect(cellAt(page, 0, 0)).toHaveAttribute("data-color-index", "0");
-    await expect(cellAt(page, 1, 1)).toHaveAttribute("data-color-index", "1");
+    const symbols = await pageSymbols(page);
+    await expect(cellAt(page, 0, 0)).toHaveAttribute(
+      "data-symbol",
+      symbols[0]!.id,
+    );
+    await expect(cellAt(page, 1, 1)).toHaveAttribute(
+      "data-symbol",
+      symbols[1]!.id,
+    );
     await expect(page.locator("#warning-banner")).toBeHidden();
   });
 
@@ -83,17 +93,26 @@ test.describe("Match Three Solver config", () => {
 
   test("reports why a config was rejected", async ({ page }) => {
     await page.goto("/match-three-solver");
+    const max = await maxCellValue(page);
 
     await page.locator("#config-file-input").setInputFiles({
       name: "bad.json",
       mimeType: "application/json",
       buffer: Buffer.from(
-        JSON.stringify({ ...SAMPLE_CONFIG, colors: ["teal", "teal"] }),
+        JSON.stringify({
+          ...SAMPLE_CONFIG,
+          cells: [
+            [2, 1],
+            [0, 99],
+            [3, 2],
+          ],
+        }),
       ),
     });
 
     await expect(page.locator("#warning-banner")).toHaveText(
-      "Invalid config: colors must not repeat a color.",
+      `Invalid config: Cells must be integers between 0 and ${max} ` +
+        "(0 empty, 1 blocked, 2+ symbols).",
     );
   });
 
@@ -101,17 +120,16 @@ test.describe("Match Three Solver config", () => {
     await page.goto("/match-three-solver");
 
     const json = readFileSync(
-      "test/resources/match-three-solver/matchThreeTest1.json",
+      "test/resources/match-three-solver/matchThreeTest28.json",
       "utf8",
     );
     await page.locator("#config-file-input").setInputFiles({
-      name: "matchThreeTest1.json",
+      name: "matchThreeTest28.json",
       mimeType: "application/json",
       buffer: Buffer.from(json),
     });
 
-    await expect(page.locator("#color-row .color-chip")).toHaveCount(3);
-    await expect(cellAt(page, 2, 3)).toHaveAttribute("data-kind", "blocked");
+    await expect(cellAt(page, 0, 4)).toHaveAttribute("data-kind", "blocked");
     await expect(cellAt(page, 0, 0)).toHaveAttribute("data-kind", "empty");
     await expect(page.locator("#warning-banner")).toBeHidden();
   });
@@ -119,9 +137,9 @@ test.describe("Match Three Solver config", () => {
   test("downloads the current configuration as JSON", async ({ page }) => {
     await page.goto("/match-three-solver");
 
-    await page.getByRole("button", { name: "Blocked" }).click();
+    await blockedTool(page).click();
     await cellAt(page, 0, 0).click();
-    await page.getByRole("button", { name: "Add Color" }).click();
+    await page.locator("#symbol-row .symbol-chip[data-symbol-index]").nth(1).click();
     await cellAt(page, 1, 1).click();
 
     const downloadPromise = page.waitForEvent("download");
@@ -132,8 +150,7 @@ test.describe("Match Three Solver config", () => {
     const config = JSON.parse(readFileSync(await download.path(), "utf8"));
     expect(config.gridWidth).toBe(6);
     expect(config.gridHeight).toBe(6);
-    expect(config.colors).toHaveLength(2);
-    // Every cell is one number: 0 empty, 1 blocked, 2+ a palette slot.
+    // Every cell is one number: 0 empty, 1 blocked, 2+ a symbol.
     expect(config.cells.flat().every(Number.isInteger)).toBe(true);
     expect(config.cells[0][0]).toBe(1);
     expect(config.cells[1][1]).toBe(3);
@@ -145,21 +162,20 @@ test.describe("Match Three Solver config", () => {
   }) => {
     await page.goto("/match-three-solver");
 
-    await page.getByRole("button", { name: "Add Color" }).click();
+    await page.locator("#symbol-row .symbol-chip[data-symbol-index]").nth(1).click();
     await cellAt(page, 2, 3).click();
-    await page.getByRole("button", { name: "Blocked" }).click();
+    await blockedTool(page).click();
     await cellAt(page, 4, 1).click();
 
     const downloadPromise = page.waitForEvent("download");
     await page.locator("#download-config").click();
     const json = readFileSync(await (await downloadPromise).path(), "utf8");
 
-    await page.locator('#tool-row .tool-button[data-tool="reset"]').click();
+    await page.locator('#tool-row [data-tool="reset"]').click();
     await page
       .locator("#reset-confirm")
       .getByRole("button", { name: "Reset" })
       .click();
-    await expect(page.locator("#color-row .color-chip")).toHaveCount(1);
 
     await page.locator("#config-file-input").setInputFiles({
       name: "roundtrip.json",
@@ -167,8 +183,10 @@ test.describe("Match Three Solver config", () => {
       buffer: Buffer.from(json),
     });
 
-    await expect(page.locator("#color-row .color-chip")).toHaveCount(2);
-    await expect(cellAt(page, 2, 3)).toHaveAttribute("data-color-index", "1");
+    await expect(cellAt(page, 2, 3)).toHaveAttribute(
+      "data-symbol",
+      (await pageSymbols(page))[1]!.id,
+    );
     await expect(cellAt(page, 4, 1)).toHaveAttribute("data-kind", "blocked");
     await expect(page.locator("#warning-banner")).toBeHidden();
   });

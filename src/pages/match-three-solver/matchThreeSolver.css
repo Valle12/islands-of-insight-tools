@@ -54,6 +54,15 @@ h2 {
   color: var(--md-sys-color-on-surface-variant);
 }
 
+/* The editor's rows. #editor-card lays out its own children, but the editor
+   and the solution view are swapped in and out as single units, so the spacing
+   between the editor's rows has to live here rather than on the card. */
+#editor-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 #size-controls {
   display: flex;
   gap: 12px;
@@ -95,8 +104,13 @@ h2 {
     opacity 120ms ease;
 }
 
-.grid-cell:hover {
+#grid .grid-cell:hover {
   transform: translateY(-1px);
+}
+
+/* The solution grid is read, not painted. */
+#solution-grid .grid-cell {
+  cursor: default;
 }
 
 /* An empty cell is a hole the blocks fall through, so it reads as absence:
@@ -113,16 +127,14 @@ h2 {
     color-mix(in srgb, var(--md-sys-color-on-surface) 26%, transparent);
 }
 
+/* Blocks and blockades are both the game's own artwork. `cellView.ts` supplies
+   only which image, as `--symbol-image`; the art carries its own colour. */
+.grid-cell[data-kind="symbol"],
 .grid-cell[data-kind="blocked"] {
-  background: #3a3a44;
-  border-color: #23232a;
-  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.12);
-}
-
-/* Color cells get their fill inline from the palette — see board.ts. */
-.grid-cell[data-kind="color"] {
-  border-color: rgba(0, 0, 0, 0.25);
-  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.18);
+  background-image: var(--symbol-image);
+  background-size: cover;
+  background-position: center;
+  border-color: rgba(0, 0, 0, 0.4);
 }
 
 #tool-status {
@@ -131,7 +143,7 @@ h2 {
 }
 
 #tool-row,
-#color-row {
+#symbol-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -153,19 +165,32 @@ h2 {
   color: var(--md-sys-color-on-primary-container);
 }
 
-.color-chip {
+/* Tile only — no label, so the chip is square padding around the artwork. The
+   icon tools sit beside them and match their footprint. */
+.symbol-chip,
+.icon-tool {
   display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  padding: 6px;
+  border-radius: 12px;
 }
 
-.color-chip::before {
-  content: "";
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--chip-color);
-  border: 1px solid rgba(0, 0, 0, 0.28);
+.icon-tool {
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.icon-tool.selected {
+  color: var(--md-sys-color-on-primary-container);
+}
+
+.symbol-chip img {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: block;
 }
 
 #action-buttons {
@@ -202,10 +227,121 @@ h2 {
   color: var(--md-sys-color-on-surface-variant);
 }
 
-#solution-placeholder {
-  margin: 0;
+#solution-spinner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  --md-circular-progress-size: 28px;
+}
+
+#solution-progress-text,
+#solution-message {
   font-size: 14px;
   color: var(--md-sys-color-on-surface-variant);
+}
+
+#solution-message:empty {
+  display: none;
+}
+
+#solution-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+}
+
+#solution-view-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+
+  h2 {
+    margin: 0;
+  }
+}
+
+#solution-step-counter {
+  font-size: 13px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+#solution-grid-shell {
+  display: flex;
+  justify-content: center;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--md-sys-color-surface-container);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+#solution-grid {
+  display: grid;
+  gap: 6px;
+}
+
+#solution-step-text {
+  font-size: 15px;
+  text-align: center;
+  line-height: 1.5;
+}
+
+#solution-view-controls {
+  display: flex;
+  gap: 10px;
+}
+
+/* The two blocks to exchange. The ring has to read on top of any tile art, so
+   it is drawn as an outline offset outside the cell rather than as a border or
+   a background tint. */
+.grid-cell[data-swap] {
+  outline: 3px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+  z-index: 1;
+}
+
+/* The direction of the exchange, shown between the pair. `a` is always the
+   left or upper cell of the two, so one glyph on it points at the other.
+   It has to out-stack `b`, which comes later in the grid and would otherwise
+   paint over a badge that straddles the gap between them. */
+.grid-cell[data-swap="a"] {
+  z-index: 3;
+}
+
+.grid-cell[data-swap="a"]::after {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--md-sys-color-on-primary);
+  background: var(--md-sys-color-primary);
+  border-radius: 999px;
+  width: 20px;
+  height: 20px;
+  z-index: 2;
+}
+
+/* -13px centres the 20px badge on the 6px gap between the pair. */
+.grid-cell[data-swap="a"][data-swap-axis="horizontal"]::after {
+  content: "↔";
+  right: -13px;
+  top: calc(50% - 10px);
+}
+
+.grid-cell[data-swap="a"][data-swap-axis="vertical"]::after {
+  content: "↕";
+  bottom: -13px;
+  left: calc(50% - 10px);
+}
+
+.mt-swap-label {
+  color: var(--md-sys-color-primary);
 }
 
 @media (max-width: 720px) {
