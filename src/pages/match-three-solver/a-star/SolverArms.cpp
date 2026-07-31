@@ -24,17 +24,25 @@ struct Leg {
   Outcome (*run)(const Board &, const Config &, Bounds &);
   const char *name;
   int share;
+  /// Skipped once any solution is in hand. True for the arms that can only
+  /// FIND one: measured, neither the beam nor NRPA has ever shortened a witness
+  /// greedy already had, and every millisecond they spend trying is one bnb and
+  /// iddfs do not get — which cost matchThreeTest47 its answer outright.
+  bool findsOnly = false;
 };
 
 /// Order and shares as measured on the captured corpus: greedy alone finds a
 /// minimal-length solution on all 49 solvable boards inside 100 ms, so it leads
-/// and the prover behind it usually only has to confirm. bnb precedes iddfs
-/// because confirming an incumbent is one pass at its depth, where deepening
-/// climbs to it; iddfs comes last because it is the arm that raises the proven
-/// lower bound on boards nothing can crack.
+/// and everything behind it usually only has to confirm. nrpa sits third
+/// because it is the arm that produces a witness where the cheap two cannot —
+/// matchThreeTest51 is its board — and bnb precedes iddfs because confirming an
+/// incumbent is one pass at its depth where deepening climbs to it. iddfs comes
+/// last: it is the arm that raises the proven lower bound on boards nothing
+/// cracks, and it should inherit whatever the others did not spend.
 constexpr auto kCascade = std::to_array<Leg>({
     {.run = runGreedy, .name = "greedy", .share = 5},
-    {.run = runBeam, .name = "beam", .share = 15},
+    {.run = runBeam, .name = "beam", .share = 15, .findsOnly = true},
+    {.run = runNrpa, .name = "nrpa", .share = 15, .findsOnly = true},
     {.run = runBnb, .name = "bnb", .share = 40},
     {.run = proveIddfs, .name = "iddfs", .share = 100},
 });
@@ -90,6 +98,8 @@ Outcome runCascade(const Board &board, const Config &cfg, Bounds &bounds) {
   Outcome best;
   best.arm = "cascade";
   for (const Leg &leg : kCascade) {
+    if (leg.findsOnly && bounds.bestLength() != kNoLength)
+      continue;
     if (cfg.callbacks != nullptr && cfg.callbacks->onArmStart)
       cfg.callbacks->onArmStart(leg.name);
     Config legCfg = cfg;
@@ -120,6 +130,8 @@ Outcome solve(const Board &board, const ArmSpec &spec, const Config &cfg,
   Config armCfg = cfg;
   armCfg.beamWidth = spec.beamWidth;
   armCfg.seed = spec.seed;
+  armCfg.nrpaLevel = spec.nrpaLevel;
+  armCfg.nrpaIterations = spec.nrpaIterations;
 
   if (std::strcmp(spec.engine, "iddfs") == 0)
     return proveIddfs(board, armCfg, bounds);
@@ -129,6 +141,8 @@ Outcome solve(const Board &board, const ArmSpec &spec, const Config &cfg,
     return runGreedy(board, armCfg, bounds);
   if (std::strcmp(spec.engine, "beam") == 0)
     return runBeam(board, armCfg, bounds);
+  if (std::strcmp(spec.engine, "nrpa") == 0)
+    return runNrpa(board, armCfg, bounds);
   return runCascade(board, armCfg, bounds);
 }
 
@@ -143,16 +157,17 @@ namespace {
 
 /// One racing thread each. Mirrors the TS bridge's PORTFOLIO, which is what
 /// the non-isolated path spreads over separate workers — keep the two lists in
-/// step. The two dives differ only in seed, which changes nothing about the
-/// order they search in but does change which arm gets there first when one of
-/// them stalls on a heap probe.
+/// step. Two NRPA arms with different nesting, because it is the arm that finds
+/// what nothing else does and the right nesting depth is board-dependent: level
+/// 3 solved matchThreeTest51 in 13 s, and level 4 explores a wider policy space
+/// per adaptation.
 constexpr auto kPortfolio = std::to_array<ArmSpec>({
     {.engine = "greedy", .seed = 0},
-    {.engine = "beam"},
+    {.engine = "nrpa", .seed = 0},
     {.engine = "bnb", .seed = 0},
     {.engine = "iddfs"},
     {.engine = "beam", .beamWidth = 8192},
-    {.engine = "bnb", .seed = 1},
+    {.engine = "nrpa", .seed = 1, .nrpaLevel = 4, .nrpaIterations = 20},
 });
 constexpr int kArmCount = static_cast<int>(std::size(kPortfolio));
 

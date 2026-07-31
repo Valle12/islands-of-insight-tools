@@ -23,6 +23,9 @@ public:
     return std::uniform_int_distribution(lo, hi)(engine_);
   }
 
+  // A uniform draw in [0, 1), for sampling proportional to a weight.
+  double real() { return std::uniform_real_distribution(0.0, 1.0)(engine_); }
+
 private:
   std::mt19937 engine_; // NOSONAR - see the header comment: seedability is required
 };

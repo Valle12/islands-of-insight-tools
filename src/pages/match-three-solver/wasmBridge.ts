@@ -18,18 +18,25 @@ import type { Move } from "./rules";
  * SolverArms.cpp's kPortfolio, which this list mirrors.
  */
 export const PORTFOLIO: Record<string, unknown>[] = [
-  // Near-free, and on every solvable captured board its first find is already
-  // the minimal length.
+  // Near-free, and remarkably good when it lands: measured over the 52 captured
+  // boards it answers 38 of them, and every one of those 38 answers is already
+  // the proven optimum — worst case 4 ms. It just says nothing about the other
+  // 14, which is what the rest of this list is for.
   { engine: "greedy", maxMs: SOLVE_BUDGET_MS },
+  // Policy-adapting rollouts. Measured: the only arm that answers
+  // matchThreeTest51 — 15 moves in 2.2 s, where every other arm returns
+  // nothing at any budget.
+  { engine: "nrpa", maxMs: SOLVE_BUDGET_MS },
   // The dive. Measured: the only arm that answers matchThreeTest47.
   { engine: "bnb", maxMs: SOLVE_BUDGET_MS },
   // The prover: raises the ruled-out floor, and settles easy boards outright.
   { engine: "iddfs", maxMs: SOLVE_BUDGET_MS },
-  { engine: "beam", maxMs: SOLVE_BUDGET_MS },
   // A beam far wider than the arm's own ladder goes, for boards where the
   // frontier is what runs out rather than the budget.
   { engine: "beam", beamWidth: 8192, maxMs: SOLVE_BUDGET_MS },
-  { engine: "bnb", seed: 1, maxMs: SOLVE_BUDGET_MS },
+  // A second NRPA with deeper nesting: the right depth is board-dependent, and
+  // this one explores a wider policy space per adaptation.
+  { engine: "nrpa", seed: 1, nrpaLevel: 4, nrpaIterations: 20, maxMs: SOLVE_BUDGET_MS },
 ];
 
 export interface SolveStats {

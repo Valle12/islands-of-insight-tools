@@ -28,7 +28,8 @@ find_package(nlohmann_json CONFIG REQUIRED)
 # nlohmann.
 add_library(match_three_core OBJECT
         Rules.cpp Replay.cpp SearchProver.cpp SearchGreedy.cpp
-        SearchBeam.cpp SolverArms.cpp SolverClock.cpp FixtureIo.cpp)
+        SearchBeam.cpp SearchNrpa.cpp SolverArms.cpp SolverClock.cpp
+        FixtureIo.cpp)
 target_include_directories(match_three_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(match_three_core PUBLIC nlohmann_json::nlohmann_json)
 

@@ -42,7 +42,9 @@ struct Config {
   uint64_t tableBytes = kDefaultTableBytes;
   uint64_t maxHeapBytes = 0;
   uint32_t seed = 0;
-  int beamWidth = 0; ///< 0 = the arm's own ladder
+  int beamWidth = 0;      ///< 0 = the arm's own ladder
+  int nrpaLevel = 0;      ///< 0 = the arm's default nesting depth
+  int nrpaIterations = 0; ///< 0 = the arm's default iterations per level
   std::atomic<bool> *cancel = nullptr;
   const Callbacks *callbacks = nullptr;
   /**
@@ -144,5 +146,10 @@ Outcome runBeam(const Board &board, const Config &cfg, Bounds &bounds);
 /// Randomized depth-first search bounded at one move below the incumbent — a
 /// pass that searches out is itself a proof of the incumbent's minimality.
 Outcome runBnb(const Board &board, const Config &cfg, Bounds &bounds);
+
+/// Nested Rollout Policy Adaptation: playouts that sample from a learned
+/// per-move policy, each nesting level adapting toward the best line it saw.
+/// The only arm that has produced a witness for matchThreeTest51.
+Outcome runNrpa(const Board &board, const Config &cfg, Bounds &bounds);
 
 } // namespace mt

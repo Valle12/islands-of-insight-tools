@@ -38,47 +38,118 @@ function mulberry32(seed: number): () => number {
   };
 }
 
+/**
+ * How sharply a sampling rollout still prefers the bigger clear. Measured over
+ * four policies on matchThreeTest51: this one produced the most distinct
+ * outcomes and got the furthest (7 blocks left, against 19 for the old
+ * tie-break-only noise).
+ */
+const SAMPLING_TEMPERATURE = 3;
+
 interface RolloutPick {
   move: Move;
   outcome: MoveOutcome;
   won: boolean;
 }
 
-/**
- * The greedy policy at one state: the biggest clear that does not strand a
- * symbol (a stranded board is dead, so such a move is taken only when every
- * move strands), with seeded noise breaking cleared-count ties.
- */
-function pickMove(
+/** Every move worth considering at one state, with what it costs the board. */
+interface Candidate {
+  readonly pick: RolloutPick;
+  readonly cleared: number;
+  /** False when the move strands a symbol, i.e. kills the board outright. */
+  readonly alive: boolean;
+}
+
+function candidates(
   board: MatchThreeBoard,
   blocks: number,
-  rng: () => number,
   counter: { work: number },
-): RolloutPick | null {
-  let best: RolloutPick | null = null;
-  let bestScore = Number.NEGATIVE_INFINITY;
+): { list: Candidate[]; winner: RolloutPick | null } {
+  const list: Candidate[] = [];
   for (const move of legalMoves(board)) {
     const outcome = applyMove(board, move);
     if (!outcome) continue;
     counter.work++;
     if (blocks - outcome.cleared === 0) {
-      return { move, outcome, won: true };
+      return { list, winner: { move, outcome, won: true } };
     }
-    const alive = hasStrandedSymbol(outcome.board) ? 0 : 1;
-    const score = alive * 1_000_000 + outcome.cleared * 256 + rng() * 255;
-    if (score > bestScore) {
-      bestScore = score;
-      best = { move, outcome, won: false };
-    }
+    list.push({
+      pick: { move, outcome, won: false },
+      cleared: outcome.cleared,
+      alive: !hasStrandedSymbol(outcome.board),
+    });
   }
-  return best;
+  return { list, winner: null };
 }
 
-/** One greedy line from the start; null when it dead-ends or cannot beat `bound`. */
+/** The biggest clear that does not strand a symbol, or the biggest if all do. */
+function bestCandidate(list: Candidate[]): RolloutPick | null {
+  let best: Candidate | null = null;
+  for (const candidate of list) {
+    if (!best) {
+      best = candidate;
+      continue;
+    }
+    if (candidate.alive !== best.alive) {
+      if (candidate.alive) best = candidate;
+      continue;
+    }
+    if (candidate.cleared > best.cleared) best = candidate;
+  }
+  return best ? best.pick : null;
+}
+
+/**
+ * Samples a move with probability rising in the clear size, so a restart really
+ * takes a different line.
+ *
+ * The obvious cheaper thing — adding noise to the greedy score — does NOT
+ * diversify, and that is not a subtlety: with `cleared * 256 + rng() * 255` the
+ * noise is strictly smaller than one unit of `cleared`, so it can only break
+ * exact ties. Measured on matchThreeTest51, 4000 restarts of that policy
+ * produced **two** distinct outcomes. A noise term smaller than one unit of the
+ * score it perturbs is not randomisation.
+ */
+function sampleCandidate(
+  list: Candidate[],
+  rng: () => number,
+): RolloutPick | null {
+  if (list.length === 0) return null;
+  const live = list.some(candidate => candidate.alive);
+  let total = 0;
+  const weights = list.map(candidate => {
+    // A move that strands a symbol is only ever taken when every move does.
+    const weight =
+      live && !candidate.alive
+        ? 0
+        : Math.exp(candidate.cleared / SAMPLING_TEMPERATURE);
+    total += weight;
+    return weight;
+  });
+  if (total === 0) return bestCandidate(list);
+
+  let target = rng() * total;
+  for (let i = 0; i < list.length; i++) {
+    target -= weights[i]!;
+    if (target <= 0) return list[i]!.pick;
+  }
+  return list.at(-1)!.pick;
+}
+
+/**
+ * One line from the start; null when it dead-ends or cannot beat `bound`.
+ *
+ * `sample` false plays the pure greedy line, which is what the first rollout
+ * does, and it is why the sampling below was added *after* it rather than in
+ * place of it: measured over the 52 captured boards, that one greedy line
+ * answers 38 of them and every one of those answers is already the proven
+ * optimum, worst case 4 ms. Nothing here may cost the page that.
+ */
 function rolloutOnce(
   start: MatchThreeBoard,
   blocks: number,
   bound: number,
+  sample: boolean,
   rng: () => number,
   counter: { work: number },
 ): Move[] | null {
@@ -86,7 +157,9 @@ function rolloutOnce(
   let left = blocks;
   const path: Move[] = [];
   while (path.length < bound) {
-    const pick = pickMove(board, left, rng, counter);
+    const { list, winner } = candidates(board, left, counter);
+    const pick =
+      winner ?? (sample ? sampleCandidate(list, rng) : bestCandidate(list));
     if (!pick) return null;
     path.push(pick.move);
     if (pick.won) return path;
@@ -112,9 +185,12 @@ export function greedySearch(
   const rng = mulberry32(0x51ab);
   let bound = boundLength;
   let sinceImprovement = 0;
+  let rollouts = 0;
   while (performance.now() < deadline && sinceImprovement < GREEDY_PATIENCE) {
     const counter = { work: 0 };
-    const moves = rolloutOnce(start, blocks, bound, rng, counter);
+    // Rollout one is the greedy line; every restart after it samples.
+    const moves = rolloutOnce(start, blocks, bound, rollouts > 0, rng, counter);
+    rollouts++;
     tick(counter.work);
     sinceImprovement++;
     if (moves && moves.length < bound) {

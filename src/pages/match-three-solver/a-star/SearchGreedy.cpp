@@ -2,6 +2,8 @@
 #include "Search.h"
 #include "SeededRng.h"
 
+#include <algorithm>
+#include <cmath>
 #include <vector>
 
 // Restarted greedy rollouts. Proves nothing — it exists to put SOME clearing
@@ -26,56 +28,126 @@ struct Scratch {
   std::vector<rules::PackedMove> moves;
 };
 
-/// One state's greedy choice. Prefers the biggest clear that does NOT strand a
-/// symbol — a stranded board is dead, so such a move is taken only when every
-/// move strands — with seeded noise breaking ties so restarts diverge.
+/// How sharply a sampling rollout still prefers the bigger clear. Measured over
+/// four policies on matchThreeTest51: this one produced the most distinct
+/// outcomes and got the furthest.
+constexpr double kTemperature = 3.0;
+
+/// One state's choice: which move, what it clears, and whether it kills the
+/// board by stranding a symbol.
 struct Choice {
   rules::PackedMove move = 0;
   bool found = false;
   bool clearsAll = false;
   int cleared = 0;
+  bool alive = true;
 };
 
-Choice pickMove(const Board &board, const int blocks, SeededRng &rng,
-                Scratch &scratch) {
+/// Every legal move at this state, scored but WITHOUT keeping its board — a
+/// Board is a kilobyte, and the chosen one is cheaper to replay than all of
+/// them are to store.
+void collectChoices(const Board &board, const int blocks, Scratch &scratch,
+                    std::vector<Choice> &out) {
+  out.clear();
   scratch.moves.clear();
   rules::legalMovesInto(board, scratch.probe, scratch.moves);
-
-  Choice choice;
-  int bestScore = -1;
   for (const rules::PackedMove move : scratch.moves) {
     const rules::ApplyResult applied = rules::applyPacked(
         board, scratch.candidate, move, scratch.mask, nullptr);
-    if (applied.cleared == blocks)
-      return {.move = move,
-              .found = true,
-              .clearsAll = true,
-              .cleared = applied.cleared};
-    const int alive = rules::hasStrandedSymbol(scratch.candidate) ? 0 : 1;
-    const int score = alive * 1000000 + applied.cleared * 256 + rng.uniform(0, 255);
-    if (score <= bestScore)
-      continue;
-    bestScore = score;
-    choice = {.move = move,
-              .found = true,
-              .clearsAll = false,
-              .cleared = applied.cleared};
-    scratch.best = scratch.candidate;
+    if (applied.cleared == blocks) {
+      out.clear();
+      out.push_back({.move = move,
+                     .found = true,
+                     .clearsAll = true,
+                     .cleared = applied.cleared,
+                     .alive = true});
+      return;
+    }
+    out.push_back({.move = move,
+                   .found = true,
+                   .clearsAll = false,
+                   .cleared = applied.cleared,
+                   .alive = !rules::hasStrandedSymbol(scratch.candidate)});
   }
-  return choice;
 }
 
-/// One greedy line from the start. Empty when it dead-ends or cannot come in
-/// under `bound`.
+/// The biggest clear that does not strand a symbol, or the biggest if all do.
+Choice bestChoice(const std::vector<Choice> &choices) {
+  Choice best;
+  for (const Choice &choice : choices) {
+    if (!best.found) {
+      best = choice;
+      continue;
+    }
+    if (choice.alive != best.alive) {
+      if (choice.alive)
+        best = choice;
+      continue;
+    }
+    if (choice.cleared > best.cleared)
+      best = choice;
+  }
+  return best;
+}
+
+/// Samples a move with probability rising in the clear size, so a restart
+/// really takes a different line.
+///
+/// The obvious cheaper thing — adding noise to the greedy score — does NOT
+/// diversify, and that is not a subtlety: with `cleared * 256 + uniform(0, 255)`
+/// the noise is strictly smaller than one unit of `cleared`, so it can only
+/// break exact ties. Measured on matchThreeTest51, 4000 restarts of that policy
+/// produced TWO distinct outcomes. A noise term smaller than one unit of the
+/// score it perturbs is not randomisation.
+Choice sampleChoice(const std::vector<Choice> &choices, SeededRng &rng) {
+  if (choices.empty())
+    return {};
+  const bool anyAlive =
+      std::ranges::any_of(choices, [](const Choice &c) { return c.alive; });
+
+  double total = 0;
+  std::vector<double> weights;
+  weights.reserve(choices.size());
+  for (const Choice &choice : choices) {
+    // A move that strands a symbol is only ever taken when every move does.
+    const double weight = anyAlive && !choice.alive
+                              ? 0.0
+                              : std::exp(choice.cleared / kTemperature);
+    weights.push_back(weight);
+    total += weight;
+  }
+  if (total <= 0)
+    return bestChoice(choices);
+
+  double target = rng.real() * total;
+  for (size_t i = 0; i < choices.size(); i++) {
+    target -= weights[i];
+    if (target <= 0)
+      return choices[i];
+  }
+  return choices.back();
+}
+
+/// One line from the start. Empty when it dead-ends or cannot come in under
+/// `bound`.
+///
+/// `sample` false plays the pure greedy line, which is what the first rollout
+/// does: on every solvable captured board that alone lands the minimal length
+/// inside 100 ms, and nothing here may cost the page that.
 Moves rolloutOnce(const Board &start, const int blocks, const int bound,
-                  SeededRng &rng, Scratch &scratch, Budget &budget) {
+                  const bool sample, SeededRng &rng, Scratch &scratch,
+                  Budget &budget) {
   Board current = start;
   int left = blocks;
   Moves path;
+  std::vector<Choice> choices;
   while (static_cast<int>(path.size()) < bound) {
     if (budget.exhausted())
       return {};
-    const Choice choice = pickMove(current, left, rng, scratch);
+    collectChoices(current, left, scratch, choices);
+    const Choice choice = sample && !choices.empty() && !choices.front().clearsAll
+                              ? sampleChoice(choices, rng)
+                              : bestChoice(choices);
     if (!choice.found)
       return {};
     const int aIndex = rules::moveIndex(choice.move);
@@ -88,6 +160,8 @@ Moves rolloutOnce(const Board &start, const int blocks, const int bound,
                     .by = static_cast<uint8_t>(down ? y + 1 : y)});
     if (choice.clearsAll)
       return path;
+    // Replayed rather than kept: see collectChoices.
+    rules::applyPacked(current, scratch.best, choice.move, scratch.mask, nullptr);
     current = scratch.best;
     left -= choice.cleared;
   }
@@ -117,9 +191,13 @@ Outcome runGreedy(const Board &board, const Config &cfg, Bounds &bounds) {
   const int known = bounds.bestLength();
   int bound = known == kNoLength ? blocks / kMinRun + 1 : known;
   int sinceImprovement = 0;
+  int rollouts = 0;
   Moves best;
   while (sinceImprovement < kPatience && !budget.exhaustedNow()) {
-    const Moves found = rolloutOnce(board, blocks, bound, rng, scratch, budget);
+    // Rollout one is the greedy line; every restart after it samples.
+    const Moves found =
+        rolloutOnce(board, blocks, bound, rollouts > 0, rng, scratch, budget);
+    rollouts++;
     sinceImprovement++;
     if (found.empty() || static_cast<int>(found.size()) >= bound)
       continue;

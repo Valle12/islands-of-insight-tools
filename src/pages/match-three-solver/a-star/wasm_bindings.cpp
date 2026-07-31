@@ -107,6 +107,8 @@ struct Spec {
   uint64_t maxHeapBytes;
   uint32_t seed;
   int beamWidth;
+  int nrpaLevel;
+  int nrpaIterations;
 };
 
 Spec specFrom(const val &config) {
@@ -119,7 +121,9 @@ Spec specFrom(const val &config) {
           .maxHeapBytes = static_cast<uint64_t>(
               opt(config, "maxHeapBytes", static_cast<double>(0))),
           .seed = static_cast<uint32_t>(opt(config, "seed", 0)),
-          .beamWidth = opt(config, "beamWidth", 0)};
+          .beamWidth = opt(config, "beamWidth", 0),
+          .nrpaLevel = opt(config, "nrpaLevel", 0),
+          .nrpaIterations = opt(config, "nrpaIterations", 0)};
 }
 
 /// The best-so-far and progress stream. Called only from the module's own
@@ -180,7 +184,9 @@ mt::Outcome dispatch(const mt::Board &board, const Spec &spec,
 #endif
   const mt::arms::ArmSpec armSpec{.engine = spec.engine.c_str(),
                                   .beamWidth = spec.beamWidth,
-                                  .seed = spec.seed};
+                                  .seed = spec.seed,
+                                  .nrpaLevel = spec.nrpaLevel,
+                                  .nrpaIterations = spec.nrpaIterations};
   return mt::arms::solve(board, armSpec, cfg, bounds);
 }
 
@@ -216,6 +222,8 @@ val solve(const val puzzleVal, const val configVal) {
   cfg.tableBytes = spec.tableBytes;
   cfg.seed = spec.seed;
   cfg.beamWidth = spec.beamWidth;
+  cfg.nrpaLevel = spec.nrpaLevel;
+  cfg.nrpaIterations = spec.nrpaIterations;
   cfg.callbacks = &callbacks;
   // Nearly the whole heap, but NEVER unlimited: an allocation the module cannot
   // satisfy aborts it outright, and the page loses the solve rather than being

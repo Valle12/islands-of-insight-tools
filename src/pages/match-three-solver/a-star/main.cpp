@@ -30,6 +30,8 @@ struct CliOptions {
   uint64_t maxHeapBytes = 0;
   uint32_t seed = 0;
   int beamWidth = 0;
+  int nrpaLevel = 0;
+  int nrpaIterations = 0;
   int width = 0;
   int height = 0;
   int symbols = 0;
@@ -38,10 +40,11 @@ struct CliOptions {
 
 void printUsage() {
   std::cout << "Usage: match_three --fixture <path>\n"
-               "                   [--engine cascade|iddfs|bnb|greedy|beam]\n"
+               "                   [--engine cascade|iddfs|bnb|greedy|beam|nrpa]\n"
                "                   [--budget-ms N] [--max-nodes N]\n"
                "                   [--table-bytes N] [--max-heap-bytes N]\n"
-               "                   [--seed N] [--beam N] [--quiet] [--json]\n"
+               "                   [--seed N] [--beam N] [--nrpa-level N]\n"
+               "                   [--nrpa-iterations N] [--quiet] [--json]\n"
                "       match_three --generate <path> --seed N\n"
                "                   [--kind random|cluster] [--width N]\n"
                "                   [--height N] [--symbols N]\n"
@@ -106,6 +109,10 @@ bool assignValue(const std::string_view arg, const char *const value,
     opts.seed = static_cast<uint32_t>(std::strtoul(value, nullptr, 10));
   else if (arg == "--beam")
     opts.beamWidth = static_cast<int>(std::strtol(value, nullptr, 10));
+  else if (arg == "--nrpa-level")
+    opts.nrpaLevel = static_cast<int>(std::strtol(value, nullptr, 10));
+  else if (arg == "--nrpa-iterations")
+    opts.nrpaIterations = static_cast<int>(std::strtol(value, nullptr, 10));
   else if (arg == "--width")
     opts.width = static_cast<int>(std::strtol(value, nullptr, 10));
   else if (arg == "--height")
@@ -186,6 +193,8 @@ mt::Config configFrom(const CliOptions &opts, const mt::Callbacks &callbacks) {
           .maxHeapBytes = opts.maxHeapBytes,
           .seed = opts.seed,
           .beamWidth = opts.beamWidth,
+          .nrpaLevel = opts.nrpaLevel,
+          .nrpaIterations = opts.nrpaIterations,
           .cancel = nullptr,
           .callbacks = &callbacks};
 }
@@ -231,7 +240,9 @@ int main(const int argc, char **argv) {
   const mt::Config cfg = configFrom(opts, callbacks);
   const mt::arms::ArmSpec spec{.engine = opts.engine.c_str(),
                                .beamWidth = opts.beamWidth,
-                               .seed = opts.seed};
+                               .seed = opts.seed,
+                               .nrpaLevel = opts.nrpaLevel,
+                               .nrpaIterations = opts.nrpaIterations};
 
   const uint64_t startMs = nowMs();
   const mt::Outcome outcome = mt::arms::solve(board, spec, cfg);

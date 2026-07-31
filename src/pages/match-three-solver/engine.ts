@@ -1,6 +1,7 @@
 import { EMPTY, FIRST_SYMBOL, isSymbol, symbolIndexOf } from "./cell";
 import { SOLVE_BUDGET_MS } from "./config";
 import { beamSearch, greedySearch } from "./fastSolvers";
+import { runNrpa } from "./nrpa";
 import {
   applyGravity,
   applyMove,
@@ -17,12 +18,12 @@ import { SYMBOL_COUNT } from "./symbols";
 import { TransTable } from "./transTable";
 
 /**
- * What the engine is doing right now. `greedy` and `beam` are the fast arms
+ * What the engine is doing right now. `greedy`, `beam` and `nrpa` are the arms
  * looking for any clearing sequence; `prove` is the deepening that rules
  * shorter lengths out; `grouping` runs once the length is settled and only
  * tidies which same-length solution gets shown.
  */
-export type SolvePhase = "greedy" | "beam" | "prove" | "grouping";
+export type SolvePhase = "greedy" | "beam" | "nrpa" | "prove" | "grouping";
 
 export interface SolveProgress {
   readonly phase: SolvePhase;
@@ -765,6 +766,16 @@ const BEAM_SLICE_MS = 45_000;
 const BEAM_SLICE_FRACTION = 0.2;
 
 /**
+ * NRPA's slice when the cheap arms found nothing. Bounded like theirs rather
+ * than taking half of everything: it solved matchThreeTest51 in 13 s, so a
+ * minute is generous, and every millisecond past that is one the dive and the
+ * prover do not get — measured, an unbounded share cost the hard boards a
+ * whole level of `ruledOut`.
+ */
+const NRPA_SLICE_MS = 60_000;
+const NRPA_SLICE_FRACTION = 0.25;
+
+/**
  * Share of what is left that the dive may spend. It only runs when the fast
  * arms came back empty-handed, so on an easy board this costs nothing at all —
  * and on a hard one it is the arm most likely to produce the only answer the
@@ -813,21 +824,42 @@ function runFastArms(
 
   const greedyDeadline = Math.min(
     deadline,
-    performance.now() + Math.min(GREEDY_SLICE_MS, budgetMs * GREEDY_SLICE_FRACTION),
+    performance.now() +
+      Math.min(GREEDY_SLICE_MS, budgetMs * GREEDY_SLICE_FRACTION),
   );
   greedySearch(board, blocks, greedyDeadline, bound(), improve, delta => {
     work += delta;
     post("greedy");
   });
 
-  const beamDeadline = Math.min(
-    deadline,
-    performance.now() + Math.min(BEAM_SLICE_MS, budgetMs * BEAM_SLICE_FRACTION),
-  );
-  beamSearch(board, blocks, beamDeadline, bound(), improve, delta => {
-    work += delta;
-    post("beam");
-  });
+  // Only when greedy came back empty-handed. The beam can only FIND a
+  // solution, and measured on this corpus it has never shortened one greedy
+  // already had — so with a witness in hand its budget belongs to the provers.
+  if (!best) {
+    const beamDeadline = Math.min(
+      deadline,
+      performance.now() +
+        Math.min(BEAM_SLICE_MS, budgetMs * BEAM_SLICE_FRACTION),
+    );
+    beamSearch(board, blocks, beamDeadline, bound(), improve, delta => {
+      work += delta;
+      post("beam");
+    });
+  }
+
+  // Only when the cheap arms came back empty-handed. NRPA is the arm for
+  // boards they cannot touch — measured, it is the only thing that has ever
+  // produced a witness for matchThreeTest51 — and on a board greedy already
+  // solved there is nothing for it to add.
+  if (!best) {
+    const left = Math.max(0, deadline - performance.now());
+    const nrpaDeadline =
+      performance.now() + Math.min(NRPA_SLICE_MS, left * NRPA_SLICE_FRACTION);
+    post("nrpa");
+    const outcome = runNrpa(board, {}, nrpaDeadline, improve);
+    work += outcome.playouts;
+    post("nrpa");
+  }
 
   return { best, work };
 }

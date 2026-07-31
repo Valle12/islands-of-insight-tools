@@ -12,7 +12,7 @@
 namespace mt::arms {
 
 inline constexpr auto kEngines = std::to_array<const char *>(
-    {"cascade", "iddfs", "bnb", "greedy", "beam"});
+    {"cascade", "iddfs", "bnb", "greedy", "beam", "nrpa"});
 
 /// One arm's identity and knobs. Kept separate from Config, which carries the
 /// budgets every arm shares.
@@ -20,6 +20,8 @@ struct ArmSpec {
   const char *engine = "cascade";
   int beamWidth = 0;
   uint32_t seed = 0;
+  int nrpaLevel = 0;
+  int nrpaIterations = 0;
 };
 
 bool isEngine(const char *name);

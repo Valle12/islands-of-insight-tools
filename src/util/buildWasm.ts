@@ -372,6 +372,7 @@ await Promise.all(
         "SearchProver.cpp",
         "SearchGreedy.cpp",
         "SearchBeam.cpp",
+        "SearchNrpa.cpp",
         "SolverArms.cpp",
         "SolverClock.cpp",
       ],
