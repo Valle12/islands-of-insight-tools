@@ -16,6 +16,7 @@
     "bench:rb": "bun run src/util/benchRollingBlocks.ts",
     "fuzz:rb": "bun run src/util/fuzzRollingBlocks.ts",
     "bench:mt": "bun run src/util/benchMatchThree.ts",
+    "fuzz:mt": "bun run src/util/fuzzMatchThree.ts",
     "test:mem64": "node --test test/shifting-mosaic-solver/mem64.node.test.mjs test/rolling-blocks-solver/mem64.node.test.mjs",
     "test": "bun run build:wasm && bun test",
     "test:fast": "IOI_SKIP_SLOW=1 bun test",

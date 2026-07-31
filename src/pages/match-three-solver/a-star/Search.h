@@ -1,0 +1,148 @@
+#pragma once
+
+#include "Rules.h"
+#include "Types.h"
+
+#include <atomic>
+#include <cstdint>
+#include <functional>
+#include <mutex>
+#include <string>
+
+// The solver's arms and the state they share. Every arm is anytime: it may
+// report a clearing sequence it cannot prove minimal, and only the prover ever
+// claims `proven` or `unsolvable`.
+namespace mt {
+
+/// Failed-state table ceiling, per arm. Past it the table evicts instead of
+/// growing — the search slows down rather than dying, which matters most in
+/// the browser, where an allocation failure aborts the whole module.
+inline constexpr uint64_t kDefaultTableBytes = 256ULL * 1024 * 1024;
+
+/// Length sentinel for "no solution known yet".
+inline constexpr int kNoLength = -1;
+
+struct Progress {
+  const char *phase = "";
+  uint64_t nodes = 0;
+  int ruledOut = 0;
+  int bestLength = kNoLength;
+};
+
+/// Where an arm reports to. Under the pthreads race only the module's own
+/// thread ever invokes these, so nothing here has to be thread-safe.
+struct Callbacks {
+  std::function<void(const Progress &)> onProgress;
+  std::function<void(const char *)> onArmStart;
+};
+
+struct Config {
+  uint32_t maxMs = 0; ///< 0 = no wall-clock budget
+  uint64_t maxNodes = 0;
+  uint64_t tableBytes = kDefaultTableBytes;
+  uint64_t maxHeapBytes = 0;
+  uint32_t seed = 0;
+  int beamWidth = 0; ///< 0 = the arm's own ladder
+  std::atomic<bool> *cancel = nullptr;
+  const Callbacks *callbacks = nullptr;
+  /**
+   * Where an arm publishes the work it has done, when it may not call back
+   * directly. Under the in-module thread race only the module's own thread is
+   * allowed to cross into JavaScript, so the racing arms get this counter and
+   * `callbacks` stays null; the module thread polls and reports.
+   */
+  std::atomic<uint64_t> *progress = nullptr;
+};
+
+struct SearchStats {
+  uint64_t nodesExpanded = 0;
+  uint64_t statesStored = 0;
+  /// Distinguishes "too big for this heap" from "genuinely searched out".
+  bool stoppedOnMemory = false;
+};
+
+struct Outcome {
+  Moves moves;
+  /// Whether `moves` is proven to be of minimal length.
+  bool proven = false;
+  /// A completed proof that the board cannot be cleared at all.
+  bool unsolvable = false;
+  /// No solution of this many moves or fewer exists — proven, whatever else.
+  int ruledOut = 0;
+  SearchStats stats;
+  std::string arm;
+};
+
+/// The best solution known and the depths ruled out, shared by cooperating
+/// arms: a bound one arm finds caps every other arm's work. Sequential arms
+/// pass one instance along; racing threads share it.
+class Bounds {
+public:
+  /// Records `moves` when it beats the incumbent. True when it improved.
+  bool offer(const Moves &moves) {
+    const int length = static_cast<int>(moves.size());
+    const std::lock_guard guard(mutex_);
+    if (bestLength_ != kNoLength && length >= bestLength_)
+      return false;
+    best_ = moves;
+    bestLength_ = length;
+    length_.store(length, std::memory_order_relaxed);
+    return true;
+  }
+
+  /// Length of the best solution known, or kNoLength.
+  [[nodiscard]] int bestLength() const {
+    return length_.load(std::memory_order_relaxed);
+  }
+
+  [[nodiscard]] Moves best() const {
+    const std::lock_guard guard(mutex_);
+    return best_;
+  }
+
+  /// Raises the proven lower bound: no solution of `depth` moves or fewer.
+  void raiseRuledOut(const int depth) {
+    int seen = ruledOut_.load(std::memory_order_relaxed);
+    while (seen < depth &&
+           !ruledOut_.compare_exchange_weak(seen, depth,
+                                            std::memory_order_relaxed)) {
+      // compare_exchange_weak refreshed `seen`; retry while still behind.
+    }
+  }
+
+  [[nodiscard]] int ruledOut() const {
+    return ruledOut_.load(std::memory_order_relaxed);
+  }
+
+  /// True once the bounds meet: the incumbent is proven minimal and every
+  /// arm can stop.
+  [[nodiscard]] bool proven() const {
+    const int length = bestLength();
+    return length != kNoLength && ruledOut() >= length - 1;
+  }
+
+private:
+  mutable std::mutex mutex_;
+  Moves best_;
+  int bestLength_ = kNoLength;
+  std::atomic<int> length_{kNoLength};
+  std::atomic<int> ruledOut_{0};
+};
+
+/// The deepening prover: the only arm that can prove a length minimal or a
+/// board unsolvable. An incumbent in `bounds` caps its deepening, so proving
+/// someone else's find costs it nothing extra.
+Outcome proveIddfs(const Board &board, const Config &cfg, Bounds &bounds);
+
+/// Restarted greedy rollouts: biggest clear first, refusing to strand a
+/// symbol unless every move does, with seeded noise on ties.
+Outcome runGreedy(const Board &board, const Config &cfg, Bounds &bounds);
+
+/// A level-synchronous beam over move count, widening while the budget lasts.
+Outcome runBeam(const Board &board, const Config &cfg, Bounds &bounds);
+
+/// Randomized depth-first search bounded at one move below the incumbent — a
+/// pass that searches out is itself a proof of the incumbent's minimality.
+Outcome runBnb(const Board &board, const Config &cfg, Bounds &bounds);
+
+} // namespace mt

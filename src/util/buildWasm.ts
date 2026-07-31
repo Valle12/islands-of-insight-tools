@@ -337,3 +337,51 @@ await Promise.all(
     }),
   ),
 );
+
+// Match-three's four variants. Same shape as the other two solvers; what each
+// one buys here is specific:
+//   - threads:       six arms race inside one module on a cross-origin isolated
+//                    page. All of them share one Bounds, so a find by the
+//                    greedy arm immediately caps what the provers have to do.
+//   - mem64:         the bounded failed-state table means this build no longer
+//                    rescues a search from aborting — it lets the table hold
+//                    more before it starts evicting, which is the difference
+//                    between re-searching a subtree and remembering it.
+//   - threads+mem64: both, and the one that matters most: six tables share the
+//                    heap, so the 4GB wall arrives six times sooner.
+// FixtureIo.cpp and GenerateCommands.cpp are deliberately absent — they need
+// nlohmann and exceptions, and this build has neither.
+const MATCH_THREE_VARIANTS = [
+  { outputJs: "astar.mjs" },
+  { outputJs: "astar.threads.mjs", threads: true },
+  { outputJs: "astar.mem64.mjs", memory64: true },
+  { outputJs: "astar.threads.mem64.mjs", threads: true, memory64: true },
+] as const;
+
+await Promise.all(
+  MATCH_THREE_VARIANTS.map(variant =>
+    build({
+      aStarDir: resolve(projectRoot, "src/pages/match-three-solver/a-star"),
+      outDir: resolve(projectRoot, "src/pages/match-three-solver/wasm"),
+      // Keep in sync with match_three_core in that directory's CMakeLists.txt,
+      // which lists the same TUs plus the native-only fixture I/O.
+      sources: [
+        "wasm_bindings.cpp",
+        "Rules.cpp",
+        "Replay.cpp",
+        "SearchProver.cpp",
+        "SearchGreedy.cpp",
+        "SearchBeam.cpp",
+        "SolverArms.cpp",
+        "SolverClock.cpp",
+      ],
+      outputJs: variant.outputJs,
+      exportName: "createMatchThreeModule",
+      needsBoost: false,
+      memory64: "memory64" in variant,
+      maxMemory: "memory64" in variant ? "8GB" : "4GB",
+      extraArgs:
+        "threads" in variant ? ["-pthread", "-sPTHREAD_POOL_SIZE=10"] : [],
+    }),
+  ),
+);

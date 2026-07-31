@@ -236,7 +236,8 @@ class Search {
     this.nodesOffset = nodesOffset;
   }
 
-  run(board: MatchThreeBoard, incumbent?: Incumbent): SolveResult {
+  /** Sets up the per-board state both search modes need. Returns maxDepth. */
+  private prepare(board: MatchThreeBoard, incumbent?: Incumbent): number {
     this.width = board.width;
     this.height = board.height;
     this.table = new TransTable(board.cells.length, this.tableBytes);
@@ -245,14 +246,71 @@ class Search {
       this.best = incumbent.moves;
       this.bestSwitches = incumbent.switches;
     }
+    const natural = Math.floor(blockCount(board) / MIN_RUN);
+    this.pathMoves = new Int32Array(natural + 1);
+    this.pathSymbols = new Int32Array(natural + 1);
+    return natural;
+  }
 
+  /**
+   * One bounded pass per bound, going straight to the deepest length worth
+   * trying instead of climbing to it. A depth-B search covers every path of
+   * length ≤ B, so a solution found this way is a real answer — just not a
+   * proven-minimal one — and a pass that searches out proves the incumbent
+   * minimal in one go.
+   *
+   * This is the only arm that finds anything at all on the hardest captured
+   * boards: measured on matchThreeTest47 it turns up the 20-move solution
+   * (which a 46-minute deepening run in July confirmed is optimal) where
+   * every other arm returns nothing.
+   */
+  runDive(board: MatchThreeBoard, incumbent?: Incumbent): SolveResult {
+    const natural = this.prepare(board, incumbent);
     const blocks = blockCount(board);
-    const natural = Math.floor(blocks / MIN_RUN);
+    if (blocks === 0) {
+      return { status: "solved", moves: [], proven: true, groupingProven: true };
+    }
+
+    for (;;) {
+      const bound = this.best
+        ? Math.min(natural, this.best.length - 1)
+        : natural;
+      if (bound <= 0) break;
+
+      this.depth = bound;
+      this.passFound = false;
+      this.stopAtFirst = true;
+      this.explore(board, bound, blocks);
+      if (this.passFound) continue;
+      if (this.expired) break;
+
+      // Searched out: nothing shorter than the incumbent exists.
+      this.ruledOut = bound;
+      if (!this.best) return { status: "unsolvable" };
+      return {
+        status: "solved",
+        moves: this.best,
+        proven: true,
+        groupingProven: false,
+      };
+    }
+
+    return this.best
+      ? {
+          status: "solved",
+          moves: this.best,
+          proven: this.ruledOut >= this.best.length - 1,
+          groupingProven: false,
+        }
+      : { status: "budget", ruledOut: this.ruledOut };
+  }
+
+  run(board: MatchThreeBoard, incumbent?: Incumbent): SolveResult {
+    const natural = this.prepare(board, incumbent);
+    const blocks = blockCount(board);
     // With an incumbent in hand, exhausting every shorter length is a proof
     // of its minimality — the deepening never has to visit its own depth.
     const cap = this.best ? Math.min(natural, this.best.length - 1) : natural;
-    this.pathMoves = new Int32Array(natural + 1);
-    this.pathSymbols = new Int32Array(natural + 1);
 
     for (let depth = 0; depth <= cap; depth++) {
       this.depth = depth;
@@ -706,6 +764,14 @@ const GREEDY_SLICE_FRACTION = 0.05;
 const BEAM_SLICE_MS = 45_000;
 const BEAM_SLICE_FRACTION = 0.2;
 
+/**
+ * Share of what is left that the dive may spend. It only runs when the fast
+ * arms came back empty-handed, so on an easy board this costs nothing at all —
+ * and on a hard one it is the arm most likely to produce the only answer the
+ * player will get.
+ */
+const DIVE_FRACTION = 0.5;
+
 interface ArmsOutcome {
   readonly best: Move[] | null;
   readonly work: number;
@@ -810,12 +876,37 @@ export function solveMatchThree(
   }
 
   const arms = runFastArms(board, blocks, budgetMs, deadline, options);
+  let best = arms.best;
+  let work = arms.work;
+
+  // Nothing found yet: one bounded dive is the difference between a labeled
+  // answer and "gave up" on the boards that need it most.
+  if (!best) {
+    const left = Math.max(0, deadline - performance.now());
+    const dive = new Search(
+      { ...options, budgetMs: left * DIVE_FRACTION },
+      work,
+    );
+    const dived = dive.runDive(board);
+    work = dive.stats().nodes;
+    if (dived.status === "solved" && dived.moves.length > 0) {
+      if (dived.proven) {
+        options.onStats?.(dive.stats());
+        return dived;
+      }
+      best = dived.moves;
+    } else if (dived.status === "unsolvable") {
+      options.onStats?.(dive.stats());
+      return dived;
+    }
+  }
+
   const search = new Search(
     { ...options, budgetMs: Math.max(0, deadline - performance.now()) },
-    arms.work,
+    work,
   );
-  const incumbent = arms.best
-    ? { moves: arms.best, switches: movesSwitches(board, arms.best) }
+  const incumbent = best
+    ? { moves: best, switches: movesSwitches(board, best) }
     : undefined;
   const result = search.run(board, incumbent);
   options.onStats?.(search.stats());

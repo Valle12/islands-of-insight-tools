@@ -1,15 +1,17 @@
 // Fixture benchmark for the match-three solver.
 //
 //   bun run src/util/benchMatchThree.ts [--budget-ms 30000] [--filter <substr>]
-//       [--out bench.json]
+//       [--out bench.json] [--exe <path>]
 //   bun run src/util/benchMatchThree.ts --diff before.json after.json
 //
 // Run mode sweeps every matchThreeTest*.json fixture SEQUENTIALLY (for stable
-// timings) through the TS engine in-process — unlike the C++ solvers there is
-// no CLI to shell out to — and writes a {meta, results} baseline. Diff mode
-// joins two baselines by fixture and prints a regression table. A solved move
-// count that CHANGES is a regression in either direction: reported counts are
-// proven minimal, so drift means one of the two runs was wrong.
+// timings) and writes a {meta, results} baseline. Without --exe it drives the
+// TypeScript engine in-process; with it, the native CLI over the shared
+// last-JSON-line protocol — the same fixtures, the same record shape, so
+// --diff compares the two engines directly. Diff mode joins two baselines by
+// fixture and prints a regression table: a PROVEN move count that changes is a
+// regression in either direction, because a proven count is a claim about the
+// board rather than about the engine.
 
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -21,11 +23,18 @@ import {
   type MatchThreeBoard,
   type Move,
 } from "../pages/match-three-solver/rules";
-import { parseFlags } from "./solverCli";
+import { parseFlags, runCli } from "./solverCli";
 import type { MatchThreeTest } from "./types";
 
 const projectRoot = resolve(import.meta.dir, "../..");
 const fixtureDir = resolve(projectRoot, "test/resources/match-three-solver");
+const defaultExe = resolve(
+  projectRoot,
+  "src/pages/match-three-solver/a-star",
+  process.platform === "win32"
+    ? "cmake-build-release-visual-studio/match_three.exe"
+    : "build/match_three",
+);
 
 interface BenchResult {
   fixture: string;
@@ -58,14 +67,20 @@ function parseArgs(argv: string[]) {
   const opts = {
     budgetMs: 30_000,
     filter: "",
+    exe: "",
     out: resolve(projectRoot, "bench-match-three.json"),
     diff: [] as string[],
   };
   parseFlags(argv, {
     "--budget-ms": next => (opts.budgetMs = Number(next())),
     "--filter": next => (opts.filter = next()),
-    "--out": next => (opts.out = resolve(next())),
+    // "default" resolves to the CLion build dir this repo keeps pre-configured.
+    "--exe": next => {
+      const value = next();
+      opts.exe = value === "default" ? defaultExe : resolve(value);
+    },
     "--diff": next => (opts.diff = [resolve(next()), resolve(next())]),
+    "--out": next => (opts.out = resolve(next())),
   });
   return opts;
 }
@@ -140,6 +155,47 @@ async function benchFixture(
     record.proven = result.proven;
     record.groupingProven = result.groupingProven;
     record.valid = clearsBoard(start, result.moves);
+  }
+  return record;
+}
+
+/// The same sweep through the native CLI, whose report already carries every
+/// field the record needs — including `valid`, which the CLI derives from its
+/// own replay oracle rather than from the search.
+async function benchNative(
+  fixture: string,
+  budgetMs: number,
+  exe: string,
+): Promise<BenchResult> {
+  const started = Date.now();
+  const res = await runCli(
+    exe,
+    [
+      "--fixture", resolve(fixtureDir, fixture),
+      "--budget-ms", String(budgetMs),
+      "--quiet",
+      "--json",
+    ],
+    budgetMs * 3 + 60_000,
+  );
+  const json = res.json ?? {};
+  const status: BenchResult["status"] = json.unsolvable
+    ? "unsolvable"
+    : json.turns > 0
+      ? "solved"
+      : "budget";
+  const record: BenchResult = {
+    fixture,
+    status: res.json ? status : "budget",
+    depthReached: json.ruledOut ?? 0,
+    nodes: json.nodesExpanded ?? 0,
+    tableEntries: json.statesStored ?? 0,
+    wallMs: json.wallMs ?? Date.now() - started,
+  };
+  if (status === "solved" && res.json) {
+    record.moves = json.turns;
+    record.proven = json.proven === true;
+    record.valid = json.valid === true;
   }
   return record;
 }
@@ -239,17 +295,22 @@ if (opts.diff.length === 2) {
   await diffMode(opts.diff[0]!, opts.diff[1]!);
 } else {
   const fixtures = listFixtures(opts.filter);
-  console.log(`bench: ${fixtures.length} fixtures, budget=${opts.budgetMs}ms`);
+  const engine = opts.exe ? "native-cascade" : "ts-anytime";
+  console.log(
+    `bench: ${fixtures.length} fixtures, engine=${engine}, budget=${opts.budgetMs}ms`,
+  );
   const results: BenchResult[] = [];
   for (const fixture of fixtures) {
-    const r = await benchFixture(fixture, opts.budgetMs);
+    const r = opts.exe
+      ? await benchNative(fixture, opts.budgetMs, opts.exe)
+      : await benchFixture(fixture, opts.budgetMs);
     results.push(r);
     console.log(`  ${fixture}: ${describeResult(r)}`);
   }
   const out: BenchFile = {
     meta: {
       createdAt: new Date().toISOString(),
-      engine: "ts-anytime",
+      engine,
       budgetMs: opts.budgetMs,
     },
     results,
