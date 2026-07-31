@@ -2,6 +2,7 @@
 #include "Search.h"
 #include "SeededRng.h"
 
+#include <array>
 #include <cmath>
 #include <vector>
 
@@ -33,9 +34,70 @@ namespace {
 /// matchThreeTest51 ran with.
 constexpr double kAlpha = 1.0;
 
-/// Nesting depth and iterations per level. Level 3 x 30 solved test51.
-constexpr int kDefaultLevel = 3;
-constexpr int kDefaultIterations = 30;
+/// Restarts with no improvement to the best line before the arm gives up.
+///
+/// Restarts alone are unbounded on a board nothing can clear: `best_.left` never
+/// reaches 0, so the loop spins until the deadline and the prover waits out the
+/// whole slice before it can say "unsolvable". So the arm needs the greedy arm's
+/// patience idea.
+///
+/// It counts BARREN RESTARTS and not, as would be tempting, restarts since the
+/// last improvement *within* a run: on matchThreeTest50 the winning restart goes
+/// from 9 blocks left straight to 0 while every other restart also reaches 9, so
+/// "stop when nothing is improving" would cut off precisely the draw that wins.
+/// The count is generous for the same reason — the corpus's winners land within
+/// ~5 restarts and a 300 s slice only fits ~50, so this never binds on a board
+/// worth searching, while on a dead one every restart is near-instant.
+constexpr int kBarrenRestarts = 64;
+
+/// One rung of the restart ladder: how deep to nest, and how many iterations
+/// each level runs.
+struct Rung {
+  int level;
+  int iterations;
+};
+
+/// What a restart cycles through, and the second reason restarts work at all.
+/// A fresh policy alone only changes WHERE the search looks; the nesting level
+/// changes HOW — level 2 runs many shallow adaptations, level 4 few deep ones —
+/// and on matchThreeTest50 that difference decides the board. Measured, 45 s
+/// each, where level 3 x 30 is the arm's long-standing default:
+///
+///   seed 0: level 3 no,  level 2 SOLVED 10.3 s, level 4 SOLVED 36.8 s
+///   seed 1: level 3 no,  level 2 SOLVED 0.5 s,  level 4 SOLVED 36.7 s
+///   seed 4: level 3 no,  level 2 no,            level 4 SOLVED 1.6 s
+///
+/// No single rung wins everywhere and every rung wins somewhere, which is
+/// exactly the case for cycling rather than picking. At a fixed 45 s on
+/// matchThreeTest50, seeds 0 and 1 answer only to level 2 and seed 4 answers
+/// only to level 4.
+///
+/// **The rungs cost the same on purpose, and getting that wrong cost a
+/// two-thirds drop in solve rate.** A rung is `iterations ^ level` playouts, so
+/// the natural-looking counts are wildly unequal: level 2 x 100 is 10 000
+/// playouts, level 3 x 30 is 27 000, and level 4 x 20 is 160 000 — about 94 s of
+/// search, more than a whole 45 s slice. A ladder carrying that rung gets one
+/// cheap restart, one medium one, and then nothing, because the expensive rung
+/// swallows every second that was left. Measured on test50, eight seeds, 45 s:
+/// level 2 x 100 pinned solves 6/8, and the unequal ladder solves 2/8.
+///
+/// Equal cost is what makes the level a diversity axis rather than a lottery on
+/// how much budget the cycle happens to reach. All three rungs below are ~10 000
+/// playouts, and it bought matchThreeTest47 its best rate of anything measured
+/// (5/8, against 2/8 for a pinned level 3).
+///
+/// It did NOT rescue test50, and that matters more than the fix did: cycling
+/// takes test50 2/8 where pinning level 2 x 100 takes it 6/8, while test47 runs
+/// the other way. **No single configuration wins both boards** — five were tried
+/// and every gain on one cost the other. So kPortfolio races a pinned arm AND a
+/// ladder arm rather than tuning this list further, and tuning it further is
+/// unlikely to be where the next win is.
+/// See bench/HARD-BOARDS.md for the full table.
+constexpr auto kLadder = std::to_array<Rung>({
+    {.level = 2, .iterations = 100},
+    {.level = 3, .iterations = 22},
+    {.level = 4, .iterations = 10},
+});
 
 /// One legal move at a state, with what it does. Boards are not kept: a Board
 /// is a kilobyte, and replaying the chosen move is cheaper than storing all of
@@ -101,10 +163,8 @@ class Nrpa {
 public:
   Nrpa(const Board &board, const Config &cfg, Bounds &bounds, SearchStats &stats)
       : board_(board), bounds_(bounds), rng_(cfg.seed),
-        budget_(cfg, bounds, "nrpa", stats),
-        level_(cfg.nrpaLevel > 0 ? cfg.nrpaLevel : kDefaultLevel),
-        iterations_(cfg.nrpaIterations > 0 ? cfg.nrpaIterations
-                                           : kDefaultIterations) {
+        budget_(cfg, bounds, "nrpa", stats), pinnedLevel_(cfg.nrpaLevel),
+        pinnedIterations_(cfg.nrpaIterations) {
     total_ = rules::blockCount(board);
     best_.left = total_;
     scratch_.probe.width = board.width;
@@ -118,9 +178,38 @@ public:
   Moves run() {
     if (total_ == 0)
       return {};
-    // One slot per packed move: a cell index, plus the direction bit.
-    Policy policy(board_.cells.size() * 2, 0.0);
-    search(level_, policy);
+    // Nothing to look for: a symbol already down to one or two blocks can never
+    // line up again, so no playout can clear this board. Exact and free, and it
+    // is the difference between the prover being told immediately and the slice
+    // being spent first.
+    if (rules::hasStrandedSymbol(board_))
+      return {};
+    // RESTARTS, and they are the whole difference between finding
+    // matchThreeTest50 and not. A level-N search exhausts its iterations and
+    // returns; on that board the losing runs come back after ~16 s of a 45 s
+    // budget and the arm used to just stop there, leaving two thirds of its
+    // slice unspent. Measured over eight seeds: two of them clear the board in
+    // 939 ms and 3.1 s, the other six converge on a policy whose plateau state
+    // is PROVABLY dead (exact endgame search, 3 of 4 harvested plateaus
+    // unsolvable). So a run that plateaus has not run out of search — it has
+    // run out of THIS policy, and the answer is a fresh one.
+    //
+    // The RNG deliberately keeps its stream across restarts rather than being
+    // re-seeded: a continued stream cannot collide with a seed already tried,
+    // and the caller's seed still reproduces the whole sequence exactly.
+    int barren = 0;
+    while (best_.left != 0 && barren < kBarrenRestarts &&
+           !budget_.exhaustedNow()) {
+      const int before = best_.left;
+      const Rung rung = rungFor(restarts_);
+      level_ = rung.level;
+      iterations_ = rung.iterations;
+      // One slot per packed move: a cell index, plus the direction bit.
+      Policy policy(board_.cells.size() * 2, 0.0);
+      search(level_, policy);
+      restarts_++;
+      barren = best_.left < before ? 0 : barren + 1;
+    }
     // ONLY a complete line. `best_` tracks the fewest blocks left because that
     // is the score NRPA optimises, so it is usually a partial line — and an
     // arm's `moves` is a solution or nothing at all. Returning the partial one
@@ -140,11 +229,26 @@ private:
   Bounds &bounds_;
   SeededRng rng_;
   Budget budget_;
-  int level_;
-  int iterations_;
+  /// A caller-pinned level/iteration count, or 0 to cycle the ladder. The
+  /// bench sweeps and the portfolio's second NRPA arm pin theirs; the cascade
+  /// leaves them open so one arm covers every rung.
+  int pinnedLevel_;
+  int pinnedIterations_;
+  int level_ = 0;
+  int iterations_ = 0;
   int total_ = 0;
+  int restarts_ = 0;
   Line best_;
   Scratch scratch_;
+
+  [[nodiscard]] Rung rungFor(const int restart) const {
+    if (pinnedLevel_ > 0) {
+      return {.level = pinnedLevel_,
+              .iterations = pinnedIterations_ > 0 ? pinnedIterations_
+                                                 : kLadder.front().iterations};
+    }
+    return kLadder[static_cast<size_t>(restart) % kLadder.size()];
+  }
 
   Line playout(const Policy &policy) {
     copyBoard(board_, scratch_.current);

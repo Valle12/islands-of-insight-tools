@@ -7,6 +7,19 @@ is exhaust every shorter length for them. This file records what each of them
 actually costs, so the next attempt starts from measurements rather than from
 scratch.
 
+**All three now have a witness** (2026-07-31). That is new — test50 and test51
+had never produced one from any arm at any budget. What settled both was NRPA
+with restarts; the story is under "NRPA, and why restarts are the whole trick"
+below. Every one of the three is still *unproven*, and the reason has not
+changed: exhausting the nineteen-to-twenty-two shorter lengths is orders of
+magnitude away.
+
+| | moves | found by | cost |
+| --- | --- | --- | --- |
+| test47 | **20** (proven optimal in a 46-min run) | `bnb`, or nrpa seeds 0/7 | 8–15 s |
+| test50 | **23** | nrpa, 6 of 8 seeds | 0.9–32 s |
+| test51 | **15** | nrpa, 8 of 8 seeds | 1.9–12 s |
+
 | | test47 | test50 | test51 |
 | --- | --- | --- | --- |
 | Size | 11×12 | 9×23 | 13×14 |
@@ -49,8 +62,117 @@ reason test47 turned from "Gave up" into a real answer, and it is why the
 TypeScript engine gained the same arm (`Search.runDive`).
 
 test50 and test51 resist even the dive. Both are wider at the root (14 and 24
-legal moves, sustained after a move) and deeper (35 and 30), and neither has
-produced a single witness in any run so far.
+legal moves, sustained after a move) and deeper (35 and 30). Neither produced a
+single witness from any systematic search — the arm that eventually cracked both
+does not search systematically at all.
+
+## NRPA, and why restarts are the whole trick
+
+Nested Rollout Policy Adaptation (`SearchNrpa.cpp`, `nrpa.ts`) holds the records
+on SameGame and Morpion Solitaire, and SameGame is close enough to this puzzle —
+clear groups of like-coloured blocks under gravity — that the transfer was worth
+trying. It found test51 immediately (15 moves, 1.9 s) and test50 not at all,
+until three separate things were fixed. Each one is load-bearing:
+
+**1. The greedy arms barely randomised.** Their score was
+`alive*1e6 + cleared*256 + rng()*255`, and that noise term is strictly *smaller
+than one unit of `cleared`*, so it could only break exact ties. Measured on
+test51: **4000 restarts produced two distinct outcomes.** Softmax sampling over
+`cleared` (temperature 3, best of four policies tried) took the same rollouts
+from 19 blocks stuck to 7 left, and 2 → 1517 distinct outcomes. A noise term
+smaller than one unit of the score it perturbs is not randomisation.
+
+**2. NRPA optimises fewest-blocks-left, so its best line is usually PARTIAL.**
+Returning it as a solution emitted a move list that does not clear the board.
+`fixtures_test` caught it. Both engines now return a solution or nothing.
+
+**3. It gave up with two thirds of its budget unspent.** A level-N search
+exhausts its iterations and returns; on test50 the losing runs came back after
+~16 s of a 45 s slice and the arm simply stopped. Restarting with a fresh policy
+took test50 from **2 of 8 seeds to 5 of 8**, and leading the restart ladder with
+its cheapest rung took it to **6 of 8**.
+
+### The plateau is usually a proven dead end
+
+This is the measurement that explains everything above. NRPA plateaus on test50
+at 7–9 of 105 blocks left. Harvesting four plateau states and handing each to the
+exact prover — the endgame is tiny, so `unsolvable` there is a real proof —
+`src/util/harvestMatchThree.ts`:
+
+| seed | plateau | endgame verdict |
+| --- | --- | --- |
+| 0 | 9 left after 20 moves, 27 000 playouts | **proven unsolvable** |
+| 1 | — | **SOLVED, 23 moves** |
+| 2 | 9 left after 20 moves, 26 958 playouts | **proven unsolvable** |
+| 3 | 7 left after 20 moves, 27 000 playouts | **proven unsolvable** |
+
+So a run that plateaus has not run out of search — it has run out of *this
+policy*, and no amount of extra time on a dead attractor helps. That is the whole
+argument for restarts, and it is why the arm now restarts instead of grinding.
+
+### The restart ladder, and the mistake worth not repeating
+
+No single rung wins everywhere. At a fixed 45 s on test50, seed 4 answers *only*
+to level 4 (1.6 s) and fails at both 2 and 3; seeds 0 and 1 answer only to level
+2. So cycling the level across restarts is right — but the first two attempts at
+it both went *backwards*, and the reason is worth writing down.
+
+A rung costs `iterations ^ level` playouts. The natural-looking counts are wildly
+unequal:
+
+| rung | playouts | ≈ wall time at ~1700 playouts/s |
+| --- | --- | --- |
+| level 2 × 100 | 10 000 | 6 s |
+| level 3 × 30 | 27 000 | 16 s |
+| level 4 × 20 | **160 000** | **94 s** |
+
+A 45 s slice cannot hold that last rung at all. A ladder containing it gets one
+cheap restart, one medium one, and then nothing — the expensive rung swallows
+every second that was left. Measured on test50, eight seeds, 45 s each:
+
+| configuration | test50 | test47 | test51 |
+| --- | --- | --- | --- |
+| level 2 × 100 pinned, no cycling | **6 / 8** | — | 8 / 8 |
+| level 3 × 30 pinned, no cycling | 5 / 8 | 2 / 8 | 8 / 8 |
+| ladder {3×30, 2×100, 4×20} | 4 / 8 | 2 / 8 | 8 / 8 |
+| ladder {2×100, 3×30, 4×20} | 2 / 8 | 4 / 8 | 8 / 8 |
+| ladder {2×100, 3×22, 4×10} — equal cost | 2 / 8 | **5 / 8** | 8 / 8 |
+
+Equalising the rungs is right — it is what makes the level a diversity axis
+rather than a lottery on how much budget the cycle happens to reach, and it is
+what the ladder ships (all three rungs ~10 000 playouts). It bought test47 its
+best rate of anything measured.
+
+**But it did not rescue test50, and that is the real conclusion of this table:
+no single NRPA configuration wins both boards.** test50 wants the cheap rung over
+and over (6/8 pinned, 2/8 cycling); test47 wants the level to vary (5/8 cycling,
+2/8 pinned). Chasing one number kept costing the other, across five
+configurations, which is the point at which the answer stops being "tune it".
+
+So the portfolio races **both**: `kPortfolio` carries one nrpa arm pinned at level
+2 × 100 for test50, one on the ladder for test47, and a second pinned arm for a
+redundant test50 draw. That is what a portfolio is for, and it is why no further
+tuning was done here.
+
+### Two bounds the restart loop needs
+
+- **`kBarrenRestarts = 64`.** Restarts are otherwise unbounded on a board nothing
+  can clear: `best_.left` never reaches 0, so the loop spins to the deadline and
+  the prover waits out the whole slice before it can say `unsolvable`. Four unit
+  tests timed out on exactly that. The counter is on *barren restarts*, not on
+  restarts-since-improvement-within-a-run: on test50 the winning restart goes from
+  9 blocks left straight to 0 while every other restart also reaches 9, so
+  "stop when nothing is improving" would cut off precisely the draw that wins.
+- **A stranded-symbol check at the root.** A symbol already down to one or two
+  blocks can never line up again, so no playout can clear the board. Exact, free,
+  and it is the difference between the prover being told immediately and the
+  slice being spent first.
+
+Bounding the loop also took the whole `bun test` suite from 596 s to 366 s.
+
+Its per-seed nature is also why the portfolio now races **three** nrpa arms with
+different seeds rather than one arm thinking longer: a seed is an independent
+draw.
 
 ## Why the tree stays wide (measured, distinct states per depth)
 

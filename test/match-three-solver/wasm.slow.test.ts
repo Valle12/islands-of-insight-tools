@@ -219,7 +219,7 @@ describe.skipIf(Bun.env.IOI_SKIP_SLOW === "1")("Match-three wasm", () => {
   test(
     "matchThreeTest47 gets its 20-move answer, honestly labelled",
     async () => {
-      // The one hard board any arm cracks: the dive finds the solution a
+      // The one hard board a systematic arm cracks: the dive finds the solution a
       // 46-minute deepening run in July confirmed is optimal, and no engine
       // here can prove that — so it must come back solved but NOT proven.
       const module = await loadWasmModule();
@@ -232,6 +232,54 @@ describe.skipIf(Bun.env.IOI_SKIP_SLOW === "1")("Match-three wasm", () => {
       expect(moves).toHaveLength(20);
       expect(result.proven).toBeFalse();
       expect(clearsBoard(toBoard(config), moves)).toBeTrue();
+    },
+    TIMEOUT_MS,
+  );
+
+  /**
+   * The two boards nothing found a witness for until NRPA, pinned as a POSITIVE
+   * assertion rather than as a tolerated maybe. `BEYOND_BUDGET` above only says
+   * these must not come back *proven*; it stays green if the arms lose the
+   * ability to answer them at all, and losing that ability quietly is exactly
+   * what this catches.
+   *
+   * Each entry names the arm configuration and the seed measured to answer that
+   * board, and the budget is roughly 20x the measured time — a stochastic search
+   * asserted with a thin margin is a flake, and a thick one is a regression test.
+   * Both configurations are in the shipped `PORTFOLIO`; the seed is pinned here
+   * so the test does not depend on which arm of a race happens to land first.
+   */
+  const NRPA_WITNESSES = [
+    { name: "matchThreeTest50.json", moves: 23, seed: 1, level: 2,
+      iterations: 100, measuredMs: 542 },
+    { name: "matchThreeTest51.json", moves: 15, seed: 3, level: 0,
+      iterations: 0, measuredMs: 1929 },
+  ];
+
+  test.each(NRPA_WITNESSES)(
+    "$name yields its $moves-move NRPA witness",
+    async ({ name, moves: expected, seed, level, iterations }) => {
+      const module = await loadWasmModule();
+      const config = await readFixture(name);
+      const puzzle = toPuzzle(config);
+      const result = module.solve(puzzle, {
+        engine: "nrpa",
+        seed,
+        nrpaLevel: level,
+        nrpaIterations: iterations,
+        maxMs: 40_000,
+      });
+
+      expect(result.error).toBeUndefined();
+      const moves = plainMoves(result);
+      // The whole point: a witness EXISTS. Length is pinned too, because every
+      // seed and level that solves these returns the same count.
+      expect(moves).toHaveLength(expected);
+      // Never proven — no engine here exhausts the shorter lengths.
+      expect(result.proven).toBeFalse();
+      // And it has to survive the page's own rules, move for move.
+      expect(clearsBoard(toBoard(config), moves)).toBeTrue();
+      expect(module.verify(puzzle, moves)).toBeTrue();
     },
     TIMEOUT_MS,
   );

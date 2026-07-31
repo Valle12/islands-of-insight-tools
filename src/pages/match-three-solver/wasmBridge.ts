@@ -23,20 +23,32 @@ export const PORTFOLIO: Record<string, unknown>[] = [
   // the proven optimum — worst case 4 ms. It just says nothing about the other
   // 14, which is what the rest of this list is for.
   { engine: "greedy", maxMs: SOLVE_BUDGET_MS },
-  // Policy-adapting rollouts. Measured: the only arm that answers
-  // matchThreeTest51 — 15 moves in 2.2 s, where every other arm returns
-  // nothing at any budget.
-  { engine: "nrpa", maxMs: SOLVE_BUDGET_MS },
-  // The dive. Measured: the only arm that answers matchThreeTest47.
+  // Policy-adapting rollouts: the only arm that answers the two hardest captured
+  // boards — 23 moves on matchThreeTest50 and 15 on matchThreeTest51, where
+  // every other arm returns nothing at any budget. There are THREE of them, and
+  // both their seeds and their CONFIGS differ, because measured over eight seeds
+  // at 45 s each no single configuration wins both:
+  //
+  //   config                          test50   test47   test51
+  //   level 2 x 100 pinned             6 / 8      -      8 / 8
+  //   the restart ladder (cycling)     2 / 8    5 / 8    8 / 8
+  //
+  // test50 wants the cheap rung over and over; test47 wants the level to vary.
+  // Racing both is what a portfolio is for. Mirrors SolverArms.cpp's kPortfolio.
+  //
+  // test50 in 542 ms.
+  { engine: "nrpa", seed: 1, nrpaLevel: 2, nrpaIterations: 100, maxMs: SOLVE_BUDGET_MS },
+  // The dive. Measured: the arm that answers matchThreeTest47 fastest.
   { engine: "bnb", maxMs: SOLVE_BUDGET_MS },
   // The prover: raises the ruled-out floor, and settles easy boards outright.
   { engine: "iddfs", maxMs: SOLVE_BUDGET_MS },
+  // The ladder: test47 in 1.4 s, test51 in 5.1 s.
+  { engine: "nrpa", seed: 6, maxMs: SOLVE_BUDGET_MS },
   // A beam far wider than the arm's own ladder goes, for boards where the
   // frontier is what runs out rather than the budget.
   { engine: "beam", beamWidth: 8192, maxMs: SOLVE_BUDGET_MS },
-  // A second NRPA with deeper nesting: the right depth is board-dependent, and
-  // this one explores a wider policy space per adaptation.
-  { engine: "nrpa", seed: 1, nrpaLevel: 4, nrpaIterations: 20, maxMs: SOLVE_BUDGET_MS },
+  // A second draw at test50's favourite config, 15.9 s.
+  { engine: "nrpa", seed: 5, nrpaLevel: 2, nrpaIterations: 100, maxMs: SOLVE_BUDGET_MS },
 ];
 
 export interface SolveStats {

@@ -34,7 +34,60 @@ import {
  */
 const ALPHA = 1;
 
-/** Nesting depth and iterations per level. Level 3 x 30 solved test51. */
+/** One rung of the restart ladder: nesting depth, and iterations per level. */
+interface Rung {
+  readonly level: number;
+  readonly iterations: number;
+}
+
+/**
+ * What a restart cycles through, and the second reason restarts work at all.
+ * A fresh policy alone only changes WHERE the search looks; the nesting level
+ * changes HOW — level 2 runs many shallow adaptations, level 4 few deep ones —
+ * and on matchThreeTest50 that difference decides the board.
+ *
+ * **The rungs cost the same on purpose, and getting that wrong cost a
+ * two-thirds drop in solve rate.** A rung is `iterations ** level` playouts, so
+ * the natural-looking counts are wildly unequal: level 2 x 100 is 10 000
+ * playouts, level 3 x 30 is 27 000, level 4 x 20 is 160 000 — about 94 s of
+ * search, more than a whole 45 s slice. A ladder carrying that rung gets one
+ * cheap restart, one medium one, then nothing, because the expensive rung
+ * swallows every second that was left. Measured natively on test50, eight seeds
+ * at 45 s: level 2 x 100 pinned solves 6 of 8, the unequal ladder solves 2.
+ * Equal cost is what makes the level a diversity axis rather than a lottery on
+ * how much budget the cycle happens to reach. All three rungs are ~10 000
+ * playouts, and at a fixed 45 s seeds 0 and 1 answer only to level 2 while seed
+ * 4 answers only to level 4 — which is why all three stay.
+ */
+const LADDER: Rung[] = [
+  { level: 2, iterations: 100 },
+  { level: 3, iterations: 22 },
+  { level: 4, iterations: 10 },
+];
+
+/**
+ * Restarts with no improvement to the best line before the arm gives up.
+ *
+ * Restarts alone are unbounded on a board nothing can clear: `best.left` never
+ * reaches 0, so the loop spins until the deadline — which on an unsolvable board
+ * meant burning the whole 60 s slice before the prover got to say so, and four
+ * unit tests duly timed out. So the arm needs greedy's patience idea.
+ *
+ * It counts BARREN RESTARTS and not, as would be tempting, restarts since the
+ * last improvement *within* a run: on matchThreeTest50 the winning restart goes
+ * from 9 blocks left straight to 0 while every other restart also reaches 9, so
+ * "stop when nothing is improving" would cut off precisely the draw that wins.
+ * The count is generous for the same reason — the corpus's winners land within
+ * ~5 restarts and a 300 s slice only fits ~50, so this never binds on a board
+ * worth searching, while on a dead one every restart is near-instant.
+ */
+const BARREN_RESTARTS = 64;
+
+/**
+ * `level` / `iterations` pin one rung and switch the ladder off — for the bench
+ * sweeps and for a portfolio arm that wants a fixed character. Left unset, one
+ * arm covers every rung.
+ */
 export interface NrpaOptions {
   readonly level?: number;
   readonly iterations?: number;
@@ -51,6 +104,12 @@ export interface NrpaResult {
    * not clear the board through the C++ twin's CLI.
    */
   readonly moves: Move[];
+  /**
+   * The best line itself, complete or not — diagnostics, NEVER an answer.
+   * `moves` is the answer; this is what the campaign harness replays to reach
+   * the state NRPA plateaued at so an exact search can try to finish it.
+   */
+  readonly partial: Move[];
   /** Blocks the best line left behind; 0 means solved. */
   readonly left: number;
   /** Playouts run, for the work counter. */
@@ -163,8 +222,14 @@ export function runNrpa(
   deadline: number,
   onImproved: (moves: Move[]) => void,
 ): NrpaResult {
-  const level = options.level ?? 3;
-  const iterations = options.iterations ?? 30;
+  const pinned: Rung | null = options.level
+    ? {
+        level: options.level,
+        iterations: options.iterations ?? LADDER[0]!.iterations,
+      }
+    : null;
+  const rungFor = (restart: number): Rung =>
+    pinned ?? LADDER[restart % LADDER.length]!;
   const rng = mulberry32(options.seed ?? 0x5eed);
   const total = blockCount(start);
   const width = start.width;
@@ -175,6 +240,14 @@ export function runNrpa(
 
   let playouts = 0;
   let best: Line = { moves: [], left: total };
+
+  // Nothing to look for: a symbol already down to one or two blocks can never
+  // line up again, so no playout can clear this board. Exact and free, and it
+  // is the difference between the prover being told immediately and the slice
+  // being spent first.
+  if (total > 0 && hasStrandedSymbol(start)) {
+    return { moves: [], partial: [], left: total, playouts: 0 };
+  }
 
   const playout = (policy: Policy): Line => {
     const weightOf: WeightOf = move => policy.get(codeOf(move));
@@ -225,6 +298,8 @@ export function runNrpa(
     return next;
   };
 
+  let iterations = LADDER[0]!.iterations;
+
   const search = (depth: number, policy: Policy): Line => {
     if (depth === 0) return playout(policy);
     let levelBest: Line = { moves: [], left: total };
@@ -241,9 +316,31 @@ export function runNrpa(
     return levelBest;
   };
 
-  search(level, new Policy(start.cells.length));
+  // Restarts, and they are the whole difference between finding
+  // matchThreeTest50 and not. A level-N search exhausts its iterations and
+  // returns; the losing runs come back with two thirds of the slice unspent,
+  // and their plateau state is usually PROVABLY dead (exact endgame search: 3
+  // of 4 harvested test50 plateaus unsolvable). A run that plateaus has not run
+  // out of search, it has run out of THIS policy. The RNG keeps its stream
+  // across restarts rather than being re-seeded, so a restart cannot repeat a
+  // policy already tried and the caller's seed still reproduces everything.
+  let restarts = 0;
+  let barren = 0;
+  while (
+    best.left !== 0 &&
+    barren < BARREN_RESTARTS &&
+    performance.now() < deadline
+  ) {
+    const before = best.left;
+    const rung = rungFor(restarts);
+    iterations = rung.iterations;
+    search(rung.level, new Policy(start.cells.length));
+    restarts++;
+    barren = best.left < before ? 0 : barren + 1;
+  }
   return {
     moves: best.left === 0 ? best.moves : [],
+    partial: best.moves,
     left: best.left,
     playouts,
   };
