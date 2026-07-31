@@ -6,150 +6,251 @@ on:
   pull_request:
     branches: [main]
 
+# Supersede in-flight runs on the same PR — a push-heavy branch otherwise keeps
+# several full graphs alive at once. Never on main: those runs are what
+# deploy.yml looks up when it reuses a dist artifact.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # PINNED, not `latest`. The wasm cache key below claims that identical C++
+  # plus identical flags means identical wasm; that is only true if the compiler
+  # is pinned too. Bumping this invalidates every wasm cache entry, which is the
+  # intended behaviour.
+  EMSDK_VERSION: "6.0.4"
+
 jobs:
-  test:
+  # The one expensive artifact everything else needs. Built once, cached on its
+  # inputs, and handed to the other jobs as an artifact.
+  wasm:
+    name: Build WASM
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
 
+      # EXACT key, deliberately no restore-keys: a prefix match would restore
+      # wasm built from different C++, and every suite downstream would test the
+      # stale binary — green, and meaningless.
+      #
+      # GitHub's `*` does not cross directory boundaries, so a-star/test/** and
+      # a-star/bench/** correctly do NOT invalidate this.
+      - name: Restore wasm cache
+        id: wasm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            src/pages/rolling-blocks-solver/wasm/astar*.mjs
+            src/pages/rolling-blocks-solver/wasm/astar*.wasm
+            src/pages/rolling-blocks-solver/wasm/astar*.stamp
+            src/pages/shifting-mosaic-solver/wasm/astar*.mjs
+            src/pages/shifting-mosaic-solver/wasm/astar*.wasm
+            src/pages/shifting-mosaic-solver/wasm/astar*.stamp
+          key: wasm-${{ runner.os }}-emsdk${{ env.EMSDK_VERSION }}-${{ hashFiles('src/pages/*/a-star/*.cpp', 'src/pages/*/a-star/*.h', 'src/util/buildWasm.ts') }}
+
+      - name: Setup bun
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup wasm toolchain
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-wasm
+        with:
+          emsdk-version: ${{ env.EMSDK_VERSION }}
+
+      # Replaces ~90 lines of inline em++ shell that duplicated the source lists
+      # and the flag set. buildWasm.ts needs no `bun ci` — it imports only
+      # node:crypto/node:fs/node:path and Bun.which — and it builds the four
+      # variants of a solver concurrently, where the old shell loop was serial.
+      - name: Build WASM
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        run: bun run build:wasm
+
+      # The stamps travel with the binaries: without them the `dist` job would
+      # see no up-to-date markers and try to compile, which it has no toolchain
+      # for.
+      - name: Upload wasm
+        uses: actions/upload-artifact@v7
+        with:
+          name: wasm
+          path: |
+            src/pages/*/wasm/astar*.mjs
+            src/pages/*/wasm/astar*.wasm
+            src/pages/*/wasm/astar*.stamp
+          retention-days: 7
+          if-no-files-found: error
+
+  # Independent of wasm: the native gtest suites compile the same TUs with the
+  # host compiler.
+  cpp:
+    name: C++ tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      # Plain apt, deliberately not cached. It measures 19s, and this job's wall
+      # clock is dominated by shiftingMosaicTest37 (~112s of the ~130s ctest),
+      # so a package cache would buy ~10s for a third-party dependency.
+      #
+      # ccache is absent for the same reason: the OBJECT libraries plus -j
+      # already took the build from 162s serial to ~50s, and caching objects
+      # cannot touch the test time that actually sets this job's length.
       - name: Install C++ dependencies
         run: sudo apt-get update && sudo apt-get install -y libboost-dev nlohmann-json3-dev libgtest-dev cmake
 
-      - name: Build C++ tests
-        working-directory: src/pages/rolling-blocks-solver/a-star
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON && cmake --build build
+      # ONE configure over both solvers, via the repo-root aggregate. Developers
+      # still configure src/pages/*/a-star directly; see CLAUDE.md.
+      - name: Configure
+        run: >
+          cmake -B build-ci -S .
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
 
-      - name: Run C++ tests
-        working-directory: src/pages/rolling-blocks-solver/a-star
-        run: ctest --test-dir build --output-on-failure
+      # -j matters: the old two builds ran single-threaded on a 4-vCPU runner.
+      - name: Build
+        run: cmake --build build-ci -j "$(nproc)"
 
-      - name: Build shifting-mosaic C++ tests
-        working-directory: src/pages/shifting-mosaic-solver/a-star
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON && cmake --build build
+      # -j is safe because the shifting-mosaic fixtures carry PROCESSORS 4 (they
+      # each run the production six-arm std::thread cascade and want the whole
+      # machine), so ctest schedules them alone while the cheap rolling-blocks
+      # tests fill the remaining slots.
+      - name: Test
+        run: ctest --test-dir build-ci -j "$(nproc)" --output-on-failure
 
-      # json_test defaults to the production six-arm parallel cascade (the
-      # same solveArmsParallel the threaded wasm build ships), so ALL 44
-      # fixtures are hard-required — including test37 (deep-drag arm,
-      # ~4-8 min) and test41 (assembly arm, ~25s).
-      - name: Run shifting-mosaic C++ tests
-        working-directory: src/pages/shifting-mosaic-solver/a-star
-        run: ctest --test-dir build --output-on-failure
-
-      - name: Setup Emscripten
-        uses: emscripten-core/setup-emsdk@v16
-
-      - name: Build WASM
-        run: |
-          ASTAR_DIR=src/pages/rolling-blocks-solver/a-star
-          OUT_DIR=src/pages/rolling-blocks-solver/wasm
-          BOOST_DIR=/tmp/boost-headers
-          mkdir -p "$OUT_DIR" "$BOOST_DIR"
-          cp -r /usr/include/boost "$BOOST_DIR/"
-          # Keep in sync with the rolling-blocks `sources` in
-          # src/util/buildWasm.ts; a missing TU fails at link time.
-          SOURCES=(
-            "$ASTAR_DIR/wasm_bindings.cpp"
-            "$ASTAR_DIR/AStar.cpp"
-            "$ASTAR_DIR/AStarGoals.cpp"
-            "$ASTAR_DIR/AStarOptimizer.cpp"
-            "$ASTAR_DIR/SearchCracker.cpp"
-            "$ASTAR_DIR/SearchBeam.cpp"
-            "$ASTAR_DIR/SolverArms.cpp"
-            "$ASTAR_DIR/Block.cpp"
-            "$ASTAR_DIR/SolverClock.cpp"
-            "$ASTAR_DIR/Replay.cpp"
-          )
-          # $1 output name, $2 extra flags, $3 MAXIMUM_MEMORY (default 4GB).
-          build_variant() {
-            em++ \
-              "${SOURCES[@]}" \
-              -o "$OUT_DIR/$1" \
-              $2 \
-              -I "$BOOST_DIR" \
-              -std=c++23 \
-              -O3 \
-              -sWASM=1 \
-              -sMODULARIZE=1 \
-              -sEXPORT_NAME=createAStarModule \
-              -sENVIRONMENT=web,worker \
-              -sALLOW_MEMORY_GROWTH=1 \
-              -sINITIAL_MEMORY=16777216 \
-              -sMAXIMUM_MEMORY="${3:-4GB}" \
-              --bind \
-              -flto \
-              -fno-exceptions
-          }
-          build_variant astar.mjs ""
-          build_variant astar.threads.mjs "-pthread -sPTHREAD_POOL_SIZE=10"
-          build_variant astar.mem64.mjs "-m64" "8GB"
-          build_variant astar.threads.mem64.mjs "-pthread -sPTHREAD_POOL_SIZE=10 -m64" "8GB"
-
-      - name: Build shifting-mosaic WASM
-        run: |
-          ASTAR_DIR=src/pages/shifting-mosaic-solver/a-star
-          OUT_DIR=src/pages/shifting-mosaic-solver/wasm
-          mkdir -p "$OUT_DIR"
-          # AStar and DragSolver are each split across several .cpp files purely
-          # for file size; every one of them is part of the same class, so
-          # omitting any of them fails at link time with undefined symbols.
-          # Keep in sync with the shifting-mosaic `sources` in
-          # src/util/buildWasm.ts, which is what local builds use.
-          SOURCES=(
-            "$ASTAR_DIR/wasm_bindings.cpp"
-            "$ASTAR_DIR/SolverClock.cpp"
-            "$ASTAR_DIR/AStar.cpp"
-            "$ASTAR_DIR/AStarHeuristics.cpp"
-            "$ASTAR_DIR/AStarSearch.cpp"
-            "$ASTAR_DIR/AStarOptimizer.cpp"
-            "$ASTAR_DIR/DragSolver.cpp"
-            "$ASTAR_DIR/DragSolverHeuristics.cpp"
-            "$ASTAR_DIR/DragSolverSearch.cpp"
-            "$ASTAR_DIR/DragSolverExpand.cpp"
-            "$ASTAR_DIR/DragSolverAssembly.cpp"
-            "$ASTAR_DIR/DragSolverArms.cpp"
-            "$ASTAR_DIR/DragSolverBeam.cpp"
-          )
-          # $1 output name, $2 extra flags, $3 MAXIMUM_MEMORY (default 4GB).
-          build_variant() {
-            em++ \
-              "${SOURCES[@]}" \
-              -o "$OUT_DIR/$1" \
-              $2 \
-              -std=c++23 \
-              -O3 \
-              -sWASM=1 \
-              -sMODULARIZE=1 \
-              -sEXPORT_NAME=createShiftingMosaicAStarModule \
-              -sENVIRONMENT=web,worker \
-              -sALLOW_MEMORY_GROWTH=1 \
-              -sINITIAL_MEMORY=16777216 \
-              -sMAXIMUM_MEMORY="${3:-4GB}" \
-              --bind \
-              -flto \
-              -fno-exceptions
-          }
-          build_variant astar.mjs ""
-          build_variant astar.threads.mjs "-pthread -sPTHREAD_POOL_SIZE=10"
-          # wasm64 build (8GB heap); loaded by node, not bun — tested below.
-          # `-m64` is the standard flag emscripten 6.0.0 made an alias for
-          # -sMEMORY64, which 6.0.4 warns is deprecated. Keep in sync with
-          # src/util/buildWasm.ts.
-          build_variant astar.mem64.mjs "-m64" "8GB"
-          # pthreads + 8GB shared MEMORY64 heap (isolated path). Browser-only
-          # (shared memory64), so its build is verified here but not unit-tested.
-          build_variant astar.threads.mem64.mjs "-pthread -sPTHREAD_POOL_SIZE=10 -m64" "8GB"
-
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
-
       - name: Install dependencies
         run: bun ci
+      # CLAUDE.md makes this mandatory before calling work done, and CI never
+      # ran it.
+      - name: tsc --noEmit
+        run: bunx tsc --noEmit
 
+  # Between them these four shards run EVERY test under test/ — there is no env
+  # gate that can leave a suite silently unregistered.
+  bun-test:
+    name: bun test (${{ matrix.name }})
+    needs: wasm
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # One shard per slow suite, sized by measured wall clock
+          # (~244s / ~60s / ~44s), and a fourth for everything else.
+          - name: sm-wasm
+            filter: test/shifting-mosaic-solver/wasm.slow.test.ts
+          - name: rb-astar
+            filter: test/rolling-blocks-solver/aStar.slow.test.ts
+          - name: match-three-solve
+            filter: test/match-three-solver/engine.solve.slow.test.ts
+          - name: fast
+            filter: ""
+            skip-slow: "1"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+      - name: Cache bun dependencies
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+      - name: Install dependencies
+        run: bun ci
+      - name: Download wasm
+        uses: actions/download-artifact@v8
+        with:
+          name: wasm
+          path: src/pages
       - name: Run tests
-        run: ROLLING_BLOCKS_TEST=true bun test
+        run: bun test ${{ matrix.filter }}
+        env:
+          IOI_SKIP_SLOW: ${{ matrix.skip-slow }}
 
-      # bun cannot instantiate a Memory64 module, so the mem64 build is tested
+  e2e:
+    name: e2e (shard ${{ matrix.shard }}/2)
+    needs: wasm
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        run: bun ci
+      - name: Download wasm
+        uses: actions/download-artifact@v8
+        with:
+          name: wasm
+          path: src/pages
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      # `install --with-deps` alone pulls chromium AND firefox AND webkit;
+      # playwright.config.ts declares a single chromium project, so two thirds of
+      # that download was waste. The apt half is cheap and not cacheable.
+      - name: Install Playwright system dependencies
+        run: bunx playwright install-deps chromium
+      - name: Install Playwright chromium
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: bunx playwright install chromium
+
+      # Sharded across runners rather than raising `workers` above 1: each spec
+      # drives a multi-arm wasm portfolio inside the browser, so two runners at
+      # one worker each is strictly safer than one runner at two workers.
+      - name: Run e2e tests
+        run: bun run e2e -- --shard=${{ matrix.shard }}/2
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-${{ matrix.shard }}
+          path: playwright-report
+          retention-days: 7
+
+  mem64:
+    name: MEMORY64 (node)
+    needs: wasm
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+      - name: Download wasm
+        uses: actions/download-artifact@v8
+        with:
+          name: wasm
+          path: src/pages
+
+      # bun cannot instantiate a Memory64 module, so the mem64 builds are tested
       # under node instead of in `bun test`.
       #
       # The node version is PINNED rather than taken from the runner image: the
@@ -164,11 +265,41 @@ jobs:
         with:
           node-version: 24
 
-      - name: Run MEMORY64 wasm test (node)
-        run: node --test test/shifting-mosaic-solver/mem64.node.test.mjs
+      # BOTH files. This step used to name only the shifting-mosaic one, so the
+      # rolling-blocks MEMORY64 build was never loaded in CI.
+      - name: Run MEMORY64 wasm tests
+        run: node --test test/shifting-mosaic-solver/mem64.node.test.mjs test/rolling-blocks-solver/mem64.node.test.mjs
 
-      - name: Install Playwright browsers
-        run: bunx playwright install --with-deps
+  # Proves the production bundle still builds on every PR — nothing checked that
+  # before — and publishes the artifact deploy.yml reuses.
+  dist:
+    name: Build dist
+    needs: wasm
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        run: bun ci
+      - name: Download wasm
+        uses: actions/download-artifact@v8
+        with:
+          name: wasm
+          path: src/pages
 
-      - name: Run e2e tests
-        run: bun run e2e
+      # build.ts imports ./buildWasm for its side effect. With the wasm and its
+      # stamps already on disk all eight variants skip, so this needs no
+      # emscripten and is just the Bun.build passes.
+      - name: Build
+        run: bun run build
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist
+          retention-days: 7
+          if-no-files-found: error

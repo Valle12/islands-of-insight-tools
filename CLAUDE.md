@@ -108,6 +108,8 @@ The dev server keeps `development: true` for HMR and therefore *does* log that w
 
 `src/pages/*/wasm/` is generated output and gitignored, **except** `astar.worker.js`, which is hand-written source living in the same directory. Do not delete the directory wholesale.
 
+The source lists are duplicated in two places that must stay in sync: `buildWasm.ts` and the C++ `CMakeLists.txt`. A missing TU fails at link time with undefined symbols. (There used to be a third copy — a hand-written `em++` loop in `.github/workflows/test.yml`. CI now calls `bun run build:wasm`, which also made it concurrent rather than eight serial builds.)
+
 **Variants are skipped when their inputs have not moved.** Each writes an `astar*.mjs.stamp` next to its output holding a sha256 over the `sources`, **every `*.h` in the a-star directory root**, and the full argv, plus the `em++ --version` string. All four inputs are load-bearing:
 
 - the headers because `AStar.h`, `PuzzleProfile.h`, `ParallelCascade.h` and friends are in no `sources` list yet absolutely change the output. Only the a-star **root** is hashed — `bench/` and `test/` are native-only and must not invalidate the wasm;
@@ -117,8 +119,6 @@ The dev server keeps `development: true` for HMR and therefore *does* log that w
 `FORCE_WASM=1` rebuilds regardless. The stamp is deliberately **not** a dotfile: `actions/upload-artifact` v4+ drops hidden files unless told otherwise, and a stamp that failed to travel with its binary would make the CI `dist` job try to compile.
 
 `resolveEmcc()` is **lazy and returns null rather than throwing**, so a tree whose wasm is already current builds with no emsdk at all — which is what lets the CI `dist` job and deploy's cache-hit path run `bun run build` on a runner that never installed emscripten. A skip with no compiler to compare versions against warns loudly, because "no emsdk" must never look like "verified current".
-
-The source lists are duplicated in three places that must stay in sync: `buildWasm.ts`, the `em++` steps in `.github/workflows/test.yml`, and the C++ `CMakeLists.txt`. A missing TU fails at link time with undefined symbols.
 
 ### The two solver bridges
 
@@ -301,6 +301,58 @@ Two traps, both measured:
 
 **So: for C++ changes, finish by asking the user to open and focus each changed file in CLion, then call `getDiagnostics` (no `uri`) and check the file is actually listed before concluding it is clean.** For TS/JS this hand-off is unnecessary — `analyze_code_snippet` covers it headlessly.
 
+## CI
+
+`.github/workflows/test.yml` is a job DAG, not one serial job. It was ~20 min as a
+single job; the critical path is now ~5½ min cold and ~3¼ min with a warm wasm
+cache.
+
+```
+wasm ──┬──▶ bun-test [4 shards]
+       ├──▶ e2e      [2 shards]
+       ├──▶ mem64
+       └──▶ dist              cpp        typecheck
+```
+
+- **`wasm`** is the only expensive artifact; it runs `bun run build:wasm` (no
+  `bun ci` needed) and uploads `astar*.{mjs,wasm,stamp}` for the four jobs
+  downstream. `cpp` and `typecheck` are independent of it.
+- **`bun-test` fans out over four shards** — one per `*.slow.test.ts` suite plus
+  one running everything else under `IOI_SKIP_SLOW=1`. Between them they run
+  **every** test, which is why no env gate can leave a suite unregistered.
+- **`dist`** proves the production bundle still builds on every PR (nothing
+  checked that before) and publishes the artifact `deploy.yml` reuses.
+- `.github/actions/setup-wasm` is a composite action shared with `deploy.yml`, so
+  the emsdk pin and the `BOOST_INCLUDE` symlink cannot drift between them.
+
+Two rules that are easy to get wrong:
+
+- **The wasm cache key is exact — never add `restore-keys`.** A prefix match
+  would restore wasm built from different C++ and every suite downstream would
+  test the stale binary: green, and meaningless. GitHub's `*` does not cross
+  directory boundaries, so `a-star/test/**` and `a-star/bench/**` correctly do
+  not invalidate it.
+- **`EMSDK_VERSION` is pinned *because* that key assumes it.** `setup-emsdk`
+  defaults to `latest`, which would make "same C++ plus same flags means same
+  wasm" a lie. It must match in `test.yml` and `deploy.yml`.
+
+Deliberately absent: an apt-package cache and ccache. Both were measured against
+the `cpp` job, whose ~200 s is dominated by `shiftingMosaicTest37` (~112 s of the
+~130 s ctest). apt is 19 s total, and ccache can only touch the ~50 s build that
+the OBJECT libraries and `-j` already shrank — neither earns a third-party
+action. Also absent: `paths`/`paths-ignore` filters to skip the C++ jobs on
+TS-only PRs, because a skipped required check never reports and branch protection
+would block the PR forever.
+
+`deploy.yml` first tries to download `dist` from the successful Test run on the
+**parent** of the version-bump commit (`update-version` creates the commit the
+build job checks out, so no run exists for that SHA yet), and otherwise builds
+with the shared wasm cache. The reuse is only sound because dist content does not
+depend on the version — nothing under `src/` reads `package.json`; it names only
+the release zip and the tag. **Rendering a version anywhere on the site
+invalidates that step.** `update-version` also refuses to run unless `main`'s head
+has a green Test run.
+
 ## Keeping this file current
 
 Update `CLAUDE.md` in the same change that introduces something it would have been useful to know beforehand: a new page or solver, a new build/test command or env gate, a new shared utility in `src/util/` or `cmake/`, a change to the fixture layout or the wasm variant set, or a newly discovered toolchain trap. Do not log routine feature work here.
@@ -310,4 +362,4 @@ Update `CLAUDE.md` in the same change that introduces something it would have be
 - `tsconfig.json` sets `noUncheckedIndexedAccess`, which is why array and `querySelector` access is littered with `!`.
 - There is no prettier/eslint config in the repo; match the surrounding style (~80 columns, `arrowParens: "avoid"`).
 - Bench baselines under `src/pages/shifting-mosaic-solver/a-star/bench/*.json` store fixture names as keys and are read by `--diff`.
-- Deployment is `workflow_dispatch` only (`.github/workflows/deploy.yml`): it bumps the version on a branch, PRs it to `main`, merges, then builds and publishes Pages.
+- Deployment is `workflow_dispatch` only (`.github/workflows/deploy.yml`): it bumps the version on a branch, PRs it to `main`, merges, then publishes Pages from the reused-or-rebuilt `dist` (see "CI").

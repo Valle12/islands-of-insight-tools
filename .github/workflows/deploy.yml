@@ -17,12 +17,18 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+env:
+  # Must match test.yml — the wasm cache key below is shared with it, and that
+  # key assumes a pinned compiler.
+  EMSDK_VERSION: "6.0.4"
+
 jobs:
   update-version:
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
+      actions: read
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -30,6 +36,16 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: main
+
+      # workflow_dispatch will happily publish a red commit otherwise. Also the
+      # precondition for the dist reuse below: a green Test run on this SHA is
+      # exactly the run whose artifact the build job goes looking for.
+      - name: Require a green Test run on main
+        run: |
+          gh run list --workflow=Test --branch=main --limit=1 \
+            --json headSha,conclusion --jq \
+            'if (.[0].headSha == "${{ github.sha }}" and .[0].conclusion == "success")
+             then empty else halt_error(1) end'
 
       - name: Create version branch
         run: git checkout -b version
@@ -56,6 +72,8 @@ jobs:
       contents: read
       pages: write
       id-token: write
+      # `gh run list` / `gh run download` for the dist reuse below.
+      actions: read
     outputs:
       version: ${{ steps.extract-version.outputs.VERSION }}
     steps:
@@ -63,28 +81,73 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: main
+          # `git rev-parse HEAD^` below needs the version-bump commit's parent.
+          fetch-depth: 2
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
 
-      - name: Setup Emscripten
-        uses: emscripten-core/setup-emsdk@v16
-
-      - name: Install Boost
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libboost-dev
-          mkdir -p "$HOME/boost-include"
-          ln -s /usr/include/boost "$HOME/boost-include/boost"
-          echo "BOOST_INCLUDE=$HOME/boost-include" >> "$GITHUB_ENV"
-
       - name: Setup pages
         uses: actions/configure-pages@v6
 
+      # `update-version` CREATES the commit this job checks out, so no Test run
+      # exists for that SHA — the lookup deliberately targets its parent.
+      #
+      # This is only sound because dist content does not depend on the version:
+      # nothing under src/ reads package.json, which is only used for the
+      # release zip name and the tag. Rendering a version anywhere on the site
+      # invalidates this step, so delete it if that ever happens.
+      - name: Reuse dist from the Test run on the parent commit
+        id: reuse
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          parent=$(git rev-parse HEAD^)
+          run_id=$(gh run list --workflow=Test --branch=main --limit=20 \
+            --json databaseId,headSha,conclusion \
+            --jq "[.[] | select(.headSha==\"$parent\" and .conclusion==\"success\")][0].databaseId")
+          if [ -n "$run_id" ] && [ "$run_id" != "null" ] \
+             && gh run download "$run_id" -n dist -D dist; then
+            echo "Reusing dist from Test run $run_id ($parent)"
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No reusable dist for $parent — building from source"
+            echo "hit=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Everything below is the fallback path. It stays unconditional where it
+      # is cheap, so a miss degrades to exactly the old behaviour — a full
+      # build — and never to a wrong artifact.
+      #
+      # Same key as test.yml's wasm job, so a push to main populates what this
+      # reads. On a hit `bun run build` skips all eight variants via the stamps
+      # in src/util/buildWasm.ts.
+      - name: Restore wasm cache
+        if: steps.reuse.outputs.hit != 'true'
+        uses: actions/cache@v6
+        with:
+          path: |
+            src/pages/rolling-blocks-solver/wasm/astar*.mjs
+            src/pages/rolling-blocks-solver/wasm/astar*.wasm
+            src/pages/rolling-blocks-solver/wasm/astar*.stamp
+            src/pages/shifting-mosaic-solver/wasm/astar*.mjs
+            src/pages/shifting-mosaic-solver/wasm/astar*.wasm
+            src/pages/shifting-mosaic-solver/wasm/astar*.stamp
+          key: wasm-${{ runner.os }}-emsdk${{ env.EMSDK_VERSION }}-${{ hashFiles('src/pages/*/a-star/*.cpp', 'src/pages/*/a-star/*.h', 'src/util/buildWasm.ts') }}
+
+      # Needed whenever the cache misses, which is the whole fallback story.
+      - name: Setup wasm toolchain
+        if: steps.reuse.outputs.hit != 'true'
+        uses: ./.github/actions/setup-wasm
+        with:
+          emsdk-version: ${{ env.EMSDK_VERSION }}
+
       - name: Install dependencies
+        if: steps.reuse.outputs.hit != 'true'
         run: bun ci
 
       - name: Build
+        if: steps.reuse.outputs.hit != 'true'
         run: bun run build
 
       - name: Extract version

@@ -1,0 +1,42 @@
+name: Setup wasm toolchain
+description: >
+  emsdk (pinned and cached) plus the Boost headers, exported as BOOST_INCLUDE
+  the way src/util/buildWasm.ts expects. Shared by test.yml and deploy.yml so
+  the two cannot drift apart.
+
+inputs:
+  emsdk-version:
+    description: >
+      Pinned emsdk version. Must match the EMSDK_VERSION the caller puts in its
+      wasm cache key — that key claims "same C++ plus same flags means same
+      wasm", which is only true with the compiler pinned too.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Emscripten
+      uses: emscripten-core/setup-emsdk@v16
+      with:
+        version: ${{ inputs.emsdk-version }}
+        actions-cache-folder: emsdk-cache-${{ inputs.emsdk-version }}
+
+    # em++ builds the libc/libc++/pthread/memory64 sysroot variants on first
+    # use. Without this every runner pays for all of them again, and this repo
+    # builds four variants per solver.
+    - name: Cache emscripten sysroot
+      uses: actions/cache@v6
+      with:
+        path: ~/.emscripten_cache
+        key: emcache-${{ runner.os }}-${{ inputs.emsdk-version }}-v1
+
+    # buildWasm.ts reads BOOST_INCLUDE and passes it as a single -I. The symlink
+    # farm (rather than -I /usr/include) keeps that include path to boost alone.
+    - name: Install Boost headers
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libboost-dev
+        mkdir -p "$HOME/boost-include"
+        ln -sfn /usr/include/boost "$HOME/boost-include/boost"
+        echo "BOOST_INCLUDE=$HOME/boost-include" >> "$GITHUB_ENV"
