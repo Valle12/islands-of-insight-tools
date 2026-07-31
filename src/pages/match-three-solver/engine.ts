@@ -22,6 +22,18 @@ export interface SolveProgress {
 export interface SolveOptions {
   readonly budgetMs?: number;
   readonly onProgress?: (progress: SolveProgress) => void;
+  /** Called once, as the search returns, with what it spent getting there. */
+  readonly onStats?: (stats: SolveStats) => void;
+}
+
+/** What a finished search spent, however it ended. */
+export interface SolveStats {
+  /** Edges considered — the same counter the progress heartbeat reports. */
+  readonly nodes: number;
+  /** Transposition-table entries held at return. */
+  readonly tableEntries: number;
+  /** The deepest iteration entered, completed or not. */
+  readonly depthReached: number;
 }
 
 export type SolveResult =
@@ -134,6 +146,15 @@ class Search {
     return { status: "unsolvable" };
   }
 
+  /** The counters `SolveOptions.onStats` reports. */
+  stats(): SolveStats {
+    return {
+      nodes: this.nodes,
+      tableEntries: this.failed.size,
+      depthReached: this.depth,
+    };
+  }
+
   /** True once the budget is gone; also the progress heartbeat. */
   private outOfTime(): boolean {
     this.nodes++;
@@ -242,5 +263,8 @@ export function solveMatchThree(
   board: MatchThreeBoard,
   options: SolveOptions = {},
 ): SolveResult {
-  return new Search(options).run(board);
+  const search = new Search(options);
+  const result = search.run(board);
+  options.onStats?.(search.stats());
+  return result;
 }
