@@ -49,6 +49,8 @@ astar.mem64.wasm
 astar.mem64.mjs
 astar.threads.mem64.wasm
 astar.threads.mem64.mjs
+# Up-to-date markers written beside the wasm outputs by src/util/buildWasm.ts.
+*.stamp
 # Local vendored checkouts (a CaDiCaL clone was accidentally committed as a
 # bare submodule gitlink, with no .gitmodules to resolve it).
 third_party/

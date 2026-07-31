@@ -17,7 +17,7 @@ bun install
 
 bun run dev              # dev server on :3000 (src/util/serve.ts)
 bun run build            # -> dist/ (runs build:wasm first via an import side effect)
-bun run build:wasm       # em++ only; needed before `bun test` on a clean checkout
+bun run build:wasm       # em++ only; skips variants whose inputs have not moved
 
 bun test                 # unit tests (bunfig.toml pins root = "test")
 bun run test             # build:wasm + the full suite with the rolling-blocks gate on
@@ -78,6 +78,16 @@ The dev server keeps `development: true` for HMR and therefore *does* log that w
 `src/util/buildWasm.ts` drives `em++` (resolved via `Bun.which`, emsdk ≥ 6.0.0 required for `-m64`) and produces **four variants per solver** from the same translation units — plain wasm32, `-pthread`, MEMORY64 (8GB heap), and pthreads+MEMORY64 — built concurrently (rolling-blocks and shifting-mosaic alike). Assets are served/copied under `/rb-wasm/` and `/sm-wasm/` respectively (`serve.ts` allowlist, `build.ts` copies; workers are reached page-relative as `../rb-wasm/astar.worker.js`).
 
 `src/pages/*/wasm/` is generated output and gitignored, **except** `astar.worker.js`, which is hand-written source living in the same directory. Do not delete the directory wholesale.
+
+**Variants are skipped when their inputs have not moved.** Each writes an `astar*.mjs.stamp` next to its output holding a sha256 over the `sources`, **every `*.h` in the a-star directory root**, and the full argv, plus the `em++ --version` string. All four inputs are load-bearing:
+
+- the headers because `AStar.h`, `PuzzleProfile.h`, `ParallelCascade.h` and friends are in no `sources` list yet absolutely change the output. Only the a-star **root** is hashed — `bench/` and `test/` are native-only and must not invalidate the wasm;
+- the argv because it carries `SM_SIMD`, `-m64`, `-pthread`, `BOOST_INCLUDE` and the memory ceilings;
+- **content, never mtimes** — a fresh `git checkout` and an `actions/cache` restore both rewrite mtimes wholesale, so an mtime check would trust a restored-but-stale output.
+
+`FORCE_WASM=1` rebuilds regardless. The stamp is deliberately **not** a dotfile: `actions/upload-artifact` v4+ drops hidden files unless told otherwise, and a stamp that failed to travel with its binary would make the CI `dist` job try to compile.
+
+`resolveEmcc()` is **lazy and returns null rather than throwing**, so a tree whose wasm is already current builds with no emsdk at all — which is what lets the CI `dist` job and deploy's cache-hit path run `bun run build` on a runner that never installed emscripten. A skip with no compiler to compare versions against warns loudly, because "no emsdk" must never look like "verified current".
 
 The source lists are duplicated in three places that must stay in sync: `buildWasm.ts`, the `em++` steps in `.github/workflows/test.yml`, and the C++ `CMakeLists.txt`. A missing TU fails at link time with undefined symbols.
 
