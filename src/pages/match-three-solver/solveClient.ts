@@ -1,4 +1,5 @@
 import type { SolveProgress, SolveResult } from "./engine";
+import type { Move } from "./rules";
 import type { SolveMessage, SolveRequest } from "./solverWorker";
 import type { MatchThreeTest } from "./../../util/types";
 
@@ -12,6 +13,8 @@ const WORKER_URL = "../mt-worker/solverWorker.js";
 
 export interface SolveHandlers {
   readonly onProgress?: (progress: SolveProgress) => void;
+  /** Every improvement to the best-known solution, as it is found. */
+  readonly onBest?: (moves: Move[]) => void;
   readonly onResult: (result: SolveResult) => void;
   readonly onError: (message: string) => void;
 }
@@ -45,6 +48,10 @@ export function searchMatchThree(
     const message = event.data;
     if (message.type === "progress") {
       handlers.onProgress?.(message.progress);
+      return;
+    }
+    if (message.type === "best") {
+      handlers.onBest?.(message.moves);
       return;
     }
     stop();

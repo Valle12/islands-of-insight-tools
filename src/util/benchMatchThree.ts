@@ -31,9 +31,14 @@ interface BenchResult {
   fixture: string;
   status: "solved" | "unsolvable" | "budget";
   moves?: number;
+  /** Whether the move count is proven minimal (absent in legacy baselines). */
+  proven?: boolean;
   groupingProven?: boolean;
   /** Whether the solution survived an independent replay. */
   valid?: boolean;
+  /** When the first best-so-far streamed in, and how long it was. */
+  firstBestMs?: number;
+  firstBestLength?: number;
   depthReached: number;
   nodes: number;
   tableEntries: number;
@@ -100,9 +105,16 @@ async function benchFixture(
   let nodes = 0;
   let tableEntries = 0;
   let depthReached = 0;
+  let firstBestMs: number | undefined;
+  let firstBestLength: number | undefined;
   const started = performance.now();
   const result = solveMatchThree(start, {
     budgetMs,
+    onBest: moves => {
+      if (firstBestMs !== undefined) return;
+      firstBestMs = Math.round(performance.now() - started);
+      firstBestLength = moves.length;
+    },
     onStats: stats => {
       nodes = stats.nodes;
       tableEntries = stats.tableEntries;
@@ -119,8 +131,13 @@ async function benchFixture(
     tableEntries,
     wallMs,
   };
+  if (firstBestMs !== undefined) {
+    record.firstBestMs = firstBestMs;
+    record.firstBestLength = firstBestLength;
+  }
   if (result.status === "solved") {
     record.moves = result.moves.length;
+    record.proven = result.proven;
     record.groupingProven = result.groupingProven;
     record.valid = clearsBoard(start, result.moves);
   }
@@ -130,7 +147,8 @@ async function benchFixture(
 function describeResult(r: BenchResult): string {
   if (r.status === "solved") {
     const invalid = r.valid === false ? " *** REPLAY FAILED ***" : "";
-    return `solved — ${r.moves} moves in ${r.wallMs}ms${invalid}`;
+    const label = r.proven === false ? " (unproven)" : "";
+    return `solved — ${r.moves} moves${label} in ${r.wallMs}ms${invalid}`;
   }
   if (r.status === "budget") {
     return (
@@ -141,8 +159,14 @@ function describeResult(r: BenchResult): string {
   return `unsolvable in ${r.wallMs}ms`;
 }
 
+/** Legacy baselines predate the anytime engine; everything solved was proven. */
+function isProven(r: BenchResult): boolean {
+  return r.status === "solved" && r.proven !== false;
+}
+
 // Every way an "after" run can be worse. A lost "unsolvable" would mean a
-// completed proof went missing, so status may only move toward solved.
+// completed proof went missing; a proven length may never move; an unproven
+// one may (it is not a claim of minimality), so it is exempt from the pin.
 function rowRegressions(b: BenchResult, a: BenchResult): string[] {
   const problems: string[] = [];
   if (b.status === "solved" && a.status !== "solved") {
@@ -151,8 +175,11 @@ function rowRegressions(b: BenchResult, a: BenchResult): string[] {
   if (b.status === "unsolvable" && a.status !== "unsolvable") {
     problems.push(`unsolvable → ${a.status.toUpperCase()}`);
   }
-  if (b.status === "solved" && a.status === "solved" && b.moves !== a.moves) {
-    problems.push(`solved length changed (${b.moves} → ${a.moves})`);
+  if (isProven(b) && a.status === "solved" && !isProven(a)) {
+    problems.push("proven → unproven");
+  }
+  if (isProven(b) && isProven(a) && b.moves !== a.moves) {
+    problems.push(`proven length changed (${b.moves} → ${a.moves})`);
   }
   if (a.valid === false) problems.push("solution failed replay");
   if (
@@ -222,7 +249,7 @@ if (opts.diff.length === 2) {
   const out: BenchFile = {
     meta: {
       createdAt: new Date().toISOString(),
-      engine: "ts-iddfs",
+      engine: "ts-anytime",
       budgetMs: opts.budgetMs,
     },
     results,

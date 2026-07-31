@@ -3,6 +3,7 @@ import { solveMatchThree } from "../../src/pages/match-three-solver/engine";
 import {
   boardProblem,
   toBoard,
+  type Move,
 } from "../../src/pages/match-three-solver/rules";
 import type { MatchThreeTest } from "../../src/util/types";
 import {
@@ -26,6 +27,13 @@ const ONE_MOVE = ["aab", "bba"];
 
 /** The same trick stacked twice over, with no swap able to reach both halves. */
 const TWO_MOVES = ["aab", "bba", "ccd", "ddc"];
+
+/**
+ * Like TWO_MOVES, but the two swaps sit in different columns, so playing the
+ * bottom one first drops the top half onto coordinates neither move names —
+ * every minimal solution of this board is order-dependent.
+ */
+const ORDERED = ["aab", "bba", "dcc", "cdd"];
 
 /**
  * One swap, two waves, empty board: the swap completes a run of four `a`, and
@@ -61,6 +69,7 @@ describe("solveMatchThree", () => {
     expect(solve(["..", "#."])).toEqual({
       status: "solved",
       moves: [],
+      proven: true,
       groupingProven: true,
     });
   });
@@ -90,11 +99,11 @@ describe("solveMatchThree", () => {
   });
 
   test("reports the moves in the order they must be played", () => {
-    const result = solve(TWO_MOVES);
+    const result = solve(ORDERED);
     if (result.status !== "solved") throw new Error(result.status);
     const reversed = [...result.moves].reverse();
-    expect(clearsBoard(board(TWO_MOVES), result.moves)).toBeTrue();
-    expect(clearsBoard(board(TWO_MOVES), reversed)).toBeFalse();
+    expect(clearsBoard(board(ORDERED), result.moves)).toBeTrue();
+    expect(clearsBoard(board(ORDERED), reversed)).toBeFalse();
   });
 
   describe("Unsolvable boards", () => {
@@ -114,7 +123,8 @@ describe("solveMatchThree", () => {
 
   describe("Budget", () => {
     test("every board these cases lean on is a legal start state", () => {
-      for (const rows of [ONE_MOVE, TWO_MOVES, CASCADE_CLEARS, NO_SWAPS, SLOW]) {
+      const cases = [ONE_MOVE, TWO_MOVES, ORDERED, CASCADE_CLEARS, NO_SWAPS, SLOW];
+      for (const rows of cases) {
         expect(boardProblem(board(rows))).toBeNull();
       }
     });
@@ -123,7 +133,7 @@ describe("solveMatchThree", () => {
       const result = solve(SLOW, 0);
       expect(result.status).toBe("budget");
       if (result.status !== "budget") return;
-      expect(result.depth).toBeGreaterThanOrEqual(0);
+      expect(result.ruledOut).toBeGreaterThanOrEqual(0);
     });
 
     test("a board it can finish is never reported as a give-up", () => {
@@ -132,14 +142,39 @@ describe("solveMatchThree", () => {
   });
 
   describe("Progress", () => {
-    test("reports the length it is currently ruling out", () => {
+    test("reports what has been ruled out so far", () => {
       const seen: number[] = [];
       solveMatchThree(board(SLOW), {
         budgetMs: 0,
-        onProgress: progress => seen.push(progress.depth),
+        onProgress: progress => seen.push(progress.ruledOut),
       });
       expect(seen.length).toBeGreaterThan(0);
-      expect(seen.every(depth => depth >= 0)).toBeTrue();
+      expect(seen.every(ruledOut => ruledOut >= 0)).toBeTrue();
+    });
+  });
+
+  describe("Anytime", () => {
+    test("streamed bests replay, and only ever get better", () => {
+      const bests: Move[][] = [];
+      const result = solveMatchThree(board(SLOW), {
+        budgetMs: 150,
+        onBest: moves => bests.push(moves),
+      });
+
+      for (let i = 0; i < bests.length; i++) {
+        expect(clearsBoard(board(SLOW), bests[i]!)).toBeTrue();
+        if (i > 0) {
+          expect(bests[i]!.length).toBeLessThanOrEqual(bests[i - 1]!.length);
+        }
+      }
+      // Whether 150ms is enough to prove anything varies with the machine;
+      // what may never vary is the honesty of the outcome.
+      if (result.status === "solved") {
+        expect(clearsBoard(board(SLOW), result.moves)).toBeTrue();
+        if (!result.proven) expect(bests.length).toBeGreaterThan(0);
+      } else {
+        expect(result.status).toBe("budget");
+      }
     });
   });
 

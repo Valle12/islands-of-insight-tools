@@ -75,6 +75,7 @@ const MARKUP = `
     </div>
   </div>
   <div id="solution-view" class="hidden">
+    <div id="solution-proven-note" class="hidden"></div>
     <span id="solution-step-counter"></span>
     <div id="solution-grid"></div>
     <div id="solution-step-text"></div>
@@ -330,11 +331,34 @@ describe("MatchThreeSolverEditor", () => {
     test("reports how far the search has got", () => {
       paintBoard(ONE_MOVE);
       solve();
-      lastSearch().handlers.onProgress?.({ depth: 3, nodes: 4000 });
+      lastSearch().handlers.onProgress?.({
+        phase: "prove",
+        ruledOut: 3,
+        bestLength: null,
+        nodes: 4000,
+      });
 
-      expect(byId("solution-progress-text").textContent).toContain("3 moves");
+      // Depths 0..3 are exhausted, so 4 is what is being ruled out now.
+      expect(byId("solution-progress-text").textContent).toContain(
+        "Ruling out 4 moves",
+      );
       expect(byId("solution-progress-text").textContent).toContain(
         "positions checked",
+      );
+    });
+
+    test("a best in hand shows up in the progress line", () => {
+      paintBoard(ONE_MOVE);
+      solve();
+      lastSearch().handlers.onProgress?.({
+        phase: "prove",
+        ruledOut: 3,
+        bestLength: 9,
+        nodes: 4000,
+      });
+
+      expect(byId("solution-progress-text").textContent).toContain(
+        "Best so far: 9 moves (not yet proven shortest)",
       );
     });
 
@@ -369,7 +393,7 @@ describe("MatchThreeSolverEditor", () => {
     test("a search that ran out of time reports no length at all", () => {
       paintBoard(ONE_MOVE);
       solve();
-      lastSearch().handlers.onResult({ status: "budget", depth: 4 });
+      lastSearch().handlers.onResult({ status: "budget", ruledOut: 4 });
 
       expect(byId("solution-status").textContent).toBe("Gave up");
       expect(byId("solution-message").textContent).toContain("4 moves or fewer");
@@ -381,6 +405,7 @@ describe("MatchThreeSolverEditor", () => {
       lastSearch().handlers.onResult({
         status: "solved",
         moves: [],
+        proven: true,
         groupingProven: true,
       });
 
@@ -394,12 +419,29 @@ describe("MatchThreeSolverEditor", () => {
       lastSearch().handlers.onResult({
         status: "solved",
         moves: [THE_MOVE],
+        proven: true,
         groupingProven: true,
       });
 
       expect(hidden("solution-view")).toBeFalse();
       expect(hidden("editor-section")).toBeTrue();
       expect(byId("solution-step-counter").textContent).toBe("Step 1 of 1");
+      // Proven means no budget note.
+      expect(hidden("solution-proven-note")).toBeTrue();
+    });
+
+    test("an unproven solution carries the not-proven note", () => {
+      paintBoard(ONE_MOVE);
+      solve();
+      lastSearch().handlers.onResult({
+        status: "solved",
+        moves: [THE_MOVE],
+        proven: false,
+        groupingProven: false,
+      });
+
+      expect(hidden("solution-view")).toBeFalse();
+      expect(hidden("solution-proven-note")).toBeFalse();
     });
 
     test("Back to editor returns to the board", () => {
@@ -408,6 +450,7 @@ describe("MatchThreeSolverEditor", () => {
       lastSearch().handlers.onResult({
         status: "solved",
         moves: [THE_MOVE],
+        proven: true,
         groupingProven: true,
       });
       byId("solution-exit").click();
@@ -438,6 +481,24 @@ describe("MatchThreeSolverEditor", () => {
       expect(byId("solution-status").textContent).toBe("Cancelled");
     });
 
+    test("a streamed best turns Cancel into Stop, and Stop keeps it", () => {
+      paintBoard(ONE_MOVE);
+      solve();
+      expect(byId("solution-cancel").textContent).toBe("Cancel");
+
+      lastSearch().handlers.onBest?.([THE_MOVE]);
+      expect(byId("solution-cancel").textContent).toBe(
+        "Stop — use best so far",
+      );
+
+      byId("solution-cancel").click();
+      expect(cancelled).toBe(1);
+      // The streamed best is rendered, honestly labeled as unproven.
+      expect(hidden("solution-view")).toBeFalse();
+      expect(hidden("solution-proven-note")).toBeFalse();
+      expect(byId("solution-step-counter").textContent).toBe("Step 1 of 1");
+    });
+
     /** Painting a cell the value it already holds is a deliberate no-op. */
     const erase = (x: number, y: number) => {
       toolButton("empty").click();
@@ -457,6 +518,17 @@ describe("MatchThreeSolverEditor", () => {
       expect(cancelled).toBe(1);
     });
 
+    test("a best from a board that has moved on is dropped too", () => {
+      paintBoard(ONE_MOVE);
+      solve();
+      const stale = lastSearch().handlers;
+      erase(0, 0);
+
+      stale.onBest?.([THE_MOVE]);
+
+      expect(byId("solution-cancel").textContent).toBe("Cancel");
+    });
+
     test("editing the board hides the panel again", () => {
       paintBoard(ONE_MOVE);
       solve();
@@ -472,6 +544,7 @@ describe("MatchThreeSolverEditor", () => {
       lastSearch().handlers.onResult({
         status: "solved",
         moves: [THE_MOVE],
+        proven: true,
         groupingProven: true,
       });
       byId("solution-exit").click();

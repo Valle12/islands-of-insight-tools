@@ -1,8 +1,11 @@
-import { EMPTY, FIRST_SYMBOL, isSymbol } from "./cell";
+import { EMPTY, FIRST_SYMBOL, isSymbol, symbolIndexOf } from "./cell";
 import { SOLVE_BUDGET_MS } from "./config";
+import { beamSearch, greedySearch } from "./fastSolvers";
 import {
   applyGravity,
+  applyMove,
   blockCount,
+  cellAt,
   findMatchesInto,
   hasRunThrough,
   markRunsThrough,
@@ -13,9 +16,20 @@ import {
 import { SYMBOL_COUNT } from "./symbols";
 import { TransTable } from "./transTable";
 
+/**
+ * What the engine is doing right now. `greedy` and `beam` are the fast arms
+ * looking for any clearing sequence; `prove` is the deepening that rules
+ * shorter lengths out; `grouping` runs once the length is settled and only
+ * tidies which same-length solution gets shown.
+ */
+export type SolvePhase = "greedy" | "beam" | "prove" | "grouping";
+
 export interface SolveProgress {
-  /** The solution length currently being ruled out. */
-  readonly depth: number;
+  readonly phase: SolvePhase;
+  /** The deepest solution length fully ruled out so far. */
+  readonly ruledOut: number;
+  /** Length of the best solution found so far, or null before any. */
+  readonly bestLength: number | null;
   readonly nodes: number;
 }
 
@@ -28,17 +42,23 @@ export interface SolveOptions {
    */
   readonly tableBytes?: number;
   readonly onProgress?: (progress: SolveProgress) => void;
+  /**
+   * Streams every improvement to the best-known solution, as it is found.
+   * The client that holds the latest of these can stop the search at any
+   * point and still have a playable answer.
+   */
+  readonly onBest?: (moves: Move[]) => void;
   /** Called once, as the search returns, with what it spent getting there. */
   readonly onStats?: (stats: SolveStats) => void;
 }
 
 /** What a finished search spent, however it ended. */
 export interface SolveStats {
-  /** Edges considered — the same counter the progress heartbeat reports. */
+  /** Work units — fast-arm moves applied plus prover edges considered. */
   readonly nodes: number;
   /** Transposition-table entries held at return. */
   readonly tableEntries: number;
-  /** The deepest iteration entered, completed or not. */
+  /** The deepest prover iteration entered, completed or not. */
   readonly depthReached: number;
 }
 
@@ -47,14 +67,24 @@ export type SolveResult =
       status: "solved";
       moves: Move[];
       /**
+       * Whether the move count is proven minimal: every shorter length was
+       * searched out. False means the search ran out of budget with this as
+       * its best find — the count is honest, just not a proof.
+       */
+      proven: boolean;
+      /**
        * Whether the search also finished proving this is the *best-grouped*
-       * shortest solution. False means the move count is still minimal — that
-       * part is never reported unproven — but a tidier ordering may exist.
+       * solution of its length. Only meaningful when `proven` is true; a
+       * tidier ordering may exist either way.
        */
       groupingProven: boolean;
     }
   | { status: "unsolvable" }
-  | { status: "budget"; depth: number };
+  | {
+      status: "budget";
+      /** No solution of this many moves or fewer exists — that much IS proven. */
+      readonly ruledOut: number;
+    };
 
 /** Nodes between clock reads. Reading the clock per node costs more than the search. */
 const CHECK_INTERVAL = 2_000;
@@ -160,10 +190,19 @@ function ensureCapacity(level: Level, needed: number): void {
  * terminates on its own, which is what makes "unsolvable" a real proof rather
  * than a timeout in disguise.
  */
+/** A solution handed to the prover to prove minimal — or beat. */
+interface Incumbent {
+  readonly moves: Move[];
+  readonly switches: number;
+}
+
 class Search {
   private readonly deadline: number;
   private readonly onProgress: ((progress: SolveProgress) => void) | undefined;
+  private readonly onBest: ((moves: Move[]) => void) | undefined;
   private readonly tableBytes: number;
+  /** Work the fast arms already did, folded into the reported counters. */
+  private readonly nodesOffset: number;
   /** Boards searched out in vain, and at what remaining depth. */
   private table!: TransTable;
   private readonly levels: Level[] = [];
@@ -179,59 +218,97 @@ class Search {
   private sinceCheck = 0;
   private expired = false;
   private depth = 0;
+  private ruledOut = 0;
   private solutions = 0;
   private stopAtFirst = true;
+  /** Whether the current first-pass iteration found any solution. */
+  private passFound = false;
   private best: Move[] | null = null;
   private bestSwitches = Number.POSITIVE_INFINITY;
   private lastProgressMs = 0;
 
-  constructor(options: SolveOptions) {
+  constructor(options: SolveOptions, nodesOffset = 0) {
     this.deadline =
       performance.now() + (options.budgetMs ?? SOLVE_BUDGET_MS);
     this.onProgress = options.onProgress;
+    this.onBest = options.onBest;
     this.tableBytes = options.tableBytes ?? TABLE_BYTES;
+    this.nodesOffset = nodesOffset;
   }
 
-  run(board: MatchThreeBoard): SolveResult {
+  run(board: MatchThreeBoard, incumbent?: Incumbent): SolveResult {
     this.width = board.width;
     this.height = board.height;
     this.table = new TransTable(board.cells.length, this.tableBytes);
     this.seedSymbolCounts(board);
+    if (incumbent) {
+      this.best = incumbent.moves;
+      this.bestSwitches = incumbent.switches;
+    }
 
     const blocks = blockCount(board);
-    const maxDepth = Math.floor(blocks / MIN_RUN);
-    this.pathMoves = new Int32Array(maxDepth + 1);
-    this.pathSymbols = new Int32Array(maxDepth + 1);
+    const natural = Math.floor(blocks / MIN_RUN);
+    // With an incumbent in hand, exhausting every shorter length is a proof
+    // of its minimality — the deepening never has to visit its own depth.
+    const cap = this.best ? Math.min(natural, this.best.length - 1) : natural;
+    this.pathMoves = new Int32Array(natural + 1);
+    this.pathSymbols = new Int32Array(natural + 1);
 
-    for (let depth = 0; depth <= maxDepth; depth++) {
+    for (let depth = 0; depth <= cap; depth++) {
       this.depth = depth;
 
+      this.passFound = false;
       this.stopAtFirst = true;
       this.explore(board, depth, blocks);
 
-      if (this.best) {
-        // The length is settled. Spend what is left of the budget looking for
-        // the same length arranged more conveniently.
+      if (this.passFound) {
+        // The length is settled — shorter than anything known. Spend what is
+        // left of the budget looking for it arranged more conveniently.
         this.stopAtFirst = false;
         this.explore(board, depth, blocks);
         return {
           status: "solved",
-          moves: this.best,
+          moves: this.best!,
+          proven: true,
           groupingProven: !this.expired,
         };
       }
       // The iteration the clock interrupted proved nothing — only the depths
-      // before it were actually searched out, and that is what gets reported.
-      if (this.expired) return { status: "budget", depth: depth - 1 };
+      // before it were actually searched out.
+      if (this.expired) {
+        return this.best
+          ? {
+              status: "solved",
+              moves: this.best,
+              proven: false,
+              groupingProven: false,
+            }
+          : { status: "budget", ruledOut: this.ruledOut };
+      }
+      this.ruledOut = depth;
     }
 
+    if (this.best) {
+      // Every shorter length is searched out: the incumbent is minimal. What
+      // remains of the budget goes to tidying its grouping at exactly its
+      // length — shorter solutions were just proven not to exist.
+      this.depth = this.best.length;
+      this.stopAtFirst = false;
+      this.explore(board, this.best.length, blocks);
+      return {
+        status: "solved",
+        moves: this.best,
+        proven: true,
+        groupingProven: !this.expired,
+      };
+    }
     return { status: "unsolvable" };
   }
 
   /** The counters `SolveOptions.onStats` reports. */
   stats(): SolveStats {
     return {
-      nodes: this.nodes,
+      nodes: this.nodesOffset + this.nodes,
       tableEntries: this.table ? this.table.size : 0,
       depthReached: this.depth,
     };
@@ -267,7 +344,12 @@ class Search {
     const now = performance.now();
     if (now - this.lastProgressMs >= PROGRESS_INTERVAL_MS) {
       this.lastProgressMs = now;
-      this.onProgress?.({ depth: this.depth, nodes: this.nodes });
+      this.onProgress?.({
+        phase: this.stopAtFirst ? "prove" : "grouping",
+        ruledOut: this.ruledOut,
+        bestLength: this.best ? this.best.length : null,
+        nodes: this.nodesOffset + this.nodes,
+      });
     }
     if (now >= this.deadline) this.expired = true;
     return this.expired;
@@ -318,7 +400,9 @@ class Search {
     this.sortChildren(level, moveCount);
 
     for (let i = 0; i < moveCount; i++) {
-      if (this.outOfTime() || (this.stopAtFirst && this.best)) return false;
+      if (this.outOfTime() || (this.stopAtFirst && this.passFound)) {
+        return false;
+      }
       const child = level.order[i]!;
       this.pushStep(level, child);
       this.explore(
@@ -343,7 +427,9 @@ class Search {
     const cells = board.cells;
 
     for (let i = 0; i < moveCount; i++) {
-      if (this.outOfTime() || (this.stopAtFirst && this.best)) return false;
+      if (this.outOfTime() || (this.stopAtFirst && this.passFound)) {
+        return false;
+      }
       const packed = level.moves[i]!;
       if (this.applyInto(board, level.leaf, packed, level, 0) !== blocks) {
         continue;
@@ -585,10 +671,17 @@ class Search {
 
   private keepSolution(): void {
     this.solutions++;
+    this.passFound = true;
+    const length = this.pathLength;
     const switches = this.countSwitches();
-    if (switches >= this.bestSwitches) return;
+    if (this.best) {
+      // A shorter solution always wins; at equal length the grouping decides.
+      if (length > this.best.length) return;
+      if (length === this.best.length && switches >= this.bestSwitches) return;
+    }
     this.bestSwitches = switches;
     this.best = this.decodePath();
+    this.onBest?.(this.best);
   }
 
   /** The packed path as the `Move[]` the page and the viewer speak. */
@@ -606,12 +699,125 @@ class Search {
   }
 }
 
+/** The fast arms' slices — caps, never floors: both arms exit early when
+ * they stop finding anything, which is what keeps easy boards instant. */
+const GREEDY_SLICE_MS = 2_000;
+const GREEDY_SLICE_FRACTION = 0.05;
+const BEAM_SLICE_MS = 45_000;
+const BEAM_SLICE_FRACTION = 0.2;
+
+interface ArmsOutcome {
+  readonly best: Move[] | null;
+  readonly work: number;
+}
+
+/**
+ * Greedy rollouts, then the beam ladder, each within its slice of the
+ * budget. Improvements stream out through `onBest` the moment they exist.
+ */
+function runFastArms(
+  board: MatchThreeBoard,
+  blocks: number,
+  budgetMs: number,
+  deadline: number,
+  options: SolveOptions,
+): ArmsOutcome {
+  let best: Move[] | null = null;
+  let work = 0;
+  let lastPost = 0;
+
+  const post = (phase: SolvePhase) => {
+    const now = performance.now();
+    if (now - lastPost < PROGRESS_INTERVAL_MS) return;
+    lastPost = now;
+    options.onProgress?.({
+      phase,
+      ruledOut: 0,
+      bestLength: best ? best.length : null,
+      nodes: work,
+    });
+  };
+  const improve = (moves: Move[]) => {
+    if (best && moves.length >= best.length) return;
+    best = moves;
+    options.onBest?.(moves);
+  };
+  const bound = () =>
+    best ? (best as Move[]).length : Math.floor(blocks / MIN_RUN) + 1;
+
+  const greedyDeadline = Math.min(
+    deadline,
+    performance.now() + Math.min(GREEDY_SLICE_MS, budgetMs * GREEDY_SLICE_FRACTION),
+  );
+  greedySearch(board, blocks, greedyDeadline, bound(), improve, delta => {
+    work += delta;
+    post("greedy");
+  });
+
+  const beamDeadline = Math.min(
+    deadline,
+    performance.now() + Math.min(BEAM_SLICE_MS, budgetMs * BEAM_SLICE_FRACTION),
+  );
+  beamSearch(board, blocks, beamDeadline, bound(), improve, delta => {
+    work += delta;
+    post("beam");
+  });
+
+  return { best, work };
+}
+
+/**
+ * The grouping metric of an arm's solution, replayed to read each swap's
+ * pre-swap symbols — the prover needs it so an equal-grouping rearrangement
+ * does not oust the incumbent for nothing.
+ */
+function movesSwitches(board: MatchThreeBoard, moves: Move[]): number {
+  let current = board;
+  let previous = -1;
+  let switches = 0;
+  for (const move of moves) {
+    const first = symbolIndexOf(cellAt(current, move.a.x, move.a.y));
+    const second = symbolIndexOf(cellAt(current, move.b.x, move.b.y));
+    const symbols = (first << 4) | second;
+    if (previous >= 0 && !sharesSymbol(previous, symbols)) switches++;
+    previous = symbols;
+    const outcome = applyMove(current, move);
+    if (!outcome) break;
+    current = outcome.board;
+  }
+  return switches;
+}
+
+/**
+ * The anytime pipeline: greedy rollouts and a beam find SOME clearing
+ * sequence early (streamed via `onBest`), then the deepening prover works
+ * minimality from below with the incumbent's length as its cap. Easy boards
+ * end exactly as they always did — proven, in milliseconds — because the
+ * arms give up early when there is nothing to find; hard boards end with a
+ * labeled best instead of nothing.
+ */
 export function solveMatchThree(
   board: MatchThreeBoard,
   options: SolveOptions = {},
 ): SolveResult {
-  const search = new Search(options);
-  const result = search.run(board);
+  const budgetMs = options.budgetMs ?? SOLVE_BUDGET_MS;
+  const deadline = performance.now() + budgetMs;
+
+  const blocks = blockCount(board);
+  if (blocks === 0) {
+    options.onStats?.({ nodes: 0, tableEntries: 0, depthReached: 0 });
+    return { status: "solved", moves: [], proven: true, groupingProven: true };
+  }
+
+  const arms = runFastArms(board, blocks, budgetMs, deadline, options);
+  const search = new Search(
+    { ...options, budgetMs: Math.max(0, deadline - performance.now()) },
+    arms.work,
+  );
+  const incumbent = arms.best
+    ? { moves: arms.best, switches: movesSwitches(board, arms.best) }
+    : undefined;
+  const result = search.run(board, incumbent);
   options.onStats?.(search.stats());
   return result;
 }

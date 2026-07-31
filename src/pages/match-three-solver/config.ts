@@ -10,12 +10,14 @@ import { SYMBOL_COUNT } from "./symbols";
 export const MAX_GRID_SIDE = 32;
 
 /**
- * How long the search may run before it gives up. The solver only ever reports
- * a move count it has *proven* minimal, which means exhausting every shorter
- * length first — so a board that is too big has to be refused rather than
- * answered approximately.
+ * How long the search may run before settling for what it has. The engine is
+ * anytime: fast arms find a clearing sequence early and stream improvements,
+ * while the prover rules shorter lengths out underneath — a solution the
+ * budget cut short of a proof is reported as exactly that, never dressed up
+ * as minimal. Five minutes matches the rolling-blocks page; easy boards
+ * still answer in milliseconds, only genuinely hard ones use the headroom.
  */
-export const SOLVE_BUDGET_MS = 30_000;
+export const SOLVE_BUDGET_MS = 300_000;
 
 export type ConfigParseResult =
   | { ok: true; config: MatchThreeTest }
