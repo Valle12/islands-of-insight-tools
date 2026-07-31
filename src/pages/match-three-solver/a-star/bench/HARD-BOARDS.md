@@ -52,20 +52,60 @@ test50 and test51 resist even the dive. Both are wider at the root (14 and 24
 legal moves, sustained after a move) and deeper (35 and 30), and neither has
 produced a single witness in any run so far.
 
-## The one idea worth trying next
+## Why the tree stays wide (measured, distinct states per depth)
 
-All three boards are close to left-right mirror-symmetric and carry large
-regular blockade walls — test51 in particular is nearly four separate columns of
-play joined at the bottom. Rolling-blocks got its biggest single win from
-**region decomposition** (a footprint cannot straddle an unplayable cell, so
-regions are independent sub-puzzles). Match-three has no such clean argument —
-gravity and cascades cross column segments — but a weaker version might hold:
-symbols confined to one blockade-walled column group can only ever clear within
-it, so the board may split into sub-problems whose solutions concatenate.
-Confirming or refuting that on test51 is the highest-value next experiment.
+| depth | test47 states | ×prev | test50 states | ×prev | test51 states | ×prev |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 19 | — | 14 | — | 24 | — |
+| 2 | 186 | 9.8 | 128 | 9.1 | 302 | 12.6 |
+| 3 | 1 232 | 6.6 | 878 | 6.9 | 2 531 | 8.4 |
+| 4 | 6 107 | 5.0 | 4 906 | 5.6 | 15 315 | 6.1 |
+| 5 | 23 851 | 3.9 | 23 146 | 4.7 | 69 375 | 4.5 |
+| 6 | 75 272 | 3.2 | 94 303 | 4.1 | 240 026 | 3.5 |
+| 7 | 194 680 | 2.6 | 336 390 | 3.6 | — | — |
 
-Ideas already measured and rejected:
+Branching *does* decay — 10× at the root to under 4× by depth 7 — and it still
+loses. Extrapolating test50's 3.6× to the depth 29 its block count implies is a
+number not worth writing down; even test47's depth 19 comes out somewhere
+between a day and a few weeks of continuous search, depending on how much
+further the decay goes.
 
+The reason the board stays crowded is arithmetic: a move clears 3.5 cells on
+average, so ten moves into test50 only about a third of its 105 blocks are gone.
+Measured at depth 7, its states still hold **48 to 81** blocks.
+
+## Why the deadlock prune helps test47 and not test50
+
+`hasStrandedSymbol` (a symbol down to one or two blocks can never line up again)
+is the load-bearing prune, and how hard it bites depends entirely on the board's
+symbol counts:
+
+| | symbol counts | children killed at depth 6 |
+| --- | --- | --- |
+| test47 | 12, 9, 6, 12, 6, 6, 6, 12 | **19 %** (17 631 of 92 903) |
+| test50 | 18, 18, 18, 21, 3, 9, 9, 9 | 1 % (952 of 95 255) |
+| test51 | 20, 23, 12, 16, 19 | 0.8 % (1 986 of 242 012) |
+
+test47's four six-block symbols reach one-or-two quickly, so whole branches die
+early. test50 and test51 keep 9–23 blocks of everything, so almost nothing dies.
+**That difference, not size, is why test47 is the crackable one.**
+
+The check is also arithmetically complete: every count ≥3 can be written as a sum
+of removals of ≥3 (3, 4, 5, 3+3, …), so one and two are the only counts a
+counting argument alone can refute. There is no cheap extension here.
+
+## Ideas measured and rejected
+
+- **Region decomposition — refuted 2026-07-31.** Rolling-blocks got its biggest
+  win from it, and these boards *look* like candidates: big regular blockade
+  walls, test51 nearly four columns of play. A block genuinely cannot leave its
+  4-connected component of non-blocked cells (swaps are adjacent, gravity is
+  within a column), so a per-component count of 1 or 2 would be just as dead as
+  a global one — and invisible to the global check. **All three boards are ONE
+  component.** The walls never close; the bottom rows join everything. Measured
+  over the whole depth-1..6 frontier of each board, a per-component check kills
+  exactly **zero** states the global check does not. The walls make the boards
+  look decomposable and they are not.
 - **Raising the budget.** ×2.5 per level makes every arithmetic increase
   irrelevant, and the old unbounded table died at 19 GB RSS long before time
   ran out. The bounded table (256 MB/arm) removed the crash, not the wall.
