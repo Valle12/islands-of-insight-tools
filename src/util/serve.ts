@@ -5,6 +5,7 @@ import {
   WORKER_FILE,
 } from "./buildWorker";
 import index from "./../pages/index.html";
+import logicGridSolver from "./../pages/logic-grid-solver/index.html";
 import matchThreeSolver from "./../pages/match-three-solver/index.html";
 import phasicDialSolver from "./../pages/phasic-dial-solver/index.html";
 import rollingBlocksSolver from "./../pages/rolling-blocks-solver/index.html";
@@ -86,6 +87,7 @@ const server = Bun.serve({
   // what GitHub Pages does with it in production.
   routes: {
     "/": index,
+    "/logic-grid-solver/": logicGridSolver,
     "/match-three-solver/": matchThreeSolver,
     "/phasic-dial-solver/": phasicDialSolver,
     "/rolling-blocks-solver/": rollingBlocksSolver,

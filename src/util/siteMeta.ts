@@ -33,15 +33,15 @@ export type PageMeta = {
 };
 
 /**
- * The five pages as a table: slug, then title, then description — one row per
+ * The six pages as a table: slug, then title, then description — one row per
  * line, and the home page's slug is the empty string.
  *
- * Deliberately a table rather than five formatted object literals. Sonar's
- * duplication detector normalises string literals, so five entries of identical
- * shape read to it as one block repeated five times: at ten lines each that was
- * a 40-line duplicate and, on its own, a failed quality gate. Rows this short
- * cannot form a block long enough to match. Lining the columns up is also what
- * makes a table worth reading.
+ * Deliberately a table rather than six formatted object literals. Sonar's
+ * duplication detector normalises string literals, so entries of identical
+ * shape read to it as one block repeated once per page: at ten lines each that
+ * was a 40-line duplicate and, on its own, a failed quality gate. Rows this
+ * short cannot form a block long enough to match. Lining the columns up is also
+ * what makes a table worth reading.
  *
  * Descriptions are ~150-160 characters — long enough to fill a Google snippet,
  * short enough not to be truncated — and lead with the words someone stuck on
@@ -54,7 +54,8 @@ const SOURCE: readonly (readonly [
   title: string,
   description: string,
 ])[] = [
-  ["", "Islands of Insight Tools | Free Puzzle Solvers", "Free browser-based solvers for Islands of Insight puzzles: Match Three, Phasic Dial, Rolling Blocks and Shifting Mosaic. Enter the puzzle, get the solution."],
+  ["", "Islands of Insight Tools | Free Puzzle Solvers", "Free browser-based solvers for Islands of Insight puzzles: Logic Grid, Match Three, Phasic Dial, Rolling Blocks and Shifting Mosaic. Get the solution."],
+  ["logic-grid-solver", "Logic Grid Solver | Islands of Insight Tools", "Solve Islands of Insight Logic Grid puzzles. Paint the dark and light cells, switch on the rules the puzzle uses, place its clues, and get the finished grid."],
   ["match-three-solver", "Match Three Solver | Islands of Insight Tools", "Stuck on a Match Three puzzle in Islands of Insight? Paint the board of coloured blocks and blockades and get the exact sequence of swaps that clears it."],
   ["phasic-dial-solver", "Phasic Dial Solver | Islands of Insight Tools", "Solve Islands of Insight Phasic Dial puzzles. Enter each dial and what every button turns, and get the fewest presses that returns them all to centre."],
   ["rolling-blocks-solver", "Rolling Blocks Solver | Islands of Insight Tools", "Solve Islands of Insight Rolling Block puzzles. Lay out the board and the blocks, and get the exact rolls that cover every marked tile or reach the goal."],
@@ -80,16 +81,22 @@ export const PAGES: readonly PageMeta[] = SOURCE.map(
  * Open Graph wants 1.91:1 — a scraper centre-crops anything else, so a taller
  * screenshot loses its top and bottom rather than showing more.
  *
- * 1600x838 rather than the more common 1200x630, because a WIDER frame is how
- * you fit a whole page into that ratio: measured with full-page captures, the
- * five pages run 681-808 px tall at 1200 px wide, and text wraps to fewer lines
- * as the viewport widens. 1200x630 cut every solver off mid-grid.
+ * The frame is therefore sized by the TALLEST page, and widened to keep the
+ * ratio. 1200x630 cut every solver off mid-grid; 1600x838 fitted all five of
+ * them, and logic-grid then arrived needing 951 px (a 903 px card plus the
+ * body's 24 px padding top and bottom) and lost its rules and Solve button.
+ *
+ * 1920x1005 is the next size up that clears 951. Note that widening past
+ * ~1000 px buys height and nothing else: `#editor-card` is capped at 960 px, so
+ * a wider viewport does not reflow the content, it only adds empty margin
+ * beside it. That is why this is 1920 and not more — measure the card, do not
+ * guess.
  *
  * Every page's og:image:width / og:image:height declares these two numbers, and
- * `test/siteMeta.test.ts` fails if they drift apart.
+ * `test/siteMeta.test.ts` fails if they drift apart or from the committed PNGs.
  */
-export const OG_IMAGE_WIDTH = 1600;
-export const OG_IMAGE_HEIGHT = 838;
+export const OG_IMAGE_WIDTH = 1920;
+export const OG_IMAGE_HEIGHT = 1005;
 
 /** Where the OG screenshots live in `dist/` and in the dev server. */
 export const OG_DIR = "og";

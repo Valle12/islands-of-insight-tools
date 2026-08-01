@@ -1,0 +1,434 @@
+/* Dark and light are the puzzle's own two colours, not the app's theme, so they
+   are fixed values rather than Material tokens: a "dark" cell has to read as
+   dark whichever theme the page is shown in. The ink colours are the pair that
+   keeps a clue legible on top of each of them. */
+:root {
+  /* Deeper than any surface the dark theme paints behind it: at #26262e a dark
+     cell was all but indistinguishable from the empty grid well. */
+  --logic-dark: #131318;
+  --logic-light: #ffffff;
+  --logic-ink-on-dark: #f4f4f7;
+  --logic-ink-on-light: #131318;
+  /* One opaque mid grey rims BOTH colours. It is the only value that stays
+     visible on a white cell, on a near-black one, and on either theme's card —
+     a rim mixed from the cell's own colour goes translucent and disappears. */
+  --logic-rim: #8a8a95;
+  --logic-gap: repeating-linear-gradient(
+    45deg,
+    color-mix(in srgb, var(--md-sys-color-outline) 42%, transparent) 0 4px,
+    transparent 4px 9px
+  );
+}
+
+body {
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  box-sizing: border-box;
+  font-family: "Roboto", sans-serif;
+  color: var(--md-sys-color-on-surface);
+}
+
+#home-button {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+}
+
+#container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin-block: auto;
+}
+
+#editor-card {
+  width: min(100%, 960px);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 18px;
+  background:
+    linear-gradient(
+      140deg,
+      color-mix(
+        in srgb,
+        var(--md-sys-color-primary-container) 48%,
+        transparent
+      ),
+      transparent 55%
+    ),
+    var(--md-sys-color-surface-container-low);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.09);
+}
+
+h1,
+h2 {
+  margin: 0;
+}
+
+#subtitle {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+#editor-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+#size-controls {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+
+  md-outlined-text-field {
+    --md-outlined-text-field-container-shape: 10px;
+    width: 160px;
+  }
+}
+
+#grid-shell {
+  display: flex;
+  justify-content: center;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--md-sys-color-surface-container);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+#grid {
+  display: grid;
+  gap: 6px;
+  user-select: none;
+  touch-action: none;
+}
+
+.grid-cell {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 60%, white);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    transform 80ms ease,
+    box-shadow 120ms ease,
+    background-color 120ms ease;
+}
+
+#grid .grid-cell:hover {
+  transform: translateY(-1px);
+}
+
+/* An uncoloured cell is the one the player still has to work out, so it reads
+   as absence: no fill, dashed outline. A clue sitting on one is the game's own
+   colourless clue. */
+.grid-cell[data-color="unknown"] {
+  background: transparent;
+  border-style: dashed;
+  border-color: color-mix(
+    in srgb,
+    var(--md-sys-color-on-surface) 32%,
+    transparent
+  );
+  color: var(--md-sys-color-on-surface);
+}
+
+.grid-cell[data-color="dark"] {
+  background: var(--logic-dark);
+  border-color: var(--logic-rim);
+  color: var(--logic-ink-on-dark);
+}
+
+.grid-cell[data-color="light"] {
+  background: var(--logic-light);
+  border-color: var(--logic-rim);
+  color: var(--logic-ink-on-light);
+}
+
+/* A gap in the board: not a cell the puzzle colours or clues, so it is hatched
+   rather than filled and never carries text. */
+.grid-cell[data-color="unplayable"] {
+  background: var(--logic-gap);
+  border-style: dotted;
+  border-color: var(--md-sys-color-outline);
+}
+
+#tool-status {
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.tool-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* A row per kind of tool rather than one long wrapping line: the three groups
+   do different things, and a single row reflows them into each other as the
+   window narrows or as clue kinds are appended. */
+#paint-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#rule-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  h2 {
+    font-size: 15px;
+    color: var(--md-sys-color-on-surface-variant);
+  }
+}
+
+.tool-button {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tool-button.selected {
+  border-color: var(--md-sys-color-primary);
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+
+/* The square tools: a swatch, a glyph or an icon, with no label beside it. */
+.symbol-chip,
+.icon-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 6px;
+  border-radius: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.icon-tool.selected {
+  color: var(--md-sys-color-on-primary-container);
+}
+
+.symbol-sample {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* One control per clue kind, in the shape of a Material split button: the chip
+   that selects it, a hairline divider, and the value it will stamp. The value
+   sits beside its own chip rather than in one shared field below the row —
+   a single field has to keep saying which clue it belongs to, and every kind
+   added makes that worse. */
+.symbol-tool {
+  /* Shared with the two ends below so their focus rings stay in the shape of
+     the pill they sit in — see `.symbol-value`. */
+  --tool-radius: 12px;
+
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--tool-radius);
+  background: var(--md-sys-color-surface-container-highest);
+  overflow: hidden;
+}
+
+/* The inner corner: the container's radius less its own 1px border. */
+.symbol-tool > * {
+  --tool-inner-radius: calc(var(--tool-radius) - 1px);
+}
+
+.symbol-tool.selected {
+  border-color: var(--md-sys-color-primary);
+  background: var(--md-sys-color-primary-container);
+}
+
+/* The chip gives up its own pill: the unit around it is the pill now. It keeps
+   the LEFT corners, for the same reason the field keeps the right ones. */
+.symbol-tool .symbol-chip {
+  border: none;
+  border-radius: var(--tool-inner-radius) 0 0 var(--tool-inner-radius);
+  background: transparent;
+}
+
+.symbol-tool .symbol-chip:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+}
+
+.symbol-tool.selected .symbol-chip,
+.symbol-tool.selected .symbol-value {
+  color: var(--md-sys-color-on-primary-container);
+}
+
+.symbol-divider {
+  width: 1px;
+  background: var(--md-sys-color-outline-variant);
+}
+
+.symbol-tool.selected .symbol-divider {
+  background: color-mix(
+    in srgb,
+    var(--md-sys-color-on-primary-container) 30%,
+    transparent
+  );
+}
+
+.symbol-value {
+  width: 46px;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+  /* The field is the RIGHT-hand end of the pill, so it has to carry that end's
+     corners even though it paints no border of its own: an `outline` follows
+     the `border-radius` of the element it belongs to. Left square, a focus ring
+     with square corners runs outside the container's rounded end, `overflow:
+     hidden` clips those corners away, and what is left reads as a ring that
+     vanishes at the corners and comes back along the straight edges. */
+  border-radius: 0 var(--tool-inner-radius) var(--tool-inner-radius) 0;
+}
+
+.symbol-value:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+}
+
+/* A value the kind cannot use stamps nothing, so it has to read as unusable. */
+.symbol-value[aria-invalid="true"],
+.symbol-tool.selected .symbol-value[aria-invalid="true"] {
+  color: var(--md-sys-color-error);
+}
+
+.symbol-tool:has(.symbol-value[aria-invalid="true"]) {
+  border-color: var(--md-sys-color-error);
+}
+
+/* 46px only fits the digits once the spinners are gone. */
+.symbol-value[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.symbol-value::-webkit-outer-spin-button,
+.symbol-value::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+/* The two puzzle colours, shown as themselves. They sit inside the chip rather
+   than on it so the selected-chip fill can still show around them. */
+.swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  border: 1px solid var(--logic-rim);
+}
+
+.swatch[data-swatch="dark"] {
+  background: var(--logic-dark);
+}
+
+.swatch[data-swatch="light"] {
+  background: var(--logic-light);
+}
+
+.swatch[data-swatch="unplayable"] {
+  background: var(--logic-gap);
+  border-style: dotted;
+}
+
+#symbol-hint {
+  margin: -8px 0 0;
+  font-size: 13px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+#action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+#config-io {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+#solution-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container);
+}
+
+#solution-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+#solution-status {
+  font-size: 13px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+#solution-message {
+  font-size: 14px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+#solution-message:empty {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  body {
+    padding: 14px;
+  }
+
+  #editor-card {
+    padding: 14px;
+  }
+
+  .grid-cell {
+    width: 34px;
+    height: 34px;
+    font-size: 14px;
+  }
+}

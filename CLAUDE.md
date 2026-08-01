@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A static, zero-framework site of four puzzle solvers for the game *Islands of Insight*, deployed to GitHub Pages. Each solver is a page under `src/pages/`; three of them run their search in C++ compiled to WebAssembly. There is no backend and no client-side router — `src/util/serve.ts` maps five URLs to five HTML entry points, and `bun run build` emits the same five pages into `dist/`.
+A static, zero-framework site of five puzzle solvers for the game *Islands of Insight*, deployed to GitHub Pages. Each solver is a page under `src/pages/`; three of them run their search in C++ compiled to WebAssembly, and one (logic-grid) has no search at all yet. There is no backend and no client-side router — `src/util/serve.ts` maps six URLs to six HTML entry points, and `bun run build` emits the same six pages into `dist/`.
 
 **match-three runs TWO engines and races them.** Its TypeScript search (a bundled Web Worker, `solverWorker.ts`) is arm zero and answers most boards in milliseconds without fetching a single wasm module; the C++ portfolio races beside it for the boards it cannot crack. `solveClient.ts` is the merge point. See "The match-three solver" below.
 
@@ -22,7 +22,8 @@ bun run test             # build:wasm + every unit test — no env gates
 bun run test:fast        # everything except the four *.slow.test.ts suites (~5s)
 bun run test:slow        # only those four
 bun run test:changed     # only the files affected by the diff vs origin/main
-bun run test:mt          # one page + the two shared root suites (also :pd :rb :sm)
+bun run test:mt          # one page + the two shared root suites
+                         #  (also :lg :pd :rb :sm)
 bun run typecheck        # tsc --noEmit
 bun run e2e              # playwright, spins up its own webServer
 bun run e2e:install      # chromium + its system deps (what CI installs)
@@ -121,7 +122,7 @@ Playwright aria snapshots are inline. `--update-snapshots` only rewrites *failin
 
 Every page is `index.html` + a `<page>Solver.ts` class + a `.css`, plus `src/common/common.ts` which registers the Material Web custom elements used across all pages. Pages talk to the DOM by `id` directly; there is no component layer and no state library.
 
-The solver class is instantiated at module scope behind `if (process.env.NODE_ENV !== "test")` (`src/util/preload.ts` sets that). Unit tests therefore construct it themselves, almost always by `spyOn(document, "getElementById")` returning hand-made elements and capturing the listener the constructor registers.
+The solver class is instantiated at module scope behind `if (process.env.NODE_ENV !== "test")` (`src/util/preload.ts` sets that). Unit tests therefore construct it themselves, and they do it by **mounting the page's own markup**: a `MARKUP` template literal trimmed to the ids and hooks the class reaches for, assigned to `document.body.innerHTML` in `beforeEach`, then `new PageEditor()`. Not a `getElementById` spy — every page also runs `querySelectorAll` over its chip rows or hands a host element to a view class that registers delegated listeners on it, and detached stubs swallow those interactions silently. `md-dialog` is not registered in the test DOM, so mounts that use one assign `show`/`close` onto it by hand.
 
 ### Bundling
 
@@ -180,15 +181,15 @@ Rolling-blocks additionally keeps its full move list (`#solution-moves`) inside 
 
 ### Config file I/O
 
-`src/util/configFile.ts` holds `downloadJson` / `readJsonFile` / `setupDragAndDrop`, shared by all four solver pages. Each page keeps its own `config.ts` validator returning `{ ok: true, config } | { ok: false, error }` with a human-readable first-failure message, and its own `applyLoadedConfig`. The download filename matches the fixture family (`phasicDialTest.json`, `shiftingMosaicTest.json`, `rollingBlocksTest.json`, `matchThreeTest.json`) so a downloaded file is directly usable as a test fixture. `#warning-banner` / `#drop-overlay` / `.hidden` styles live in `src/common/common.css`. The rolling-blocks validator also enforces the engine caps (64×64 grid, 255 blocks, dims ≤ 64 — same constants the UI fields and the wasm boundary use) and renumbers block ids to 1..n on load; **this validator** ignores a fixture's optional `turns` key. That is a page-level rule, not a repo-wide one — the native `fixtureio::load` deliberately does the opposite and parses `turns` back out, because that key is where `--generate` stores the replay-validated witness.
+`src/util/configFile.ts` holds `downloadJson` / `readJsonFile` / `setupDragAndDrop`, shared by all five solver pages. Each page keeps its own `config.ts` validator returning `{ ok: true, config } | { ok: false, error }` with a human-readable first-failure message, and its own `applyLoadedConfig`. The download filename matches the fixture family (`phasicDialTest.json`, `shiftingMosaicTest.json`, `rollingBlocksTest.json`, `matchThreeTest.json`, `logicGridTest.json`) so a downloaded file is directly usable as a test fixture. `#warning-banner` / `#drop-overlay` / `.hidden` styles live in `src/common/common.css`. The rolling-blocks validator also enforces the engine caps (64×64 grid, 255 blocks, dims ≤ 64 — same constants the UI fields and the wasm boundary use) and renumbers block ids to 1..n on load; **this validator** ignores a fixture's optional `turns` key. That is a page-level rule, not a repo-wide one — the native `fixtureio::load` deliberately does the opposite and parses `turns` back out, because that key is where `--generate` stores the replay-validated witness.
 
 E2e traps for the rolling-blocks page: several inline aria snapshots include the page subtitle text, and Material components expose an inner `#button` in their shadow DOM — never target buttons by `#button` index (adding any icon button shifts every index; use the app's own `data-block-delete-id` style hooks).
 
 ### SEO and site metadata
 
-`src/util/siteMeta.ts` is the single source of truth: `SITE_URL`, the `PAGES` list (path, source file, og image name, title, description), the sitemap and robots renderers, and the IndexNow key. The `<head>` tags themselves are **hand-written into the five `index.html` files** — there is no templating layer and adding one for five static files would be worse than the duplication — and `test/siteMeta.test.ts` pins every title, description, canonical, og:url and og:image against `siteMeta.ts` so the copies cannot drift. `e2e/seo.test.ts` re-checks the same things on the *served* page, because the bundler rewrites hrefs on the way through.
+`src/util/siteMeta.ts` is the single source of truth: `SITE_URL`, the `PAGES` list (path, source file, og image name, title, description), the sitemap and robots renderers, and the IndexNow key. The `<head>` tags themselves are **hand-written into the six `index.html` files** — there is no templating layer and adding one for six static files would be worse than the duplication — and `test/siteMeta.test.ts` pins every title, description, canonical, og:url and og:image against `siteMeta.ts` so the copies cannot drift. `e2e/seo.test.ts` re-checks the same things on the *served* page, because the bundler rewrites hrefs on the way through.
 
-Adding a page means: an entry in `PAGES`, the head tags in its HTML, its trailing-slash route in `serve.ts`, and `bun run og:capture`. Nothing else needs editing — the sitemap, the IndexNow submission and both test suites read the list.
+Adding a page means: an entry in `PAGES`, the head tags in its HTML, its trailing-slash route in `serve.ts`, its entrypoint in `build.ts`, a card in `src/pages/index.html` (**in `PAGES` order** — `e2e/seo.test.ts` pins the two lists against each other) with its `ItemList` entry, a leg in `e2e/index.test.ts`, and `bun run og:capture`. Nothing else needs editing — the sitemap, the IndexNow submission and both SEO test suites read the list. A page that registers the COI shim additionally belongs in the `COI_PATHS` sets in `e2e/seo.test.ts` and `src/util/captureOgImages.ts`.
 
 Five things are load-bearing and easy to undo:
 
@@ -196,14 +197,80 @@ Five things are load-bearing and easy to undo:
 - **The favicon must stay an ABSOLUTE url.** Bun's HTML bundler resolves every asset href it *can* resolve and inlines the result as a base64 `data:` URI — measured at 91 KB per page, and Googlebot-Image cannot fetch a `data:` URI, so the site showed a default globe. A page-relative href does not work either: Bun fails the build with "Could not resolve" rather than leaving it alone. Absolute urls pass through untouched, and `build.ts` re-checks the built output rather than trusting that. Dropping the data URI also took `dist/index.html` from 241 KB to 155 KB.
 - **Canonical urls carry a trailing slash.** GitHub Pages 301s `/match-three-solver` to `/match-three-solver/`, so the slash-less form is both a wasted hop and a second url for the same page. Internal links and the sitemap use the slash.
 - **Never register one HTMLBundle under two routes in `serve.ts`.** Serving both spellings that way looks obvious and it *crashes bun's dev server*: `panic(main thread): integer overflow`, a few seconds into concurrent load. It does not reproduce on a single page or a small suite — measured on the full e2e run against a green baseline, 97/99 passing became 39/106 with 65 connection-level failures and a bun crash dump, which reads exactly like the flake in the next paragraph and is not one. `serve.ts` registers the canonical trailing-slash route only and 301s the other spelling from `fetch`, which is also what Pages does in production.
+  **That panic is a symptom, not a diagnosis.** The same `integer overflow` reproduces with the route table entirely correct, purely from CONCURRENCY: measured 2026-08-01 on bun 1.3.14 / Windows, `bunx playwright test` at the default worker count (cores/2) crashes the dev server ~20 s in and takes the rest of the run down with it, while `--workers=2` finishes the identical suite 136/136 clean. It was bisected by unregistering the newest page and re-running — the panic survived, so it is not about how many entrypoints there are either. CI is unaffected: its runners are small enough that Playwright allocates one worker per shard. So when a local full run collapses into `ERR_CONNECTION_RESET`, check the route table once and then **re-run with `--workers=2` before believing anything is broken**.
 - **`robots.txt` shipped from this repo is inert**, and deliberately shipped anyway. Crawlers read robots.txt from the host root only, so `valle12.github.io/robots.txt` — a separate `Valle12.github.io` user-pages repo — is the one that counts. That repo is also the only way to get a favicon into Google results at all: Google supports **one favicon per hostname**, read from that hostname's home page.
 - **`dist` ships nothing `build.ts` does not copy.** A new static file needs a copy in `build.ts` *and* a branch in `serve.ts`'s allowlist, which 404s everything else. The sitemap and robots are *rendered* in both places rather than read off disk, so they cannot go stale.
 
 The Open Graph screenshots live in `images/og/` and are **committed**. `bun run og:capture` re-shoots them, and it drives Playwright's **CLI under node** rather than its API: `chromium.launch()` hangs forever under bun — no error, no timeout — which is also why `bun run e2e` shells out to `playwright test`. Its flags (`--light`, `--full-page`, `--width`, `--height`, `--out`) are for looking at variations locally; the defaults are what the meta tags declare, and the script warns when they are overridden.
 
-Two things about that capture size. **Chromium renders light unless told otherwise**, whatever the host OS prefers, so the scheme is always passed explicitly — the committed shots are `dark`. And **the frame is 1600x838, not the usual 1200x630**: Open Graph wants 1.91:1 and a scraper centre-crops anything else, so a taller screenshot loses its edges rather than showing more. Widening is what fits a whole page into that ratio — measured with `--full-page`, the five pages are 681–808 px tall at 1200 px wide, and text wraps to fewer lines as the viewport grows. At 1200x630 every solver was cut off mid-grid. `test/siteMeta.test.ts` checks the declared `og:image:width`/`height`, the constants and the committed PNG headers all agree.
+Two things about that capture size. **Chromium renders light unless told otherwise**, whatever the host OS prefers, so the scheme is always passed explicitly — the committed shots are `dark`. And **the frame is 1920x1005, not the usual 1200x630**: Open Graph wants 1.91:1 and a scraper centre-crops anything else, so a taller screenshot loses its edges rather than showing more. Widening at that ratio is the only way to fit a taller page in, which is why the size has grown twice — 1200x630 cut every solver off mid-grid, 1600x838 fitted five pages, and logic-grid then needed 951 px and lost its rules and Solve button.
 
-**Automatic indexing does not exist for Google.** Its Indexing API accepts only `JobPosting` and `BroadcastEvent` and ignores everything else, and Google has never adopted IndexNow. `sitemap.xml` is the automatic mechanism: submit it once in Search Console and Google re-fetches it on its own, so a new page is discovered without further action. The `indexnow` job in `deploy.yml` covers Bing, Yandex, Seznam and Naver, runs *after* `deploy` (the urls have to be live when they are submitted) and is `continue-on-error`. The sitemap carries **no `lastmod`**: CI checks out shallow so a git date would be the same commit for every url, and a build timestamp would claim all five pages changed on every deploy.
+**A new page can therefore force this size up, and the number to measure is the CARD, not the screenshot.** `#editor-card` is capped at `min(100%, 960px)`, so past about 1000 px a wider viewport buys height and nothing else — it does not reflow the content, it just adds empty margin beside it. Measure `#editor-card`'s bounding box plus the body's 24 px padding top and bottom, then pick the smallest 1.91:1 frame that clears it; `document.documentElement.scrollHeight` is **not** that number, because `body { min-height: 100vh }` clamps it up to the viewport and makes an overflowing page look like it fits. Changing the size means `OG_IMAGE_WIDTH`/`HEIGHT` in `siteMeta.ts`, the `og:image:width`/`height` tags in **every** `index.html`, and a re-run of `bun run og:capture`. `test/siteMeta.test.ts` checks the declared tags, the constants and the committed PNG headers all agree.
+
+**Automatic indexing does not exist for Google.** Its Indexing API accepts only `JobPosting` and `BroadcastEvent` and ignores everything else, and Google has never adopted IndexNow. `sitemap.xml` is the automatic mechanism: submit it once in Search Console and Google re-fetches it on its own, so a new page is discovered without further action. The `indexnow` job in `deploy.yml` covers Bing, Yandex, Seznam and Naver, runs *after* `deploy` (the urls have to be live when they are submitted) and is `continue-on-error`. The sitemap carries **no `lastmod`**: CI checks out shallow so a git date would be the same commit for every url, and a build timestamp would claim every page changed on every deploy.
+
+### The logic grid page
+
+The newest page, and the only one with **no search behind it**: `solver.ts` is a
+stub returning `{status: "unimplemented"}` and `#solution-panel` says so. There
+is no worker, no wasm, no COI shim and no `#solution-view` — a solved logic grid
+is one finished board rather than a sequence of steps, so when the search lands
+it will most likely render into the editor grid.
+
+**A cell carries two independent layers.** `cell.ts` owns the colour only
+(`UNKNOWN` 0, `DARK` 1, `LIGHT` 2, `UNPLAYABLE` 3) and `cells` is a flat
+column-major integer grid of exactly that. Clues live in a **separate sparse
+`symbols` array** of `{x, y, type, value}`, which is what makes the game's
+colourless clue representable: a clue on an `UNKNOWN` cell is one whose colour
+has still to be deduced, and colouring the cell later leaves the clue alone. A
+clue takes the colour of the cell it sits on and has none of its own — that is
+why `cellView.ts` draws it as the element's own **text**, with the ink following
+`data-color`, rather than as a background image the way match-three does.
+
+**`rules.ts` and `symbols.ts` are both append-only catalogues**, for the same
+reason `match-three-solver/symbols.ts` is: a config stores the INDEX of an
+active rule and of a clue's kind, so inserting or reordering an entry silently
+rewrites every puzzle ever saved. Appending is always safe. Both rows are
+rendered from the list by JS (`#rule-row`, `#symbol-row`) precisely so a new
+entry costs no markup and no test edit. The validator **rejects** an index it
+does not know rather than ignoring it — a silently dropped rule would load a
+different puzzle under the same name.
+
+**A clue kind is a split control, and its value field lives INSIDE the row.**
+Each kind renders as chip + divider + its own `<input class="symbol-value">`,
+in the shape of a Material split button, rather than one shared field below the
+row — a shared field has to keep saying which clue it belongs to, and every kind
+added makes that worse. Typing in a field selects its kind, so a field can never
+be edited while a different chip is armed, and each field reports its **own**
+validity (`aria-invalid`) rather than the selected kind's.
+
+That is why both rows are **built once and refreshed in place**:
+`buildSymbolRow` / `buildRuleRow` write `innerHTML` and run only from `render()`
+(board replacement), while `refreshSymbolRow` / `refreshRuleRow` toggle classes
+and attributes on every selection change. Rebuilding on selection would destroy
+the field being typed into, and `refreshSymbolRow` additionally skips writing
+`input.value` when it already matches — assigning it moves the caret to the end.
+The same discipline is what keeps a rule chip focused after a keyboard toggle.
+
+Three things in `board.ts` are load-bearing:
+
+- **The right mouse button is a real input here.** The selected chip drives the
+  left button; the right one paints the *other* colour for `dark`/`light` and
+  erases for everything else, so the untouched page is left-dark/right-light
+  with nothing clicked. `contextmenu` on `#grid` is `preventDefault`ed, or a
+  right-drag pops the menu and ends the stroke on the first cell.
+- **The re-click-erases rule commits once, at `pointerdown`.** A stroke that
+  would write what the cell already holds clears it instead, and that decision
+  is then applied to every cell the drag touches. Deciding it per cell makes a
+  drag across a half-painted row alternate between painting and erasing.
+- **Digits accumulate per cell.** An area number runs past nine, so consecutive
+  digits typed on one focused cell grow the number; painting, or moving to
+  another cell, ends the run. A leading zero is ignored rather than clamped, and
+  a number that would outgrow the board leaves the last good value standing.
+
+Painting `UNPLAYABLE` drops the cell's clue (a gap is not clued, and the
+validator refuses a file that says otherwise); the eraser clears both layers;
+colouring a clued cell keeps its clue.
 
 ### The match-three solver
 
@@ -308,7 +375,7 @@ Unlike before, **the page keeps a real model** (`maxValues` / `values` / `button
 
 ## Test layout
 
-`test/` and `e2e/` mirror `src/pages/` with kebab-case folders (`match-three-solver`, `phasic-dial-solver`, `rolling-blocks-solver`, `shifting-mosaic-solver`); shared tests sit at the root of each. `test/resources/` is split the same way. Fixtures are produced by the app's own download button, so the JSON *is* the download format.
+`test/` and `e2e/` mirror `src/pages/` with kebab-case folders (`logic-grid-solver`, `match-three-solver`, `phasic-dial-solver`, `rolling-blocks-solver`, `shifting-mosaic-solver`); shared tests sit at the root of each. `test/resources/` is split the same way. Fixtures are produced by the app's own download button, so the JSON *is* the download format.
 
 `test/resources/phasic-dial-solver/` and `test/resources/match-three-solver/` are discovered by directory listing rather than a hard-coded list, so dropping a captured fixture in makes it run with no code change. The other fixture families are enumerated explicitly: the C++ suites run rollingBlocksTest 1–48 and shiftingMosaicTest 1–43, and `test/rolling-blocks-solver/aStar.slow.test.ts` runs the same full 1–48 range through wasm on the cascade engine (120 s per-test timeout, 90 s solve budget). Real captured rolling-blocks boards top out at 13×15 / 8 blocks / dimension-6 blocks / 83 must-touch — the 64×64 caps and fuzz sizes are stress headroom, not game reality.
 

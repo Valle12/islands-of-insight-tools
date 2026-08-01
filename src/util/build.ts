@@ -29,6 +29,7 @@ import {
 await Bun.build({
   entrypoints: [
     "./src/pages/index.html",
+    "./src/pages/logic-grid-solver/index.html",
     "./src/pages/match-three-solver/index.html",
     "./src/pages/phasic-dial-solver/index.html",
     "./src/pages/rolling-blocks-solver/index.html",

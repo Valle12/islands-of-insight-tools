@@ -25,6 +25,7 @@
     "test:fast": "IOI_SKIP_SLOW=1 bun test",
     "test:slow": "bun test slow",
     "test:changed": "bun test --changed=origin/main",
+    "test:lg": "bun test test/logic-grid-solver test/configFile.test.ts test/utilMethods.test.ts",
     "test:mt": "bun test test/match-three-solver test/configFile.test.ts test/utilMethods.test.ts",
     "test:pd": "bun test test/phasic-dial-solver test/configFile.test.ts test/utilMethods.test.ts",
     "test:rb": "bun test test/rolling-blocks-solver test/configFile.test.ts test/utilMethods.test.ts",
