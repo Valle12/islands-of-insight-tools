@@ -7,6 +7,7 @@ import {
   spyOn,
   test,
 } from "bun:test";
+import { MAX_POSITIONS } from "../../src/pages/phasic-dial-solver/dialView";
 import { PhasicDialSolver } from "../../src/pages/phasic-dial-solver/phasicDialSolver";
 import { TurnSolver } from "../../src/pages/phasic-dial-solver/turnSolver";
 
@@ -289,6 +290,47 @@ describe("PhasicDialSolver", () => {
       "2 positions",
     );
     expect(fewer.hasAttribute("disabled")).toBeTrue();
+  });
+
+  test("should never take a dial past the position cap", () => {
+    const card = document.querySelector<HTMLElement>(".dial-card")!;
+    const more = card.querySelector<HTMLElement>(".dial-sides-more")!;
+
+    // Every extra position widens the cartesian product the solver walks, so
+    // the control stops well before a click can make the search hopeless.
+    for (let i = 0; i < MAX_POSITIONS + 5; i++) more.click();
+
+    expect(card.querySelector(".dial-sides-count")!.textContent).toBe(
+      `${MAX_POSITIONS} positions`,
+    );
+    expect(more.hasAttribute("disabled")).toBeTrue();
+  });
+
+  test("should still draw a loaded dial that is past the cap", async () => {
+    // The config format has no ceiling — only the `+` control does — so a
+    // hand-written puzzle has to load rather than be clamped or refused.
+    await pick(
+      JSON.stringify({
+        maxValues: [20, 3],
+        initialValues: [17, 0],
+        buttons: [{ turns: [1, 1] }],
+      }),
+    );
+
+    const card = document.querySelector<HTMLElement>(".dial-card")!;
+    expect(card.querySelector(".dial-face")!.getAttribute("aria-valuemax")).toBe(
+      "20",
+    );
+    expect(card.querySelector(".dial-sides-count")!.textContent).toBe(
+      "21 positions",
+    );
+    // It cannot grow any further, but it can still come back down.
+    expect(
+      card.querySelector(".dial-sides-more")!.hasAttribute("disabled"),
+    ).toBeTrue();
+    expect(
+      card.querySelector(".dial-sides-fewer")!.hasAttribute("disabled"),
+    ).toBeFalse();
   });
 
   test("should report that no solution exists", async () => {

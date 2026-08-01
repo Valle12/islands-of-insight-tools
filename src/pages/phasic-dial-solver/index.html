@@ -39,7 +39,9 @@
           turns, then calculate the presses that aim them all at the hub.
         </p>
 
-        <div id="warning-banner" class="hidden"></div>
+        <!-- Announced: showWarning writes here and hides it again after
+             3500 ms, so a message nobody is told about is simply lost. -->
+        <div id="warning-banner" class="hidden" role="alert"></div>
 
         <div id="dials-section">
           <div id="dials-header">
@@ -120,7 +122,9 @@
           <span>Searching...</span>
         </div>
 
-        <div id="result" hidden></div>
+        <!-- The search is asynchronous, so the answer arrives long after the
+             click that asked for it. -->
+        <div id="result" hidden aria-live="polite"></div>
 
         <md-dialog id="help-dialog">
           <div slot="headline">How to use</div>

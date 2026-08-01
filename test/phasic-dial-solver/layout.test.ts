@@ -52,12 +52,13 @@ describe("balancedColumns", () => {
     }
   });
 
-  test("leaves the last row no fuller than the ones above it", () => {
+  test("spends no more rows than filling each one to capacity would", () => {
+    // The point of balancing is to move items UP into an earlier row, never
+    // to open another one: 6 in a 5-wide row becomes 3 + 3, still two rows.
     for (let count = 1; count <= 12; count++) {
       for (let capacity = 1; capacity <= 6; capacity++) {
         const cols = balancedColumns(count, capacity);
-        const last = count % cols === 0 ? cols : count % cols;
-        expect(last).toBeLessThanOrEqual(cols);
+        expect(Math.ceil(count / cols)).toBe(Math.ceil(count / capacity));
       }
     }
   });

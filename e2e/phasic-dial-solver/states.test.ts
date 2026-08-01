@@ -40,7 +40,7 @@ test.describe("Phasic Dial Solver", () => {
     );
 
     // Adding a dial invalidates the answer without being asked twice.
-    await page.locator("#add-dial #button").click();
+    await page.getByRole("button", { name: "Add a dial" }).click();
     await expect(page.locator("#result")).toBeHidden();
     await expect(page.locator(".dial-card")).toHaveCount(3);
     await expect(page.locator(".button-card .turn-slot")).toHaveCount(3);
@@ -51,7 +51,7 @@ test.describe("Phasic Dial Solver", () => {
     );
 
     // …and so does adding a button.
-    await page.locator("#add-button #button").click();
+    await page.getByRole("button", { name: "Add a button" }).click();
     await expect(page.locator("#result")).toBeHidden();
     await expect(page.locator("#buttons-list")).toMatchAriaSnapshot(`
       - text: Button 1
@@ -94,10 +94,10 @@ test.describe("Phasic Dial Solver", () => {
 
     // Four dials, four buttons, each turning a dial the puzzle cannot use to
     // reach zero on every dial at once.
-    await page.locator("#add-dial #button").click();
-    await page.locator("#add-dial #button").click();
+    await page.getByRole("button", { name: "Add a dial" }).click();
+    await page.getByRole("button", { name: "Add a dial" }).click();
     for (let i = 0; i < 3; i++) {
-      await page.locator("#add-button #button").click();
+      await page.getByRole("button", { name: "Add a button" }).click();
     }
     await setTurns(page, 1, "blue", 1);
     await setTurns(page, 2, "red", 1);

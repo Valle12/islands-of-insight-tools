@@ -189,7 +189,7 @@ test.describe("Phasic Dial Solver", () => {
     const json = readFileSync(await (await downloadPromise).path(), "utf8");
     expect(JSON.parse(json).result).toBeDefined();
 
-    await page.locator("#reset #button").click();
+    await page.getByRole("button", { name: "Reset the puzzle" }).click();
     await expect(page.locator(".dial-card")).toHaveCount(2);
 
     await page.locator("#config-file-input").setInputFiles({

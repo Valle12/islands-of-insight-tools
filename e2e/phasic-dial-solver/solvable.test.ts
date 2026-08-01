@@ -44,8 +44,8 @@ test.describe("Phasic Dial Solver", () => {
 
     await setDial(page, "blue", 4, 3);
     await setDial(page, "red", 6, 0);
-    await page.locator("#add-button #button").click();
-    await page.locator("#add-button #button").click();
+    await page.getByRole("button", { name: "Add a button" }).click();
+    await page.getByRole("button", { name: "Add a button" }).click();
 
     await setTurns(page, 1, "blue", 2);
     await setTurns(page, 2, "blue", 1);
@@ -69,7 +69,7 @@ test.describe("Phasic Dial Solver", () => {
     await page.goto("/phasic-dial-solver");
 
     for (let i = 0; i < 3; i++) {
-      await page.locator("#add-dial #button").click();
+      await page.getByRole("button", { name: "Add a dial" }).click();
     }
     await setDial(page, "blue", 6, 4);
     await setDial(page, "red", 5, 1);
@@ -78,7 +78,7 @@ test.describe("Phasic Dial Solver", () => {
     await setDial(page, "cyan", 5, 4);
 
     for (let i = 0; i < 4; i++) {
-      await page.locator("#add-button #button").click();
+      await page.getByRole("button", { name: "Add a button" }).click();
     }
     await setTurns(page, 1, "blue", 1);
     await setTurns(page, 1, "red", 2);

@@ -16,6 +16,16 @@ const VIEW = 50;
 /** Below three positions there is no polygon to draw — fall back to a ring. */
 const MIN_POLYGON_SIDES = 3;
 
+/**
+ * The most positions the `+` control will add — twice the biggest shape the
+ * game has, which is a hexagon. It is a bound on the CONTROL, not on the
+ * format: `config.ts` still accepts any `max >= 1`, so a hand-written puzzle
+ * with a bigger dial loads and draws. What it stops is a runaway from
+ * clicking, where every extra position widens the cartesian product
+ * `TurnSolver` has to enumerate.
+ */
+export const MAX_POSITIONS = 12;
+
 /** How far out the pointer's tip and the base of its head sit. */
 const ARROW_TIP = 43;
 const ARROW_BASE = 28;
@@ -101,6 +111,7 @@ export class DialView {
   private readonly sidesLabel: HTMLSpanElement;
   private readonly stateLabel: HTMLSpanElement;
   private readonly fewerBtn: HTMLElement;
+  private readonly moreBtn: HTMLElement;
   private readonly controller = new AbortController();
   private dragging = false;
 
@@ -116,6 +127,7 @@ export class DialView {
     this.sidesLabel = this.root.querySelector(".dial-sides-count")!;
     this.stateLabel = this.root.querySelector(".dial-state")!;
     this.fewerBtn = this.root.querySelector(".dial-sides-fewer")!;
+    this.moreBtn = this.root.querySelector(".dial-sides-more")!;
 
     this.wireControls();
     this.render();
@@ -168,11 +180,11 @@ export class DialView {
       () => this.changeMax(this.options.max - 1),
       { signal },
     );
-    this.root
-      .querySelector(".dial-sides-more")!
-      .addEventListener("click", () => this.changeMax(this.options.max + 1), {
-        signal,
-      });
+    this.moreBtn.addEventListener(
+      "click",
+      () => this.changeMax(this.options.max + 1),
+      { signal },
+    );
 
     this.face.addEventListener("pointerdown", e => this.onPointerDown(e), {
       signal,
@@ -254,8 +266,9 @@ export class DialView {
 
   private changeMax(max: number) {
     // Max is "positions minus one", so 0 would be an inert one-position dial —
-    // the same floor the config validator enforces.
-    if (max < 1 || max === this.options.max) return;
+    // the same floor the config validator enforces. The ceiling is this
+    // control's own; a loaded config may sit above it and simply cannot grow.
+    if (max < 1 || max >= MAX_POSITIONS || max === this.options.max) return;
     this.options.max = max;
     if (this.options.value > max) this.options.value = max;
     this.render();
@@ -285,6 +298,7 @@ export class DialView {
       ? "Aimed at the hub"
       : `Position ${value}`;
     this.fewerBtn.toggleAttribute("disabled", max <= 1);
+    this.moreBtn.toggleAttribute("disabled", sides >= MAX_POSITIONS);
   }
 
   private static faceMarkup(

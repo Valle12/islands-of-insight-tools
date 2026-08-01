@@ -3,8 +3,12 @@ md-dialog:not(:defined) {
 }
 
 :root {
-  /* The blue the game lights a dial up in once its pointer aims at the hub. */
-  --dial-solved: #1f97cf;
+  /* The blue the game lights a dial up in once its pointer aims at the hub.
+     It is a TEXT colour as well as a border and a glow — `.dial-state` reads
+     "Aimed at the hub" in it at 12px — so it has to clear WCAG AA against
+     `--md-sys-color-surface-container-high`, the card behind it. The lighter
+     #1f97cf managed 2.7:1 on the light palette; this is 4.6:1. */
+  --dial-solved: #0d6e99;
 }
 
 @media (prefers-color-scheme: dark) {

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { gotoIsolated } from "../coi";
 
-/** Builds a 9x9 board with one goal and one 2-high block, and solves it. */
+/** Builds a 9x9 board with one goal and one 2-high block. */
 async function buildPuzzle(page: Page) {
   await gotoIsolated(page, "/rolling-blocks-solver");
 
