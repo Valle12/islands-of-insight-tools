@@ -100,7 +100,10 @@ body:has(#tool-selector) {
 
 #tool-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  /* `min(20rem, 100%)`, never a bare 20rem: at a 320px viewport the column
+     leaves 280px of content width, and a 20rem (=320px) track minimum cannot
+     shrink into it — the whole list would scroll sideways. */
+  grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
   gap: 16px;
   width: 100%;
   margin: 0;
@@ -142,14 +145,17 @@ body:has(#tool-selector) {
   background: var(--md-sys-color-surface-container);
 }
 
-/* Nothing here animates for anyone who asked it not to. */
+/* Nothing here animates for anyone who asked it not to — which means the
+   arrow as well as the card, since the two move independently. */
 @media (prefers-reduced-motion: reduce) {
-  .tool-card {
+  .tool-card,
+  .tool-go {
     transition: none;
   }
 
   .tool-card:hover,
-  .tool-card:focus-visible {
+  .tool-card:focus-visible,
+  .tool-card:hover .tool-go {
     transform: none;
   }
 }

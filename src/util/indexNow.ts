@@ -36,11 +36,29 @@ const response = await fetch(ENDPOINT, {
   body: JSON.stringify(body),
 });
 
-// 200 accepted, 202 accepted with the key still to be verified. Everything
-// else is worth failing on so the deploy log says so — the workflow step is
-// `continue-on-error`, so a rejected submission never blocks a release.
-const text = await response.text();
-console.log(`${response.status} ${response.statusText} ${text}`.trim());
+/**
+ * The endpoint's documented status vocabulary.
+ *
+ * The log prints OUR words for a code rather than echoing the response body or
+ * its status text. Both are remote input, and a newline inside either would
+ * forge a second line in the deploy log (Sonar S5145). It also says more than
+ * the body does: on success there is no body at all.
+ */
+const MEANINGS: Record<number, string> = {
+  200: "accepted",
+  202: "accepted, key validation still pending",
+  400: "bad request",
+  403: "the key is not valid for this host",
+  422: "the urls do not belong to the host, or the key does not match",
+  429: "too many requests",
+};
+
+// 200 and 202 are both successes. Anything else is worth failing on so the
+// deploy log says so — the workflow step is `continue-on-error`, so a rejected
+// submission never blocks a release.
+console.log(
+  `IndexNow responded ${response.status}: ${MEANINGS[response.status] ?? "unrecognised status"}`,
+);
 if (!response.ok) {
   throw new Error(`IndexNow rejected the submission (${response.status})`);
 }

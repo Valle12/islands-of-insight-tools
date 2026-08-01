@@ -102,7 +102,12 @@ const server = Bun.serve({
       page => page.path !== "" && `/${page.path}` === `${url.pathname}/`,
     );
     if (canonical) {
-      return Response.redirect(new URL(`/${canonical.path}`, url), 301);
+      // Only the pathname is being corrected, so the query and hash have to
+      // travel with it — `new URL(path, base)` keeps neither.
+      const target = new URL(`/${canonical.path}`, url);
+      target.search = url.search;
+      target.hash = url.hash;
+      return Response.redirect(target, 301);
     }
     // Solver wasm assets (all build variants: wasm32, pthreads, MEMORY64),
     // one directory per solver. Served by extension — bun can hand the

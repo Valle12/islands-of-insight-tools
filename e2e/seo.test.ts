@@ -93,6 +93,19 @@ test.describe("SEO", () => {
     }
   });
 
+  test("the slash-less spelling redirects and keeps its query", async ({
+    request,
+  }) => {
+    const response = await request.get("/match-three-solver?ref=test", {
+      maxRedirects: 0,
+    });
+    expect(response.status()).toBe(301);
+    // The query has to survive the correction — only the pathname is wrong.
+    expect(response.headers()["location"]).toContain(
+      "/match-three-solver/?ref=test",
+    );
+  });
+
   test("every solver is reachable from home without a redirect", async ({
     page,
     request,

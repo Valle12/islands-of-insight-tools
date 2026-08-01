@@ -17,22 +17,11 @@
     </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- Absolute on purpose, and the one href on the page that must NOT be
-         relative. Bun's HTML bundler resolves every local asset href and
-         inlines the result as a base64 data: URI (measured: 91 KB per page) —
-         and Googlebot-Image cannot fetch a data: URI, so the icon would never
-         be crawlable. An absolute URL is left alone by the bundler, is what
-         Google's favicon docs ask for (a stable, crawlable URL), and matches
-         how og:image and the canonical are already written. build.ts asserts
-         no data: URI comes back. -->
-    <link
-      rel="icon"
-      type="image/png"
-      href="https://valle12.github.io/islands-of-insight-tools/favicon.png"
-    />
     <title>Islands of Insight Tools | Free Puzzle Solvers</title>
-    <!-- Every tag below is mirrored in src/util/siteMeta.ts and pinned to it by
-         test/siteMeta.test.ts. Edit both, or the test fails. -->
+    <!-- Absolute, never relative: bun inlines any href it can resolve as a
+         data: URI, which Googlebot-Image cannot crawl. See CLAUDE.md. -->
+    <link rel="icon" type="image/png"
+      href="https://valle12.github.io/islands-of-insight-tools/favicon.png" />
     <meta
       name="description"
       content="Free browser-based solvers for Islands of Insight puzzles: Match Three, Phasic Dial, Rolling Blocks and Shifting Mosaic. Enter the puzzle, get the solution."
@@ -133,7 +122,7 @@
           solve, and get the answer back — one step at a time.
         </p>
         <p id="assurance">
-          <md-icon>check</md-icon>
+          <md-icon aria-hidden="true">check</md-icon>
           Free, no account, and every puzzle is solved on your own machine
         </p>
       </header>
@@ -148,7 +137,7 @@
       <ul id="tool-list">
         <li>
           <a class="tool-card" href="./match-three-solver/">
-            <span class="tool-art"><md-icon>apps</md-icon></span>
+            <span class="tool-art"><md-icon aria-hidden="true">apps</md-icon></span>
             <span class="tool-body">
               <h2>Match Three Solver</h2>
               <span class="tool-desc">
@@ -156,12 +145,12 @@
                 Get the swaps that clear the whole board.
               </span>
             </span>
-            <md-icon class="tool-go">chevron_right</md-icon>
+            <md-icon class="tool-go" aria-hidden="true">chevron_right</md-icon>
           </a>
         </li>
         <li>
           <a class="tool-card" href="./phasic-dial-solver/">
-            <span class="tool-art"><md-icon>donut_large</md-icon></span>
+            <span class="tool-art"><md-icon aria-hidden="true">donut_large</md-icon></span>
             <span class="tool-body">
               <h2>Phasic Dial Solver</h2>
               <span class="tool-desc">
@@ -169,12 +158,12 @@
                 every button turns several at once.
               </span>
             </span>
-            <md-icon class="tool-go">chevron_right</md-icon>
+            <md-icon class="tool-go" aria-hidden="true">chevron_right</md-icon>
           </a>
         </li>
         <li>
           <a class="tool-card" href="./rolling-blocks-solver/">
-            <span class="tool-art"><md-icon>view_in_ar</md-icon></span>
+            <span class="tool-art"><md-icon aria-hidden="true">view_in_ar</md-icon></span>
             <span class="tool-body">
               <h2>Rolling Blocks Solver</h2>
               <span class="tool-desc">
@@ -182,12 +171,12 @@
                 a goal. Get the exact rolls.
               </span>
             </span>
-            <md-icon class="tool-go">chevron_right</md-icon>
+            <md-icon class="tool-go" aria-hidden="true">chevron_right</md-icon>
           </a>
         </li>
         <li>
           <a class="tool-card" href="./shifting-mosaic-solver/">
-            <span class="tool-art"><md-icon>dashboard</md-icon></span>
+            <span class="tool-art"><md-icon aria-hidden="true">dashboard</md-icon></span>
             <span class="tool-body">
               <h2>Shifting Mosaic Solver</h2>
               <span class="tool-desc">
@@ -195,7 +184,7 @@
                 highlighted zone past a crowd of obstructions.
               </span>
             </span>
-            <md-icon class="tool-go">chevron_right</md-icon>
+            <md-icon class="tool-go" aria-hidden="true">chevron_right</md-icon>
           </a>
         </li>
       </ul>
