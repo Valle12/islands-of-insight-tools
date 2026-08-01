@@ -11,12 +11,36 @@ import {
 } from "../../util/configFile";
 import type { PhasicDialTest } from "../../util/types";
 import { Button } from "./button";
-import { validateConfig } from "./config";
+import { ButtonsView, type DialDescriptor } from "./buttonsView";
+import { MAX_DIALS, MIN_DIALS, validateConfig } from "./config";
+import { DialView } from "./dialView";
+import { balancedColumns, columnCapacity } from "./layout";
 import { TurnSolver } from "./turnSolver";
 
+/** A dial a new puzzle starts with: a square, aimed at the hub. */
+const DEFAULT_MAX = 3;
+
+/**
+ * The order the game unlocks dials in; purple is the sixth and last. A dial's
+ * colour is therefore fixed by its position, which is why the page can only
+ * ever drop the LAST one.
+ */
+const DIALS: readonly DialDescriptor[] = [
+  { color: "blue", label: "Blue", image: blueDial },
+  { color: "red", label: "Red", image: redDial },
+  { color: "green", label: "Green", image: greenDial },
+  { color: "yellow", label: "Yellow", image: yellowDial },
+  { color: "cyan", label: "Cyan", image: cyanDial },
+  { color: "purple", label: "Purple", image: purpleDial },
+];
+
 export class PhasicDialSolver {
-  private dialCount = 2;
-  private buttonCount = 1;
+  // The puzzle itself. `maxValues[i]` is the dial's positions minus one — the
+  // config's own encoding — and `buttons[b][i]` is how far button b turns dial
+  // i. The page renders from these; nothing is read back out of the DOM.
+  private maxValues: number[] = [DEFAULT_MAX, DEFAULT_MAX];
+  private values: number[] = [0, 0];
+  private buttons: number[][] = [[0, 0]];
 
   // The last solution and the inputs it was computed from. A downloaded config
   // only carries a `result` while it still describes the puzzle that produced
@@ -30,28 +54,25 @@ export class PhasicDialSolver {
   // arrives after either is discarded.
   private solveGeneration = 0;
 
-  private dialImages: Record<string, string> = {
-    blue: blueDial,
-    red: redDial,
-    green: greenDial,
-    yellow: yellowDial,
-    cyan: cyanDial,
-    purple: purpleDial,
-  };
-
-  // The order the game unlocks dials in; purple is the sixth and last.
-  private dialOrder = [
-    "blue",
-    "red",
-    "green",
-    "yellow",
-    "cyan",
-    "purple",
-  ] as const;
+  private dialViews: DialView[] = [];
+  private readonly buttonsView: ButtonsView;
 
   constructor() {
+    this.buttonsView = new ButtonsView({
+      host: document.getElementById("buttons-list")!,
+      onTurnsChange: (button, dial, turns) => {
+        this.buttons[button]![dial] = turns;
+        this.invalidateResult();
+      },
+      onRemove: index => this.removeButton(index),
+    });
+
     document.getElementById("add-dial")!.addEventListener("click", () => {
       this.addDial();
+    });
+
+    document.getElementById("remove-dial")!.addEventListener("click", () => {
+      this.removeDial();
     });
 
     document.getElementById("add-button")!.addEventListener("click", () => {
@@ -100,114 +121,135 @@ export class PhasicDialSolver {
       });
     }
 
-    this.rebuildDialsList();
-    this.rebuildTable();
+    // How many cards fit on a row is the only thing balancing depends on that
+    // the page cannot know until it is measured.
+    window.addEventListener("resize", () => this.layoutDials());
+
+    this.render();
   }
 
-  private getDialImgSrc(color: string): string {
-    return this.dialImages[color]!;
+  private get dialCount(): number {
+    return this.maxValues.length;
   }
 
-  private rebuildDialsList() {
-    const activeDials = this.dialOrder.slice(0, this.dialCount);
+  private render() {
+    this.renderDials();
+    this.buttonsView.render(DIALS.slice(0, this.dialCount), this.buttons);
+    this.buttonsView.showPresses(this.lastResult);
+  }
+
+  private renderDials() {
+    for (const view of this.dialViews) view.dispose();
+    this.dialViews = [];
+
     const list = document.getElementById("dials-list")!;
-    list.innerHTML = activeDials
-      .map(
-        c =>
-          `<div class="dial-row" data-color="${c}">
-            <img src="${this.getDialImgSrc(c)}" width="32" height="32" />
-            <md-outlined-text-field label="Max" type="number" value="3" class="dial-max"></md-outlined-text-field>
-            <md-outlined-text-field label="Value" type="number" value="0" class="dial-value"></md-outlined-text-field>
-          </div>`,
-      )
-      .join("");
+    list.innerHTML = "";
+    for (let i = 0; i < this.dialCount; i++) {
+      const view = new DialView({
+        ...DIALS[i]!,
+        max: this.maxValues[i]!,
+        value: this.values[i]!,
+        onValueChange: value => {
+          this.values[i] = value;
+          this.invalidateResult();
+        },
+        onMaxChange: (max, value) => {
+          this.maxValues[i] = max;
+          this.values[i] = value;
+          this.invalidateResult();
+        },
+      });
+      this.dialViews.push(view);
+      list.appendChild(view.root);
+    }
 
-    const addBtn = document.getElementById("add-dial")!;
-    addBtn.style.display =
-      this.dialCount >= this.dialOrder.length ? "none" : "";
+    this.layoutDials();
+
+    document
+      .getElementById("add-dial")!
+      .toggleAttribute("disabled", this.dialCount >= MAX_DIALS);
+    document
+      .getElementById("remove-dial")!
+      .toggleAttribute("disabled", this.dialCount <= MIN_DIALS);
   }
 
-  private rebuildTable() {
-    const activeDials = this.dialOrder.slice(0, this.dialCount);
-
-    // Header row: empty cell + dial images
-    const header = document.getElementById("table-header")!;
-    header.innerHTML =
-      "<th></th>" +
-      activeDials
-        .map(
-          c =>
-            `<th><img src="${this.getDialImgSrc(c)}" width="32" height="32" /></th>`,
-        )
-        .join("");
-
-    // Body rows
-    const body = document.getElementById("table-body")!;
-    body.innerHTML = "";
-
-    // Button rows
-    for (let i = 1; i <= this.buttonCount; i++) {
-      const row = document.createElement("tr");
-      row.innerHTML =
-        `<td>Button ${i}</td>` +
-        activeDials
-          .map(
-            () =>
-              `<td><md-outlined-text-field type="number" value="0"></md-outlined-text-field></td>`,
-          )
-          .join("");
-      body.appendChild(row);
-    }
+  /**
+   * Splits the dial cards over even rows. Six dials in a list five cards wide
+   * wrap as 5 + 1 under `flex-wrap`; this makes them 3 + 3.
+   *
+   * The card width and the gap are MEASURED rather than declared here. A card
+   * is 148px of content plus its padding and border, and a constant would go
+   * on claiming 148px the moment the stylesheet changed.
+   */
+  private layoutDials() {
+    const list = document.getElementById("dials-list")!;
+    const card = list.firstElementChild;
+    const cardWidth = card ? card.getBoundingClientRect().width : 0;
+    const gap = Number.parseFloat(getComputedStyle(list).columnGap) || 0;
+    const capacity = columnCapacity(list.clientWidth, cardWidth, gap);
+    list.style.setProperty(
+      "--dial-cols",
+      String(balancedColumns(this.dialCount, capacity)),
+    );
   }
 
   private addDial() {
-    if (this.dialCount >= this.dialOrder.length) return;
-    this.dialCount++;
-    this.rebuildDialsList();
-    this.rebuildTable();
+    if (this.dialCount >= MAX_DIALS) return;
+    this.maxValues.push(DEFAULT_MAX);
+    this.values.push(0);
+    for (const turns of this.buttons) turns.push(0);
+    this.invalidateResult();
+    this.render();
+  }
+
+  /** Drops the last dial — colours are positional, so no other one can go. */
+  private removeDial() {
+    if (this.dialCount <= MIN_DIALS) return;
+    this.maxValues.pop();
+    this.values.pop();
+    for (const turns of this.buttons) turns.pop();
+    this.invalidateResult();
+    this.render();
   }
 
   private addButton() {
-    this.buttonCount++;
-    this.rebuildTable();
+    this.buttons.push(Array.from({ length: this.dialCount }, () => 0));
+    this.invalidateResult();
+    this.render();
+  }
+
+  private removeButton(index: number) {
+    if (this.buttons.length <= 1) return;
+    this.buttons.splice(index, 1);
+    this.invalidateResult();
+    this.render();
   }
 
   private reset() {
-    this.dialCount = 2;
-    this.buttonCount = 1;
+    this.maxValues = [DEFAULT_MAX, DEFAULT_MAX];
+    this.values = [0, 0];
+    this.buttons = [[0, 0]];
+    this.invalidateResult();
+    this.setSolving(false);
+    this.render();
+  }
+
+  /** Drops a solution that no longer describes what is on the page. */
+  private invalidateResult() {
     this.lastResult = null;
     this.lastResultKey = null;
     this.solveGeneration++;
-    this.setSolving(false);
-    this.rebuildDialsList();
-    this.rebuildTable();
+    this.buttonsView.showPresses(null);
     document.getElementById("result")!.hidden = true;
   }
 
-  /** Harvests the puzzle currently entered in the DOM. */
+  /** The puzzle currently entered, in the config/solver shape. */
   private readConfig(): PhasicDialTest {
-    const dialRows = document.querySelectorAll(".dial-row");
-    const maxValues: number[] = [];
-    const initialValues: number[] = [];
-    dialRows.forEach(row => {
-      maxValues.push(
-        Number(row.querySelector<HTMLInputElement>(".dial-max")!.value),
-      );
-      initialValues.push(
-        Number(row.querySelector<HTMLInputElement>(".dial-value")!.value),
-      );
-    });
-
-    const rows = document.querySelectorAll("#table-body tr");
-    const buttons: Button[] = [];
-    rows.forEach(row => {
-      const fields = row.querySelectorAll("md-outlined-text-field");
-      const values: number[] = [];
-      fields.forEach(f => values.push(Number(f.value)));
-      buttons.push(new Button(values));
-    });
-
-    return { maxValues, initialValues, buttons };
+    return {
+      maxValues: [...this.maxValues],
+      initialValues: [...this.values],
+      buttons: this.buttons.map(turns => new Button([...turns])),
+    };
   }
 
   /** Identity of a puzzle's inputs; tells a stale solution from a live one. */
@@ -247,37 +289,18 @@ export class PhasicDialSolver {
     this.applyLoadedConfig(result.config);
   }
 
-  /** Applies a validated config to the dial rows and the button table. */
+  /** Applies a validated config to the dials and the button cards. */
   private applyLoadedConfig(config: PhasicDialTest) {
-    this.dialCount = config.maxValues.length;
-    this.buttonCount = config.buttons.length;
-    this.rebuildDialsList();
-    this.rebuildTable();
-
-    document.querySelectorAll(".dial-row").forEach((row, index) => {
-      row.querySelector<HTMLInputElement>(".dial-max")!.value = String(
-        config.maxValues[index],
-      );
-      row.querySelector<HTMLInputElement>(".dial-value")!.value = String(
-        config.initialValues[index],
-      );
-    });
-
-    document.querySelectorAll("#table-body tr").forEach((row, index) => {
-      const turns = config.buttons[index]!.getTurns();
-      row.querySelectorAll("md-outlined-text-field").forEach((field, dial) => {
-        field.value = String(turns[dial]);
-      });
-    });
+    this.maxValues = [...config.maxValues];
+    this.values = [...config.initialValues];
+    this.buttons = config.buttons.map(button => [...button.getTurns()]);
 
     // A loaded config describes a puzzle that has not been solved on this page
     // yet, so any displayed solution — or one still being searched for —
     // belongs to a different board.
-    this.lastResult = null;
-    this.lastResultKey = null;
-    this.solveGeneration++;
+    this.invalidateResult();
     this.setSolving(false);
-    document.getElementById("result")!.hidden = true;
+    this.render();
   }
 
   /** Swaps the Calculate button for a spinner while the search runs. */
@@ -326,23 +349,55 @@ export class PhasicDialSolver {
 
     this.lastResult = result;
     this.lastResultKey = result === null ? null : this.configKey(config);
+    this.buttonsView.showPresses(result);
+    this.renderResult(result);
+  }
 
+  private renderResult(result: number[] | null) {
     const resultEl = document.getElementById("result")!;
     if (result === null) {
       resultEl.textContent = "No solution found.";
     } else if (result.every(v => v === 0)) {
       resultEl.textContent = "Already solved! No button presses needed.";
     } else {
-      const lines = result
-        .map((presses, i) => {
-          if (presses <= 0) return null;
-          const plural = presses === 1 ? "" : "es";
-          return `Button ${i + 1}: ${presses} press${plural}`;
-        })
-        .filter(line => line !== null);
-      resultEl.innerHTML = lines.join("<br>");
+      resultEl.innerHTML = this.solutionMarkup(result);
     }
     resultEl.hidden = false;
+  }
+
+  /** The solved press counts, one row per button that has to be pressed. */
+  private solutionMarkup(result: number[]): string {
+    const total = result.reduce((sum, presses) => sum + presses, 0);
+    const rows = result
+      .map((presses, index) =>
+        presses > 0 ? this.resultRowMarkup(index, presses) : null,
+      )
+      .filter(row => row !== null)
+      .join("");
+    return (
+      `<div class="result-summary">` +
+      `${total} press${total === 1 ? "" : "es"} in total</div>` +
+      `<ol class="result-list">${rows}</ol>`
+    );
+  }
+
+  private resultRowMarkup(index: number, presses: number): string {
+    const turns = this.buttons[index] ?? [];
+    const icons = turns
+      .map((count, dial) =>
+        count > 0
+          ? `<img class="result-dial" src="${DIALS[dial]!.image}" alt="" />`
+          : null,
+      )
+      .filter(icon => icon !== null)
+      .join("");
+    const plural = presses === 1 ? "" : "es";
+    return (
+      `<li class="result-row">` +
+      `<span class="result-button">Button ${index + 1}</span>` +
+      `<span class="result-count">${presses} press${plural}</span>` +
+      `<span class="result-dials">${icons}</span></li>`
+    );
   }
 }
 

@@ -163,6 +163,14 @@ All three now stop at the **first non-empty plan**. Match-three used to be the e
 
 **Three** solver pages need `SharedArrayBuffer` for their threads builds, which GitHub Pages cannot grant via headers. `src/common/coiRegister.ts` registers `coi-serviceworker.js` and **reloads once** when it activates. `page.goto()` resolves on the *pre-reload* document, so any e2e interaction in that window can die with "Execution context was destroyed". Always reach the rolling-blocks, shifting-mosaic AND match-three pages through `gotoIsolated` / `waitForCoiSettled` in `e2e/coi.ts` (`MATCH_THREE_URL` is exported there); `e2e/index.test.ts` needs a `waitForCoiSettled` before every Home click that leaves one of them.
 
+### Step-by-step solution views
+
+Three pages answer with a **step view rather than a list**: match-three, shifting-mosaic and rolling-blocks all hide `#editor-section` and show a sibling `#solution-view` built from the same ids — `#solution-grid`, `#solution-step-counter`, `#solution-step-text`, `#solution-prev`, `#solution-next`, `#solution-exit` — with a `dispose()` that releases every listener before the view is dropped. `src/util/gridOutline.ts` carries the two helpers they share (`markBlockEdges`, `markZoneEdges`): a grid with gaps between cells cannot be outlined with one border, so a zone is drawn as an edge class per cell whose neighbour is outside it.
+
+Rolling-blocks additionally keeps its full move list (`#solution-moves`) inside that view, with the current row `aria-current="step"` and clickable to jump. **Solving therefore leaves the editor**, so an e2e test that edits the board after solving has to click "Back to editor" first. The answer survives that: `#solution-steps` re-opens the same path without re-solving, and only `hideSolution()` (any real edit) throws it away.
+
+**`src/pages/rolling-blocks-solver/replay.ts` is a second copy of `a-star/Replay.cpp`'s semantics and the two must stay in sync.** The C++ one is the oracle the solver and its gtests use; the TS one is what the page needs to draw the board *between* two rolls, and it is also what `test/rolling-blocks-solver/aStar.slow.test.ts` validates all 48 wasm answers with. Everything it implements already lives in `Block` — it only sequences `clone` → `roll` → `checkValidity` → `updateMustTouchCells`. The two rules that make a naive re-roll wrong: the satisfied mask is **seeded from the starting footprints**, and a must-touch cell that is already satisfied **becomes blocking**, so a star can only be stepped on once.
+
 ### Config file I/O
 
 `src/util/configFile.ts` holds `downloadJson` / `readJsonFile` / `setupDragAndDrop`, shared by all four solver pages. Each page keeps its own `config.ts` validator returning `{ ok: true, config } | { ok: false, error }` with a human-readable first-failure message, and its own `applyLoadedConfig`. The download filename matches the fixture family (`phasicDialTest.json`, `shiftingMosaicTest.json`, `rollingBlocksTest.json`, `matchThreeTest.json`) so a downloaded file is directly usable as a test fixture. `#warning-banner` / `#drop-overlay` / `.hidden` styles live in `src/common/common.css`. The rolling-blocks validator also enforces the engine caps (64×64 grid, 255 blocks, dims ≤ 64 — same constants the UI fields and the wasm boundary use) and renumbers block ids to 1..n on load; **this validator** ignores a fixture's optional `turns` key. That is a page-level rule, not a repo-wide one — the native `fixtureio::load` deliberately does the opposite and parses `turns` back out, because that key is where `--generate` stores the replay-validated witness.
@@ -263,6 +271,12 @@ Unlike the rolling-blocks page, this editor does **not** rebuild the grid on eve
 ### Long searches on the main thread
 
 `TurnSolver` (phasic dial) is pure TS with no worker. Its search is a `searchSteps()` generator that yields every `YIELD_INTERVAL` combinations; `calculateTurns()` drains it straight through, `calculateTurnsAsync()` awaits between chunks so the page stays interactive. Six dials with eight buttons is ~0.7 s of work, hence the spinner. A `solveGeneration` counter (same pattern as the shifting-mosaic editor's) discards a result whose board was reset or replaced mid-search.
+
+### The phasic dial page
+
+The config stores `maxValues[i]` = **positions minus one**, and that has not changed — but nothing on the page says "max" any more. A dial is an SVG polygon with `max + 1` corners (`dialView.ts`), position 0 is straight up and is the solved one, and the pointer is dragged or arrow-keyed round it. Fewer than three positions degrades to a ring rather than a polygon, and there is no upper cap, so a config with a larger `max` renders rather than being rejected. The face is one `role="slider"` with `aria-valuemin/max/now`, which is the handle every test uses — `getByRole("slider", { name: "Blue dial position" })`, never a `Max`/`Value` field.
+
+Unlike before, **the page keeps a real model** (`maxValues` / `values` / `buttons`) and renders from it; `readConfig()` is a projection of that model, not a DOM scrape. Every mutation goes through `invalidateResult()`, so an edit drops the answer and the per-card press badges at once. Dial colours are positional (blue…purple), so `#remove-dial` can only ever drop the **last** dial; buttons are anonymous, so any card's delete works and the rest renumber.
 
 ## Test layout
 

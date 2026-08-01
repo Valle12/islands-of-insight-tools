@@ -1,8 +1,3 @@
-import type { MdFilledButton } from "@material/web/button/filled-button";
-import type { MdTextButton } from "@material/web/button/text-button";
-import type { MdDialog } from "@material/web/dialog/dialog";
-import type { MdIconButton } from "@material/web/iconbutton/icon-button";
-import type { MdOutlinedTextField } from "@material/web/textfield/outlined-text-field";
 import {
   afterEach,
   beforeEach,
@@ -21,718 +16,552 @@ import { TurnSolver } from "../../src/pages/phasic-dial-solver/turnSolver";
  */
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
-describe("PhasicDialSolver", () => {
-  let addDial: MdIconButton;
-  let addButton: MdIconButton;
-  let reset: MdIconButton;
-  let help: MdIconButton;
-  let calculate: MdFilledButton;
-  let helpClose: MdTextButton;
-  let dialsList: HTMLDivElement;
-  let result: HTMLDivElement;
-  let tableHeader: HTMLTableRowElement;
-  let tableBody: HTMLTableSectionElement;
-  let helpDialog: MdDialog;
-  let warningBanner: HTMLDivElement;
-  let fileInput: HTMLInputElement;
-  let downloadConfig: MdIconButton;
+/**
+ * The ids `PhasicDialSolver` reaches for, mounted for real rather than handed
+ * back one at a time from a `getElementById` spy: the dials and the button
+ * cards are built by two view classes that register delegated listeners on
+ * their host, so a detached stub would silently swallow every interaction.
+ */
+const MARKUP = `
+  <div id="editor-card">
+    <div id="warning-banner" class="hidden"></div>
+    <div id="dials-header">
+      <md-icon-button id="remove-dial"></md-icon-button>
+      <md-icon-button id="add-dial"></md-icon-button>
+    </div>
+    <div id="dials-list"></div>
+    <md-icon-button id="add-button"></md-icon-button>
+    <div id="buttons-list"></div>
+    <md-filled-button id="calculate">Calculate Turns</md-filled-button>
+    <md-icon-button id="reset"></md-icon-button>
+    <md-icon-button id="help"></md-icon-button>
+    <md-icon-button id="upload-config"></md-icon-button>
+    <md-icon-button id="download-config"></md-icon-button>
+    <input id="config-file-input" type="file" hidden />
+    <div id="solve-spinner" class="hidden"></div>
+    <div id="result" hidden></div>
+    <md-dialog id="help-dialog">
+      <div slot="content">
+        <ol>
+          <li>one</li>
+          <li>two</li>
+          <li>three</li>
+        </ol>
+      </div>
+      <div slot="actions">
+        <md-text-button id="help-close">Close</md-text-button>
+      </div>
+    </md-dialog>
+  </div>
+  <div id="drop-overlay" class="hidden"></div>
+`;
 
+const byId = <T extends HTMLElement>(id: string) =>
+  document.getElementById(id) as T;
+
+/** Colours, in the order the page hands them out. */
+const dialColors = () =>
+  Array.from(document.querySelectorAll(".dial-card")).map(card =>
+    card.getAttribute("data-color"),
+  );
+
+/** The turn counts each button card currently holds. */
+const buttonTurns = () =>
+  Array.from(document.querySelectorAll(".button-card")).map(card =>
+    Array.from(card.querySelectorAll<HTMLInputElement>(".turn-input")).map(
+      input => input.value,
+    ),
+  );
+
+function mount() {
+  document.body.innerHTML = MARKUP;
+  const dialog = byId("help-dialog") as HTMLElement & {
+    open?: boolean;
+    show?: () => void;
+    close?: () => void;
+  };
+  // The test DOM does not register `md-dialog`, so provide the two methods the
+  // page calls on it.
+  dialog.show = () => {
+    dialog.open = true;
+  };
+  dialog.close = () => {
+    dialog.open = false;
+  };
+  return new PhasicDialSolver();
+}
+
+describe("PhasicDialSolver", () => {
   beforeEach(() => {
-    warningBanner = document.createElement("div");
-    warningBanner.classList.add("hidden");
-    fileInput = document.createElement("input");
-    fileInput.type = "file";
-    downloadConfig = document.createElement("md-icon-button");
-    addDial = document.createElement("md-icon-button");
-    addButton = document.createElement("md-icon-button");
-    reset = document.createElement("md-icon-button");
-    help = document.createElement("md-icon-button");
-    calculate = document.createElement("md-filled-button");
-    helpClose = document.createElement("md-text-button");
-    dialsList = document.createElement("div");
-    result = document.createElement("div");
-    tableHeader = document.createElement("tr");
-    tableBody = document.createElement("tbody");
-    helpDialog = document.createElement("md-dialog");
-    helpDialog.innerHTML = `
-    <div slot="headline">How to use</div>
-        <div slot="content">
-          <ol>
-            <li>
-              Add dials first so the table has the right number of columns.
-            </li>
-            <li>
-              Set <strong>Max</strong> to the number of sides of the dial minus
-              1 (e.g. a square dial has 4 sides, so Max = 3). The
-              <strong>Value</strong> is 0 when pointing at the center, then
-              count clockwise by the number of lit-up dots.
-            </li>
-            <li>
-              For each button, enter how many turns it applies to each dial. For
-              example, if you see two blue icons on a button, enter
-              <strong>2</strong> in that button's blue column.
-            </li>
-          </ol>
-        </div>
-        <div slot="actions">
-          <md-text-button id="help-close">Close</md-text-button>
-        </div>
-    `;
-    // The test DOM doesn't register the custom `md-dialog` element,
-    // so provide simple `show`/`close` implementations used by the code.
-    (helpDialog as any).show = () => {
-      (helpDialog as any).open = true;
-    };
-    (helpDialog as any).close = () => {
-      (helpDialog as any).open = false;
-    };
+    mount();
   });
 
   afterEach(() => {
     mock.restore();
-    // Several tests attach the dial list / button table to the document so the
-    // solver's own `document.querySelectorAll` can find them; leaving them
-    // there would let one test read another's rows.
     document.body.innerHTML = "";
   });
 
-  test("should add dial and update ui", () => {
-    let cb: (event: Event) => void = () => {};
-    spyOn(document, "getElementById").mockImplementation((id: string) => {
-      if (id === "add-dial") return addDial;
-      if (id === "dials-list") return dialsList;
-      if (id === "table-header") return tableHeader;
-      if (id === "table-body") return tableBody;
-      return document.createElement("div");
-    });
-    spyOn(addDial, "addEventListener").mockImplementation(
-      (_type: string, listener: (event: Event) => void) => {
-        cb = listener;
-      },
-    );
-
-    new PhasicDialSolver();
-    cb(new Event("click"));
-
-    // rebuildDialsList
-    const rows = dialsList.querySelectorAll(".dial-row");
-    expect(rows).toHaveLength(3);
-    let index = 0;
-    rows.forEach(row => {
-      const color = row.getAttribute("data-color");
-      if (index === 0) {
-        expect(color).toBe("blue");
-      } else if (index === 1) {
-        expect(color).toBe("red");
-      } else if (index === 2) {
-        expect(color).toBe("green");
-      }
-
-      index++;
-    });
-    expect(addDial.style.display).toBe("");
-
-    // rebuildTable
-    const headers = tableHeader.querySelectorAll("th");
-    expect(headers).toHaveLength(4);
-    const row = tableBody.querySelector("tr");
-    const cells = row?.querySelectorAll("td");
-    expect(cells).toHaveLength(4);
+  test("should render two dials and one button to begin with", () => {
+    expect(dialColors()).toEqual(["blue", "red"]);
+    expect(document.querySelectorAll(".button-card")).toHaveLength(1);
+    expect(buttonTurns()).toEqual([["0", "0"]]);
+    expect(byId("remove-dial").hasAttribute("disabled")).toBeTrue();
+    expect(byId("add-dial").hasAttribute("disabled")).toBeFalse();
   });
 
-  test("should add button and update ui", () => {
-    let cb: (event: Event) => void = () => {};
-    spyOn(document, "getElementById").mockImplementation((id: string) => {
-      if (id === "add-button") return addButton;
-      if (id === "table-header") return tableHeader;
-      if (id === "table-body") return tableBody;
-      return document.createElement("div");
-    });
-    spyOn(addButton, "addEventListener").mockImplementation(
-      (_type: string, listener: (event: Event) => void) => {
-        cb = listener;
-      },
-    );
+  test("should add a dial and give every button a slot for it", () => {
+    byId("add-dial").click();
 
-    new PhasicDialSolver();
-    cb(new Event("click"));
-
-    // rebuildTable
-    const headers = tableHeader.querySelectorAll("th");
-    expect(headers).toHaveLength(3);
-    const rows = tableBody.querySelectorAll("tr");
-    expect(rows).toHaveLength(2);
-    rows.forEach(row => {
-      const cells = row.querySelectorAll("td");
-      expect(cells).toHaveLength(3);
-    });
+    expect(dialColors()).toEqual(["blue", "red", "green"]);
+    expect(buttonTurns()).toEqual([["0", "0", "0"]]);
+    expect(byId("remove-dial").hasAttribute("disabled")).toBeFalse();
   });
 
-  test("should start calculation with no solution", async () => {
-    let cb: (event: Event) => void = () => {};
-    spyOn(document, "getElementById").mockImplementation((id: string) => {
-      if (id === "calculate") return calculate;
-      if (id === "result") return result;
-      return document.createElement("div");
-    });
-    spyOn(calculate, "addEventListener").mockImplementation(
-      (_type: string, listener: (event: Event) => void) => {
-        cb = listener;
-      },
+  test("should stop adding dials after purple", () => {
+    // Two dials are shown to begin with, so four clicks reach all six colours
+    // and a fifth must be a no-op.
+    for (let i = 0; i < 5; i++) byId("add-dial").click();
+
+    expect(dialColors()).toEqual([
+      "blue",
+      "red",
+      "green",
+      "yellow",
+      "cyan",
+      "purple",
+    ]);
+    expect(byId("add-dial").hasAttribute("disabled")).toBeTrue();
+    expect(buttonTurns()[0]).toHaveLength(6);
+  });
+
+  test("should remove the last dial, and only the last", () => {
+    byId("add-dial").click();
+    byId("add-dial").click();
+    expect(dialColors()).toEqual(["blue", "red", "green", "yellow"]);
+
+    byId("remove-dial").click();
+
+    expect(dialColors()).toEqual(["blue", "red", "green"]);
+    expect(buttonTurns()).toEqual([["0", "0", "0"]]);
+  });
+
+  test("should never remove a dial below the minimum", () => {
+    byId("remove-dial").click();
+
+    expect(dialColors()).toEqual(["blue", "red"]);
+  });
+
+  test("should add a button", () => {
+    byId("add-button").click();
+
+    expect(buttonTurns()).toEqual([
+      ["0", "0"],
+      ["0", "0"],
+    ]);
+    const names = Array.from(document.querySelectorAll(".button-name")).map(
+      el => el.textContent,
     );
+    expect(names).toEqual(["Button 1", "Button 2"]);
+  });
+
+  test("should delete any button and renumber the rest", () => {
+    byId("add-button").click();
+    byId("add-button").click();
+    setTurns(0, 0, 1);
+    setTurns(2, 0, 3);
+
+    // Delete the middle card; the third one keeps its turns and becomes #2.
+    const cards = document.querySelectorAll(".button-card");
+    cards[1]!.querySelector<HTMLElement>(".button-delete")!.click();
+
+    expect(buttonTurns()).toEqual([
+      ["1", "0"],
+      ["3", "0"],
+    ]);
+    const names = Array.from(document.querySelectorAll(".button-name")).map(
+      el => el.textContent,
+    );
+    expect(names).toEqual(["Button 1", "Button 2"]);
+  });
+
+  test("should refuse to delete the only button", () => {
+    const card = document.querySelector(".button-card")!;
+    const del = card.querySelector<HTMLElement>(".button-delete")!;
+    expect(del.hasAttribute("disabled")).toBeTrue();
+
+    del.click();
+
+    expect(document.querySelectorAll(".button-card")).toHaveLength(1);
+  });
+
+  test("should step a turn count and stack one icon per turn", () => {
+    const slot = document.querySelector<HTMLElement>(".turn-slot")!;
+    expect(slot.dataset.empty).toBe("true");
+
+    slot.querySelector<HTMLElement>(".turn-more")!.click();
+    slot.querySelector<HTMLElement>(".turn-more")!.click();
+
+    expect(slot.querySelector<HTMLInputElement>(".turn-input")!.value).toBe("2");
+    expect(slot.querySelectorAll(".turn-icon")).toHaveLength(2);
+    expect(slot.dataset.empty).toBe("false");
+
+    slot.querySelector<HTMLElement>(".turn-less")!.click();
+    slot.querySelector<HTMLElement>(".turn-less")!.click();
+    slot.querySelector<HTMLElement>(".turn-less")!.click();
+
+    // A button cannot turn a dial a negative number of times.
+    expect(slot.querySelector<HTMLInputElement>(".turn-input")!.value).toBe("0");
+    expect(slot.dataset.empty).toBe("true");
+  });
+
+  test("should lay the icon stack out over even rows", () => {
+    const slot = document.querySelector<HTMLElement>(".turn-slot")!;
+    const icons = slot.querySelector<HTMLElement>(".turn-icons")!;
+    const cols = () => icons.style.getPropertyValue("--icon-cols").trim();
+
+    // Five is what a slot holds, so nothing wraps yet.
+    setTurns(0, 0, 5);
+    expect(icons.querySelectorAll(".turn-icon")).toHaveLength(5);
+    expect(cols()).toBe("5");
+
+    // Six would wrap as 5 + 1; three columns makes it 3 + 3.
+    setTurns(0, 0, 6);
+    expect(cols()).toBe("3");
+  });
+
+  test("should collapse a stack too tall to count into one icon", () => {
+    const slot = document.querySelector<HTMLElement>(".turn-slot")!;
+
+    setTurns(0, 0, 6);
+    expect(slot.querySelectorAll(".turn-icon")).toHaveLength(6);
+    expect(slot.querySelector(".turn-overflow")).toBeNull();
+
+    setTurns(0, 0, 7);
+
+    // Seven tiles is not readable; one tile and the number is.
+    expect(slot.querySelectorAll(".turn-icon")).toHaveLength(1);
+    expect(slot.querySelector(".turn-overflow")!.textContent).toBe("×7");
+  });
+
+  test("should aim a dial with the arrow keys and wrap around", () => {
+    const face = document.querySelector<SVGSVGElement>(".dial-face")!;
+    const card = document.querySelector<HTMLElement>(".dial-card")!;
+    expect(card.dataset.solved).toBe("true");
+
+    press(face, "ArrowRight");
+    expect(face.getAttribute("aria-valuenow")).toBe("1");
+    expect(card.dataset.solved).toBe("false");
+
+    // A square dial has four positions, so a fourth step is back at the hub.
+    press(face, "ArrowRight");
+    press(face, "ArrowRight");
+    press(face, "ArrowRight");
+    expect(face.getAttribute("aria-valuenow")).toBe("0");
+    expect(card.dataset.solved).toBe("true");
+
+    press(face, "ArrowLeft");
+    expect(face.getAttribute("aria-valuenow")).toBe("3");
+  });
+
+  test("should clamp a dial's position when it loses positions", () => {
+    const card = document.querySelector<HTMLElement>(".dial-card")!;
+    const face = card.querySelector<SVGSVGElement>(".dial-face")!;
+    press(face, "End");
+    expect(face.getAttribute("aria-valuenow")).toBe("3");
+
+    card.querySelector<HTMLElement>(".dial-sides-fewer")!.click();
+    card.querySelector<HTMLElement>(".dial-sides-fewer")!.click();
+
+    expect(card.querySelector(".dial-sides-count")!.textContent).toBe(
+      "2 positions",
+    );
+    expect(face.getAttribute("aria-valuenow")).toBe("1");
+  });
+
+  test("should never take a dial below two positions", () => {
+    const card = document.querySelector<HTMLElement>(".dial-card")!;
+    const fewer = card.querySelector<HTMLElement>(".dial-sides-fewer")!;
+    fewer.click();
+    fewer.click();
+    fewer.click();
+
+    expect(card.querySelector(".dial-sides-count")!.textContent).toBe(
+      "2 positions",
+    );
+    expect(fewer.hasAttribute("disabled")).toBeTrue();
+  });
+
+  test("should report that no solution exists", async () => {
     spyOn(TurnSolver.prototype, "calculateTurnsAsync").mockImplementation(() =>
       Promise.resolve(null),
     );
 
-    new PhasicDialSolver();
-    cb(new Event("click"));
+    byId("calculate").click();
     await flush();
 
-    expect(result.textContent).toBe("No solution found.");
+    expect(byId("result").textContent).toBe("No solution found.");
   });
 
-  test("should start calculation when already solved", async () => {
-    let cb: (event: Event) => void = () => {};
-    spyOn(document, "getElementById").mockImplementation((id: string) => {
-      if (id === "calculate") return calculate;
-      if (id === "result") return result;
-      return document.createElement("div");
-    });
-    spyOn(calculate, "addEventListener").mockImplementation(
-      (_type: string, listener: (event: Event) => void) => {
-        cb = listener;
-      },
-    );
+  test("should report a puzzle that is already solved", async () => {
     spyOn(TurnSolver.prototype, "calculateTurnsAsync").mockImplementation(() =>
       Promise.resolve([0]),
     );
 
-    new PhasicDialSolver();
-    cb(new Event("click"));
+    byId("calculate").click();
     await flush();
 
-    expect(result.textContent).toBe(
+    expect(byId("result").textContent).toBe(
       "Already solved! No button presses needed.",
     );
   });
 
-  test("should start calculation with one button to press", async () => {
-    let cb: (event: Event) => void = () => {};
-    spyOn(document, "getElementById").mockImplementation((id: string) => {
-      if (id === "calculate") return calculate;
-      if (id === "result") return result;
-      return document.createElement("div");
-    });
-    spyOn(calculate, "addEventListener").mockImplementation(
-      (_type: string, listener: (event: Event) => void) => {
-        cb = listener;
-      },
-    );
-    spyOn(TurnSolver.prototype, "calculateTurnsAsync").mockImplementation(() =>
-      Promise.resolve([1]),
-    );
-
-    new PhasicDialSolver();
-    cb(new Event("click"));
-    await flush();
-
-    expect(result.textContent).toBe("Button 1: 1 press");
-  });
-
-  test("should start calculation with two buttons to press", async () => {
-    let cb: (event: Event) => void = () => {};
-    spyOn(document, "getElementById").mockImplementation((id: string) => {
-      if (id === "calculate") return calculate;
-      if (id === "result") return result;
-      return document.createElement("div");
-    });
-    spyOn(calculate, "addEventListener").mockImplementation(
-      (_type: string, listener: (event: Event) => void) => {
-        cb = listener;
-      },
-    );
+  test("should list the presses and badge each button card", async () => {
+    byId("add-button").click();
     spyOn(TurnSolver.prototype, "calculateTurnsAsync").mockImplementation(() =>
       Promise.resolve([1, 2]),
     );
 
-    new PhasicDialSolver();
-    cb(new Event("click"));
+    byId("calculate").click();
     await flush();
 
-    expect(result.textContent).toBe("Button 1: 1 pressButton 2: 2 presses");
-  });
-
-  test("test reset", async () => {
-    let cb: (event: Event) => void = () => {};
-    let cb2: (event: Event) => void = () => {};
-    spyOn(document, "getElementById").mockImplementation((id: string) => {
-      if (id === "result") return result;
-      if (id === "dials-list") return dialsList;
-      if (id === "table-header") return tableHeader;
-      if (id === "table-body") return tableBody;
-      if (id === "reset") return reset;
-      if (id === "add-dial") return addDial;
-      return document.createElement("div");
-    });
-    spyOn(reset, "addEventListener").mockImplementation(
-      (_type: string, listener: (event: Event) => void) => {
-        cb = listener;
-      },
-    );
-    spyOn(addDial, "addEventListener").mockImplementation(
-      (_type: string, listener: (event: Event) => void) => {
-        cb2 = listener;
-      },
-    );
-
-    new PhasicDialSolver();
-    cb2(new Event("click"));
-
-    let rows = dialsList.querySelectorAll(".dial-row");
-    expect(rows).toHaveLength(3);
-
-    cb(new Event("click"));
-
-    // rebuildDialsList
-    rows = dialsList.querySelectorAll(".dial-row");
+    const rows = document.querySelectorAll("#result .result-row");
     expect(rows).toHaveLength(2);
-    let index = 0;
-    rows.forEach(row => {
-      const color = row.getAttribute("data-color");
-      if (index === 0) {
-        expect(color).toBe("blue");
-      } else if (index === 1) {
-        expect(color).toBe("red");
-      }
+    expect(rows[0]!.querySelector(".result-button")!.textContent).toBe(
+      "Button 1",
+    );
+    expect(rows[0]!.querySelector(".result-count")!.textContent).toBe("1 press");
+    expect(rows[1]!.querySelector(".result-count")!.textContent).toBe(
+      "2 presses",
+    );
+    expect(document.querySelector(".result-summary")!.textContent).toBe(
+      "3 presses in total",
+    );
 
-      index++;
-    });
-    expect(addDial.style.display).toBe("");
-
-    // rebuildTable
-    const headers = tableHeader.querySelectorAll("th");
-    expect(headers).toHaveLength(3);
-    const row = tableBody.querySelector("tr");
-    const cells = row?.querySelectorAll("td");
-    expect(cells).toHaveLength(3);
-
-    expect(result.hidden).toBeTrue();
+    expect(
+      Array.from(document.querySelectorAll(".button-presses")).map(
+        el => el.textContent,
+      ),
+    ).toEqual(["press ×1", "press ×2"]);
   });
 
-  test("test help dialog", async () => {
-    let cb: (event: Event) => void = () => {};
-    spyOn(document, "getElementById").mockImplementation((id: string) => {
-      if (id === "help") return help;
-      if (id === "help-dialog") return helpDialog;
-      return document.createElement("div");
-    });
-    spyOn(help, "addEventListener").mockImplementation(
-      (_type: string, listener: (event: Event) => void) => {
-        cb = listener;
-      },
+  test("should mark a button the solution never presses", async () => {
+    byId("add-button").click();
+    spyOn(TurnSolver.prototype, "calculateTurnsAsync").mockImplementation(() =>
+      Promise.resolve([2, 0]),
     );
 
-    new PhasicDialSolver();
-    cb(new Event("click"));
-
-    expect(helpDialog.open).toBeTrue();
-    expect(helpDialog.querySelectorAll("li")).toHaveLength(3);
-    expect(helpDialog.querySelector("#help-close")).not.toBeNull();
-  });
-
-  test("test closing help dialog", async () => {
-    let cb: (event: Event) => void = () => {};
-    let cb2: (event: Event) => void = () => {};
-    spyOn(document, "getElementById").mockImplementation((id: string) => {
-      if (id === "help-dialog") return helpDialog;
-      if (id === "help-close") return helpClose;
-      if (id === "help") return help;
-      return document.createElement("div");
-    });
-    spyOn(help, "addEventListener").mockImplementation(
-      (_type: string, listener: (event: Event) => void) => {
-        cb = listener;
-      },
-    );
-    spyOn(helpClose, "addEventListener").mockImplementation(
-      (_type: string, listener: (event: Event) => void) => {
-        cb2 = listener;
-      },
-    );
-
-    new PhasicDialSolver();
-    cb(new Event("click"));
-
-    expect(helpDialog.open).toBeTrue();
-
-    cb2(new Event("click"));
-
-    expect(helpDialog.open).toBeFalse();
-  });
-
-  test("test real example calculation", async () => {
-    let cb: (event: Event) => void = () => {};
-    spyOn(document, "getElementById").mockImplementation((id: string) => {
-      if (id === "calculate") return calculate;
-      if (id === "result") return result;
-      if (id === "dials-list") return dialsList;
-      if (id === "table-header") return tableHeader;
-      if (id === "table-body") return tableBody;
-      if (id === "add-button") return addButton;
-      return document.createElement("div");
-    });
-    spyOn(calculate, "addEventListener").mockImplementation(
-      (_type: string, listener: (event: Event) => void) => {
-        cb = listener;
-      },
-    );
-    dialsList.id = "dials-list";
-    tableBody.id = "table-body";
-    document.body.appendChild(dialsList);
-    document.body.appendChild(tableBody);
-
-    new PhasicDialSolver();
-
-    const dialRows = dialsList.querySelectorAll(".dial-row");
-    expect(dialRows).toHaveLength(2);
-    // md-outlined-text-field doesn't map the `value` attribute to a property
-    // in the test DOM, so set the `.value` property explicitly for max values.
-    dialRows.forEach(row => {
-      const dialMax = row.querySelector(
-        ".dial-max",
-      ) as MdOutlinedTextField | null;
-      if (dialMax) dialMax.value = "3";
-      const dv = row.querySelector(".dial-value") as MdOutlinedTextField | null;
-      if (dv && !dv.value) dv.value = "0";
-    });
-    const dialValue = dialRows[1]!.querySelector(
-      ".dial-value",
-    ) as MdOutlinedTextField | null;
-    expect(dialValue).not.toBeNull();
-    dialValue!.value = "1";
-
-    addButton.click();
-    const buttonRows = tableBody.querySelectorAll("tr");
-    expect(buttonRows).toHaveLength(2);
-    let index = 0;
-    buttonRows.forEach(buttonRow => {
-      const textFields = buttonRow.querySelectorAll("md-outlined-text-field");
-      expect(textFields).toHaveLength(2);
-      const f1 = textFields[0] as MdOutlinedTextField;
-      const f2 = textFields[1] as MdOutlinedTextField;
-      expect(f1).not.toBeUndefined();
-      expect(f2).not.toBeUndefined();
-      if (index === 0) {
-        f1.value = "1";
-        f2.value = "2";
-      } else if (index === 1) {
-        f1.value = "1";
-        f2.value = "3";
-      }
-
-      index++;
-    });
-
-    cb(new Event("click"));
+    byId("calculate").click();
     await flush();
 
-    expect(result.textContent).toBe("Button 1: 1 pressButton 2: 3 presses");
+    const cards = document.querySelectorAll<HTMLElement>(".button-card");
+    expect(cards[1]!.dataset.unused).toBe("true");
+    expect(cards[1]!.querySelector(".button-presses")!.textContent).toBe(
+      "not needed",
+    );
+    // Only the pressed button gets a row.
+    expect(document.querySelectorAll("#result .result-row")).toHaveLength(1);
+  });
+
+  test("should drop a stale answer as soon as an input changes", async () => {
+    spyOn(TurnSolver.prototype, "calculateTurnsAsync").mockImplementation(() =>
+      Promise.resolve([2]),
+    );
+
+    byId("calculate").click();
+    await flush();
+    expect(byId("result").hidden).toBeFalse();
+
+    document.querySelector<HTMLElement>(".turn-more")!.click();
+
+    expect(byId("result").hidden).toBeTrue();
+    expect(document.querySelector(".button-presses")!.classList).toContain(
+      "hidden",
+    );
   });
 
   test("should show a spinner while the search runs", async () => {
-    let cb: (event: Event) => void = () => {};
-    const spinner = document.createElement("div");
-    spinner.classList.add("hidden");
-    spyOn(document, "getElementById").mockImplementation((id: string) => {
-      if (id === "calculate") return calculate;
-      if (id === "result") return result;
-      if (id === "solve-spinner") return spinner;
-      return document.createElement("div");
-    });
-    spyOn(calculate, "addEventListener").mockImplementation(
-      (_type: string, listener: (event: Event) => void) => {
-        cb = listener;
-      },
-    );
     let finish: (turns: number[] | null) => void = () => {};
     spyOn(TurnSolver.prototype, "calculateTurnsAsync").mockImplementation(
       () => new Promise(resolve => (finish = resolve)),
     );
 
-    new PhasicDialSolver();
-    result.hidden = false;
-    cb(new Event("click"));
+    byId("result").hidden = false;
+    byId("calculate").click();
     await flush();
 
-    expect(spinner.classList.contains("hidden")).toBeFalse();
-    expect(calculate.hasAttribute("disabled")).toBeTrue();
+    expect(byId("solve-spinner").classList.contains("hidden")).toBeFalse();
+    expect(byId("calculate").hasAttribute("disabled")).toBeTrue();
     // The previous answer must not sit next to a running search.
-    expect(result.hidden).toBeTrue();
+    expect(byId("result").hidden).toBeTrue();
 
     finish([2]);
     await flush();
 
-    expect(spinner.classList.contains("hidden")).toBeTrue();
-    expect(calculate.hasAttribute("disabled")).toBeFalse();
-    expect(result.textContent).toBe("Button 1: 2 presses");
+    expect(byId("solve-spinner").classList.contains("hidden")).toBeTrue();
+    expect(byId("calculate").hasAttribute("disabled")).toBeFalse();
+    expect(document.querySelector(".result-count")!.textContent).toBe(
+      "2 presses",
+    );
   });
 
   test("should discard a search that a reset outlived", async () => {
-    let calculateCb: (event: Event) => void = () => {};
-    let resetCb: (event: Event) => void = () => {};
-    const spinner = document.createElement("div");
-    spinner.classList.add("hidden");
-    spyOn(document, "getElementById").mockImplementation((id: string) => {
-      if (id === "calculate") return calculate;
-      if (id === "reset") return reset;
-      if (id === "result") return result;
-      if (id === "solve-spinner") return spinner;
-      if (id === "dials-list") return dialsList;
-      if (id === "table-header") return tableHeader;
-      if (id === "table-body") return tableBody;
-      return document.createElement("div");
-    });
-    spyOn(calculate, "addEventListener").mockImplementation(
-      (_type: string, listener: (event: Event) => void) => {
-        calculateCb = listener;
-      },
-    );
-    spyOn(reset, "addEventListener").mockImplementation(
-      (_type: string, listener: (event: Event) => void) => {
-        resetCb = listener;
-      },
-    );
     let finish: (turns: number[] | null) => void = () => {};
     spyOn(TurnSolver.prototype, "calculateTurnsAsync").mockImplementation(
       () => new Promise(resolve => (finish = resolve)),
     );
 
-    new PhasicDialSolver();
-    calculateCb(new Event("click"));
+    byId("calculate").click();
     await flush();
-    resetCb(new Event("click"));
+    byId("reset").click();
     finish([7]);
     await flush();
 
-    expect(spinner.classList.contains("hidden")).toBeTrue();
-    expect(result.hidden).toBeTrue();
-    expect(result.textContent).toBe("");
+    expect(byId("solve-spinner").classList.contains("hidden")).toBeTrue();
+    expect(byId("result").hidden).toBeTrue();
+    expect(byId("result").textContent).toBe("");
   });
 
-  test("should stop adding dials after purple", () => {
-    let cb: (event: Event) => void = () => {};
-    spyOn(document, "getElementById").mockImplementation((id: string) => {
-      if (id === "add-dial") return addDial;
-      if (id === "dials-list") return dialsList;
-      if (id === "table-header") return tableHeader;
-      if (id === "table-body") return tableBody;
-      return document.createElement("div");
-    });
-    spyOn(addDial, "addEventListener").mockImplementation(
-      (_type: string, listener: (event: Event) => void) => {
-        cb = listener;
-      },
-    );
+  test("should reset the puzzle to two dials and one button", () => {
+    byId("add-dial").click();
+    byId("add-button").click();
+    setTurns(0, 0, 4);
 
-    new PhasicDialSolver();
-    // Two dials are shown to begin with, so four clicks reach all six colours
-    // and a fifth must be a no-op.
-    for (let i = 0; i < 5; i++) cb(new Event("click"));
+    byId("reset").click();
 
-    const rows = dialsList.querySelectorAll(".dial-row");
-    expect(rows).toHaveLength(6);
-    expect(
-      Array.from(rows).map(row => row.getAttribute("data-color")),
-    ).toEqual(["blue", "red", "green", "yellow", "cyan", "purple"]);
-    expect(addDial.style.display).toBe("none");
-    expect(tableHeader.querySelectorAll("th")).toHaveLength(7);
+    expect(dialColors()).toEqual(["blue", "red"]);
+    expect(buttonTurns()).toEqual([["0", "0"]]);
   });
 
-  /** Wires up the page with a real file input and returns its change handler. */
-  function mountWithFileInput() {
-    let change: (event: Event) => void = () => {};
-    spyOn(document, "getElementById").mockImplementation((id: string) => {
-      if (id === "config-file-input") return fileInput;
-      if (id === "warning-banner") return warningBanner;
-      if (id === "dials-list") return dialsList;
-      if (id === "table-header") return tableHeader;
-      if (id === "table-body") return tableBody;
-      if (id === "result") return result;
-      return document.createElement("div");
-    });
-    spyOn(fileInput, "addEventListener").mockImplementation(
-      (_type: string, listener: (event: Event) => void) => {
-        change = listener;
-      },
-    );
-    dialsList.id = "dials-list";
-    tableBody.id = "table-body";
-    document.body.appendChild(dialsList);
-    document.body.appendChild(tableBody);
+  test("test help dialog", () => {
+    const dialog = byId("help-dialog") as HTMLElement & { open?: boolean };
 
-    new PhasicDialSolver();
-    return (file: File) => {
-      Object.defineProperty(fileInput, "files", {
-        value: [file],
-        configurable: true,
-      });
-      change(new Event("change"));
-    };
-  }
+    byId("help").click();
+
+    expect(dialog.open).toBeTrue();
+    expect(dialog.querySelectorAll("li")).toHaveLength(3);
+    expect(dialog.querySelector("#help-close")).not.toBeNull();
+
+    byId("help-close").click();
+
+    expect(dialog.open).toBeFalse();
+  });
 
   test("should load a config from a file", async () => {
-    const pick = mountWithFileInput();
-    result.hidden = false;
+    byId("result").hidden = false;
 
-    pick(
-      new File(
-        [
-          JSON.stringify({
-            maxValues: [3, 4, 5],
-            initialValues: [1, 2, 0],
-            buttons: [{ turns: [1, 0, 2] }, { turns: [0, 3, 1] }],
-            result: [2, 1],
-          }),
-        ],
-        "phasicDialTest.json",
-        { type: "application/json" },
-      ),
+    await pick(
+      JSON.stringify({
+        maxValues: [3, 4, 5],
+        initialValues: [1, 2, 0],
+        buttons: [{ turns: [1, 0, 2] }, { turns: [0, 3, 1] }],
+        result: [2, 1],
+      }),
     );
-    // loadConfigFromFile is async; let its promise chain settle.
-    await Promise.resolve();
-    await Promise.resolve();
 
-    const rows = dialsList.querySelectorAll(".dial-row");
-    expect(rows).toHaveLength(3);
+    expect(dialColors()).toEqual(["blue", "red", "green"]);
     expect(
-      Array.from(rows).map(
-        row => (row.querySelector(".dial-max") as MdOutlinedTextField).value,
-      ),
-    ).toEqual(["3", "4", "5"]);
-    expect(
-      Array.from(rows).map(
-        row => (row.querySelector(".dial-value") as MdOutlinedTextField).value,
-      ),
-    ).toEqual(["1", "2", "0"]);
-
-    const buttonRows = tableBody.querySelectorAll("tr");
-    expect(buttonRows).toHaveLength(2);
-    expect(
-      Array.from(buttonRows).map(row =>
-        Array.from(row.querySelectorAll("md-outlined-text-field")).map(
-          field => (field as MdOutlinedTextField).value,
-        ),
-      ),
+      Array.from(document.querySelectorAll(".dial-face")).map(face => [
+        face.getAttribute("aria-valuemax"),
+        face.getAttribute("aria-valuenow"),
+      ]),
     ).toEqual([
+      ["3", "1"],
+      ["4", "2"],
+      ["5", "0"],
+    ]);
+    expect(buttonTurns()).toEqual([
       ["1", "0", "2"],
       ["0", "3", "1"],
     ]);
 
-    expect(result.hidden).toBeTrue();
-    expect(warningBanner.classList.contains("hidden")).toBeTrue();
+    // A loaded config has not been solved on this page, so `result` in the file
+    // says nothing about what is on screen.
+    expect(byId("result").hidden).toBeTrue();
+    expect(byId("warning-banner").classList.contains("hidden")).toBeTrue();
   });
 
   test("should warn about a file that is not valid JSON", async () => {
-    const pick = mountWithFileInput();
+    await pick("not json");
 
-    pick(new File(["not json"], "phasicDialTest.json"));
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(warningBanner.textContent).toBe("The file is not valid JSON.");
-    expect(warningBanner.classList.contains("hidden")).toBeFalse();
+    expect(byId("warning-banner").textContent).toBe(
+      "The file is not valid JSON.",
+    );
+    expect(byId("warning-banner").classList.contains("hidden")).toBeFalse();
     // The page must be left exactly as it was.
-    expect(dialsList.querySelectorAll(".dial-row")).toHaveLength(2);
+    expect(dialColors()).toEqual(["blue", "red"]);
   });
 
   test("should warn about a config that fails validation", async () => {
-    const pick = mountWithFileInput();
-
-    pick(
-      new File(
-        [JSON.stringify({ maxValues: [3], initialValues: [0], buttons: [] })],
-        "phasicDialTest.json",
-        { type: "application/json" },
-      ),
+    await pick(
+      JSON.stringify({ maxValues: [3], initialValues: [0], buttons: [] }),
     );
-    await Promise.resolve();
-    await Promise.resolve();
 
-    expect(warningBanner.textContent).toBe(
+    expect(byId("warning-banner").textContent).toBe(
       "Invalid config: maxValues must hold between 2 and 6 dials.",
     );
-    expect(dialsList.querySelectorAll(".dial-row")).toHaveLength(2);
+    expect(dialColors()).toEqual(["blue", "red"]);
   });
 
   test("should download the entered config, with the result once solved", async () => {
-    let downloadCb: (event: Event) => void = () => {};
-    let calculateCb: (event: Event) => void = () => {};
-    spyOn(document, "getElementById").mockImplementation((id: string) => {
-      if (id === "download-config") return downloadConfig;
-      if (id === "calculate") return calculate;
-      if (id === "dials-list") return dialsList;
-      if (id === "table-header") return tableHeader;
-      if (id === "table-body") return tableBody;
-      if (id === "result") return result;
-      return document.createElement("div");
-    });
-    spyOn(downloadConfig, "addEventListener").mockImplementation(
-      (_type: string, listener: (event: Event) => void) => {
-        downloadCb = listener;
-      },
-    );
-    spyOn(calculate, "addEventListener").mockImplementation(
-      (_type: string, listener: (event: Event) => void) => {
-        calculateCb = listener;
-      },
-    );
     const blobs: Blob[] = [];
     spyOn(URL, "createObjectURL").mockImplementation((blob: Blob) => {
       blobs.push(blob);
       return "blob:mock";
     });
     spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
-    dialsList.id = "dials-list";
-    tableBody.id = "table-body";
-    document.body.appendChild(dialsList);
-    document.body.appendChild(tableBody);
 
-    new PhasicDialSolver();
-
-    const dialRows = dialsList.querySelectorAll(".dial-row");
-    dialRows.forEach(row => {
-      (row.querySelector(".dial-max") as MdOutlinedTextField).value = "3";
-      (row.querySelector(".dial-value") as MdOutlinedTextField).value = "0";
-    });
-    (dialRows[0]!.querySelector(".dial-value") as MdOutlinedTextField).value =
-      "1";
-    (dialRows[1]!.querySelector(".dial-value") as MdOutlinedTextField).value =
-      "2";
-    const fields = tableBody.querySelectorAll("md-outlined-text-field");
-    (fields[0] as MdOutlinedTextField).value = "1";
-    (fields[1] as MdOutlinedTextField).value = "2";
+    const faces = document.querySelectorAll<SVGSVGElement>(".dial-face");
+    press(faces[0]!, "ArrowRight");
+    press(faces[1]!, "ArrowRight");
+    press(faces[1]!, "ArrowRight");
+    setTurns(0, 0, 1);
+    setTurns(0, 1, 2);
 
     // Before solving, the download carries the inputs only.
-    downloadCb(new Event("click"));
+    byId("download-config").click();
     expect(blobs).toHaveLength(1);
-    const beforeSolve = JSON.parse(await blobs[0]!.text());
-    expect(beforeSolve).toEqual({
+    expect(JSON.parse(await blobs[0]!.text())).toEqual({
       maxValues: [3, 3],
       initialValues: [1, 2],
       buttons: [{ turns: [1, 2] }],
     });
 
-    calculateCb(new Event("click"));
+    byId("calculate").click();
     await flush();
-    downloadCb(new Event("click"));
-    expect(blobs).toHaveLength(2);
-    const afterSolve = JSON.parse(await blobs[1]!.text());
-    expect(afterSolve.result).toEqual([3]);
+    byId("download-config").click();
+    expect(JSON.parse(await blobs[1]!.text()).result).toEqual([3]);
 
     // Editing an input invalidates the recorded solution.
-    (fields[0] as MdOutlinedTextField).value = "3";
-    downloadCb(new Event("click"));
-    const afterEdit = JSON.parse(await blobs[2]!.text());
-    expect(afterEdit.result).toBeUndefined();
+    setTurns(0, 0, 3);
+    byId("download-config").click();
+    expect(JSON.parse(await blobs[2]!.text()).result).toBeUndefined();
   });
 });
+
+/** Types `turns` into one button card's slot for one dial. */
+function setTurns(button: number, dial: number, turns: number) {
+  const card = document.querySelectorAll(".button-card")[button]!;
+  const input = card.querySelectorAll<HTMLInputElement>(".turn-input")[dial]!;
+  input.value = String(turns);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function press(face: SVGSVGElement, key: string) {
+  face.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+}
+
+/** Hands a file to the page's own change handler and lets it settle. */
+async function pick(contents: string) {
+  const input = document.getElementById(
+    "config-file-input",
+  ) as HTMLInputElement;
+  const file = new File([contents], "phasicDialTest.json", {
+    type: "application/json",
+  });
+  Object.defineProperty(input, "files", { value: [file], configurable: true });
+  input.dispatchEvent(new Event("change"));
+  // loadConfigFromFile is async; let its promise chain settle.
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}

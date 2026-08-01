@@ -1,3 +1,4 @@
+import { markBlockEdges, markZoneEdges } from "../../util/gridOutline";
 import type { Position } from "../../util/types";
 import { Direction } from "./directions";
 import { gridMaxWidthPx } from "./layout";
@@ -212,40 +213,6 @@ export class SolutionView {
     return new Set(this.cellsOf(blockId, anchor).map(c => `${c.x},${c.y}`));
   }
 
-  /** Outlines a block: an edge class wherever the neighbour is a different block. */
-  private static markBlockEdges(
-    cell: HTMLElement,
-    x: number,
-    y: number,
-    block: number,
-    occupant: number[][],
-  ) {
-    const sameBlock = (nx: number, ny: number) => occupant[nx]?.[ny] === block;
-    if (!sameBlock(x, y - 1)) cell.classList.add("block-edge-top");
-    if (!sameBlock(x + 1, y)) cell.classList.add("block-edge-right");
-    if (!sameBlock(x, y + 1)) cell.classList.add("block-edge-bottom");
-    if (!sameBlock(x - 1, y)) cell.classList.add("block-edge-left");
-  }
-
-  /**
-   * Outlines a zone (destination, goal): `prefix` on every cell in it, plus
-   * `prefix-edge-*` wherever the neighbour is outside it.
-   */
-  private static markZoneEdges(
-    cell: HTMLElement,
-    x: number,
-    y: number,
-    zone: Set<string>,
-    prefix: string,
-  ) {
-    if (!zone.has(`${x},${y}`)) return;
-    cell.classList.add(prefix);
-    if (!zone.has(`${x},${y - 1}`)) cell.classList.add(`${prefix}-edge-top`);
-    if (!zone.has(`${x + 1},${y}`)) cell.classList.add(`${prefix}-edge-right`);
-    if (!zone.has(`${x},${y + 1}`)) cell.classList.add(`${prefix}-edge-bottom`);
-    if (!zone.has(`${x - 1},${y}`)) cell.classList.add(`${prefix}-edge-left`);
-  }
-
   private buildCell(x: number, y: number, zones: CellZones): HTMLDivElement {
     const { occupant, step, destSet, goalSet } = zones;
     const cell = document.createElement("div");
@@ -257,14 +224,14 @@ export class SolutionView {
     if (block !== -1) {
       cell.dataset.blockType =
         block === this.data.goalIndex ? "goal" : "obstruction";
-      SolutionView.markBlockEdges(cell, x, y, block, occupant);
+      markBlockEdges(cell, x, y, block, occupant);
       if (step && block === step.blockId) {
         cell.classList.add("sm-moving");
       }
     }
 
-    SolutionView.markZoneEdges(cell, x, y, destSet, "sm-dest");
-    SolutionView.markZoneEdges(cell, x, y, goalSet, "sm-goal");
+    markZoneEdges(cell, x, y, destSet, "sm-dest");
+    markZoneEdges(cell, x, y, goalSet, "sm-goal");
     return cell;
   }
 
