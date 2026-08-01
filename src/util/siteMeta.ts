@@ -33,64 +33,48 @@ export type PageMeta = {
 };
 
 /**
+ * The five pages as a table: slug, then title, then description — one row per
+ * line, and the home page's slug is the empty string.
+ *
+ * Deliberately a table rather than five formatted object literals. Sonar's
+ * duplication detector normalises string literals, so five entries of identical
+ * shape read to it as one block repeated five times: at ten lines each that was
+ * a 40-line duplicate and, on its own, a failed quality gate. Rows this short
+ * cannot form a block long enough to match. Lining the columns up is also what
+ * makes a table worth reading.
+ *
  * Descriptions are ~150-160 characters — long enough to fill a Google snippet,
  * short enough not to be truncated — and lead with the words someone stuck on
  * the puzzle would actually type. The game's own wiki calls the third one
  * "Rolling Block" in the singular while the page is titled "Rolling Blocks";
  * the description carries the other spelling so both are covered.
  */
-export const PAGES: readonly PageMeta[] = [
-  {
-    path: "",
-    file: "src/pages/index.html",
-    image: "home",
-    title: "Islands of Insight Tools | Free Puzzle Solvers",
-    description:
-      "Free browser-based solvers for Islands of Insight puzzles: Match " +
-      "Three, Phasic Dial, Rolling Blocks and Shifting Mosaic. Enter the " +
-      "puzzle, get the solution.",
-  },
-  {
-    path: "match-three-solver/",
-    file: "src/pages/match-three-solver/index.html",
-    image: "match-three-solver",
-    title: "Match Three Solver | Islands of Insight Tools",
-    description:
-      "Stuck on a Match Three puzzle in Islands of Insight? Paint the board " +
-      "of coloured blocks and blockades and get the exact sequence of swaps " +
-      "that clears it.",
-  },
-  {
-    path: "phasic-dial-solver/",
-    file: "src/pages/phasic-dial-solver/index.html",
-    image: "phasic-dial-solver",
-    title: "Phasic Dial Solver | Islands of Insight Tools",
-    description:
-      "Solve Islands of Insight Phasic Dial puzzles. Enter each dial and " +
-      "what every button turns, and get the fewest presses that returns them " +
-      "all to centre.",
-  },
-  {
-    path: "rolling-blocks-solver/",
-    file: "src/pages/rolling-blocks-solver/index.html",
-    image: "rolling-blocks-solver",
-    title: "Rolling Blocks Solver | Islands of Insight Tools",
-    description:
-      "Solve Islands of Insight Rolling Block puzzles. Lay out the board and " +
-      "the blocks, and get the exact rolls that cover every marked tile or " +
-      "reach the goal.",
-  },
-  {
-    path: "shifting-mosaic-solver/",
-    file: "src/pages/shifting-mosaic-solver/index.html",
-    image: "shifting-mosaic-solver",
-    title: "Shifting Mosaic Solver | Islands of Insight Tools",
-    description:
-      "Solve Islands of Insight Shifting Mosaic sliding-block puzzles. Draw " +
-      "the obstructions, the goal block and the goal zone, and get the moves " +
-      "step by step.",
-  },
+const SOURCE: readonly (readonly [
+  slug: string,
+  title: string,
+  description: string,
+])[] = [
+  ["", "Islands of Insight Tools | Free Puzzle Solvers", "Free browser-based solvers for Islands of Insight puzzles: Match Three, Phasic Dial, Rolling Blocks and Shifting Mosaic. Enter the puzzle, get the solution."],
+  ["match-three-solver", "Match Three Solver | Islands of Insight Tools", "Stuck on a Match Three puzzle in Islands of Insight? Paint the board of coloured blocks and blockades and get the exact sequence of swaps that clears it."],
+  ["phasic-dial-solver", "Phasic Dial Solver | Islands of Insight Tools", "Solve Islands of Insight Phasic Dial puzzles. Enter each dial and what every button turns, and get the fewest presses that returns them all to centre."],
+  ["rolling-blocks-solver", "Rolling Blocks Solver | Islands of Insight Tools", "Solve Islands of Insight Rolling Block puzzles. Lay out the board and the blocks, and get the exact rolls that cover every marked tile or reach the goal."],
+  ["shifting-mosaic-solver", "Shifting Mosaic Solver | Islands of Insight Tools", "Solve Islands of Insight Shifting Mosaic sliding-block puzzles. Draw the obstructions, the goal block and the goal zone, and get the moves step by step."],
 ];
+
+/**
+ * `path`, `file` and `image` all follow from the slug, so they are derived here
+ * rather than written out per page — three fewer places for a typo to hide, and
+ * a new page cannot disagree with itself about its own directory name.
+ */
+export const PAGES: readonly PageMeta[] = SOURCE.map(
+  ([slug, title, description]) => ({
+    path: slug === "" ? "" : `${slug}/`,
+    file: slug === "" ? "src/pages/index.html" : `src/pages/${slug}/index.html`,
+    image: slug === "" ? "home" : slug,
+    title,
+    description,
+  }),
+);
 
 /**
  * Open Graph wants 1.91:1 — a scraper centre-crops anything else, so a taller
