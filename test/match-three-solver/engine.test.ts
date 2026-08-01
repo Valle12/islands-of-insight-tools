@@ -3,6 +3,7 @@ import { solveMatchThree } from "../../src/pages/match-three-solver/engine";
 import {
   boardProblem,
   toBoard,
+  type Move,
 } from "../../src/pages/match-three-solver/rules";
 import type { MatchThreeTest } from "../../src/util/types";
 import {
@@ -26,6 +27,13 @@ const ONE_MOVE = ["aab", "bba"];
 
 /** The same trick stacked twice over, with no swap able to reach both halves. */
 const TWO_MOVES = ["aab", "bba", "ccd", "ddc"];
+
+/**
+ * Like TWO_MOVES, but the two swaps sit in different columns, so playing the
+ * bottom one first drops the top half onto coordinates neither move names —
+ * every minimal solution of this board is order-dependent.
+ */
+const ORDERED = ["aab", "bba", "dcc", "cdd"];
 
 /**
  * One swap, two waves, empty board: the swap completes a run of four `a`, and
@@ -58,11 +66,7 @@ const SLOW = [
 
 describe("solveMatchThree", () => {
   test("a board with nothing on it is already solved", () => {
-    expect(solve(["..", "#."])).toEqual({
-      status: "solved",
-      moves: [],
-      groupingProven: true,
-    });
+    expect(solve(["..", "#."])).toEqual({ status: "solved", moves: [] });
   });
 
   test("finds the single swap that clears the board", () => {
@@ -90,11 +94,11 @@ describe("solveMatchThree", () => {
   });
 
   test("reports the moves in the order they must be played", () => {
-    const result = solve(TWO_MOVES);
+    const result = solve(ORDERED);
     if (result.status !== "solved") throw new Error(result.status);
     const reversed = [...result.moves].reverse();
-    expect(clearsBoard(board(TWO_MOVES), result.moves)).toBeTrue();
-    expect(clearsBoard(board(TWO_MOVES), reversed)).toBeFalse();
+    expect(clearsBoard(board(ORDERED), result.moves)).toBeTrue();
+    expect(clearsBoard(board(ORDERED), reversed)).toBeFalse();
   });
 
   describe("Unsolvable boards", () => {
@@ -114,16 +118,14 @@ describe("solveMatchThree", () => {
 
   describe("Budget", () => {
     test("every board these cases lean on is a legal start state", () => {
-      for (const rows of [ONE_MOVE, TWO_MOVES, CASCADE_CLEARS, NO_SWAPS, SLOW]) {
+      const cases = [ONE_MOVE, TWO_MOVES, ORDERED, CASCADE_CLEARS, NO_SWAPS, SLOW];
+      for (const rows of cases) {
         expect(boardProblem(board(rows))).toBeNull();
       }
     });
 
-    test("gives up rather than report a length it has not proven", () => {
-      const result = solve(SLOW, 0);
-      expect(result.status).toBe("budget");
-      if (result.status !== "budget") return;
-      expect(result.depth).toBeGreaterThanOrEqual(0);
+    test("says it gave up rather than inventing an answer", () => {
+      expect(solve(SLOW, 0).status).toBe("budget");
     });
 
     test("a board it can finish is never reported as a give-up", () => {
@@ -132,14 +134,44 @@ describe("solveMatchThree", () => {
   });
 
   describe("Progress", () => {
-    test("reports the length it is currently ruling out", () => {
+    // Not "it fires at least once": progress is INTERVAL-gated, so a run this
+    // short may legitimately never reach a reporting point. What may never
+    // happen is a nonsensical count.
+    test("never reports a nonsensical node count", () => {
       const seen: number[] = [];
       solveMatchThree(board(SLOW), {
         budgetMs: 0,
-        onProgress: progress => seen.push(progress.depth),
+        onProgress: progress => seen.push(progress.nodes),
       });
-      expect(seen.length).toBeGreaterThan(0);
-      expect(seen.every(depth => depth >= 0)).toBeTrue();
+      expect(seen.every(nodes => nodes >= 0)).toBeTrue();
+    });
+  });
+
+  describe("Streaming", () => {
+    test("a streamed best is the answer, and it replays", () => {
+      const bests: Move[][] = [];
+      const result = solveMatchThree(board(SLOW), {
+        budgetMs: 150,
+        onBest: moves => bests.push(moves),
+      });
+
+      for (const best of bests) {
+        expect(clearsBoard(board(SLOW), best)).toBeTrue();
+      }
+      // Whether 150ms is enough varies with the machine; what may never vary is
+      // the honesty of the outcome. The COUNT is not pinned — greedy keeps
+      // rolling out after its first witness and streams every strict
+      // improvement — but the last thing streamed is what comes back.
+      if (result.status === "solved") {
+        expect(clearsBoard(board(SLOW), result.moves)).toBeTrue();
+        expect(bests.length).toBeGreaterThan(0);
+        expect(bests.at(-1)).toEqual(result.moves);
+      } else {
+        // Only whole solutions are ever streamed, so nothing found means
+        // nothing streamed.
+        expect(result.status).toBe("budget");
+        expect(bests).toBeEmpty();
+      }
     });
   });
 
@@ -163,15 +195,10 @@ describe("solveMatchThree", () => {
     });
   });
 
-  describe("Grouping", () => {
-    test("a solution it had time to tidy is marked as proven", () => {
-      const result = solve(TWO_MOVES);
-      if (result.status !== "solved") throw new Error(result.status);
-      expect(result.groupingProven).toBeTrue();
-    });
-
-    test("keeps moves on one symbol together when the length allows it", () => {
-      // Three independent pairs of lines, one swap each, in any order.
+  describe("Independent lines", () => {
+    test("clears three unrelated pairs in three moves", () => {
+      // Three independent pairs of lines, one swap each, in any order. There is
+      // no tidying pass any more, so the only claim is the count.
       const result = solve(["aab", "bba", "ccd", "ddc", "eef", "ffe"]);
       if (result.status !== "solved") throw new Error(result.status);
       expect(result.moves).toHaveLength(3);

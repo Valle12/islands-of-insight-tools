@@ -102,30 +102,30 @@ export function hasStrandedSymbol(board: MatchThreeBoard): boolean {
   return symbolCounts(board).some(count => count > 0 && count < MIN_RUN);
 }
 
-/** Maps a (line, position) pair on one axis to a flat cell index. */
-type LineIndex = (line: number, position: number) => number;
-
 /**
- * Marks every run of `MIN_RUN` or more along a single line. Reading one past
- * the end as EMPTY is what closes a run that reaches the edge.
+ * Marks every run of `MIN_RUN` or more along one line: `length` cells at
+ * `start`, `start + step`, and so on. Reading one past the end as EMPTY is
+ * what closes a run that reaches the edge. Rows and columns share this
+ * through the stride alone — no index callback: this runs once per cascade
+ * round of every child the search builds, and two closures per call were
+ * measurable.
  */
-function markLine(
+function markLineRuns(
   cells: Uint8Array,
   mask: Uint8Array,
-  line: number,
+  start: number,
+  step: number,
   length: number,
-  indexOf: LineIndex,
 ): boolean {
   let found = false;
   let runValue: number = EMPTY;
   let runStart = 0;
-
   for (let position = 0; position <= length; position++) {
-    const value = position < length ? cells[indexOf(line, position)]! : EMPTY;
+    const value = position < length ? cells[start + position * step]! : EMPTY;
     if (value === runValue && isSymbol(value)) continue;
 
     if (isSymbol(runValue) && position - runStart >= MIN_RUN) {
-      for (let k = runStart; k < position; k++) mask[indexOf(line, k)] = 1;
+      for (let k = runStart; k < position; k++) mask[start + k * step] = 1;
       found = true;
     }
     runValue = value;
@@ -135,43 +135,76 @@ function markLine(
 }
 
 /**
- * Marks every run along one axis. The axis is entirely `indexOf`'s doing,
- * which is why rows and columns share this — and why a `+` or a `T` needs no
- * special case: it is just a cell both passes happen to mark.
+ * `findMatches` into a caller-owned mask, zeroed here. The search keeps one
+ * scratch mask per recursion level alive across millions of cascade rounds,
+ * which is what makes a round allocation-free. A `+` or a `T` needs no
+ * special case — it is just a cell the row and the column pass both mark.
  */
-function markRuns(
-  cells: Uint8Array,
+export function findMatchesInto(
+  board: MatchThreeBoard,
   mask: Uint8Array,
-  lines: number,
-  length: number,
-  indexOf: LineIndex,
 ): boolean {
+  const { width, height, cells } = board;
+  mask.fill(0);
   let found = false;
-  for (let line = 0; line < lines; line++) {
-    if (markLine(cells, mask, line, length, indexOf)) found = true;
+  for (let y = 0; y < height; y++) {
+    if (markLineRuns(cells, mask, y * width, 1, width)) found = true;
+  }
+  for (let x = 0; x < width; x++) {
+    if (markLineRuns(cells, mask, x, width, height)) found = true;
   }
   return found;
 }
 
 /** Every cell in some run of three, or null when the board is stable. */
 export function findMatches(board: MatchThreeBoard): Uint8Array | null {
+  const mask = new Uint8Array(board.cells.length);
+  return findMatchesInto(board, mask) ? mask : null;
+}
+
+/**
+ * Marks the horizontal and vertical runs through (x, y), if any. On a board
+ * that was settled before a swap, every new match passes through one of the
+ * two swapped cells — the same argument `hasRunThrough` rests on — so two of
+ * these calls find the entire first wave without rescanning the board.
+ *
+ * Unlike its neighbour `findMatchesInto`, this does NOT zero `mask` — the two
+ * calls that make up one first wave accumulate into the same one. The mask is
+ * the caller's to clear, and the two exported entry points take opposite sides
+ * of that contract on purpose.
+ */
+export function markRunsThrough(
+  board: MatchThreeBoard,
+  x: number,
+  y: number,
+  mask: Uint8Array,
+): boolean {
   const { width, height, cells } = board;
-  const mask = new Uint8Array(cells.length);
-  const rows = markRuns(
-    cells,
-    mask,
-    height,
-    width,
-    (y, x) => y * width + x,
-  );
-  const columns = markRuns(
-    cells,
-    mask,
-    width,
-    height,
-    (x, y) => y * width + x,
-  );
-  return rows || columns ? mask : null;
+  const value = cells[y * width + x]!;
+  if (!isSymbol(value)) return false;
+  let found = false;
+
+  let left = x;
+  while (left > 0 && cells[y * width + left - 1] === value) left--;
+  let right = x;
+  while (right + 1 < width && cells[y * width + right + 1] === value) right++;
+  if (right - left + 1 >= MIN_RUN) {
+    for (let k = left; k <= right; k++) mask[y * width + k] = 1;
+    found = true;
+  }
+
+  let top = y;
+  while (top > 0 && cells[(top - 1) * width + x] === value) top--;
+  let bottom = y;
+  while (bottom + 1 < height && cells[(bottom + 1) * width + x] === value) {
+    bottom++;
+  }
+  if (bottom - top + 1 >= MIN_RUN) {
+    for (let k = top; k <= bottom; k++) mask[k * width + x] = 1;
+    found = true;
+  }
+
+  return found;
 }
 
 /**
@@ -179,7 +212,7 @@ export function findMatches(board: MatchThreeBoard): Uint8Array | null {
  * match through one of the two cells it moved, so this is all the legality
  * check needs to look at.
  */
-function hasRunThrough(
+export function hasRunThrough(
   board: MatchThreeBoard,
   x: number,
   y: number,

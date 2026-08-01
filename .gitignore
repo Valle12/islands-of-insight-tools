@@ -55,4 +55,8 @@ astar.threads.mem64.mjs
 # bare submodule gitlink, with no .gitmodules to resolve it).
 third_party/
 build-*
+# CLion drops a `.gitignore` containing `*` into the build dirs it configures
+# itself, so its own directories were already covered; this catches the same
+# names when cmake is driven from a shell instead.
+cmake-build-*
 .playwright-mcp

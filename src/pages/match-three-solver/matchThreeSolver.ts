@@ -1,3 +1,4 @@
+import { registerCoiShim } from "./../../common/coiRegister";
 import {
   downloadJson,
   readJsonFile,
@@ -6,7 +7,7 @@ import {
 import type { MatchThreeTest, MatchThreeTool } from "./../../util/types";
 import { Board } from "./board";
 import { MAX_GRID_SIDE, validateConfig } from "./config";
-import type { SolveResult } from "./engine";
+import type { SolveProgress, SolveResult } from "./engine";
 import { boardProblem, toBoard, type Move } from "./rules";
 import { searchMatchThree, type SolveHandle } from "./solveClient";
 import { SolutionView } from "./solutionView";
@@ -50,6 +51,9 @@ export class MatchThreeSolverEditor {
   private readonly solutionViewEl = document.getElementById(
     "solution-view",
   ) as HTMLDivElement;
+  private readonly solutionCancel = document.getElementById(
+    "solution-cancel",
+  ) as HTMLButtonElement;
   private readonly solveButton = document.getElementById(
     "solve-puzzle",
   ) as HTMLButtonElement;
@@ -154,7 +158,9 @@ export class MatchThreeSolverEditor {
 
     this.solveButton.addEventListener("click", () => this.solve());
 
-    document.getElementById("solution-cancel")?.addEventListener("click", () => {
+    this.solutionCancel.addEventListener("click", () => {
+      // There is never a partial answer to keep: the search ends itself the
+      // moment it has one, so reaching this button means nothing was found.
       this.cancelSearch();
       this.solutionStatus.textContent = "Cancelled";
     });
@@ -362,9 +368,15 @@ export class MatchThreeSolverEditor {
     this.search = searchMatchThree(config, {
       onProgress: progress => {
         if (!isCurrent()) return;
-        this.solutionProgress.textContent =
-          `Ruling out ${progress.depth} move${progress.depth === 1 ? "" : "s"}` +
-          ` — ${progress.nodes.toLocaleString()} positions checked`;
+        this.solutionProgress.textContent = this.progressText(progress);
+      },
+      // The first solution the search can play is the answer. Nothing waits
+      // to find out whether a shorter one exists, so this is where a solve
+      // normally ends — `onResult` only gets there on an unsolvable board, an
+      // empty one, or a board nothing cracked inside the budget.
+      onBest: moves => {
+        if (!isCurrent()) return;
+        this.finishWith(config, moves);
       },
       onResult: result => {
         if (!isCurrent()) return;
@@ -380,6 +392,18 @@ export class MatchThreeSolverEditor {
     });
   }
 
+  /** One line saying how hard the search is still looking. */
+  private progressText(progress: SolveProgress): string {
+    const checked = `${progress.nodes.toLocaleString()} positions checked`;
+    return `Looking for a solution — ${checked}`;
+  }
+
+  /** Stops the search and shows the solution it just produced. */
+  private finishWith(config: MatchThreeTest, moves: Move[]) {
+    this.cancelSearch();
+    this.showResult(config, { status: "solved", moves });
+  }
+
   private showResult(config: MatchThreeTest, result: SolveResult) {
     this.setSolving(false);
 
@@ -393,9 +417,7 @@ export class MatchThreeSolverEditor {
     if (result.status === "budget") {
       this.solutionStatus.textContent = "Gave up";
       this.solutionMessage.textContent =
-        `No solution of ${result.depth} moves or fewer exists, and the search ` +
-        `ran out of time before it could rule out longer ones. Only a solution ` +
-        `proven to be the shortest is reported.`;
+        "No solution was found within the time limit.";
       return;
     }
 
@@ -430,6 +452,7 @@ export class MatchThreeSolverEditor {
     this.solutionStatus.textContent = "";
     this.solutionMessage.textContent = "";
     this.solutionProgress.textContent = "Searching…";
+    this.solutionCancel.textContent = "Cancel";
     this.setSolving(true);
   }
 
@@ -509,5 +532,10 @@ export class MatchThreeSolverEditor {
 export const page: { editor?: MatchThreeSolverEditor } = {};
 
 if (process.env.NODE_ENV !== "test") {
+  // SharedArrayBuffer is what the wasm arms' threads build needs, and GitHub
+  // Pages cannot grant it with real headers. The shim reloads the page once
+  // when its service worker activates, which is why every e2e visit here has
+  // to go through gotoIsolated.
+  registerCoiShim();
   page.editor = new MatchThreeSolverEditor();
 }

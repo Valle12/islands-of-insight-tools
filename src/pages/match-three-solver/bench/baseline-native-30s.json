@@ -1,0 +1,527 @@
+{
+  "meta": {
+    "createdAt": "2026-08-01T00:54:40.088Z",
+    "engine": "native-cascade",
+    "budgetMs": 30000
+  },
+  "results": [
+    {
+      "fixture": "matchThreeTest.json",
+      "status": "solved",
+      "depthReached": 1,
+      "nodes": 61,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 1,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest1.json",
+      "status": "solved",
+      "depthReached": 2,
+      "nodes": 122,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 2,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest2.json",
+      "status": "solved",
+      "depthReached": 2,
+      "nodes": 124,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 2,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest3.json",
+      "status": "solved",
+      "depthReached": 2,
+      "nodes": 122,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 2,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest4.json",
+      "status": "solved",
+      "depthReached": 1,
+      "nodes": 61,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 1,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest5.json",
+      "status": "solved",
+      "depthReached": 2,
+      "nodes": 122,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 2,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest6.json",
+      "status": "solved",
+      "depthReached": 2,
+      "nodes": 134,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 2,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest7.json",
+      "status": "solved",
+      "depthReached": 1,
+      "nodes": 61,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 1,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest8.json",
+      "status": "solved",
+      "depthReached": 7,
+      "nodes": 427,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 7,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest9.json",
+      "status": "solved",
+      "depthReached": 5,
+      "nodes": 282,
+      "tableEntries": 0,
+      "wallMs": 1,
+      "moves": 5,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest10.json",
+      "status": "solved",
+      "depthReached": 6,
+      "nodes": 432,
+      "tableEntries": 0,
+      "wallMs": 1,
+      "moves": 6,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest11.json",
+      "status": "solved",
+      "depthReached": 7,
+      "nodes": 585,
+      "tableEntries": 0,
+      "wallMs": 2,
+      "moves": 7,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest12.json",
+      "status": "solved",
+      "depthReached": 6,
+      "nodes": 239,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 6,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest13.json",
+      "status": "solved",
+      "depthReached": 10,
+      "nodes": 753,
+      "tableEntries": 0,
+      "wallMs": 2,
+      "moves": 10,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest14.json",
+      "status": "solved",
+      "depthReached": 7,
+      "nodes": 344,
+      "tableEntries": 0,
+      "wallMs": 1,
+      "moves": 7,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest15.json",
+      "status": "solved",
+      "depthReached": 3,
+      "nodes": 279,
+      "tableEntries": 0,
+      "wallMs": 1,
+      "moves": 3,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest16.json",
+      "status": "solved",
+      "depthReached": 2,
+      "nodes": 122,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 2,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest17.json",
+      "status": "solved",
+      "depthReached": 4,
+      "nodes": 405,
+      "tableEntries": 0,
+      "wallMs": 1,
+      "moves": 4,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest18.json",
+      "status": "solved",
+      "depthReached": 6,
+      "nodes": 366,
+      "tableEntries": 0,
+      "wallMs": 1,
+      "moves": 6,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest19.json",
+      "status": "solved",
+      "depthReached": 4,
+      "nodes": 256,
+      "tableEntries": 0,
+      "wallMs": 1,
+      "moves": 4,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest20.json",
+      "status": "solved",
+      "depthReached": 7,
+      "nodes": 456,
+      "tableEntries": 0,
+      "wallMs": 1,
+      "moves": 7,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest21.json",
+      "status": "solved",
+      "depthReached": 3,
+      "nodes": 183,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 3,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest22.json",
+      "status": "solved",
+      "depthReached": 1,
+      "nodes": 61,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 1,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest23.json",
+      "status": "solved",
+      "depthReached": 2,
+      "nodes": 122,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 2,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest24.json",
+      "status": "solved",
+      "depthReached": 3,
+      "nodes": 183,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 3,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest25.json",
+      "status": "solved",
+      "depthReached": 4,
+      "nodes": 253,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 4,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest26.json",
+      "status": "solved",
+      "depthReached": 4,
+      "nodes": 244,
+      "tableEntries": 0,
+      "wallMs": 1,
+      "moves": 4,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest27.json",
+      "status": "solved",
+      "depthReached": 6,
+      "nodes": 362,
+      "tableEntries": 0,
+      "wallMs": 1,
+      "moves": 6,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest28.json",
+      "status": "solved",
+      "depthReached": 5,
+      "nodes": 217,
+      "tableEntries": 0,
+      "wallMs": 1,
+      "moves": 5,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest29.json",
+      "status": "solved",
+      "depthReached": 2,
+      "nodes": 122,
+      "tableEntries": 0,
+      "wallMs": 1,
+      "moves": 2,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest30.json",
+      "status": "solved",
+      "depthReached": 3,
+      "nodes": 258,
+      "tableEntries": 0,
+      "wallMs": 1,
+      "moves": 3,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest31.json",
+      "status": "solved",
+      "depthReached": 6,
+      "nodes": 461,
+      "tableEntries": 0,
+      "wallMs": 1,
+      "moves": 6,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest32.json",
+      "status": "solved",
+      "depthReached": 5,
+      "nodes": 184,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 5,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest33.json",
+      "status": "solved",
+      "depthReached": 4,
+      "nodes": 245,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 4,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest34.json",
+      "status": "solved",
+      "depthReached": 3,
+      "nodes": 189,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 3,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest35.json",
+      "status": "solved",
+      "depthReached": 8,
+      "nodes": 612,
+      "tableEntries": 0,
+      "wallMs": 1,
+      "moves": 8,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest36.json",
+      "status": "solved",
+      "depthReached": 4,
+      "nodes": 244,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 4,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest37.json",
+      "status": "solved",
+      "depthReached": 5,
+      "nodes": 316,
+      "tableEntries": 0,
+      "wallMs": 1,
+      "moves": 5,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest38.json",
+      "status": "solved",
+      "depthReached": 4,
+      "nodes": 428,
+      "tableEntries": 0,
+      "wallMs": 1,
+      "moves": 4,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest39.json",
+      "status": "solved",
+      "depthReached": 6,
+      "nodes": 359,
+      "tableEntries": 0,
+      "wallMs": 0,
+      "moves": 6,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest40.json",
+      "status": "solved",
+      "depthReached": 3,
+      "nodes": 253,
+      "tableEntries": 0,
+      "wallMs": 1,
+      "moves": 3,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest41.json",
+      "status": "solved",
+      "depthReached": 10,
+      "nodes": 590,
+      "tableEntries": 0,
+      "wallMs": 4,
+      "moves": 10,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest42.json",
+      "status": "solved",
+      "depthReached": 6,
+      "nodes": 2187,
+      "tableEntries": 0,
+      "wallMs": 7,
+      "moves": 6,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest43.json",
+      "status": "solved",
+      "depthReached": 8,
+      "nodes": 1738,
+      "tableEntries": 0,
+      "wallMs": 7,
+      "moves": 8,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest44.json",
+      "status": "solved",
+      "depthReached": 14,
+      "nodes": 7329,
+      "tableEntries": 0,
+      "wallMs": 52,
+      "moves": 14,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest45.json",
+      "status": "solved",
+      "depthReached": 7,
+      "nodes": 2554,
+      "tableEntries": 0,
+      "wallMs": 9,
+      "moves": 7,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest46.json",
+      "status": "solved",
+      "depthReached": 7,
+      "nodes": 758,
+      "tableEntries": 0,
+      "wallMs": 3,
+      "moves": 7,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest47.json",
+      "status": "solved",
+      "depthReached": 21,
+      "nodes": 7906791,
+      "tableEntries": 1579457,
+      "wallMs": 16257,
+      "moves": 21,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest48.json",
+      "status": "solved",
+      "depthReached": 7,
+      "nodes": 369,
+      "tableEntries": 0,
+      "wallMs": 1,
+      "moves": 7,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest49.json",
+      "status": "solved",
+      "depthReached": 10,
+      "nodes": 10740,
+      "tableEntries": 0,
+      "wallMs": 49,
+      "moves": 10,
+      "valid": true
+    },
+    {
+      "fixture": "matchThreeTest50.json",
+      "status": "budget",
+      "depthReached": 0,
+      "nodes": 12411374,
+      "tableEntries": 1781707,
+      "wallMs": 30008
+    },
+    {
+      "fixture": "matchThreeTest51.json",
+      "status": "solved",
+      "depthReached": 15,
+      "nodes": 104930,
+      "tableEntries": 0,
+      "wallMs": 3837,
+      "moves": 15,
+      "valid": true
+    }
+  ]
+}

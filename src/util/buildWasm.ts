@@ -241,12 +241,24 @@ async function build({
 // TUs, differing only in output name / memory model / -pthread. threads =
 // in-module arm race on cross-origin isolated pages; mem64 = 8GB heap
 // ceiling where the runtime can load Memory64.
-const ROLLING_BLOCKS_VARIANTS = [
+/**
+ * One wasm build variant. The two flags are optional BOOLEANS and are read by
+ * value below, never with `in`: key-presence would enable pthreads for an entry
+ * written as `{ threads: false }`, which is exactly how a matrix like this
+ * grows a silent bug.
+ */
+interface WasmVariant {
+  outputJs: string;
+  threads?: boolean;
+  memory64?: boolean;
+}
+
+const ROLLING_BLOCKS_VARIANTS: WasmVariant[] = [
   { outputJs: "astar.mjs" },
   { outputJs: "astar.threads.mjs", threads: true },
   { outputJs: "astar.mem64.mjs", memory64: true },
   { outputJs: "astar.threads.mem64.mjs", threads: true, memory64: true },
-] as const;
+];
 
 await Promise.all(
   ROLLING_BLOCKS_VARIANTS.map(variant =>
@@ -268,10 +280,12 @@ await Promise.all(
       outputJs: variant.outputJs,
       exportName: "createAStarModule",
       needsBoost: true,
-      memory64: "memory64" in variant,
-      maxMemory: "memory64" in variant ? "8GB" : "4GB",
+      memory64: variant.memory64 === true,
+      maxMemory: variant.memory64 === true ? "8GB" : "4GB",
       extraArgs:
-        "threads" in variant ? ["-pthread", "-sPTHREAD_POOL_SIZE=10"] : [],
+        variant.threads === true
+          ? ["-pthread", "-sPTHREAD_POOL_SIZE=10"]
+          : [],
     }),
   ),
 );
@@ -298,12 +312,12 @@ await Promise.all(
 //                    capability from the single-threaded build's non-shared
 //                    one, so the bridge gates it on its own validate probe and
 //                    falls back to the wasm32 threads build.
-const SHIFTING_MOSAIC_VARIANTS = [
+const SHIFTING_MOSAIC_VARIANTS: WasmVariant[] = [
   { outputJs: "astar.mjs" },
   { outputJs: "astar.threads.mjs", threads: true },
   { outputJs: "astar.mem64.mjs", memory64: true },
   { outputJs: "astar.threads.mem64.mjs", threads: true, memory64: true },
-] as const;
+];
 
 await Promise.all(
   SHIFTING_MOSAIC_VARIANTS.map(variant =>
@@ -330,10 +344,70 @@ await Promise.all(
       outputJs: variant.outputJs,
       exportName: "createShiftingMosaicAStarModule",
       needsBoost: false,
-      memory64: "memory64" in variant,
-      maxMemory: "memory64" in variant ? "8GB" : "4GB",
+      memory64: variant.memory64 === true,
+      maxMemory: variant.memory64 === true ? "8GB" : "4GB",
       extraArgs:
-        "threads" in variant ? ["-pthread", "-sPTHREAD_POOL_SIZE=10"] : [],
+        variant.threads === true
+          ? ["-pthread", "-sPTHREAD_POOL_SIZE=10"]
+          : [],
+    }),
+  ),
+);
+
+// Match-three's four variants. Same shape as the other two solvers; what each
+// one buys here is specific:
+//   - threads:       six arms race inside one module on a cross-origin isolated
+//                    page. All of them share one Bounds, so a find by the
+//                    greedy arm immediately caps what the provers have to do.
+//   - mem64:         the bounded failed-state table means this build no longer
+//                    rescues a search from aborting — it lets the table hold
+//                    more before it starts evicting, which is the difference
+//                    between re-searching a subtree and remembering it.
+//   - threads+mem64: both, and the one that matters most: six tables share the
+//                    heap, so the 4GB wall arrives six times sooner.
+// FixtureIo.cpp and GenerateCommands.cpp are deliberately absent — they need
+// nlohmann and exceptions, and this build has neither.
+// Typed with optional booleans, and read by VALUE below rather than by key
+// presence: `"threads" in variant` would enable pthreads for an entry written
+// as `{ threads: false }`, which is exactly how a matrix like this grows.
+const MATCH_THREE_VARIANTS: {
+  outputJs: string;
+  threads?: boolean;
+  memory64?: boolean;
+}[] = [
+  { outputJs: "astar.mjs" },
+  { outputJs: "astar.threads.mjs", threads: true },
+  { outputJs: "astar.mem64.mjs", memory64: true },
+  { outputJs: "astar.threads.mem64.mjs", threads: true, memory64: true },
+];
+
+await Promise.all(
+  MATCH_THREE_VARIANTS.map(variant =>
+    build({
+      aStarDir: resolve(projectRoot, "src/pages/match-three-solver/a-star"),
+      outDir: resolve(projectRoot, "src/pages/match-three-solver/wasm"),
+      // Keep in sync with match_three_core in that directory's CMakeLists.txt,
+      // which lists the same TUs plus the native-only fixture I/O.
+      sources: [
+        "wasm_bindings.cpp",
+        "Rules.cpp",
+        "Replay.cpp",
+        "SearchProver.cpp",
+        "SearchGreedy.cpp",
+        "SearchBeam.cpp",
+        "SearchNrpa.cpp",
+        "SolverArms.cpp",
+        "SolverClock.cpp",
+      ],
+      outputJs: variant.outputJs,
+      exportName: "createMatchThreeModule",
+      needsBoost: false,
+      memory64: variant.memory64 === true,
+      maxMemory: variant.memory64 === true ? "8GB" : "4GB",
+      extraArgs:
+        variant.threads === true
+          ? ["-pthread", "-sPTHREAD_POOL_SIZE=10"]
+          : [],
     }),
   ),
 );

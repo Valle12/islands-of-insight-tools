@@ -78,7 +78,7 @@ Everything else in the checklist has no tidy equivalent — it must be
 right when written, or found via Inspect Code in the IDE.
 
 Notes on `--fix`: it does not reformat, so long lines must be re-wrapped
-to the repo's ~80 columns by hand afterwards, and it writes `.x=x` — the
+to the repo's ~80 columns by hand afterward, and it writes `.x=x` — the
 repo style is `.x = x`.
 
 ## SonarLint (S-rules) — the other focused-file-only findings
@@ -173,6 +173,26 @@ the idiom that satisfies them:
   drive it from a `while`.
 - **If-init statements**: a local used only by the following `if` goes
   into it (same as the CLion inspection above; Sonar flags it too).
+- **No nested conditional operators** (S3358) — a ternary inside another
+  ternary's branch, including one hidden in a call argument:
+  `opts.width > 0 ? opts.width : rng.uniform(4, cluster ? 6 : 10)`. Lift
+  the inner one into a named local. **Lift only the PURE part.** In
+  `GenerateCommands.cpp` the inner `cluster ? 6 : 10` is a constant and
+  safe to name, but hoisting the enclosing `rng.uniform(…)` would draw a
+  number even when the caller pinned that dimension — changing every board
+  generated with `--width`/`--height`/`--symbols`. Same family of trap as
+  the argument-bundling one above: verify by regenerating fixtures across
+  several seeds AND one fully-pinned case, then hash-compare.
+- **Catch a specific exception, not `std::exception`** — enumerate what the
+  callee actually throws and catch those by name. `fixtureio::load` raises
+  exactly `FixtureError` and `nlohmann::json::exception`, so `loadFixture`
+  in match-three's `main.cpp` catches the two and shares one local lambda
+  for the report-and-emit. Narrowing a catch is a behaviour change: drive
+  every failure path once afterward (missing file, malformed document,
+  out-of-range value) and confirm each still reports.
+- **A `const std::string &` parameter that is only compared** becomes
+  `std::string_view` — not just the ones feeding a transparent container
+  (`stochastic(name)` in `fixtures_test.cpp`).
 
 Traps when fixing Sonar findings — the clang-tidy gate watches the same
 code:
@@ -202,6 +222,17 @@ code:
   removable, but every one declares symbols the header genuinely uses and
   no project header guarantees them — removing would be include-what-you-
   use-incorrect. Leave them.
+- `<cmath>` in the match-three `SearchGreedy.cpp` and `SearchNrpa.cpp`:
+  flagged as possibly unused, but both call `std::exp` — it only *looks*
+  removable because `SeededRng.h` drags `<random>` in. Same rule as
+  `NodeKey.h` above: a std include whose symbols the file genuinely uses
+  stays, whatever happens to arrive transitively today.
+- Match-three `SearchProver.cpp` has NO `#include "Rules.h"` while its
+  three sibling arms do. That is deliberate, not an oversight: `Search.h`
+  stopped including `Rules.h` (it used nothing from it), the other three
+  arms gained a direct include, and this one already has `ForcedClear.h`,
+  whose interface takes a `rules::SymbolCounts &` and so genuinely
+  guarantees it. Adding a second route would be the finding, not the fix.
 - **`cpp:S1144` "unused member function `operator=`"** on a rule-of-five
   block written for S5018 (`StateKey` in `SolverArms.cpp`). The five are
   declared together only to force the moves `noexcept` — a

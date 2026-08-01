@@ -26,6 +26,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(IOI_ROLLING_BLOCKS "Build the rolling-blocks solver" ON)
 option(IOI_SHIFTING_MOSAIC "Build the shifting-mosaic solver" ON)
+option(IOI_MATCH_THREE "Build the match-three solver" ON)
 
 # Here rather than only in the children, so BUILD_TESTING exists and ctest
 # collects both suites into this one build tree.
@@ -37,4 +38,8 @@ endif ()
 
 if (IOI_SHIFTING_MOSAIC)
     add_subdirectory(src/pages/shifting-mosaic-solver/a-star)
+endif ()
+
+if (IOI_MATCH_THREE)
+    add_subdirectory(src/pages/match-three-solver/a-star)
 endif ()

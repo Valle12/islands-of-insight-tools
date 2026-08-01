@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { gotoIsolated, MATCH_THREE_URL } from "../coi";
 import { pageSymbols } from "./symbols";
 
 // Scoped to #grid: the solution view has a second grid of `.grid-cell`s with
@@ -28,7 +29,7 @@ function resetTool(page: Page) {
 // the chip row's own contents, so appending a symbol needs no edit here.
 test.describe("Match Three Solver tools", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/match-three-solver");
+    await gotoIsolated(page, MATCH_THREE_URL);
   });
 
   test("opens on an empty board offering every symbol", async ({ page }) => {

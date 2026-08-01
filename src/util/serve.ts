@@ -18,6 +18,10 @@ const shiftingMosaicWasmDir = resolve(
   import.meta.dir,
   "./../pages/shifting-mosaic-solver/wasm",
 );
+const matchThreeWasmDir = resolve(
+  import.meta.dir,
+  "./../pages/match-three-solver/wasm",
+);
 
 const server = Bun.serve({
   routes: {
@@ -46,6 +50,7 @@ const server = Bun.serve({
     const wasmDirs: Record<string, string> = {
       "/rb-wasm/": wasmDir,
       "/sm-wasm/": shiftingMosaicWasmDir,
+      "/mt-wasm/": matchThreeWasmDir,
     };
     for (const [prefix, dir] of Object.entries(wasmDirs)) {
       if (!url.pathname.startsWith(prefix)) continue;

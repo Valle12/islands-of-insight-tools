@@ -327,12 +327,19 @@ describe("MatchThreeSolverEditor", () => {
       expect(byId("solve-puzzle").hasAttribute("disabled")).toBeTrue();
     });
 
-    test("reports how far the search has got", () => {
+    test("reports how much work the search has done", () => {
       paintBoard(ONE_MOVE);
       solve();
-      lastSearch().handlers.onProgress?.({ depth: 3, nodes: 4000 });
+      lastSearch().handlers.onProgress?.({
+        phase: "exhaustive",
+        nodes: 4000,
+      });
 
-      expect(byId("solution-progress-text").textContent).toContain("3 moves");
+      expect(byId("solution-progress-text").textContent).toContain(
+        "Looking for a solution",
+      );
+      // Not the grouped number itself — `toLocaleString` renders it with the
+      // machine's separator, which is a comma here and a dot elsewhere.
       expect(byId("solution-progress-text").textContent).toContain(
         "positions checked",
       );
@@ -369,20 +376,18 @@ describe("MatchThreeSolverEditor", () => {
     test("a search that ran out of time reports no length at all", () => {
       paintBoard(ONE_MOVE);
       solve();
-      lastSearch().handlers.onResult({ status: "budget", depth: 4 });
+      lastSearch().handlers.onResult({ status: "budget" });
 
       expect(byId("solution-status").textContent).toBe("Gave up");
-      expect(byId("solution-message").textContent).toContain("4 moves or fewer");
+      expect(byId("solution-message").textContent).toContain(
+        "No solution was found within the time limit.",
+      );
       expect(hidden("solution-view")).toBeTrue();
     });
 
     test("an empty board needs no moves", () => {
       solve();
-      lastSearch().handlers.onResult({
-        status: "solved",
-        moves: [],
-        groupingProven: true,
-      });
+      lastSearch().handlers.onResult({ status: "solved", moves: [] });
 
       expect(byId("solution-status").textContent).toBe("Already solved");
       expect(hidden("solution-view")).toBeTrue();
@@ -391,11 +396,7 @@ describe("MatchThreeSolverEditor", () => {
     test("a solution opens the step viewer over the editor", () => {
       paintBoard(ONE_MOVE);
       solve();
-      lastSearch().handlers.onResult({
-        status: "solved",
-        moves: [THE_MOVE],
-        groupingProven: true,
-      });
+      lastSearch().handlers.onResult({ status: "solved", moves: [THE_MOVE] });
 
       expect(hidden("solution-view")).toBeFalse();
       expect(hidden("editor-section")).toBeTrue();
@@ -405,11 +406,7 @@ describe("MatchThreeSolverEditor", () => {
     test("Back to editor returns to the board", () => {
       paintBoard(ONE_MOVE);
       solve();
-      lastSearch().handlers.onResult({
-        status: "solved",
-        moves: [THE_MOVE],
-        groupingProven: true,
-      });
+      lastSearch().handlers.onResult({ status: "solved", moves: [THE_MOVE] });
       byId("solution-exit").click();
 
       expect(hidden("solution-view")).toBeTrue();
@@ -438,6 +435,32 @@ describe("MatchThreeSolverEditor", () => {
       expect(byId("solution-status").textContent).toBe("Cancelled");
     });
 
+    test("the first streamed solution ends the search and opens the viewer", () => {
+      paintBoard(ONE_MOVE);
+      solve();
+      expect(hidden("solution-view")).toBeTrue();
+
+      // This is the whole behaviour: no second thought, no button to press.
+      lastSearch().handlers.onBest?.([THE_MOVE]);
+
+      expect(cancelled).toBe(1);
+      expect(hidden("solution-view")).toBeFalse();
+      expect(hidden("editor-section")).toBeTrue();
+      expect(byId("solution-step-counter").textContent).toBe("Step 1 of 1");
+    });
+
+    test("Cancel with nothing found just stops", () => {
+      paintBoard(ONE_MOVE);
+      solve();
+      expect(byId("solution-cancel").textContent).toBe("Cancel");
+
+      byId("solution-cancel").click();
+
+      expect(cancelled).toBe(1);
+      expect(byId("solution-status").textContent).toBe("Cancelled");
+      expect(hidden("solution-view")).toBeTrue();
+    });
+
     /** Painting a cell the value it already holds is a deliberate no-op. */
     const erase = (x: number, y: number) => {
       toolButton("empty").click();
@@ -457,6 +480,18 @@ describe("MatchThreeSolverEditor", () => {
       expect(cancelled).toBe(1);
     });
 
+    test("a best from a board that has moved on is dropped too", () => {
+      paintBoard(ONE_MOVE);
+      solve();
+      const stale = lastSearch().handlers;
+      erase(0, 0);
+
+      stale.onBest?.([THE_MOVE]);
+
+      // The viewer must not open for a board that is no longer on screen.
+      expect(hidden("solution-view")).toBeTrue();
+    });
+
     test("editing the board hides the panel again", () => {
       paintBoard(ONE_MOVE);
       solve();
@@ -469,11 +504,7 @@ describe("MatchThreeSolverEditor", () => {
     test("editing the board closes an open step viewer", () => {
       paintBoard(ONE_MOVE);
       solve();
-      lastSearch().handlers.onResult({
-        status: "solved",
-        moves: [THE_MOVE],
-        groupingProven: true,
-      });
+      lastSearch().handlers.onResult({ status: "solved", moves: [THE_MOVE] });
       byId("solution-exit").click();
       erase(0, 0);
 

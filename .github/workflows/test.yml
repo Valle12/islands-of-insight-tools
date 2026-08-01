@@ -29,7 +29,8 @@ jobs:
   wasm:
     name: Build WASM
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Twelve LTO variants on a cold cache now, not eight.
+    timeout-minutes: 35
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -51,6 +52,9 @@ jobs:
             src/pages/shifting-mosaic-solver/wasm/astar*.mjs
             src/pages/shifting-mosaic-solver/wasm/astar*.wasm
             src/pages/shifting-mosaic-solver/wasm/astar*.stamp
+            src/pages/match-three-solver/wasm/astar*.mjs
+            src/pages/match-three-solver/wasm/astar*.wasm
+            src/pages/match-three-solver/wasm/astar*.stamp
           key: wasm-${{ runner.os }}-emsdk${{ env.EMSDK_VERSION }}-${{ hashFiles('src/pages/*/a-star/*.cpp', 'src/pages/*/a-star/*.h', 'src/util/buildWasm.ts') }}
 
       - name: Setup bun
@@ -142,7 +146,7 @@ jobs:
       - name: tsc --noEmit
         run: bun run typecheck
 
-  # Between them these four shards run EVERY test under test/ — there is no env
+  # Between them these five shards run EVERY test under test/ — there is no env
   # gate that can leave a suite silently unregistered.
   bun-test:
     name: bun test (${{ matrix.name }})
@@ -154,11 +158,13 @@ jobs:
       matrix:
         include:
           # One shard per slow suite, sized by measured wall clock
-          # (~244s / ~60s / ~44s), and a fourth for everything else.
+          # (~244s / ~60s / ~75s / ~22s), and a fifth for everything else.
           - name: sm-wasm
             filter: test/shifting-mosaic-solver/wasm.slow.test.ts
           - name: rb-astar
             filter: test/rolling-blocks-solver/aStar.slow.test.ts
+          - name: mt-wasm
+            filter: test/match-three-solver/wasm.slow.test.ts
           - name: match-three-solve
             filter: test/match-three-solver/engine.solve.slow.test.ts
           - name: fast
@@ -267,10 +273,11 @@ jobs:
         with:
           node-version: 24
 
-      # BOTH files. This step used to name only the shifting-mosaic one, so the
-      # rolling-blocks MEMORY64 build was never loaded in CI.
+      # EVERY file. This step used to name only the shifting-mosaic one, so the
+      # rolling-blocks MEMORY64 build was never loaded in CI; a solver whose
+      # test is missing here is a build nothing ever instantiates.
       - name: Run MEMORY64 wasm tests
-        run: node --test test/shifting-mosaic-solver/mem64.node.test.mjs test/rolling-blocks-solver/mem64.node.test.mjs
+        run: node --test test/shifting-mosaic-solver/mem64.node.test.mjs test/rolling-blocks-solver/mem64.node.test.mjs test/match-three-solver/mem64.node.test.mjs
 
   # Proves the production bundle still builds on every PR — nothing checked that
   # before — and publishes the artifact deploy.yml reuses.

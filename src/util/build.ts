@@ -81,6 +81,32 @@ for (const file of [
   );
 }
 
+// Match-three solver WASM — served under /mt-wasm, beside the /mt-worker
+// bundle below. Both belong to the same page: the worker holds the TypeScript
+// engine that answers easy boards instantly, and these hold the C++ arms the
+// bridge races against it.
+const matchThreeWasmDir = resolve(
+  import.meta.dir,
+  "../pages/match-three-solver/wasm",
+);
+mkdirSync(resolve("./dist", "mt-wasm"), { recursive: true });
+for (const file of [
+  "astar.mjs",
+  "astar.wasm",
+  "astar.worker.js",
+  "astar.threads.mjs",
+  "astar.threads.wasm",
+  "astar.mem64.mjs",
+  "astar.mem64.wasm",
+  "astar.threads.mem64.mjs",
+  "astar.threads.mem64.wasm",
+]) {
+  copyFileSync(
+    resolve(matchThreeWasmDir, file),
+    resolve("./dist", "mt-wasm", file),
+  );
+}
+
 // The match-three search worker — a second bundle pass, because the HTML
 // entrypoints above leave `new Worker(new URL("./x.ts", …))` untransformed.
 mkdirSync(resolve("./dist", WORKER_DIR), { recursive: true });
