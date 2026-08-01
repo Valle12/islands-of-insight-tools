@@ -49,9 +49,10 @@ export class LogicGridSolverEditor {
     "rule-row",
   ) as HTMLDivElement;
 
+  /** An `<output>`, so only what any element has is used on it. */
   private readonly solutionPanel = document.getElementById(
     "solution-panel",
-  ) as HTMLDivElement;
+  ) as HTMLElement;
   private readonly solutionStatus = document.getElementById(
     "solution-status",
   ) as HTMLSpanElement;
