@@ -371,6 +371,23 @@ Two traps, both measured:
 
 - **Call it with no `uri`.** Passing an explicit `uri` came back with a mangled `file://wsl.localhost/...` path and an empty array — indistinguishable from a clean file. The argless call lists every known file and reports `linesInFile` for the ones actually loaded, which is how you tell "clean" from "not analyzed".
 - An empty result for a file the IDE never opened is meaningless.
+- **The result lags the file by about one call, in both directions.** On a
+  freshly focused file the FIRST call can come back `[]` and the second
+  return real findings — measured on `SearchProver.cpp`, where one empty
+  result would have read as a clean pass. After an edit the reverse
+  happens: the finding you just fixed is re-reported once, against stale
+  ranges, before the file settles. So **query twice**, and treat a finding
+  that survived a fix which plainly addressed it as stale until a second
+  call confirms it. Three consecutive empties is the practical bar for
+  calling a `.cpp` clean.
+
+**A header is not independently analysed.** Sonar's C++ analysis runs over
+translation units, so `getDiagnostics` on a focused `.h` reports nothing
+whether it is clean or merely never compiled on its own — the two are
+indistinguishable. The header's code IS covered when a `.cpp` that includes
+it is analysed, so the honest reading of an empty header result is "no
+findings reported, covered indirectly via N analysed TUs", not "clean".
+Analyse the `.cpp` files first for this reason.
 
 **So: for C++ changes, finish by asking the user to open and focus each changed file in CLion, then call `getDiagnostics` (no `uri`) and check the file is actually listed before concluding it is clean.** For TS/JS this hand-off is unnecessary — `analyze_code_snippet` covers it headlessly.
 

@@ -42,8 +42,8 @@ int clearMask(Board &board, const Mask &mask, SymbolCounts *deltas) {
   for (int i = 0; i < cells; i++) {
     if (mask[static_cast<size_t>(i)] == 0)
       continue;
-    const uint8_t value = board.cells[static_cast<size_t>(i)];
-    if (deltas != nullptr && isSymbol(value))
+    if (const uint8_t value = board.cells[static_cast<size_t>(i)];
+        deltas != nullptr && isSymbol(value))
       (*deltas)[slot(value - kFirstSymbol)]++;
     board.cells[static_cast<size_t>(i)] = kEmpty;
     cleared++;
@@ -186,8 +186,8 @@ void symbolCountsInto(const Board &board, SymbolCounts &counts) {
   counts.fill(0);
   const int cells = board.cellCount();
   for (int i = 0; i < cells; i++) {
-    const uint8_t value = board.cells[static_cast<size_t>(i)];
-    if (isSymbol(value))
+    if (const uint8_t value = board.cells[static_cast<size_t>(i)];
+        isSymbol(value))
       counts[slot(value - kFirstSymbol)]++;
   }
 }
@@ -210,17 +210,17 @@ ApplyResult resolve(Board &board, Mask &mask) {
 }
 
 BoardProblem boardProblem(const Board &board) {
+  using enum BoardProblem;
   for (int y = 0; y < board.height - 1; y++) {
     for (int x = 0; x < board.width; x++) {
       if (!isSymbol(board.at(x, y)))
         continue;
       if (board.at(x, y + 1) == kEmpty)
-        return BoardProblem::Floating;
+        return Floating;
     }
   }
   Mask mask{};
-  return findMatchesInto(board, mask) ? BoardProblem::Matching
-                                     : BoardProblem::None;
+  return findMatchesInto(board, mask) ? Matching : None;
 }
 
 const char *describe(const BoardProblem problem) {
@@ -289,9 +289,11 @@ bool applyMove(const Board &from, const Move &move, Board &into, Mask &mask,
     return false;
   const int aIndex = move.ay * width + move.ax;
   const int bIndex = move.by * width + move.bx;
-  const bool right = bIndex == aIndex + 1 && move.by == move.ay;
-  const bool down = bIndex == aIndex + width;
-  if (!right && !down)
+  // b has to be a's right or down neighbour — the only two directions a move
+  // is ever expressed in.
+  if (const bool adjacent = (bIndex == aIndex + 1 && move.by == move.ay) ||
+                            bIndex == aIndex + width;
+      !adjacent)
     return false;
   const uint8_t a = from.cells[static_cast<size_t>(aIndex)];
   const uint8_t b = from.cells[static_cast<size_t>(bIndex)];
@@ -311,9 +313,9 @@ bool applyMove(const Board &from, const Move &move, Board &into, Mask &mask,
   result.cleared = clearMask(into, mask, nullptr);
   result.cascades = 1;
   applyGravity(into);
-  const ApplyResult rest = resolve(into, mask);
-  result.cleared += rest.cleared;
-  result.cascades += rest.cascades;
+  const auto [restCleared, restCascades] = resolve(into, mask);
+  result.cleared += restCleared;
+  result.cascades += restCascades;
   return true;
 }
 

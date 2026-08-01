@@ -88,15 +88,15 @@ Outcome runCascade(const Board &board, const Config &cfg, Bounds &bounds) {
   const uint64_t deadline = deadlineFrom(cfg.maxMs);
   Outcome best;
   best.arm = "cascade";
-  for (const Leg &leg : kCascade) {
-    if (leg.findsOnly && bounds.bestLength() != kNoLength)
+  for (const auto &[run, name, share, findsOnly] : kCascade) {
+    if (findsOnly && bounds.bestLength() != kNoLength)
       continue;
     if (cfg.callbacks != nullptr && cfg.callbacks->onArmStart)
-      cfg.callbacks->onArmStart(leg.name);
+      cfg.callbacks->onArmStart(name);
     Config legCfg = cfg;
-    legCfg.maxMs = legBudget(cfg.maxMs, leg.share, deadline);
-    Outcome outcome = leg.run(board, legCfg, bounds);
-    outcome.arm = std::string("cascade:") + leg.name;
+    legCfg.maxMs = legBudget(cfg.maxMs, share, deadline);
+    Outcome outcome = run(board, legCfg, bounds);
+    outcome.arm = std::string("cascade:") + name;
     best = pickBetter(std::move(best), std::move(outcome));
     if (!best.moves.empty() || best.unsolvable)
       return best;

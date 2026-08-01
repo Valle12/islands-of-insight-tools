@@ -99,7 +99,7 @@ private:
                                 .bestLength = bounds_.bestLength()});
   }
 
-  bool outOfMemory() {
+  [[nodiscard]] bool outOfMemory() const {
 #if defined(__EMSCRIPTEN__)
     // A wasm heap that cannot grow ABORTS the module rather than failing an
     // allocation, so this tripwire runs even with no budget configured.
@@ -110,9 +110,9 @@ private:
 #endif
     if (cfg_.maxHeapBytes == 0)
       return false;
-    const uint64_t live = memprobe::liveAllocatedBytes();
     // 0 means "cannot measure here", never "no memory used".
-    if (live == 0 || live < cfg_.maxHeapBytes)
+    if (const uint64_t live = memprobe::liveAllocatedBytes();
+        live == 0 || live < cfg_.maxHeapBytes)
       return false;
     stats_.stoppedOnMemory = true;
     return true;

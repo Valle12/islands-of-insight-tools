@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Rules.h"
 #include "Types.h"
 
 #include <atomic>
@@ -9,9 +8,9 @@
 #include <mutex>
 #include <string>
 
-// The solver's arms and the state they share. Every arm is anytime: it may
-// report a clearing sequence it cannot prove minimal, and only the prover ever
-// claims `proven` or `unsolvable`.
+// The solver's arms and the state they share. Every arm reports a clearing
+// sequence it does not claim is minimal; only the exhaustive arm ever says
+// `unsolvable`, and that is about existence rather than length.
 namespace mt {
 
 /// Failed-state table ceiling, per arm. Past it the table evicts instead of

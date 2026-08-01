@@ -76,9 +76,12 @@ private:
   StateKey scratch_{};
   uint32_t scratchHash_ = 0;
 
+  /// Buckets are always a power of two, so the index is the hash's low bits —
+  /// which is why the hash has to avalanche. See PackedState.h.
+  [[nodiscard]] uint32_t bucketMask() const { return bucketCount_ - 1; }
+
   [[nodiscard]] int bucketBase() const {
-    return static_cast<int>(scratchHash_ & (bucketCount_ - 1)) * kWays *
-           entryWords_;
+    return static_cast<int>(scratchHash_ & bucketMask()) * kWays * entryWords_;
   }
 
   [[nodiscard]] int findEntry() const {
@@ -171,7 +174,7 @@ private:
   void reinsert(const std::vector<uint32_t> &old, const int from) {
     const uint32_t hash = old[static_cast<size_t>(from)];
     const int base =
-        static_cast<int>(hash & (bucketCount_ - 1)) * kWays * entryWords_;
+        static_cast<int>(hash & bucketMask()) * kWays * entryWords_;
     for (int way = 0; way < kWays; way++) {
       const int at = base + way * entryWords_;
       if (words_[slot(at + 1)] != 0)

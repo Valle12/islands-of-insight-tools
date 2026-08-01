@@ -148,14 +148,14 @@ inline int costForSymbol(const int *columns, const int count, const int width) {
 /// is a bound too, because a horizontal swap moves blocks of exactly two
 /// different symbols and so can serve two of them at once but never more.
 inline int bound(const Board &board) {
-  const SymbolColumns live = collectColumns(board);
+  const auto [columns, counts] = collectColumns(board);
   int max = kNoBound;
   int sum = 0;
   for (size_t s = 0; s < kSymbolCount; s++) {
-    const int count = live.counts[s];
+    const int count = counts[s];
     if (count != 4 && count != 5)
       continue;
-    const int cost = costForSymbol(live.columns[s].data(), count, board.width);
+    const int cost = costForSymbol(columns[s].data(), count, board.width);
     max = std::max(max, cost);
     sum += cost;
   }

@@ -1,4 +1,5 @@
 #include "Budget.h"
+#include "Rules.h"
 #include "Search.h"
 #include "TransTable.h"
 
@@ -51,9 +52,11 @@ Moves expandNode(const Node &node, Frontier &scratch, TransTable &seen) {
   scratch.moves.clear();
   rules::legalMovesInto(node.board, scratch.probe, scratch.moves);
   for (const rules::PackedMove packed : scratch.moves) {
-    const rules::ApplyResult applied = rules::applyPacked(
-        node.board, scratch.child, packed, scratch.mask, nullptr);
-    const int left = node.blocks - applied.cleared;
+    const int cleared =
+        rules::applyPacked(node.board, scratch.child, packed, scratch.mask,
+                           nullptr)
+            .cleared;
+    const int left = node.blocks - cleared;
     if (left == 0) {
       Moves solution = node.path;
       solution.push_back(decode(packed, node.board.width));
@@ -67,11 +70,11 @@ Moves expandNode(const Node &node, Frontier &scratch, TransTable &seen) {
     if (seen.probe(scratch.child, 1))
       continue;
     seen.store(scratch.child, 1);
-    Node &added = scratch.next.emplace_back();
-    added.board = scratch.child;
-    added.path = node.path;
-    added.path.push_back(decode(packed, node.board.width));
-    added.blocks = left;
+    auto &[childBoard, childPath, childBlocks] = scratch.next.emplace_back();
+    childBoard = scratch.child;
+    childPath = node.path;
+    childPath.push_back(decode(packed, node.board.width));
+    childBlocks = left;
   }
   return {};
 }
@@ -91,8 +94,7 @@ Moves beamRun(const Board &start, const int blocks, const int width,
     for (const Node &node : scratch.current) {
       if (budget.exhausted())
         return {};
-      Moves solution = expandNode(node, scratch, seen);
-      if (!solution.empty())
+      if (Moves solution = expandNode(node, scratch, seen); !solution.empty())
         return solution;
     }
     std::ranges::sort(scratch.next, {}, &Node::blocks);

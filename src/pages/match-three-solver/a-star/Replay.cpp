@@ -11,8 +11,10 @@ Verdict replayMoves(const Board &start, const Moves &moves) {
   Verdict verdict;
 
   for (const Move &move : moves) {
-    rules::ApplyResult applied;
-    if (!rules::applyMove(current, move, next, mask, applied))
+    // `applied` is an out-parameter the oracle has no use for: what it counts
+    // is whether every move was legal, not what each one took.
+    if (rules::ApplyResult applied;
+        !rules::applyMove(current, move, next, mask, applied))
       return verdict;
     current = next;
     verdict.played++;

@@ -1,4 +1,5 @@
 #include "Budget.h"
+#include "Rules.h"
 #include "Search.h"
 #include "SeededRng.h"
 
@@ -128,17 +129,18 @@ void collectSteps(const Board &board, const int left, Scratch &scratch) {
   scratch.moves.clear();
   rules::legalMovesInto(board, scratch.probe, scratch.moves);
   for (const rules::PackedMove move : scratch.moves) {
-    const rules::ApplyResult applied =
-        rules::applyPacked(board, scratch.child, move, scratch.mask, nullptr);
-    if (applied.cleared == left) {
+    const int cleared =
+        rules::applyPacked(board, scratch.child, move, scratch.mask, nullptr)
+            .cleared;
+    if (cleared == left) {
       // A finishing move is never worth sampling against — take it.
       scratch.steps.clear();
       scratch.steps.push_back(
-          {.move = move, .cleared = applied.cleared, .finishes = true});
+          {.move = move, .cleared = cleared, .finishes = true});
       return;
     }
     scratch.steps.push_back(
-        {.move = move, .cleared = applied.cleared, .finishes = false});
+        {.move = move, .cleared = cleared, .finishes = false});
   }
 }
 
@@ -201,9 +203,9 @@ public:
     while (best_.left != 0 && barren < kBarrenRestarts &&
            !budget_.exhaustedNow()) {
       const int before = best_.left;
-      const Rung rung = rungFor(restarts_);
-      level_ = rung.level;
-      iterations_ = rung.iterations;
+      const auto [level, iterations] = rungFor(restarts_);
+      level_ = level;
+      iterations_ = iterations;
       // One slot per packed move: a cell index, plus the direction bit.
       Policy policy(board_.cells.size() * 2, 0.0);
       search(level_, policy);
@@ -250,23 +252,31 @@ private:
     return kLadder[static_cast<size_t>(restart) % kLadder.size()];
   }
 
+  /// Samples one step and plays it into `line`. False once the line can go no
+  /// further: the budget is spent, nothing is legal, or what is left of the
+  /// board has gone dead. A cleared board returns true — the caller's own
+  /// `left > 0` test ends the line, so "no further" stays about failure.
+  bool playStep(const Policy &policy, Line &line) {
+    if (budget_.exhausted())
+      return false;
+    collectSteps(scratch_.current, line.left, scratch_);
+    if (scratch_.steps.empty())
+      return false;
+    const Step chosen = sample(policy);
+    line.moves.push_back(chosen.move);
+    rules::applyPacked(scratch_.current, scratch_.child, chosen.move,
+                       scratch_.mask, nullptr);
+    copyBoard(scratch_.child, scratch_.current);
+    line.left -= chosen.cleared;
+    return line.left == 0 || !rules::hasStrandedSymbol(scratch_.current);
+  }
+
   Line playout(const Policy &policy) {
     copyBoard(board_, scratch_.current);
     Line line;
     line.left = total_;
     while (line.left > 0) {
-      if (budget_.exhausted())
-        break;
-      collectSteps(scratch_.current, line.left, scratch_);
-      if (scratch_.steps.empty())
-        break;
-      const Step chosen = sample(policy);
-      line.moves.push_back(chosen.move);
-      rules::applyPacked(scratch_.current, scratch_.child, chosen.move,
-                         scratch_.mask, nullptr);
-      copyBoard(scratch_.child, scratch_.current);
-      line.left -= chosen.cleared;
-      if (line.left > 0 && rules::hasStrandedSymbol(scratch_.current))
+      if (!playStep(policy, line))
         break;
     }
     keep(line);
@@ -308,34 +318,49 @@ private:
   /// Nudges the policy toward `line`: the taken move gains, and every move that
   /// was available loses in proportion to how likely the policy already was to
   /// take it. Replaying the line is what makes "was available" meaningful.
+  /// One replayed move of the line: nudges `next`, then advances `current` and
+  /// `left` past it. False once the replay cannot continue — nothing is legal,
+  /// or the taken move is not among what was legal.
+  ///
+  /// The nudge deliberately happens BEFORE that second check, exactly as the
+  /// single loop this came out of did it: a move the replay cannot find still
+  /// gains its weight. Reordering the two would change the learned policy, and
+  /// with it which boards NRPA cracks.
+  bool adaptStep(const Policy &policy, const rules::PackedMove taken,
+                 Policy &next, Board &current, int &left) {
+    collectSteps(current, left, scratch_);
+    if (scratch_.steps.empty())
+      return false;
+    double total = 0;
+    scratch_.weights.clear();
+    for (const Step &step : scratch_.steps) {
+      const double weight = std::exp(policy[slot(step.move)]);
+      scratch_.weights.push_back(weight);
+      total += weight;
+    }
+    next[slot(taken)] += kAlpha;
+    for (size_t i = 0; i < scratch_.steps.size(); i++) {
+      next[slot(scratch_.steps[i].move)] -=
+          kAlpha * scratch_.weights[i] / total;
+    }
+    const auto step = std::ranges::find_if(
+        scratch_.steps, [taken](const Step &s) { return s.move == taken; });
+    if (step == scratch_.steps.end())
+      return false;
+    left -= step->cleared;
+    rules::applyPacked(current, scratch_.child, taken, scratch_.mask, nullptr);
+    copyBoard(scratch_.child, current);
+    return true;
+  }
+
   Policy adapt(const Policy &policy, const Line &line) {
     Policy next = policy;
     Board current;
     copyBoard(board_, current);
     int left = total_;
     for (const rules::PackedMove taken : line.moves) {
-      collectSteps(current, left, scratch_);
-      if (scratch_.steps.empty())
+      if (!adaptStep(policy, taken, next, current, left))
         break;
-      double total = 0;
-      scratch_.weights.clear();
-      for (const Step &step : scratch_.steps) {
-        const double weight = std::exp(policy[slot(step.move)]);
-        scratch_.weights.push_back(weight);
-        total += weight;
-      }
-      next[slot(taken)] += kAlpha;
-      for (size_t i = 0; i < scratch_.steps.size(); i++) {
-        next[slot(scratch_.steps[i].move)] -=
-            kAlpha * scratch_.weights[i] / total;
-      }
-      const auto step = std::ranges::find_if(
-          scratch_.steps, [taken](const Step &s) { return s.move == taken; });
-      if (step == scratch_.steps.end())
-        break;
-      left -= step->cleared;
-      rules::applyPacked(current, scratch_.child, taken, scratch_.mask, nullptr);
-      copyBoard(scratch_.child, current);
     }
     return next;
   }
@@ -349,10 +374,10 @@ private:
     for (int i = 0; i < iterations_; i++) {
       if (budget_.exhaustedNow())
         break;
-      Line result = search(depth - 1, current);
       // `<=` rather than `<`: re-adapting toward an equally good sequence is
       // what lets the policy keep sharpening instead of stalling.
-      if (result.left <= levelBest.left)
+      if (Line result = search(depth - 1, current);
+          result.left <= levelBest.left)
         levelBest = std::move(result);
       if (levelBest.left == 0)
         return levelBest;

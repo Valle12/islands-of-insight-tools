@@ -9,8 +9,10 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <functional>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -28,10 +30,24 @@ constexpr uint32_t kBudgetMs = 30000;
 /// The boards the cheap arms cannot crack, where the answer comes from a
 /// STOCHASTIC arm and so cannot be pinned. They still have to come back
 /// playable if they come back at all, and they must never be called unsolvable.
-bool stochastic(const std::string &name) {
+bool stochastic(const std::string_view name) {
   return name == "matchThreeTest47.json" || name == "matchThreeTest50.json" ||
          name == "matchThreeTest51.json";
 }
+
+// Transparent hashing on the fixture names: a lookup by string_view needs no
+// std::string temporary, and it is what Sonar asks of a string-keyed
+// container. Same shape as the rolling-blocks optimizer's.
+struct StringHash {
+  // Read by the container, not by this TU — hence [[maybe_unused]].
+  using is_transparent [[maybe_unused]] = void;
+  [[nodiscard]] size_t operator()(const std::string_view key) const noexcept {
+    return std::hash<std::string_view>{}(key);
+  }
+};
+
+using CeilingMap =
+    std::unordered_map<std::string, size_t, StringHash, std::equal_to<>>;
 
 /// Length CEILINGS, shared with the TypeScript sweep in
 /// test/match-three-solver/engine.solve.slow.test.ts.
@@ -43,8 +59,8 @@ bool stochastic(const std::string &name) {
 /// fifteen-move answers where seven exist. Every value is the measured optimum
 /// (which the first find still matches on all but one board) with the one
 /// exception noted at its entry. A fixture with no entry skips the check.
-const std::unordered_map<std::string, size_t> &lengthCeilings() {
-  static const std::unordered_map<std::string, size_t> lengths{
+const CeilingMap &lengthCeilings() {
+  static const CeilingMap lengths{
       {"matchThreeTest.json", 1},   {"matchThreeTest1.json", 2},
       {"matchThreeTest2.json", 2},  {"matchThreeTest3.json", 2},
       {"matchThreeTest4.json", 1},  {"matchThreeTest5.json", 2},
@@ -118,8 +134,8 @@ TEST_P(MatchThreeFixtureTest, IsSolvedAndReplayValid) {
   ASSERT_EQ(rules::boardProblem(board), rules::BoardProblem::None)
       << rules::describe(rules::boardProblem(board));
 
-  const Config cfg{.maxMs = kBudgetMs};
-  const arms::ArmSpec spec{.engine = "cascade"};
+  constexpr Config cfg{.maxMs = kBudgetMs};
+  constexpr arms::ArmSpec spec{.engine = "cascade"};
   const Outcome outcome = arms::solve(board, spec, cfg);
 
   // Never "unsolvable" on a captured board: they come from the game.
@@ -135,8 +151,8 @@ TEST_P(MatchThreeFixtureTest, IsSolvedAndReplayValid) {
   }
 
   ASSERT_FALSE(outcome.moves.empty()) << "No solution found for " << name;
-  const auto ceiling = lengthCeilings().find(name);
-  if (ceiling != lengthCeilings().end())
+  if (const auto ceiling = lengthCeilings().find(name);
+      ceiling != lengthCeilings().end())
     EXPECT_LE(outcome.moves.size(), ceiling->second);
 
   // The move list is only an answer if it survives being replayed by the

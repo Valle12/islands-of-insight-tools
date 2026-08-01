@@ -40,7 +40,7 @@ struct CliOptions {
 
 void printUsage() {
   std::cout << "Usage: match_three --fixture <path>\n"
-               "                   [--engine cascade|iddfs|bnb|greedy|beam|nrpa]\n"
+               "                   [--engine cascade|exhaustive|greedy|beam|nrpa]\n"
                "                   [--budget-ms N] [--max-nodes N]\n"
                "                   [--table-bytes N] [--max-heap-bytes N]\n"
                "                   [--seed N] [--beam N] [--nrpa-level N]\n"
@@ -157,9 +157,9 @@ void emitReport(const nlohmann::json &report) {
 
 nlohmann::json movesToJson(const mt::Moves &moves) {
   auto array = nlohmann::json::array();
-  for (const mt::Move &move : moves)
-    array.push_back({{"a", {{"x", move.ax}, {"y", move.ay}}},
-                     {"b", {{"x", move.bx}, {"y", move.by}}}});
+  for (const auto &[ax, ay, bx, by] : moves)
+    array.push_back(
+        {{"a", {{"x", ax}, {"y", ay}}}, {"b", {{"x", bx}, {"y", by}}}});
   return array;
 }
 
@@ -172,17 +172,25 @@ int generate(const CliOptions &opts) {
   return mt::generate::run(opts.generateOut, genOpts);
 }
 
-/// Loads the fixture, reporting the two failure modes distinctly: a missing
-/// file is an environment problem, a malformed one is a broken fixture.
+/// Loads the fixture, reporting the two failure modes distinctly: an
+/// unreadable or out-of-range file is an environment problem (FixtureError), a
+/// malformed document is a broken fixture (nlohmann). Those are the only two
+/// `fixtureio::load` raises, so catching them by name rather than as
+/// `std::exception` loses nothing and leaves a genuine surprise unswallowed.
 bool loadFixture(const CliOptions &opts, mt::Board &board,
                  nlohmann::json &report) {
+  const auto fail = [&report](const char *const what) {
+    report["error"] = what;
+    emitReport(report);
+    return false;
+  };
   try {
     board = mt::fixtureio::load(opts.fixture);
     return true;
-  } catch (const std::exception &error) {
-    report["error"] = error.what();
-    emitReport(report);
-    return false;
+  } catch (const mt::fixtureio::FixtureError &error) {
+    return fail(error.what());
+  } catch (const nlohmann::json::exception &error) {
+    return fail(error.what());
   }
 }
 
@@ -224,8 +232,8 @@ int main(const int argc, char **argv) {
   if (!loadFixture(opts, board, report))
     return 1;
 
-  const mt::rules::BoardProblem problem = mt::rules::boardProblem(board);
-  if (problem != mt::rules::BoardProblem::None) {
+  if (const mt::rules::BoardProblem problem = mt::rules::boardProblem(board);
+      problem != mt::rules::BoardProblem::None) {
     report["error"] = mt::rules::describe(problem);
     emitReport(report);
     return 1;
@@ -245,13 +253,13 @@ int main(const int argc, char **argv) {
                                .nrpaIterations = opts.nrpaIterations};
 
   const uint64_t startMs = nowMs();
-  const mt::Outcome outcome = mt::arms::solve(board, spec, cfg);
+  const auto [moves, unsolvable, stats, arm] =
+      mt::arms::solve(board, spec, cfg);
   const uint64_t searchMs = nowMs() - startMs;
 
   // Never the search's own word for it: the oracle re-derives every match from
   // scratch.
-  const mt::replay::Verdict verdict =
-      mt::replay::replayMoves(board, outcome.moves);
+  const mt::replay::Verdict verdict = mt::replay::replayMoves(board, moves);
   const bool alreadySolved = mt::rules::blockCount(board) == 0;
   const bool solved = alreadySolved || verdict.clearedAtEnd;
 
@@ -259,14 +267,14 @@ int main(const int argc, char **argv) {
   report["alreadySolved"] = alreadySolved;
   // An empty result on an unsolved board is "no solution found", not
   // "invalid" — only a move list that fails to replay is invalid.
-  report["valid"] = outcome.moves.empty() ? solved : verdict.legal;
-  report["unsolvable"] = outcome.unsolvable;
-  report["turns"] = outcome.moves.size();
-  report["moves"] = movesToJson(outcome.moves);
-  report["stage"] = outcome.arm;
-  report["nodesExpanded"] = outcome.stats.nodesExpanded;
-  report["statesStored"] = outcome.stats.statesStored;
-  report["stoppedOnMemory"] = outcome.stats.stoppedOnMemory;
+  report["valid"] = moves.empty() ? solved : verdict.legal;
+  report["unsolvable"] = unsolvable;
+  report["turns"] = moves.size();
+  report["moves"] = movesToJson(moves);
+  report["stage"] = arm;
+  report["nodesExpanded"] = stats.nodesExpanded;
+  report["statesStored"] = stats.statesStored;
+  report["stoppedOnMemory"] = stats.stoppedOnMemory;
   report["searchMs"] = searchMs;
   report["wallMs"] = nowMs() - startMs;
   emitReport(report);

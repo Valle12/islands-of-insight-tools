@@ -40,8 +40,7 @@ std::vector<std::string> draw(const Board &value) {
   for (int y = 0; y < value.height; y++) {
     std::string row;
     for (int x = 0; x < value.width; x++) {
-      const uint8_t cell = value.at(x, y);
-      if (cell == kEmpty)
+      if (const uint8_t cell = value.at(x, y); cell == kEmpty)
         row.push_back('.');
       else if (cell == kBlocked)
         row.push_back('#');
@@ -134,8 +133,8 @@ TEST(Rules, TheFastKernelMatchesTheOracleOnACascade) {
     fast.width = value.width;
     fast.height = value.height;
     rules::Mask mask{};
-    const rules::ApplyResult fastResult =
-        rules::applyPacked(value, fast, packed, mask, nullptr);
+    const int fastCleared =
+        rules::applyPacked(value, fast, packed, mask, nullptr).cleared;
 
     const int aIndex = rules::moveIndex(packed);
     const bool down = rules::moveIsDown(packed);
@@ -150,7 +149,7 @@ TEST(Rules, TheFastKernelMatchesTheOracleOnACascade) {
     rules::ApplyResult slowResult;
     ASSERT_TRUE(rules::applyMove(value, move, slow, mask, slowResult));
     // The targeted first-wave marking must agree with the full rescan.
-    EXPECT_EQ(fastResult.cleared, slowResult.cleared);
+    EXPECT_EQ(fastCleared, slowResult.cleared);
     EXPECT_EQ(draw(fast), draw(slow));
   }
 }
@@ -166,10 +165,10 @@ TEST(Rules, ReplayRefusesAMoveThatIsNotLegal) {
 TEST(Rules, ReplayConfirmsAClearingSequence) {
   const Board value = board({"aab", "bba"});
   const Moves moves{{.ax = 2, .ay = 0, .bx = 2, .by = 1}};
-  const replay::Verdict verdict = replay::replayMoves(value, moves);
-  EXPECT_TRUE(verdict.legal);
-  EXPECT_TRUE(verdict.clearedAtEnd);
-  EXPECT_EQ(verdict.played, 1);
+  const auto [legal, clearedAtEnd, played] = replay::replayMoves(value, moves);
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(clearedAtEnd);
+  EXPECT_EQ(played, 1);
 }
 
 } // namespace

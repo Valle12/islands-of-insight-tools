@@ -26,7 +26,7 @@ inline constexpr uint8_t kEmpty = 0;
 inline constexpr uint8_t kBlocked = 1;
 inline constexpr uint8_t kFirstSymbol = 2;
 
-inline constexpr bool isSymbol(const uint8_t cell) {
+constexpr bool isSymbol(const uint8_t cell) {
   return cell >= kFirstSymbol;
 }
 

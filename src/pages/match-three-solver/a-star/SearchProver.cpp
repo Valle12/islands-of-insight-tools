@@ -6,35 +6,13 @@
 #include <algorithm>
 #include <vector>
 
-// The two arms that can PROVE something, sharing one node-expansion engine
-// ported from src/pages/match-three-solver/engine.ts.
-//
-//   iddfs — deepens from zero. Depth d is only reported once every shorter
-//           length has been searched out, so a reported move count is always
-//           minimal; and because every move clears at least kMinRun cells, the
-//           deepening terminates on its own, which is what makes "unsolvable"
-//           a real proof rather than a timeout in disguise.
-//   bnb   — goes straight to one move below the incumbent. A single depth-B
-//           search covers every path of length <= B, so searching it out
-//           proves the incumbent minimal in one pass instead of climbing to
-//           it; a solution found on the way just tightens B and restarts.
-//
-// Both end with the same grouping pass, so an answer either arm produces is
-// arranged the way the TypeScript engine would have arranged it.
+// The exhaustive arm: the finder of last resort, and the only one that can
+// still prove anything. Its node-expansion engine is ported from
+// src/pages/match-three-solver/engine.ts; see Prover::run for why searching one
+// depth out is a proof.
 namespace mt {
 
 namespace {
-
-/// Whether two packed symbol pairs share a symbol. A pair is a move's two
-/// pre-swap symbols, packed `(a << 4) | b`.
-bool sharesSymbol(const int left, const int right) {
-  const int leftA = left >> 4;
-  const int leftB = left & 15;
-  const int rightA = right >> 4;
-  const int rightB = right & 15;
-  return leftA == rightA || leftA == rightB || leftB == rightA ||
-         leftB == rightB;
-}
 
 /// Per-recursion-level scratch, allocated once and reused by every node that
 /// ever runs at that depth. This is what makes a node expansion
@@ -42,7 +20,6 @@ bool sharesSymbol(const int left, const int right) {
 struct Level {
   std::vector<Board> boards;
   std::vector<rules::PackedMove> moves;
-  std::vector<int> symbols;
   std::vector<int> cleared;
   std::vector<int> scores;
   std::vector<int> order;
@@ -74,7 +51,6 @@ private:
   std::vector<Level> levels_;
   rules::SymbolCounts symbolCounts_{};
   std::vector<rules::PackedMove> pathMoves_;
-  std::vector<int> pathSymbols_;
   int pathLength_ = 0;
 
   int depth_ = 0;
@@ -120,7 +96,6 @@ Outcome Prover::run() {
   const int natural = blocks / kMinRun;
   best_ = bounds_.best();
   pathMoves_.assign(static_cast<size_t>(natural) + 1, 0);
-  pathSymbols_.assign(static_cast<size_t>(natural) + 1, 0);
   levels_.resize(static_cast<size_t>(natural) + 2);
   for (Level &scratch : levels_) {
     scratch.probe.width = board_.width;
@@ -159,8 +134,8 @@ void Prover::explore(const Board &board, const int remaining, const int blocks) 
   // the search already maintains, so the O(cells) scan behind it runs only
   // where it can possibly say something. See ForcedClear.h.
   if (forced::anyForcedCount(symbolCounts_)) {
-    const int need = forced::bound(board);
-    if (need != forced::kNoBound && need > remaining)
+    if (const int need = forced::bound(board);
+        need != forced::kNoBound && need > remaining)
       return;
   }
   if (table_.probe(board, remaining))
@@ -209,16 +184,13 @@ bool Prover::exploreLeaf(const Board &board, const int blocks) {
     if (budget_.exhausted() || !best_.empty())
       return false;
     const rules::PackedMove packed = scratch.moves[static_cast<size_t>(i)];
-    const rules::ApplyResult applied =
-        rules::applyPacked(board, scratch.leaf, packed, scratch.mask, nullptr);
-    if (applied.cleared != blocks)
+    // The last ply only cares about a move that takes the whole board.
+    if (const int cleared = rules::applyPacked(board, scratch.leaf, packed,
+                                               scratch.mask, nullptr)
+                                .cleared;
+        cleared != blocks)
       continue;
-    const int aIndex = rules::moveIndex(packed);
-    const int bIndex = rules::partnerIndex(packed, board.width);
     pathMoves_[static_cast<size_t>(pathLength_)] = packed;
-    pathSymbols_[static_cast<size_t>(pathLength_)] =
-        ((board.cells[static_cast<size_t>(aIndex)] - kFirstSymbol) << 4) |
-        (board.cells[static_cast<size_t>(bIndex)] - kFirstSymbol);
     pathLength_++;
     keepSolution();
     pathLength_--;
@@ -230,10 +202,9 @@ int Prover::collectMoves(const Board &board, Level &scratch) {
   scratch.moves.clear();
   rules::legalMovesInto(board, scratch.probe, scratch.moves);
   const auto count = static_cast<int>(scratch.moves.size());
-  const auto needed = static_cast<size_t>(count);
-  if (scratch.boards.size() < needed) {
+  if (const auto needed = static_cast<size_t>(count);
+      scratch.boards.size() < needed) {
     scratch.boards.resize(needed);
-    scratch.symbols.resize(needed);
     scratch.cleared.resize(needed);
     scratch.scores.resize(needed);
     scratch.order.resize(needed);
@@ -247,11 +218,6 @@ void Prover::buildChildren(const Board &board, Level &scratch,
   for (int i = 0; i < count; i++) {
     const auto slot = static_cast<size_t>(i);
     const rules::PackedMove packed = scratch.moves[slot];
-    const int aIndex = rules::moveIndex(packed);
-    const int bIndex = rules::partnerIndex(packed, board.width);
-    scratch.symbols[slot] =
-        ((board.cells[static_cast<size_t>(aIndex)] - kFirstSymbol) << 4) |
-        (board.cells[static_cast<size_t>(bIndex)] - kFirstSymbol);
     scratch.deltas[slot].fill(0);
     scratch.cleared[slot] =
         rules::applyPacked(board, scratch.boards[slot], packed, scratch.mask,
@@ -287,7 +253,6 @@ void Prover::sortChildren(Level &scratch, const int count) {
 void Prover::pushStep(const Level &scratch, const int child) {
   const auto slot = static_cast<size_t>(child);
   pathMoves_[static_cast<size_t>(pathLength_)] = scratch.moves[slot];
-  pathSymbols_[static_cast<size_t>(pathLength_)] = scratch.symbols[slot];
   pathLength_++;
   for (size_t symbol = 0; symbol < static_cast<size_t>(kSymbolCount); symbol++)
     symbolCounts_[symbol] -= scratch.deltas[slot][symbol];

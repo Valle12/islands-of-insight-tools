@@ -26,9 +26,9 @@ struct ArmSpec {
 
 bool isEngine(const char *name);
 
-/// Runs one arm, or the whole cascade. Anytime throughout: the returned
-/// outcome carries whatever was found, and `proven` says whether the length was
-/// established rather than merely reached.
+/// Runs one arm, or the whole cascade, stopping at the first witness. The
+/// returned outcome carries whatever was found and claims nothing about its
+/// length; only `unsolvable` is ever a proof.
 Outcome solve(const Board &board, const ArmSpec &spec, const Config &cfg,
               Bounds &bounds);
 

@@ -1,4 +1,5 @@
 #include "Budget.h"
+#include "Rules.h"
 #include "Search.h"
 #include "SeededRng.h"
 
@@ -52,21 +53,23 @@ void collectChoices(const Board &board, const int blocks, Scratch &scratch,
   scratch.moves.clear();
   rules::legalMovesInto(board, scratch.probe, scratch.moves);
   for (const rules::PackedMove move : scratch.moves) {
-    const rules::ApplyResult applied = rules::applyPacked(
-        board, scratch.candidate, move, scratch.mask, nullptr);
-    if (applied.cleared == blocks) {
+    const int cleared =
+        rules::applyPacked(board, scratch.candidate, move, scratch.mask,
+                           nullptr)
+            .cleared;
+    if (cleared == blocks) {
       out.clear();
       out.push_back({.move = move,
                      .found = true,
                      .clearsAll = true,
-                     .cleared = applied.cleared,
+                     .cleared = cleared,
                      .alive = true});
       return;
     }
     out.push_back({.move = move,
                    .found = true,
                    .clearsAll = false,
-                   .cleared = applied.cleared,
+                   .cleared = cleared,
                    .alive = !rules::hasStrandedSymbol(scratch.candidate)});
   }
 }

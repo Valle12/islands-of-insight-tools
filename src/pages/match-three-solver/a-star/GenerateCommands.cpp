@@ -20,7 +20,7 @@ constexpr int kAttempts = 40;
 /// is the order the placement pass wants: when it reaches a cell, the only
 /// filled neighbours are the ones it has to check against.
 std::vector<int> fillSlots(const Board &board, SeededRng &rng) {
-  std::vector<bool> fillable(slot(board.cellCount()), false);
+  std::vector fillable(slot(board.cellCount()), false);
   for (int x = 0; x < board.width; x++) {
     int y = board.height - 1;
     while (y >= 0) {
@@ -59,7 +59,7 @@ std::vector<int> fillSlots(const Board &board, SeededRng &rng) {
 std::vector<uint8_t> buildBag(const int count, const int symbols,
                               SeededRng &rng) {
   const int groups = count / kMinRun;
-  std::vector<int> perSymbol(slot(symbols), 0);
+  std::vector perSymbol(slot(symbols), 0);
   for (int i = 0; i < groups; i++) {
     // Every symbol gets a group first, so none arrives already stranded.
     const int index = i < symbols ? i : rng.uniform(0, symbols - 1);
@@ -139,14 +139,19 @@ Board attempt(const Options &opts, SeededRng &rng) {
   // "random" is the wider net — most of its boards turn out unsolvable, which
   // exercises the proving arms rather than the witness path.
   const bool cluster = opts.kind == "cluster";
-  Board board;
-  board.width =
-      opts.width > 0 ? opts.width : rng.uniform(4, cluster ? 6 : 10);
-  board.height =
-      opts.height > 0 ? opts.height : rng.uniform(4, cluster ? 6 : 10);
-  const int symbols =
-      opts.symbols > 0 ? opts.symbols : rng.uniform(2, cluster ? 3 : 5);
+  // The profile's ceilings are lifted out rather than nested in the draws:
+  // they are pure, so naming them cannot move an rng draw. The draws
+  // themselves must stay inside their conditionals — hoisting one would
+  // consume a number even when the caller pinned that dimension, and every
+  // generated board downstream of it would change.
+  const int side = cluster ? 6 : 10;
+  const int palette = cluster ? 3 : 5;
   const int sparse = cluster ? 6 : 22;
+  Board board;
+  board.width = opts.width > 0 ? opts.width : rng.uniform(4, side);
+  board.height = opts.height > 0 ? opts.height : rng.uniform(4, side);
+  const int symbols =
+      opts.symbols > 0 ? opts.symbols : rng.uniform(2, palette);
   const int blockade = opts.blockadePercent >= 0 ? opts.blockadePercent
                                                  : rng.uniform(0, sparse);
   const int cells = board.cellCount();
