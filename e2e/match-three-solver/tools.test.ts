@@ -184,7 +184,7 @@ test.describe("Match Three Solver tools", () => {
     await cellAt(page, 0, 0).click();
 
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
-      - heading "Match Three Setup" [level=1]
+      - heading "Match Three Solver" [level=1]
       - paragraph: Paint the board with obstacles and blocks, then solve it.
       - text: Grid Width
       - spinbutton "Grid Width"

@@ -27,6 +27,13 @@ bun run typecheck        # tsc --noEmit
 bun run e2e              # playwright, spins up its own webServer
 bun run e2e:install      # chromium + its system deps (what CI installs)
 
+bun run og:capture       # re-shoot the Open Graph screenshots into images/og/,
+                         #  which are COMMITTED. Starts a dev server unless one
+                         #  is already up. Shells out to playwright's CLI under
+                         #  node — see "SEO and site metadata".
+bun run seo:indexnow     # submit every canonical url to IndexNow. deploy.yml
+                         #  runs this after the Pages deployment goes live.
+
 bun run bench:sm         # shifting-mosaic bench; --diff before.json after.json
 bun run fuzz:sm          # generate-and-solve campaign into test-results/sm-fuzz
 bun run bench:rb         # rolling-blocks bench over all fixtures; --diff works too
@@ -176,6 +183,27 @@ Rolling-blocks additionally keeps its full move list (`#solution-moves`) inside 
 `src/util/configFile.ts` holds `downloadJson` / `readJsonFile` / `setupDragAndDrop`, shared by all four solver pages. Each page keeps its own `config.ts` validator returning `{ ok: true, config } | { ok: false, error }` with a human-readable first-failure message, and its own `applyLoadedConfig`. The download filename matches the fixture family (`phasicDialTest.json`, `shiftingMosaicTest.json`, `rollingBlocksTest.json`, `matchThreeTest.json`) so a downloaded file is directly usable as a test fixture. `#warning-banner` / `#drop-overlay` / `.hidden` styles live in `src/common/common.css`. The rolling-blocks validator also enforces the engine caps (64×64 grid, 255 blocks, dims ≤ 64 — same constants the UI fields and the wasm boundary use) and renumbers block ids to 1..n on load; **this validator** ignores a fixture's optional `turns` key. That is a page-level rule, not a repo-wide one — the native `fixtureio::load` deliberately does the opposite and parses `turns` back out, because that key is where `--generate` stores the replay-validated witness.
 
 E2e traps for the rolling-blocks page: several inline aria snapshots include the page subtitle text, and Material components expose an inner `#button` in their shadow DOM — never target buttons by `#button` index (adding any icon button shifts every index; use the app's own `data-block-delete-id` style hooks).
+
+### SEO and site metadata
+
+`src/util/siteMeta.ts` is the single source of truth: `SITE_URL`, the `PAGES` list (path, source file, og image name, title, description), the sitemap and robots renderers, and the IndexNow key. The `<head>` tags themselves are **hand-written into the five `index.html` files** — there is no templating layer and adding one for five static files would be worse than the duplication — and `test/siteMeta.test.ts` pins every title, description, canonical, og:url and og:image against `siteMeta.ts` so the copies cannot drift. `e2e/seo.test.ts` re-checks the same things on the *served* page, because the bundler rewrites hrefs on the way through.
+
+Adding a page means: an entry in `PAGES`, the head tags in its HTML, its trailing-slash route in `serve.ts`, and `bun run og:capture`. Nothing else needs editing — the sitemap, the IndexNow submission and both test suites read the list.
+
+Five things are load-bearing and easy to undo:
+
+- **The site is a GitHub Pages *project* page**, served from `/islands-of-insight-tools/`. Every absolute url carries that prefix, and a root-absolute href (`/images/favicon.png`) points outside the site — which is exactly what the favicon used to do, 404ing on the live site.
+- **The favicon must stay an ABSOLUTE url.** Bun's HTML bundler resolves every asset href it *can* resolve and inlines the result as a base64 `data:` URI — measured at 91 KB per page, and Googlebot-Image cannot fetch a `data:` URI, so the site showed a default globe. A page-relative href does not work either: Bun fails the build with "Could not resolve" rather than leaving it alone. Absolute urls pass through untouched, and `build.ts` re-checks the built output rather than trusting that. Dropping the data URI also took `dist/index.html` from 241 KB to 155 KB.
+- **Canonical urls carry a trailing slash.** GitHub Pages 301s `/match-three-solver` to `/match-three-solver/`, so the slash-less form is both a wasted hop and a second url for the same page. Internal links and the sitemap use the slash.
+- **Never register one HTMLBundle under two routes in `serve.ts`.** Serving both spellings that way looks obvious and it *crashes bun's dev server*: `panic(main thread): integer overflow`, a few seconds into concurrent load. It does not reproduce on a single page or a small suite — measured on the full e2e run against a green baseline, 97/99 passing became 39/106 with 65 connection-level failures and a bun crash dump, which reads exactly like the flake in the next paragraph and is not one. `serve.ts` registers the canonical trailing-slash route only and 301s the other spelling from `fetch`, which is also what Pages does in production.
+- **`robots.txt` shipped from this repo is inert**, and deliberately shipped anyway. Crawlers read robots.txt from the host root only, so `valle12.github.io/robots.txt` — a separate `Valle12.github.io` user-pages repo — is the one that counts. That repo is also the only way to get a favicon into Google results at all: Google supports **one favicon per hostname**, read from that hostname's home page.
+- **`dist` ships nothing `build.ts` does not copy.** A new static file needs a copy in `build.ts` *and* a branch in `serve.ts`'s allowlist, which 404s everything else. The sitemap and robots are *rendered* in both places rather than read off disk, so they cannot go stale.
+
+The Open Graph screenshots live in `images/og/` and are **committed**. `bun run og:capture` re-shoots them, and it drives Playwright's **CLI under node** rather than its API: `chromium.launch()` hangs forever under bun — no error, no timeout — which is also why `bun run e2e` shells out to `playwright test`. Its flags (`--light`, `--full-page`, `--width`, `--height`, `--out`) are for looking at variations locally; the defaults are what the meta tags declare, and the script warns when they are overridden.
+
+Two things about that capture size. **Chromium renders light unless told otherwise**, whatever the host OS prefers, so the scheme is always passed explicitly — the committed shots are `dark`. And **the frame is 1600x838, not the usual 1200x630**: Open Graph wants 1.91:1 and a scraper centre-crops anything else, so a taller screenshot loses its edges rather than showing more. Widening is what fits a whole page into that ratio — measured with `--full-page`, the five pages are 681–808 px tall at 1200 px wide, and text wraps to fewer lines as the viewport grows. At 1200x630 every solver was cut off mid-grid. `test/siteMeta.test.ts` checks the declared `og:image:width`/`height`, the constants and the committed PNG headers all agree.
+
+**Automatic indexing does not exist for Google.** Its Indexing API accepts only `JobPosting` and `BroadcastEvent` and ignores everything else, and Google has never adopted IndexNow. `sitemap.xml` is the automatic mechanism: submit it once in Search Console and Google re-fetches it on its own, so a new page is discovered without further action. The `indexnow` job in `deploy.yml` covers Bing, Yandex, Seznam and Naver, runs *after* `deploy` (the urls have to be live when they are submitted) and is `continue-on-error`. The sitemap carries **no `lastmod`**: CI checks out shallow so a git date would be the same commit for every url, and a build timestamp would claim all five pages changed on every deploy.
 
 ### The match-three solver
 

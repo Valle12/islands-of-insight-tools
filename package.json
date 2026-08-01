@@ -10,6 +10,8 @@
     "dev": "bun run src/util/serve.ts",
     "e2e": "bunx playwright test",
     "e2e:install": "playwright install --with-deps chromium",
+    "og:capture": "bun run src/util/captureOgImages.ts",
+    "seo:indexnow": "bun run src/util/indexNow.ts",
     "typecheck": "tsc --noEmit",
     "bench:sm": "bun run src/util/benchShiftingMosaic.ts",
     "fuzz:sm": "bun run src/util/fuzzShiftingMosaic.ts",
