@@ -4,6 +4,7 @@
 #include "Rules.h"
 #include "SeededRng.h"
 
+#include <algorithm>
 #include <iostream>
 #include <vector>
 
@@ -148,10 +149,18 @@ Board attempt(const Options &opts, SeededRng &rng) {
   const int palette = cluster ? 3 : 5;
   const int sparse = cluster ? 6 : 22;
   Board board;
-  board.width = opts.width > 0 ? opts.width : rng.uniform(4, side);
-  board.height = opts.height > 0 ? opts.height : rng.uniform(4, side);
-  const int symbols =
-      opts.symbols > 0 ? opts.symbols : rng.uniform(2, palette);
+  // A pinned dimension is clamped to the engine's own ceiling. Board::cells is
+  // a kMaxCells array and the per-symbol counters are kSymbolCount wide, so
+  // --width 33 --height 32 would fill 1056 of 1024 entries and --symbols 9
+  // would emit a cell value that indexes SymbolCounts out of bounds. Clamping
+  // rather than drawing keeps every rng draw where it was: a pinned dimension
+  // consumes no number, so boards downstream of one are unchanged.
+  board.width = opts.width > 0 ? std::min(opts.width, kMaxSide)
+                               : rng.uniform(4, side);
+  board.height = opts.height > 0 ? std::min(opts.height, kMaxSide)
+                                 : rng.uniform(4, side);
+  const int symbols = opts.symbols > 0 ? std::min(opts.symbols, kSymbolCount)
+                                       : rng.uniform(2, palette);
   const int blockade = opts.blockadePercent >= 0 ? opts.blockadePercent
                                                  : rng.uniform(0, sparse);
   const int cells = board.cellCount();
@@ -167,24 +176,34 @@ Board attempt(const Options &opts, SeededRng &rng) {
 
 } // namespace
 
-Board board(const Options &opts) {
+Result board(const Options &opts) {
   SeededRng rng(opts.seed);
-  Board best;
+  Result result;
   for (int tries = 0; tries < kAttempts; tries++) {
-    Board candidate = attempt(opts, rng);
-    best = candidate;
-    if (usable(candidate))
-      return candidate;
+    result.board = attempt(opts, rng);
+    if (usable(result.board)) {
+      result.usable = true;
+      break;
+    }
   }
-  return best;
+  return result;
 }
 
 int run(const std::string &path, const Options &opts) {
-  const Board generated = board(opts);
-  fixtureio::save(path, generated);
-  std::cout << "generated " << generated.width << "x" << generated.height
-            << " board with " << rules::blockCount(generated) << " blocks -> "
-            << path << "\n";
+  const Result generated = board(opts);
+  // Nothing is written when no attempt produced a usable board: saving the last
+  // candidate and printing a success line would hand the fuzz harness a fixture
+  // this function's own contract says it does not produce.
+  if (!generated.usable) {
+    std::cerr << "no usable board after " << kAttempts << " attempts (seed "
+              << opts.seed << ")\n";
+    return 1;
+  }
+  std::cout << "generated " << generated.board.width << "x"
+            << generated.board.height << " board with "
+            << rules::blockCount(generated.board) << " blocks -> " << path
+            << "\n";
+  fixtureio::save(path, generated.board);
   return 0;
 }
 

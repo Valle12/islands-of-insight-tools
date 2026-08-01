@@ -8,8 +8,6 @@ A static, zero-framework site of four puzzle solvers for the game *Islands of In
 
 **match-three runs TWO engines and races them.** Its TypeScript search (a bundled Web Worker, `solverWorker.ts`) is arm zero and answers most boards in milliseconds without fetching a single wasm module; the C++ portfolio races beside it for the boards it cannot crack. `solveClient.ts` is the merge point. See "The match-three solver" below.
 
-(`README.md` is unmodified `bun init` boilerplate — its `bun run index.ts` instruction is wrong, there is no `index.ts`.)
-
 ## Commands
 
 ```bash
@@ -21,8 +19,8 @@ bun run build:wasm       # em++ only; skips variants whose inputs have not moved
 
 bun test                 # every unit test (bunfig.toml pins root = "test")
 bun run test             # build:wasm + every unit test — no env gates
-bun run test:fast        # everything except the three *.slow.test.ts suites (~5s)
-bun run test:slow        # only those three
+bun run test:fast        # everything except the four *.slow.test.ts suites (~5s)
+bun run test:slow        # only those four
 bun run test:changed     # only the files affected by the diff vs origin/main
 bun run test:mt          # one page + the two shared root suites (also :pd :rb :sm)
 bun run typecheck        # tsc --noEmit
@@ -36,12 +34,21 @@ bun run fuzz:rb          # rolling-blocks campaign into test-results/rb-fuzz
                          # (--kind goal|coverage|mixed|cycle; boards are solvable
                          #  by construction and the witness is replay-validated)
 bun run bench:mt         # match-three bench; the TS engine in-process by default,
-                         #  the native CLI with --exe default. --diff joins two
-                         #  baselines by fixture, so it compares the two ENGINES.
+                         #  the native CLI with --exe. That default exe path is
+                         #  the CLion release dir, so --exe is required unless
+                         #  you have built there. --diff joins two baselines by
+                         #  fixture (so it compares the two ENGINES) and exits 1
+                         #  on a regression, which is what lets it gate.
 bun run harvest:mt       # is an NRPA plateau a trap? harvests its best partial
-                         # lines and hands each endgame to the exact prover
+                         # lines and hands each endgame to the exact prover.
+                         #  [--fixture N] [--seeds a,b] [--level N]
+                         #  [--iterations N] [--ms N] [--exe <path>]; writes
+                         #  test-results/mt-harvest. Needs the native exe.
 bun run fuzz:mt          # match-three campaign into test-results/mt-fuzz; every
-                         #  witness is replayed through the TS rules (see below)
+                         #  witness is replayed through the TS rules (see below).
+                         #  --max-cells bounds which boards ALSO go through the
+                         #  TS engine; a board whose answers diverge is kept on
+                         #  disk, the rest are deleted unless --keep-all.
 ```
 
 Running a subset:
@@ -93,11 +100,11 @@ default, so it stays in the fast lane.
 
 `bun test` takes multiple positional substring filters, which is what the
 per-page scripts use (`test:sm` = the page directory plus `configFile.test.ts`
-and `utilMethods.test.ts`). `bun test slow` selects the three by name.
+and `utilMethods.test.ts`). `bun test slow` selects the four by name.
 `bun test --changed=<ref>` walks the import graph — measured: on the match-three
 commit it selected exactly the match-three files.
 
-`bun run test:mem64` runs the two `mem64.node.test.mjs` files (shifting-mosaic + rolling-blocks) under node, not bun: bun cannot instantiate a Memory64 module. Under `bun test` they register as skips.
+`bun run test:mem64` runs the three `mem64.node.test.mjs` files (shifting-mosaic + rolling-blocks + match-three) under node, not bun: bun cannot instantiate a Memory64 module. Under `bun test` they register as skips.
 
 Playwright aria snapshots are inline. `--update-snapshots` only rewrites *failing* ones; aria matching is **partial**, so a snapshot keeps passing when new nodes appear. Use `--update-snapshots=all` to get a faithful tree — it writes `test-results/playwright/rebaselines.patch` for `git apply`.
 
@@ -152,7 +159,7 @@ All three now stop at the **first non-empty plan**. Match-three used to be the e
 
 - **rolling-blocks** (`wasmBridge.ts` → `searchRollingBlocksWasm`): wasm exports `solve(puzzle, config)` and `optimize(puzzle, turns)` — config keys (all optional): `engine` (`cascade` default | `wastar` | `exact` | `cracker` | `beam` | `greedy`), `weight` (2), `maxMs` (60000), `maxNodes`, `maxStatesStored`, `maxHeapBytes` (0 = unlimited), `seed`, `beamWidth`, `gated`, `postProcess` (true), `optimizeMaxMs` (30000). `solve` returns `{turns, stats:{nodesExpanded, statesStored, stoppedOnMemory, wallMs, engine}}` or `{turns: [], error}` for boards beyond the engine caps (64×64 grid, 255 blocks, dims ≤ 64). Arm selection lives in `SolverArms.cpp` (shared by CLI and bindings; its `kPortfolio` must stay in sync with the bridge's `PORTFOLIO`): `cascade` first **decomposes** the board into independent playable regions (a rectangular footprint can never straddle an Unplayable cell, so blocks are confined to their starting region forever — sub-puzzles solve separately and plans concatenate; this took the first fuzz campaign from 21/30 to 30/30), then chains exact (gated) → cracker (gated) → wastar w2 → greedy → beam → cracker jittered → wastar w4 → wastar w1 with budget shares of the total (order re-measured on that campaign — greedy solo cracked boards wastar and beam both missed). Gates live in `PuzzleProfile.h` (the cracker takes must-touch-dominant boards with ≤ 2 blocks — measured: fixtures 37/38/39 fall in 106/60/7907 expansions where weighted A* needed millions; via the cascade they solve in 5–141 ms, see `a-star/bench/baseline-cascade.json`). Two-block coverage boards route through the three-phase split scheme in `SolverArms.cpp` (plain sequential split → `LegOrderSearch`, a best-first search over LEG ORDER with required-subset cracker legs, pose-space coverability and orphan + coverage-intact prunes → joint finisher; every candidate plan is full-replay-validated; it carries fixture 34 in well under a second where wastar needed 4 s). The cracker-only `Config` fields `requiredCells` / `coveragePartner` / `jointCoverageIntact` exist for these legs and are never exposed at the wasm/CLI boundary; `a-star/bench/HARD-BOARDS.md` documents the scheme and the still-open fuzz-7007 board.
 - **shifting-mosaic** (`wasmBridge.ts` → `searchShiftingMosaicWasm`): the original portfolio; `PORTFOLIO` is exported so `test/shifting-mosaic-solver/wasm.slow.test.ts` races the exact production arm set.
-- **match-three** (`wasmBridge.ts` → `searchMatchThreeWasm`, merged in `solveClient.ts`): wasm exports `solve(puzzle, config)` and `verify(puzzle, moves)`. `puzzle` is `{gridWidth, gridHeight, cells}` with cells **flat and row-major** (the fixture format is column-major — `flatten()` in the bridge converts). Config keys (all optional): `engine` (`cascade` default | `iddfs` | `bnb` | `greedy` | `beam`), `maxMs` (300000), `tableBytes`, `maxHeapBytes`, `seed`, `beamWidth`. `solve` returns `{moves, proven, unsolvable, ruledOut, stats}` or `{moves: [], error}`. Errors are in-band because the build is `-fno-exceptions`: a throw would reach the page as an aborted module rather than a message it can show.
+- **match-three** (`wasmBridge.ts` → `searchMatchThreeWasm`, merged in `solveClient.ts`): wasm exports `solve(puzzle, config)` and `verify(puzzle, moves)`. `puzzle` is `{gridWidth, gridHeight, cells}` with cells **flat and row-major** (the fixture format is column-major — `flatten()` in the bridge converts). Config keys (all optional): `engine` (`cascade` default | `greedy` | `beam` | `nrpa` | `exhaustive`), `maxMs` (300000), `tableBytes`, `maxHeapBytes`, `seed`, `beamWidth`, `nrpaLevel`, `nrpaIterations`. `solve` returns `{moves, unsolvable, stats}` or `{moves: [], error}` — there is no `proven` and no `ruledOut`, because nothing here claims a length is minimal. Errors are in-band because the build is `-fno-exceptions`: a throw would reach the page as an aborted module rather than a message it can show.
 
 **Three** solver pages need `SharedArrayBuffer` for their threads builds, which GitHub Pages cannot grant via headers. `src/common/coiRegister.ts` registers `coi-serviceworker.js` and **reloads once** when it activates. `page.goto()` resolves on the *pre-reload* document, so any e2e interaction in that window can die with "Execution context was destroyed". Always reach the rolling-blocks, shifting-mosaic AND match-three pages through `gotoIsolated` / `waitForCoiSettled` in `e2e/coi.ts` (`MATCH_THREE_URL` is exported there); `e2e/index.test.ts` needs a `waitForCoiSettled` before every Home click that leaves one of them.
 
@@ -171,7 +178,7 @@ The rules, unchanged by any of the optimization work:
 - **Matches** are the union of every horizontal run ≥3 and every vertical run ≥3. `+`, `T` and `L` need no special case — they are just cells that both passes mark. Gravity is per column and stops at `BLOCKED`, so a column is a set of independent segments; clear/drop repeats until stable (a *cascade*).
 - **A move** swaps two orthogonally adjacent cells that are both blocks and hold different symbols, and is legal only if it clears something. Candidate generation only probes right/down neighbours (all four would offer each swap twice) and only checks the two moved cells, since a new match must pass through one of them.
 - **The board must already have settled.** `boardProblem` refuses a floating block or a line still standing rather than repairing it — solving a repaired board would answer a puzzle the player never had. This is a *solver*-level check, deliberately not a validator one: `config.ts` passes any well-formed file, so the editor will happily hold a half-drawn board that Solve then refuses by name.
-- **The forced-single-clear bound** (`forcedClear.ts`, `a-star/ForcedClear.h`) is the one admissible lower bound that pays, and it is a prune in both provers. Every clear takes ≥3 blocks of the symbol it clears, so a symbol at exactly **4 or 5** blocks must lose all of them in ONE clear — taking 3 strands the rest. All of them must therefore reach one clearing shape, and that costs moves: a block changes column only via a horizontal swap of one column, and such a swap moves blocks of two *different* symbols, so a symbol gains at most one unit of horizontal displacement per move. Measured: test47's `ruledOut` goes 11 → 12 at a 60 s budget, with *fewer* nodes. **Four cells can only clear as a straight run of four, but five can also clear as a T/L/plus** (perpendicular 3+3 sharing a cell) — pricing five as a straight run only would over-estimate, and an over-estimating bound in a prover is not conservative, it is wrong. `forcedClear.test.ts` pins that case.
+- **The forced-single-clear bound** (`forcedClear.ts`, `a-star/ForcedClear.h`) is the one admissible lower bound that pays, and it is a prune in both provers. Every clear takes ≥3 blocks of the symbol it clears, so a symbol at exactly **4 or 5** blocks must lose all of them in ONE clear — taking 3 strands the rest. All of them must therefore reach one clearing shape, and that costs moves: a block changes column only via a horizontal swap of one column, and such a swap moves blocks of two *different* symbols, so a symbol gains at most one unit of horizontal displacement per move. Measured while the search still proved: test47's `ruledOut` went 11 → 12 at a 60 s budget, with *fewer* nodes — the prune survived the drop of proving because it is a prune, not a proof. **Four cells can only clear as a straight run of four, but five can also clear as a T/L/plus** (perpendicular 3+3 sharing a cell) — pricing five as a straight run only would over-estimate, and an over-estimating bound in a prover is not conservative, it is wrong. `forcedClear.test.ts` pins that case.
 - **Region decomposition does not apply**, unlike the rolling-blocks cascade's. Measured: all three hard boards are ONE 4-connected component, and splitting on the depth-1..6 frontier killed zero extra states. Gravity plus cascades couple the whole board.
 - **Do not add a "`remaining` moves clear at most `remaining * 3` cells" prune.** A move clears *at least* three, never at most: one swap can cascade the whole board away. That bound was tried and it cut off exactly the cascade solutions (caught by `engine.test.ts`'s `CASCADE_CLEARS`). There is consequently **no admissible lower bound at all**, which is why nothing here is A*-shaped: pressure has to come from above, as an upper bound to search under.
 - The load-bearing prune is the **stranded symbol** — a symbol down to one or two blocks can never line up again. Both engines keep per-symbol counts incrementally and check them in O(1) per node rather than rescanning the board.
@@ -316,7 +323,7 @@ Three things are load-bearing and easy to undo:
 
 `gtest_discover_tests` also sets `LABELS`, so a single page's suite runs as `ctest --test-dir build-ci -L rolling-blocks` (or `-L shifting-mosaic`, `-L match-three`).
 
-All three solvers have a real CLI (`a_star.exe` for rolling-blocks, `match_three.exe` for match-three): `--fixture <path> [--engine cascade|wastar|exact|cracker|beam|greedy] [--weight N] [--budget-ms N] [--max-nodes N] [--max-states N] [--max-heap-bytes N] [--seed N] [--beam N] [--gated] [--no-post] [--json]`, plus `--generate <path> --seed N [--shuffle N] [--kind goal|coverage|mixed]`; the LAST stdout line starting with `{` is the JSON report, with `stage` naming the winning arm and `alreadySolved` flagging boards solved before any move. Match-three's is the same protocol with its own flags (`--engine cascade|exhaustive|greedy|beam|nrpa`, `--table-bytes N`, `--nrpa-level N`, `--nrpa-iterations N`, `--quiet`, and `--generate … --kind random|cluster [--width N] [--height N] [--symbols N]`). All six bench/fuzz harnesses speak that protocol through `src/util/solverCli.ts` (`runCli` child-process runner + `parseFlags` flag-map parser) — extend it there, not per-harness.
+All three solvers have a real CLI (`a_star.exe` for rolling-blocks, `match_three.exe` for match-three): `--fixture <path> [--engine cascade|wastar|exact|cracker|beam|greedy] [--weight N] [--budget-ms N] [--max-nodes N] [--max-states N] [--max-heap-bytes N] [--seed N] [--beam N] [--gated] [--no-post] [--json]`, plus `--generate <path> --seed N [--shuffle N] [--kind goal|coverage|mixed]`; the LAST stdout line starting with `{` is the JSON report, with `stage` naming the winning arm and `alreadySolved` flagging boards solved before any move. Match-three's is the same protocol with its own flags (`--engine cascade|exhaustive|greedy|beam|nrpa`, `--table-bytes N`, `--nrpa-level N`, `--nrpa-iterations N`, `--quiet`, and `--generate … --kind random|cluster [--width N] [--height N] [--symbols N]`). Those three generator dimensions are **clamped** to `kMaxSide` / `kSymbolCount` — `Board::cells` is a fixed `kMaxCells` array and the per-symbol counters are `kSymbolCount` wide, so `--width 33 --height 32` used to write 1056 of 1024 entries. Clamping rather than re-drawing keeps every rng draw where it was, so a pinned dimension still consumes no random number. `--generate` also **exits 1 without writing** when no attempt produced a usable board, rather than saving the last candidate under a success line. All six bench/fuzz harnesses speak that protocol through `src/util/solverCli.ts` (`runCli` child-process runner + `parseFlags` flag-map parser) — extend it there, not per-harness.
 
 Every solver's replay validity oracle lives in a `Replay.{h,cpp}` compiled into **both** wasm and native, and its `FixtureIo.{h,cpp}` / `GenerateCommands.{h,cpp}` are native only — they drag in nlohmann + exceptions, so they must never join the wasm source lists. Generator invariants worth knowing: rolling-blocks goal boards paint goals only under blocks with at least one legal roll (a frozen block keeps its own patch covered through any scramble — measured on seed 42) and re-scramble up to 3× if the start is still solved; coverage walks mark cells must-touch on first touch, which makes the walk itself the forward witness; mixed boards keep the two families in regions split by an unplayable divider column so the witnesses cannot interact.
 

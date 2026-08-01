@@ -157,6 +157,15 @@ const LENGTH_CEILINGS: Record<string, number> = {
 const SOLVE_MS = 30_000;
 const TIMEOUT_MS = 90_000;
 
+/**
+ * Per-arm budget in the portfolio sweep, and a deadline DERIVED from it.
+ * PORTFOLIO lives in wasmBridge.ts, so an arm added there would otherwise push
+ * that sweep's worst case past a fixed timeout — and the failure would read as
+ * a test timeout rather than as the arm it belongs to.
+ */
+const ARM_MS = 10_000;
+const ARM_SWEEP_TIMEOUT_MS = PORTFOLIO.length * ARM_MS + 30_000;
+
 describe.skipIf(Bun.env.IOI_SKIP_SLOW === "1")("Match-three wasm", () => {
   test(
     "the whole corpus solves, and every witness replays under the page's rules",
@@ -203,14 +212,14 @@ describe.skipIf(Bun.env.IOI_SKIP_SLOW === "1")("Match-three wasm", () => {
       const puzzle = toPuzzle(config);
 
       for (const arm of PORTFOLIO) {
-        const result = module.solve(puzzle, { ...arm, maxMs: 10_000 });
+        const result = module.solve(puzzle, { ...arm, maxMs: ARM_MS });
         expect(result.error).toBeUndefined();
         const moves = plainMoves(result);
         expect(moves.length).toBeGreaterThan(0);
         expect(clearsBoard(toBoard(config), moves)).toBeTrue();
       }
     },
-    TIMEOUT_MS,
+    ARM_SWEEP_TIMEOUT_MS,
   );
 
   test(

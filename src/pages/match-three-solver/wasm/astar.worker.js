@@ -1,7 +1,12 @@
 // Worker that loads the requested match-three WASM build variant and runs one
-// solve. Message in: { puzzle, config, variant }; messages out: progress,
-// phase and best (posted by the wasm module itself, which runs in this scope),
-// then done { moves, unsolvable, stats } or error.
+// solve. Message in: { puzzle, config, variant }; messages out: progress and
+// best (posted by the wasm module itself, which runs in this scope), then
+// done { moves, unsolvable, stats } or error.
+//
+// There is deliberately no per-arm "phase" message: wasmBridge.ts has no use
+// for one — the page's phase readout comes from the TypeScript arm — and a
+// message nobody reads is a contract nobody maintains. The native CLI still
+// narrates arm starts through the same `Callbacks::onArmStart` hook.
 //
 // Hand-written source living in an otherwise generated directory — the
 // astar*.mjs/wasm files beside it are em++ output and gitignored.
@@ -49,8 +54,7 @@ async function loadModule(variant) {
 /** Embind values have to become plain structures before they can be posted. */
 function plainMoves(moves) {
   const out = [];
-  for (let i = 0; i < moves.length; i++) {
-    const move = moves[i];
+  for (const move of moves) {
     out.push({
       a: { x: move.a.x, y: move.a.y },
       b: { x: move.b.x, y: move.b.y },

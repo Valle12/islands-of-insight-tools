@@ -34,17 +34,6 @@ struct Frontier {
   rules::Mask mask{};
 };
 
-Move decode(const rules::PackedMove packed, const int width) {
-  const int aIndex = rules::moveIndex(packed);
-  const int x = aIndex % width;
-  const int y = aIndex / width;
-  const bool down = rules::moveIsDown(packed);
-  return {.ax = static_cast<uint8_t>(x),
-          .ay = static_cast<uint8_t>(y),
-          .bx = static_cast<uint8_t>(down ? x : x + 1),
-          .by = static_cast<uint8_t>(down ? y + 1 : y)};
-}
-
 /// Expands one frontier state: stranded children pruned, duplicates within the
 /// level collapsed through `seen`. Returns a full path the moment a child
 /// clears the board.
@@ -59,7 +48,7 @@ Moves expandNode(const Node &node, Frontier &scratch, TransTable &seen) {
     const int left = node.blocks - cleared;
     if (left == 0) {
       Moves solution = node.path;
-      solution.push_back(decode(packed, node.board.width));
+      solution.push_back(rules::decodeMove(packed, node.board.width));
       return solution;
     }
     if (rules::hasStrandedSymbol(scratch.child))
@@ -73,7 +62,7 @@ Moves expandNode(const Node &node, Frontier &scratch, TransTable &seen) {
     auto &[childBoard, childPath, childBlocks] = scratch.next.emplace_back();
     childBoard = scratch.child;
     childPath = node.path;
-    childPath.push_back(decode(packed, node.board.width));
+    childPath.push_back(rules::decodeMove(packed, node.board.width));
     childBlocks = left;
   }
   return {};

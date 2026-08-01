@@ -41,14 +41,19 @@ import { SYMBOL_COUNT } from "./symbols";
 /** No symbol is at a forced-single-clear count, so the bound says nothing. */
 export const NO_BOUND = -1;
 
-/** The largest block count this bound has anything to say about. */
+/**
+ * The block counts this bound has anything to say about. Below MIN_FORCED the
+ * stranded prune already applies; above MAX_FORCED a symbol can split its blocks
+ * across two clears and nothing is forced.
+ */
+const MIN_FORCED = 4;
 const MAX_FORCED = 5;
 
 /** Whether any symbol sits at a count that forces a single clear. */
 export function anyForcedCount(counts: Int32Array): boolean {
   for (let i = 0; i < SYMBOL_COUNT; i++) {
     const n = counts[i]!;
-    if (n === 4 || n === MAX_FORCED) return true;
+    if (n === MIN_FORCED || n === MAX_FORCED) return true;
   }
   return false;
 }
@@ -95,8 +100,8 @@ function intoOneRow(sorted: number[], width: number): number {
  */
 function teeTargets(from: number, stem: number): number[] {
   const targets: number[] = [];
-  for (let c = from; c <= from + 2; c++) {
-    for (let k = 0; k < (c === stem ? 3 : 1); k++) targets.push(c);
+  for (let c = from; c < from + MIN_RUN; c++) {
+    for (let k = 0; k < (c === stem ? MIN_RUN : 1); k++) targets.push(c);
   }
   return targets;
 }
@@ -114,7 +119,7 @@ function teeTargets(from: number, stem: number): number[] {
 function intoTee(sorted: number[], width: number): number {
   let best = Infinity;
   for (let from = 0; from + MIN_RUN - 1 < width; from++) {
-    for (let stem = from; stem <= from + 2; stem++) {
+    for (let stem = from; stem < from + MIN_RUN; stem++) {
       const total = totalDistance(sorted, teeTargets(from, stem));
       if (total < best) best = total;
     }
@@ -171,7 +176,7 @@ export function forcedBound(board: MatchThreeBoard): number {
   let sum = 0;
   for (let s = 0; s < SYMBOL_COUNT; s++) {
     const count = counts[s]!;
-    if (count !== 4 && count !== MAX_FORCED) continue;
+    if (count !== MIN_FORCED && count !== MAX_FORCED) continue;
     const sorted = [...columns[s]!].sort((a, b) => a - b);
     const cost = costForSymbol(sorted, board.width);
     if (cost > max) max = cost;

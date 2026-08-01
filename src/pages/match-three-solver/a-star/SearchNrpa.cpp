@@ -3,6 +3,7 @@
 #include "Search.h"
 #include "SeededRng.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <vector>
@@ -34,6 +35,22 @@ namespace {
 /// the original NRPA paper uses, and the one the measurement that solved
 /// matchThreeTest51 ran with.
 constexpr double kAlpha = 1.0;
+
+/// Ceiling on a policy weight before it is exponentiated.
+///
+/// A weight is unbounded — the taken move gains kAlpha on every adaptation —
+/// and std::exp overflows to infinity above about 709.78. The two places that
+/// exponentiate then divide a weight by the total, so one infinity turns every
+/// probability in the draw into NaN and the policy never recovers. Clipping
+/// leaves every weight the search actually reaches bit for bit as it was, and
+/// even an all-clipped state stays far inside the double range: exp(690) is
+/// 4.6e299 and there are at most a couple of thousand legal moves.
+constexpr double kMaxWeight = 690.0;
+
+/// exp(weight), guaranteed finite. See kMaxWeight.
+double weigh(const double weight) {
+  return std::exp(std::min(weight, kMaxWeight));
+}
 
 /// Restarts with no improvement to the best line before the arm gives up.
 ///
@@ -144,17 +161,6 @@ void collectSteps(const Board &board, const int left, Scratch &scratch) {
   }
 }
 
-Move decode(const rules::PackedMove packed, const int width) {
-  const int aIndex = rules::moveIndex(packed);
-  const int x = aIndex % width;
-  const int y = aIndex / width;
-  const bool down = rules::moveIsDown(packed);
-  return {.ax = static_cast<uint8_t>(x),
-          .ay = static_cast<uint8_t>(y),
-          .bx = static_cast<uint8_t>(down ? x : x + 1),
-          .by = static_cast<uint8_t>(down ? y + 1 : y)};
-}
-
 /// One line, and what it left behind.
 struct Line {
   std::vector<rules::PackedMove> moves;
@@ -222,7 +228,7 @@ public:
     Moves out;
     out.reserve(best_.moves.size());
     for (const rules::PackedMove packed : best_.moves)
-      out.push_back(decode(packed, board_.width));
+      out.push_back(rules::decodeMove(packed, board_.width));
     return out;
   }
 
@@ -289,7 +295,7 @@ private:
     double total = 0;
     scratch_.weights.clear();
     for (const Step &step : scratch_.steps) {
-      const double weight = std::exp(policy[slot(step.move)]);
+      const double weight = weigh(policy[slot(step.move)]);
       scratch_.weights.push_back(weight);
       total += weight;
     }
@@ -311,7 +317,7 @@ private:
     Moves found;
     found.reserve(line.moves.size());
     for (const rules::PackedMove packed : line.moves)
-      found.push_back(decode(packed, board_.width));
+      found.push_back(rules::decodeMove(packed, board_.width));
     bounds_.offer(found);
   }
 
@@ -334,7 +340,7 @@ private:
     double total = 0;
     scratch_.weights.clear();
     for (const Step &step : scratch_.steps) {
-      const double weight = std::exp(policy[slot(step.move)]);
+      const double weight = weigh(policy[slot(step.move)]);
       scratch_.weights.push_back(weight);
       total += weight;
     }

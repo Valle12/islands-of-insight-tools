@@ -77,20 +77,23 @@ class Bounds {
 public:
   /// Records `moves` when it beats the incumbent. True when it improved.
   bool offer(const Moves &moves) {
-    const int length = static_cast<int>(moves.size());
+    const auto length = static_cast<int>(moves.size());
     const std::lock_guard guard(mutex_);
     if (bestLength_ != kNoLength && length >= bestLength_)
       return false;
     best_ = moves;
     bestLength_ = length;
-    length_.store(length, std::memory_order_relaxed);
+    // Default (sequentially consistent) ordering: `length_` is only a lock-free
+    // peek at what the mutex already protects, and it is stored once per
+    // improvement, so nothing here is worth a weaker order. Under wasm atomics
+    // are sequentially consistent regardless, and natively a seq_cst load of an
+    // int is a plain load.
+    length_.store(length);
     return true;
   }
 
   /// Length of the best solution known, or kNoLength.
-  [[nodiscard]] int bestLength() const {
-    return length_.load(std::memory_order_relaxed);
-  }
+  [[nodiscard]] int bestLength() const { return length_.load(); }
 
   [[nodiscard]] Moves best() const {
     const std::lock_guard guard(mutex_);

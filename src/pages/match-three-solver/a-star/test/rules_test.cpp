@@ -1,7 +1,5 @@
-#ifdef __clang__
-#include <yvals_core.h>
-#undef __cpp_lib_is_pointer_interconvertible
-#endif
+#include "TestBoards.h"
+
 #include "Replay.h"
 #include "Rules.h"
 #include <gtest/gtest.h>
@@ -15,42 +13,8 @@
 namespace {
 
 using namespace mt;
-
-/// Boards are written as rows top to bottom: '.' empty, '#' blocked, and a
-/// letter per symbol index — the same notation the TypeScript tests use.
-Board board(const std::vector<std::string> &rows) {
-  Board result;
-  result.height = static_cast<int>(rows.size());
-  result.width = static_cast<int>(rows.front().size());
-  for (int y = 0; y < result.height; y++) {
-    for (int x = 0; x < result.width; x++) {
-      const char glyph = rows[static_cast<size_t>(y)][static_cast<size_t>(x)];
-      const size_t at = flat(result.width, x, y);
-      if (glyph == '#')
-        result.cells[at] = kBlocked;
-      else if (glyph != '.')
-        result.cells[at] = static_cast<uint8_t>(kFirstSymbol + (glyph - 'a'));
-    }
-  }
-  return result;
-}
-
-std::vector<std::string> draw(const Board &value) {
-  std::vector<std::string> rows;
-  for (int y = 0; y < value.height; y++) {
-    std::string row;
-    for (int x = 0; x < value.width; x++) {
-      if (const uint8_t cell = value.at(x, y); cell == kEmpty)
-        row.push_back('.');
-      else if (cell == kBlocked)
-        row.push_back('#');
-      else
-        row.push_back(static_cast<char>('a' + cell - kFirstSymbol));
-    }
-    rows.push_back(row);
-  }
-  return rows;
-}
+using mt::test::board;
+using mt::test::draw;
 
 TEST(Rules, FindsHorizontalAndVerticalRuns) {
   const Board value = board({"aaa", "bcb", "bcb"});
@@ -136,14 +100,7 @@ TEST(Rules, TheFastKernelMatchesTheOracleOnACascade) {
     const int fastCleared =
         rules::applyPacked(value, fast, packed, mask, nullptr).cleared;
 
-    const int aIndex = rules::moveIndex(packed);
-    const bool down = rules::moveIsDown(packed);
-    const int x = aIndex % value.width;
-    const int y = aIndex / value.width;
-    const Move move{.ax = static_cast<uint8_t>(x),
-                    .ay = static_cast<uint8_t>(y),
-                    .bx = static_cast<uint8_t>(down ? x : x + 1),
-                    .by = static_cast<uint8_t>(down ? y + 1 : y)};
+    const Move move = rules::decodeMove(packed, value.width);
 
     Board slow;
     rules::ApplyResult slowResult;
@@ -165,10 +122,10 @@ TEST(Rules, ReplayRefusesAMoveThatIsNotLegal) {
 TEST(Rules, ReplayConfirmsAClearingSequence) {
   const Board value = board({"aab", "bba"});
   const Moves moves{{.ax = 2, .ay = 0, .bx = 2, .by = 1}};
-  const auto [legal, clearedAtEnd, played] = replay::replayMoves(value, moves);
-  EXPECT_TRUE(legal);
-  EXPECT_TRUE(clearedAtEnd);
-  EXPECT_EQ(played, 1);
+  const replay::Verdict verdict = replay::replayMoves(value, moves);
+  EXPECT_TRUE(verdict.legal);
+  EXPECT_TRUE(verdict.clearedAtEnd);
+  EXPECT_EQ(verdict.played, 1);
 }
 
 } // namespace

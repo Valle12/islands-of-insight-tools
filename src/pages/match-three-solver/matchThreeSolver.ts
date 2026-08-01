@@ -78,12 +78,6 @@ export class MatchThreeSolverEditor {
   private solutionView: SolutionView | null = null;
   private search: SolveHandle | null = null;
   /**
-   * The best solution the running search has streamed so far, and the board
-   * it belongs to. This is what makes stopping safe: the Stop button renders
-   * this instead of discarding the search.
-   */
-  private pendingConfig: MatchThreeTest | null = null;
-  /**
    * Bumped whenever a running search stops mattering. A worker that reports
    * back under an old generation is answering about a board that no longer
    * exists, so its result is dropped.
@@ -369,7 +363,6 @@ export class MatchThreeSolverEditor {
 
     const generation = ++this.solveGeneration;
     const isCurrent = () => generation === this.solveGeneration;
-    this.pendingConfig = config;
     this.showSolving();
 
     this.search = searchMatchThree(config, {
@@ -472,7 +465,6 @@ export class MatchThreeSolverEditor {
     this.solveGeneration++;
     this.search?.cancel();
     this.search = null;
-    this.pendingConfig = null;
     this.setSolving(false);
   }
 

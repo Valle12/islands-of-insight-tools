@@ -28,6 +28,7 @@ import { runNrpa } from "../pages/match-three-solver/nrpa";
 import {
   applyMove,
   blockCount,
+  toBoard,
   type MatchThreeBoard,
   type Move,
 } from "../pages/match-three-solver/rules";
@@ -67,17 +68,6 @@ function parseArgs(argv: string[]) {
     "--exe": next => (opts.exe = resolve(next())),
   });
   return opts;
-}
-
-function toBoard(fixture: MatchThreeTest): MatchThreeBoard {
-  const { gridWidth, gridHeight } = fixture;
-  const cells = new Uint8Array(gridWidth * gridHeight);
-  for (let x = 0; x < gridWidth; x++) {
-    for (let y = 0; y < gridHeight; y++) {
-      cells[y * gridWidth + x] = fixture.cells[x]![y]!;
-    }
-  }
-  return { width: gridWidth, height: gridHeight, cells };
 }
 
 /** Back to the download format, so a plateau board IS a usable fixture. */

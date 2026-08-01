@@ -330,7 +330,7 @@ walk behind it runs only where it can possibly say something.
   symbols and 90 blocks always has three of something nearly aligned.
 
   **Its stronger sibling does pay, and ships** — see "The forced-single-clear
-  bound" below. What was wrong here is not the displacement argument, it is
+  bound" above. What was wrong here is not the displacement argument, it is
   asking only for *three* blocks to line up. Ask for a symbol's blocks to line up
   *all at once*, which counts of 4 and 5 force, and the same argument becomes a
   prune that gains a depth level.

@@ -24,7 +24,9 @@ constexpr int kPatience = 60;
 struct Scratch {
   Board probe;
   Board candidate;
-  Board best;
+  /// The board a chosen move leaves behind. Not a best-so-far — `runGreedy`
+  /// has its own `best` move list, which is a different thing entirely.
+  Board next;
   rules::Mask mask{};
   std::vector<rules::PackedMove> moves;
 };
@@ -153,19 +155,12 @@ Moves rolloutOnce(const Board &start, const int blocks, const int bound,
                               : bestChoice(choices);
     if (!choice.found)
       return {};
-    const int aIndex = rules::moveIndex(choice.move);
-    const int x = aIndex % start.width;
-    const int y = aIndex / start.width;
-    const bool down = rules::moveIsDown(choice.move);
-    path.push_back({.ax = static_cast<uint8_t>(x),
-                    .ay = static_cast<uint8_t>(y),
-                    .bx = static_cast<uint8_t>(down ? x : x + 1),
-                    .by = static_cast<uint8_t>(down ? y + 1 : y)});
+    path.push_back(rules::decodeMove(choice.move, start.width));
     if (choice.clearsAll)
       return path;
     // Replayed rather than kept: see collectChoices.
-    rules::applyPacked(current, scratch.best, choice.move, scratch.mask, nullptr);
-    current = scratch.best;
+    rules::applyPacked(current, scratch.next, choice.move, scratch.mask, nullptr);
+    current = scratch.next;
     left -= choice.cleared;
   }
   return {};
@@ -187,8 +182,8 @@ Outcome runGreedy(const Board &board, const Config &cfg, Bounds &bounds) {
   scratch.probe.height = board.height;
   scratch.candidate.width = board.width;
   scratch.candidate.height = board.height;
-  scratch.best.width = board.width;
-  scratch.best.height = board.height;
+  scratch.next.width = board.width;
+  scratch.next.height = board.height;
 
   SeededRng rng(cfg.seed);
   const int known = bounds.bestLength();

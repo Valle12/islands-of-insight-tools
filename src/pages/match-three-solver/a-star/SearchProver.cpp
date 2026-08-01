@@ -216,12 +216,11 @@ int Prover::collectMoves(const Board &board, Level &scratch) {
 void Prover::buildChildren(const Board &board, Level &scratch,
                            const int count) {
   for (int i = 0; i < count; i++) {
-    const auto slot = static_cast<size_t>(i);
-    const rules::PackedMove packed = scratch.moves[slot];
-    scratch.deltas[slot].fill(0);
-    scratch.cleared[slot] =
-        rules::applyPacked(board, scratch.boards[slot], packed, scratch.mask,
-                           &scratch.deltas[slot])
+    const rules::PackedMove packed = scratch.moves[slot(i)];
+    scratch.deltas[slot(i)].fill(0);
+    scratch.cleared[slot(i)] =
+        rules::applyPacked(board, scratch.boards[slot(i)], packed, scratch.mask,
+                           &scratch.deltas[slot(i)])
             .cleared;
   }
 }
@@ -231,19 +230,15 @@ void Prover::buildChildren(const Board &board, Level &scratch,
 /// descending score, ties in enumeration order.
 void Prover::sortChildren(Level &scratch, const int count) {
   for (int i = 0; i < count; i++) {
-    const auto slot = static_cast<size_t>(i);
-    scratch.scores[slot] = scratch.cleared[slot];
-    scratch.order[slot] = i;
+    scratch.scores[slot(i)] = scratch.cleared[slot(i)];
+    scratch.order[slot(i)] = i;
   }
   for (int i = 1; i < count; i++) {
-    const int entry = scratch.order[static_cast<size_t>(i)];
-    const int score = scratch.scores[static_cast<size_t>(entry)];
+    const int entry = scratch.order[slot(i)];
+    const int score = scratch.scores[slot(entry)];
     int j = i - 1;
-    while (j >= 0 &&
-           scratch.scores[static_cast<size_t>(
-               scratch.order[static_cast<size_t>(j)])] < score) {
-      scratch.order[slot(j + 1)] =
-          scratch.order[static_cast<size_t>(j)];
+    while (j >= 0 && scratch.scores[slot(scratch.order[slot(j)])] < score) {
+      scratch.order[slot(j + 1)] = scratch.order[slot(j)];
       j--;
     }
     scratch.order[slot(j + 1)] = entry;
@@ -251,18 +246,16 @@ void Prover::sortChildren(Level &scratch, const int count) {
 }
 
 void Prover::pushStep(const Level &scratch, const int child) {
-  const auto slot = static_cast<size_t>(child);
-  pathMoves_[static_cast<size_t>(pathLength_)] = scratch.moves[slot];
+  pathMoves_[slot(pathLength_)] = scratch.moves[slot(child)];
   pathLength_++;
   for (size_t symbol = 0; symbol < static_cast<size_t>(kSymbolCount); symbol++)
-    symbolCounts_[symbol] -= scratch.deltas[slot][symbol];
+    symbolCounts_[symbol] -= scratch.deltas[slot(child)][symbol];
 }
 
 void Prover::popStep(const Level &scratch, const int child) {
-  const auto slot = static_cast<size_t>(child);
   pathLength_--;
   for (size_t symbol = 0; symbol < static_cast<size_t>(kSymbolCount); symbol++)
-    symbolCounts_[symbol] += scratch.deltas[slot][symbol];
+    symbolCounts_[symbol] += scratch.deltas[slot(child)][symbol];
 }
 
 /// True once some symbol is down to one or two blocks — nothing can ever clear
@@ -290,14 +283,7 @@ Moves Prover::decodePath() const {
   moves.reserve(static_cast<size_t>(pathLength_));
   for (int i = 0; i < pathLength_; i++) {
     const rules::PackedMove packed = pathMoves_[static_cast<size_t>(i)];
-    const int aIndex = rules::moveIndex(packed);
-    const int x = aIndex % board_.width;
-    const int y = aIndex / board_.width;
-    const bool down = rules::moveIsDown(packed);
-    moves.push_back({.ax = static_cast<uint8_t>(x),
-                     .ay = static_cast<uint8_t>(y),
-                     .bx = static_cast<uint8_t>(down ? x : x + 1),
-                     .by = static_cast<uint8_t>(down ? y + 1 : y)});
+    moves.push_back(rules::decodeMove(packed, board_.width));
   }
   return moves;
 }

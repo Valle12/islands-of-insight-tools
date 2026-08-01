@@ -101,8 +101,6 @@ interface Level {
   boards: (MatchThreeBoard | undefined)[];
   /** Moves packed as `(cellIndex << 1) | downBit`. */
   moves: Int32Array;
-  /** Pre-swap symbols packed as `(symbolA << 4) | symbolB`. */
-  symbols: Int32Array;
   cleared: Int32Array;
   scores: Int32Array;
   order: Int32Array;
@@ -125,7 +123,6 @@ function newLevel(width: number, height: number): Level {
   return {
     boards: [],
     moves: new Int32Array(16),
-    symbols: new Int32Array(16),
     cleared: new Int32Array(16),
     scores: new Int32Array(16),
     order: new Int32Array(16),
@@ -148,7 +145,6 @@ function ensureCapacity(level: Level, needed: number): void {
   const capacity = level.capacity * 2;
   level.capacity = capacity;
   level.moves = growArray(level.moves, capacity);
-  level.symbols = growArray(level.symbols, capacity);
   level.cleared = growArray(level.cleared, capacity);
   level.scores = growArray(level.scores, capacity);
   level.order = growArray(level.order, capacity);
@@ -175,7 +171,6 @@ class Search {
   /** Live blocks per symbol, patched as moves are pushed and popped. */
   private readonly symbolCounts = new Int32Array(SYMBOL_COUNT);
   private pathMoves = new Int32Array(0);
-  private pathSymbols = new Int32Array(0);
   private pathLength = 0;
   private width = 0;
   private height = 0;
@@ -205,7 +200,6 @@ class Search {
     this.seedSymbolCounts(board);
     const natural = Math.floor(blockCount(board) / MIN_RUN);
     this.pathMoves = new Int32Array(natural + 1);
-    this.pathSymbols = new Int32Array(natural + 1);
     return natural;
   }
 
@@ -359,7 +353,6 @@ class Search {
   private exploreLeaf(board: MatchThreeBoard, blocks: number): boolean {
     const level = this.level(this.pathLength);
     const moveCount = this.collectMoves(board, level);
-    const cells = board.cells;
 
     for (let i = 0; i < moveCount; i++) {
       if (this.outOfTime() || this.best !== null) return false;
@@ -367,11 +360,7 @@ class Search {
       if (this.applyInto(board, level.leaf, packed, level, 0) !== blocks) {
         continue;
       }
-      const aIndex = packed >> 1;
-      const bIndex = this.otherIndex(packed);
       this.pathMoves[this.pathLength] = packed;
-      this.pathSymbols[this.pathLength] =
-        ((cells[aIndex]! - FIRST_SYMBOL) << 4) | (cells[bIndex]! - FIRST_SYMBOL);
       this.pathLength++;
       this.keepSolution();
       this.pathLength--;
@@ -451,14 +440,8 @@ class Search {
     level: Level,
     count: number,
   ): void {
-    const cells = board.cells;
     for (let i = 0; i < count; i++) {
       const packed = level.moves[i]!;
-      const aIndex = packed >> 1;
-      const bIndex = this.otherIndex(packed);
-      level.symbols[i] =
-        ((cells[aIndex]! - FIRST_SYMBOL) << 4) |
-        (cells[bIndex]! - FIRST_SYMBOL);
       level.cleared[i] = this.applyInto(
         board,
         this.childBoard(level, i),
@@ -559,7 +542,6 @@ class Search {
 
   private pushStep(level: Level, child: number): void {
     this.pathMoves[this.pathLength] = level.moves[child]!;
-    this.pathSymbols[this.pathLength] = level.symbols[child]!;
     this.pathLength++;
     const base = child * SYMBOL_COUNT;
     for (let slot = 0; slot < SYMBOL_COUNT; slot++) {

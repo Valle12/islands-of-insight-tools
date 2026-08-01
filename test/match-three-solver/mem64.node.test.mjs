@@ -85,7 +85,14 @@ test(
         b: { x: move.b.x, y: move.b.y },
       });
     }
-    assert.equal(moves.length, 5, "the board's known-shortest length");
+    // A CEILING, matching wasm.slow.test.ts: the search returns the first
+    // solution it finds and claims nothing about minimality, so pinning 5 would
+    // fail this MEMORY64 smoke test over an arm-ordering change that has
+    // nothing to do with 64-bit codegen. `module.verify` below is the real gate.
+    assert.ok(
+      moves.length > 0 && moves.length <= 5,
+      `expected 1..5 moves, got ${moves.length}`,
+    );
     // The module's own replay oracle, compiled into the MEMORY64 build: every
     // swap legal in turn AND no blocks left at the end.
     assert.ok(

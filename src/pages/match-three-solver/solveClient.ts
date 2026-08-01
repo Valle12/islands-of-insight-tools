@@ -65,7 +65,18 @@ class Merged {
     return this.alreadyClear || this.unsolvable || this.best !== null;
   }
 
-  /** A completed proof that the board cannot be cleared at all. */
+  /**
+   * A completed proof that the board cannot be cleared at all, which ends the
+   * race on its own.
+   *
+   * It is sound to stop here rather than to wait for every other arm, because
+   * this is a proof about EXISTENCE: the exhaustive arm reaches it only by
+   * searching `maxDepth = floor(blocks / MIN_RUN)` out with nothing found, and
+   * every move clears at least MIN_RUN cells, so no solution can be longer than
+   * that depth. An arm still running cannot find what has been proven not to
+   * exist. A candidate already accepted still wins, so a wrong proof can only
+   * ever lose a race it should not have entered.
+   */
   markUnsolvable(): void {
     if (!this.best) this.unsolvable = true;
   }
@@ -259,8 +270,13 @@ export function searchMatchThree(
       onProgress: nodes => wasmArm.onProgress(nodes),
       onBest: moves => wasmArm.onCandidate({ moves }),
       onArm: result => {
-        if (result.unsolvable) wasmArm.onUnsolvable();
+        // The candidate FIRST. `onUnsolvable` can settle the race and clear
+        // `live`, after which this arm's own move list would be dropped by the
+        // guard at the top of every handler. An arm that proved unsolvable has
+        // no moves to report today, so the order costs nothing — it just stops
+        // one from ever being thrown away.
         wasmArm.onCandidate({ moves: result.moves });
+        if (result.unsolvable) wasmArm.onUnsolvable();
         wasmArm.onProgress(state.wasmNodes);
       },
       onSettled: () => wasmArm.onDone(),

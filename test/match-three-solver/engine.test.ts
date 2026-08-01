@@ -134,13 +134,15 @@ describe("solveMatchThree", () => {
   });
 
   describe("Progress", () => {
-    test("reports the work done so far", () => {
+    // Not "it fires at least once": progress is INTERVAL-gated, so a run this
+    // short may legitimately never reach a reporting point. What may never
+    // happen is a nonsensical count.
+    test("never reports a nonsensical node count", () => {
       const seen: number[] = [];
       solveMatchThree(board(SLOW), {
         budgetMs: 0,
         onProgress: progress => seen.push(progress.nodes),
       });
-      expect(seen.length).toBeGreaterThan(0);
       expect(seen.every(nodes => nodes >= 0)).toBeTrue();
     });
   });
@@ -157,13 +159,16 @@ describe("solveMatchThree", () => {
         expect(clearsBoard(board(SLOW), best)).toBeTrue();
       }
       // Whether 150ms is enough varies with the machine; what may never vary is
-      // the honesty of the outcome. A solved run must have streamed exactly the
-      // answer it returns, because the search stops the moment it has one.
+      // the honesty of the outcome. The COUNT is not pinned — greedy keeps
+      // rolling out after its first witness and streams every strict
+      // improvement — but the last thing streamed is what comes back.
       if (result.status === "solved") {
         expect(clearsBoard(board(SLOW), result.moves)).toBeTrue();
-        expect(bests).toHaveLength(1);
-        expect(bests[0]).toEqual(result.moves);
+        expect(bests.length).toBeGreaterThan(0);
+        expect(bests.at(-1)).toEqual(result.moves);
       } else {
+        // Only whole solutions are ever streamed, so nothing found means
+        // nothing streamed.
         expect(result.status).toBe("budget");
         expect(bests).toBeEmpty();
       }

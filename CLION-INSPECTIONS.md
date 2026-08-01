@@ -78,7 +78,7 @@ Everything else in the checklist has no tidy equivalent — it must be
 right when written, or found via Inspect Code in the IDE.
 
 Notes on `--fix`: it does not reformat, so long lines must be re-wrapped
-to the repo's ~80 columns by hand afterwards, and it writes `.x=x` — the
+to the repo's ~80 columns by hand afterward, and it writes `.x=x` — the
 repo style is `.x = x`.
 
 ## SonarLint (S-rules) — the other focused-file-only findings
@@ -188,7 +188,7 @@ the idiom that satisfies them:
   exactly `FixtureError` and `nlohmann::json::exception`, so `loadFixture`
   in match-three's `main.cpp` catches the two and shares one local lambda
   for the report-and-emit. Narrowing a catch is a behaviour change: drive
-  every failure path once afterwards (missing file, malformed document,
+  every failure path once afterward (missing file, malformed document,
   out-of-range value) and confirm each still reports.
 - **A `const std::string &` parameter that is only compared** becomes
   `std::string_view` — not just the ones feeding a transparent container

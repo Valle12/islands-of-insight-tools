@@ -37,6 +37,20 @@ constexpr int partnerIndex(const PackedMove packed, const int width) {
   return moveIndex(packed) + (moveIsDown(packed) ? width : 1);
 }
 
+/// The packed move as the pair of cells a witness names. Every arm ends by
+/// doing this, and it lives here rather than four times over: a copy that drifts
+/// emits an illegal witness that only replay validation would catch.
+constexpr Move decodeMove(const PackedMove packed, const int width) {
+  const int aIndex = moveIndex(packed);
+  const int x = aIndex % width;
+  const int y = aIndex / width;
+  const bool down = moveIsDown(packed);
+  return {.ax = static_cast<uint8_t>(x),
+          .ay = static_cast<uint8_t>(y),
+          .bx = static_cast<uint8_t>(down ? x : x + 1),
+          .by = static_cast<uint8_t>(down ? y + 1 : y)};
+}
+
 /// What a swap took out: the cells cleared over every wave, and how many
 /// waves there were.
 struct ApplyResult {

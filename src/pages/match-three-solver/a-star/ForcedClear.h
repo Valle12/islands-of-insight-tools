@@ -5,7 +5,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <limits>
+#include <span>
 
 // The forced-single-clear bound: this puzzle's one admissible lower bound that
 // is actually worth computing.
@@ -47,11 +49,17 @@ namespace mt::forced {
 /// No symbol is at a forced-single-clear count, so this bound says nothing.
 inline constexpr int kNoBound = -1;
 
+/// The block counts this bound has anything to say about. Below kMinForced the
+/// stranded prune already applies; above kMaxForced a symbol can split its
+/// blocks across two clears and nothing is forced.
+inline constexpr int kMinForced = 4;
+inline constexpr int kMaxForced = 5;
+
 /// Columns of every live block, per symbol. Only counts of 4 and 5 are used, so
 /// this stops recording a symbol once it passes 5 — a symbol with 30 blocks
 /// costs nothing beyond the count.
 struct SymbolColumns {
-  std::array<std::array<int, 5>, kSymbolCount> columns{};
+  std::array<std::array<int, kMaxForced>, kSymbolCount> columns{};
   std::array<int, kSymbolCount> counts{};
 };
 
@@ -65,7 +73,7 @@ inline SymbolColumns collectColumns(const Board &board) {
         continue;
       const size_t s = slot(cell - kFirstSymbol);
       const int seen = out.counts[s];
-      if (seen < 5)
+      if (seen < kMaxForced)
         out.columns[s][slot(seen)] = x;
       out.counts[s] = seen + 1;
     }
@@ -74,28 +82,44 @@ inline SymbolColumns collectColumns(const Board &board) {
 }
 
 /// Least displacement to bring every block into one column — the vertical run.
-inline int intoOneColumn(const int *cols, const int count, const int width) {
+inline int intoOneColumn(const std::span<const int> cols, const int width) {
   int best = std::numeric_limits<int>::max();
   for (int c = 0; c < width; c++) {
     int total = 0;
-    for (int i = 0; i < count; i++)
-      total += std::abs(cols[i] - c);
+    for (const int col : cols)
+      total += std::abs(col - c);
     best = std::min(best, total);
   }
   return best;
 }
 
-/// Least displacement to one block per column across a `count`-wide window —
-/// the horizontal run. Sorted-to-sorted is the optimal assignment on a line.
-inline int intoOneRow(const int *sorted, const int count, const int width) {
+/// Least displacement to one block per column across a `sorted.size()`-wide
+/// window — the horizontal run. Sorted-to-sorted is the optimal assignment on a
+/// line.
+inline int intoOneRow(const std::span<const int> sorted, const int width) {
+  const auto count = static_cast<int>(sorted.size());
   int best = std::numeric_limits<int>::max();
   for (int c = 0; c + count - 1 < width; c++) {
     int total = 0;
     for (int i = 0; i < count; i++)
-      total += std::abs(sorted[i] - (c + i));
+      total += std::abs(sorted[slot(i)] - (c + i));
     best = std::min(best, total);
   }
   return best;
+}
+
+/// The target columns of one T, L or plus: the three-wide window starting at
+/// `from`, with the vertical run's column `triple` taking three of the five
+/// cells and each neighbour taking one. Ascending, to pair with sorted input.
+inline std::array<int, kMaxForced> teeTargets(const int from, const int triple) {
+  std::array<int, kMaxForced> targets{};
+  int n = 0;
+  for (int c = from; c < from + kMinRun; c++) {
+    const int repeats = c == triple ? kMinRun : 1;
+    for (int k = 0; k < repeats; k++)
+      targets[slot(n++)] = c;
+  }
+  return targets;
 }
 
 /// Least displacement to a T, L or plus: a vertical three and a horizontal three
@@ -106,21 +130,15 @@ inline int intoOneRow(const int *sorted, const int count, const int width) {
 /// cells clear together either as a run of five or as a perpendicular 3+3
 /// overlapping in one cell, and pricing only the run would OVER-estimate — which
 /// in a prover is not conservative, it is wrong.
-inline int intoTee(const int *sorted, const int width) {
+inline int intoTee(const std::span<const int> sorted, const int width) {
   int best = std::numeric_limits<int>::max();
-  for (int a = 0; a + kMinRun - 1 < width; a++) {
-    for (int triple = a; triple <= a + 2; triple++) {
-      std::array<int, 5> targets{};
-      int n = 0;
-      for (int c = a; c <= a + 2; c++) {
-        const int repeats = c == triple ? 3 : 1;
-        for (int k = 0; k < repeats; k++)
-          targets[slot(n++)] = c;
-      }
+  for (int from = 0; from + kMinRun - 1 < width; from++) {
+    for (int triple = from; triple < from + kMinRun; triple++) {
+      const std::array<int, kMaxForced> targets = teeTargets(from, triple);
       // Both sides ascending, so index i pairs with index i.
       int total = 0;
-      for (int i = 0; i < 5; i++)
-        total += std::abs(sorted[i] - targets[slot(i)]);
+      for (int i = 0; i < kMaxForced; i++)
+        total += std::abs(sorted[slot(i)] - targets[slot(i)]);
       best = std::min(best, total);
     }
   }
@@ -128,16 +146,16 @@ inline int intoTee(const int *sorted, const int width) {
 }
 
 /// Moves that symbol alone still needs, for a symbol at 4 or 5 blocks.
-inline int costForSymbol(const int *columns, const int count, const int width) {
-  std::array<int, 5> sorted{};
-  for (int i = 0; i < count; i++)
-    sorted[slot(i)] = columns[i];
-  std::sort(sorted.begin(), sorted.begin() + count);
+inline int costForSymbol(const std::span<const int> columns, const int width) {
+  const auto count = static_cast<int>(columns.size());
+  std::array<int, kMaxForced> buffer{};
+  std::ranges::copy(columns, buffer.begin());
+  std::sort(buffer.begin(), buffer.begin() + count);
+  const std::span<const int> sorted{buffer.data(), columns.size()};
 
-  int cost = std::min(intoOneColumn(sorted.data(), count, width),
-                      intoOneRow(sorted.data(), count, width));
-  if (count == 5)
-    cost = std::min(cost, intoTee(sorted.data(), width));
+  int cost = std::min(intoOneColumn(sorted, width), intoOneRow(sorted, width));
+  if (count == kMaxForced)
+    cost = std::min(cost, intoTee(sorted, width));
   return cost;
 }
 
@@ -153,9 +171,10 @@ inline int bound(const Board &board) {
   int sum = 0;
   for (size_t s = 0; s < kSymbolCount; s++) {
     const int count = counts[s];
-    if (count != 4 && count != 5)
+    if (count != kMinForced && count != kMaxForced)
       continue;
-    const int cost = costForSymbol(columns[s].data(), count, board.width);
+    const int cost =
+        costForSymbol(std::span{columns[s]}.first(slot(count)), board.width);
     max = std::max(max, cost);
     sum += cost;
   }
@@ -169,7 +188,7 @@ inline int bound(const Board &board) {
 /// where it can possibly say something.
 inline bool anyForcedCount(const rules::SymbolCounts &counts) {
   return std::ranges::any_of(counts, [](const int32_t n) {
-    return n == 4 || n == 5;
+    return n == kMinForced || n == kMaxForced;
   });
 }
 

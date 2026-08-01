@@ -1,7 +1,5 @@
-#ifdef __clang__
-#include <yvals_core.h>
-#undef __cpp_lib_is_pointer_interconvertible
-#endif
+#include "TestBoards.h"
+
 #include "Replay.h"
 #include "SolverArms.h"
 #include <gtest/gtest.h>
@@ -15,23 +13,7 @@
 namespace {
 
 using namespace mt;
-
-Board board(const std::vector<std::string> &rows) {
-  Board result;
-  result.height = static_cast<int>(rows.size());
-  result.width = static_cast<int>(rows.front().size());
-  for (int y = 0; y < result.height; y++) {
-    for (int x = 0; x < result.width; x++) {
-      const char glyph = rows[static_cast<size_t>(y)][static_cast<size_t>(x)];
-      const size_t at = flat(result.width, x, y);
-      if (glyph == '#')
-        result.cells[at] = kBlocked;
-      else if (glyph != '.')
-        result.cells[at] = static_cast<uint8_t>(kFirstSymbol + (glyph - 'a'));
-    }
-  }
-  return result;
-}
+using mt::test::board;
 
 Outcome solve(const Board &value, const char *engine,
               const uint32_t budgetMs = 30000) {

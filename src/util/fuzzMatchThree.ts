@@ -25,7 +25,7 @@
 // Failures are archived under test-results/mt-fuzz with the board, so any of
 // them is reproducible from the seed alone.
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { solveMatchThree } from "../pages/match-three-solver/engine";
 import {
@@ -131,6 +131,7 @@ function divergences(
   board: MatchThreeBoard,
   native: NativeReport,
   compare: boolean,
+  budgetMs: number,
 ): string[] {
   const problems: string[] = [];
 
@@ -146,7 +147,10 @@ function divergences(
   }
   if (!compare) return problems;
 
-  const ts = solveMatchThree(board, { budgetMs: 10_000 });
+  // The SAME budget the native side got. Give the two engines different ones
+  // and every board only one of them can reach inside its slice is reported as
+  // a divergence, which is the opposite of what this check is for.
+  const ts = solveMatchThree(board, { budgetMs });
   if (ts.status === "solved") {
     const verdict = replay(board, ts.moves);
     if (!verdict.cleared) problems.push("TS witness does not clear the board");
@@ -201,11 +205,13 @@ for (let i = 0; i < opts.count; i++) {
 
   const compare = board.cells.length <= opts.maxCells;
   if (compare) compared++;
-  const problems = divergences(board, native, compare);
+  const problems = divergences(board, native, compare, opts.budgetMs);
   for (const found of problems) failures.push(`seed ${seed} ${kind}: ${found}`);
 
   if (problems.length === 0 && !opts.keepAll) {
-    await Bun.file(path).delete();
+    // node:fs rather than BunFile.delete(), which needs Bun >= 1.1.43 — and
+    // neither package.json nor the workflows pin a Bun version.
+    rmSync(path, { force: true });
   }
   if ((i + 1) % 25 === 0) {
     console.log(

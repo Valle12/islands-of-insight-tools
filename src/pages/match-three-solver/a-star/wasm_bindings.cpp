@@ -151,13 +151,6 @@ public:
     post(best);
   }
 
-  static void onArmStart(const char *arm) {
-    val message = val::object();
-    message.set("type", val("phase"));
-    message.set("arm", val(std::string(arm)));
-    post(message);
-  }
-
 private:
   mt::Bounds &bounds_;
   int reported_ = mt::kNoLength;
@@ -214,7 +207,6 @@ val solve(const val puzzleVal, const val configVal) {
   callbacks.onProgress = [&reporter](const mt::Progress &progress) {
     reporter.onProgress(progress);
   };
-  callbacks.onArmStart = &Reporter::onArmStart;
 
   mt::Config cfg;
   cfg.maxMs = spec.maxMs;

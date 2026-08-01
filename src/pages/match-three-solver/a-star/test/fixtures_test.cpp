@@ -1,13 +1,12 @@
-#ifdef __clang__
-#include <yvals_core.h>
-#undef __cpp_lib_is_pointer_interconvertible
-#endif
+#include "TestBoards.h"
+
 #include "FixtureIo.h"
 #include "Replay.h"
 #include "Rules.h"
 #include "SolverArms.h"
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <functional>
 #include <nlohmann/json.hpp>

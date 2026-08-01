@@ -12,6 +12,7 @@
 #include "SolverClock.h"
 
 #include <cstdlib>
+#include <exception>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -157,9 +158,12 @@ void emitReport(const nlohmann::json &report) {
 
 nlohmann::json movesToJson(const mt::Moves &moves) {
   auto array = nlohmann::json::array();
-  for (const auto &[ax, ay, bx, by] : moves)
-    array.push_back(
-        {{"a", {{"x", ax}, {"y", ay}}}, {"b", {{"x", bx}, {"y", by}}}});
+  // By name, not by position: a structured binding over Move's four uint8_t
+  // fields would keep compiling — and silently swap x with y — if they were
+  // ever reordered.
+  for (const mt::Move &move : moves)
+    array.push_back({{"a", {{"x", move.ax}, {"y", move.ay}}},
+                     {"b", {{"x", move.bx}, {"y", move.by}}}});
   return array;
 }
 
@@ -207,6 +211,62 @@ mt::Config configFrom(const CliOptions &opts, const mt::Callbacks &callbacks) {
           .callbacks = &callbacks};
 }
 
+/// Builds the report from a finished search. Split out so `solveAndReport`
+/// below is the try block and nothing else.
+void fillReport(const mt::Board &board, const mt::Outcome &outcome,
+                const uint64_t searchMs, nlohmann::json &report) {
+  // Never the search's own word for it: the oracle re-derives every match from
+  // scratch.
+  const mt::replay::Verdict verdict =
+      mt::replay::replayMoves(board, outcome.moves);
+  const bool alreadySolved = mt::rules::blockCount(board) == 0;
+  const bool solved = alreadySolved || verdict.clearedAtEnd;
+
+  report["solved"] = solved;
+  report["alreadySolved"] = alreadySolved;
+  // An empty result on an unsolved board is "no solution found", not
+  // "invalid" — only a move list that fails to replay is invalid.
+  report["valid"] = outcome.moves.empty() ? solved : verdict.legal;
+  report["unsolvable"] = outcome.unsolvable;
+  report["turns"] = outcome.moves.size();
+  report["moves"] = movesToJson(outcome.moves);
+  report["stage"] = outcome.arm;
+  report["nodesExpanded"] = outcome.stats.nodesExpanded;
+  report["statesStored"] = outcome.stats.statesStored;
+  report["stoppedOnMemory"] = outcome.stats.stoppedOnMemory;
+  report["searchMs"] = searchMs;
+}
+
+/// Runs the search and emits the report. The try block is what makes the
+/// protocol at the top of this file hold: the LAST stdout line starting with
+/// '{' is the machine-readable report, and every harness in src/util reads it
+/// that way. An exception escaping here — an allocation failure under
+/// `--max-heap-bytes` pressure, say — would terminate the process with no JSON
+/// line at all, which those harnesses cannot tell from a crash.
+int solveAndReport(const CliOptions &opts, const mt::Board &board,
+                   const mt::Callbacks &callbacks, nlohmann::json &report) {
+  const mt::Config cfg = configFrom(opts, callbacks);
+  const mt::arms::ArmSpec spec{.engine = opts.engine.c_str(),
+                               .beamWidth = opts.beamWidth,
+                               .seed = opts.seed,
+                               .nrpaLevel = opts.nrpaLevel,
+                               .nrpaIterations = opts.nrpaIterations};
+
+  const uint64_t startMs = nowMs();
+  try {
+    const mt::Outcome outcome = mt::arms::solve(board, spec, cfg);
+    fillReport(board, outcome, nowMs() - startMs, report);
+  } catch (const std::exception &error) {
+    report["error"] = error.what();
+    report["wallMs"] = nowMs() - startMs;
+    emitReport(report);
+    return 1;
+  }
+  report["wallMs"] = nowMs() - startMs;
+  emitReport(report);
+  return 0;
+}
+
 } // namespace
 
 int main(const int argc, char **argv) {
@@ -245,38 +305,5 @@ int main(const int argc, char **argv) {
       std::cout << "arm: " << arm << "\n";
     };
   }
-  const mt::Config cfg = configFrom(opts, callbacks);
-  const mt::arms::ArmSpec spec{.engine = opts.engine.c_str(),
-                               .beamWidth = opts.beamWidth,
-                               .seed = opts.seed,
-                               .nrpaLevel = opts.nrpaLevel,
-                               .nrpaIterations = opts.nrpaIterations};
-
-  const uint64_t startMs = nowMs();
-  const auto [moves, unsolvable, stats, arm] =
-      mt::arms::solve(board, spec, cfg);
-  const uint64_t searchMs = nowMs() - startMs;
-
-  // Never the search's own word for it: the oracle re-derives every match from
-  // scratch.
-  const mt::replay::Verdict verdict = mt::replay::replayMoves(board, moves);
-  const bool alreadySolved = mt::rules::blockCount(board) == 0;
-  const bool solved = alreadySolved || verdict.clearedAtEnd;
-
-  report["solved"] = solved;
-  report["alreadySolved"] = alreadySolved;
-  // An empty result on an unsolved board is "no solution found", not
-  // "invalid" — only a move list that fails to replay is invalid.
-  report["valid"] = moves.empty() ? solved : verdict.legal;
-  report["unsolvable"] = unsolvable;
-  report["turns"] = moves.size();
-  report["moves"] = movesToJson(moves);
-  report["stage"] = arm;
-  report["nodesExpanded"] = stats.nodesExpanded;
-  report["statesStored"] = stats.statesStored;
-  report["stoppedOnMemory"] = stats.stoppedOnMemory;
-  report["searchMs"] = searchMs;
-  report["wallMs"] = nowMs() - startMs;
-  emitReport(report);
-  return 0;
+  return solveAndReport(opts, board, callbacks, report);
 }

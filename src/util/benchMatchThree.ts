@@ -244,6 +244,9 @@ function diffRow(
 ) {
   if (!a) {
     console.log(`| ${b.fixture} | dropped from after file | | | |`);
+    // A fixture that vanished from the after run is lost coverage, so it counts
+    // as a regression rather than as nothing to report.
+    regressions.push(`${b.fixture}: dropped from the after file`);
     return;
   }
   console.log(
@@ -277,6 +280,9 @@ async function diffMode(beforePath: string, afterPath: string) {
       ? `\nREGRESSIONS:\n  ${regressions.join("\n  ")}`
       : "\nNo regressions.",
   );
+  // A non-zero exit is what lets this gate anything; fuzzMatchThree.ts does the
+  // same for the same reason.
+  if (regressions.length) process.exitCode = 1;
 }
 
 const opts = parseArgs(process.argv.slice(2));

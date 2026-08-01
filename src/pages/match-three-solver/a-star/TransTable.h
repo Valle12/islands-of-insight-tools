@@ -2,7 +2,9 @@
 
 #include "PackedState.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 // The search's failed-state table: which boards were searched out, in vain, at
@@ -34,7 +36,20 @@ public:
     uint64_t ceiling = 1;
     while (ceiling * 2 <= buckets)
       ceiling *= 2;
-    maxBuckets_ = static_cast<uint32_t>(ceiling);
+    // Capped at what an `int` offset can address, rather than widening every
+    // index below to 64 bits. `bucketBase` and everything derived from it are
+    // ints, and `bucketIndex * kWays * entryWords_` is the product that would
+    // overflow — signed overflow is undefined, so the failure would be silent.
+    // The cap sits above two billion words, orders of magnitude past the 256 MB
+    // the page and the CLI actually ask for, so it only ever bites a caller
+    // asking for the absurd. (It also keeps `ceiling` from being truncated on
+    // its way into a uint32_t.)
+    const uint64_t addressable =
+        static_cast<uint64_t>(std::numeric_limits<int>::max()) /
+        (static_cast<uint64_t>(kWays) * static_cast<uint64_t>(entryWords_));
+    while (ceiling > addressable)
+      ceiling /= 2;
+    maxBuckets_ = static_cast<uint32_t>(std::max<uint64_t>(1, ceiling));
     // Start small and double only when a bucket would otherwise evict: a 3x3
     // board's solve must not pin the budget's worth of memory.
     bucketCount_ = maxBuckets_ < 64 ? maxBuckets_ : 64;
@@ -164,7 +179,7 @@ private:
                       static_cast<size_t>(entryWords_),
                   0);
     entryCount_ = 0;
-    const int total = static_cast<int>(old.size());
+    const auto total = static_cast<int>(old.size());
     for (int at = 0; at < total; at += entryWords_) {
       if (old[slot(at + 1)] != 0)
         reinsert(old, at);

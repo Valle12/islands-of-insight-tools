@@ -1,10 +1,10 @@
-#ifdef __clang__
-#include <yvals_core.h>
-#undef __cpp_lib_is_pointer_interconvertible
-#endif
+#include "TestBoards.h"
+
 #include "SeededRng.h"
 #include "TransTable.h"
 #include <gtest/gtest.h>
+
+#include <vector>
 
 // The failed-state table. What matters is that it never claims a depth it was
 // not told about: eviction merely costs re-search, but a false hit would prune

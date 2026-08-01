@@ -13,8 +13,14 @@
 // full, never by hash alone — or recording an aborted subtree, which the
 // engine's own store discipline already excludes.
 
+import { cellLimit } from "./cell";
+import { SYMBOL_COUNT } from "./symbols";
+
 /** Entries per bucket. Four ways ride one cache line for typical key sizes. */
 const WAYS = 4;
+
+/** Cells pack four bits each, so this is the largest value one may hold. */
+const MAX_CELL = 15;
 
 /** FNV-1a folded over 32-bit words rather than bytes; dispersion is all we need. */
 const FNV_BASIS = 0x811c9dc5;
@@ -40,6 +46,17 @@ export class TransTable {
   private entryCount = 0;
 
   constructor(cellCount: number, maxBytes: number) {
+    // The packing's one UNSOUND failure mode, checked once here rather than per
+    // cell on the hot path. A cell tops out at `cellLimit(SYMBOL_COUNT) - 1`;
+    // past 15 it overflows its nibble into the next cell's bits, two different
+    // boards pack to one key, and `keyMatches` reports a false hit — the one
+    // outcome the header above says eviction is safe and this is not. SYMBOLS
+    // is append-only, so a fifteenth symbol is the thing this catches.
+    if (cellLimit(SYMBOL_COUNT) - 1 > MAX_CELL) {
+      throw new RangeError(
+        `${SYMBOL_COUNT} symbols do not fit four bits per cell`,
+      );
+    }
     this.keyWords = Math.max(1, Math.ceil(cellCount / 8));
     this.entryWords = this.keyWords + 2;
     const bucketBytes = WAYS * this.entryWords * 4;
@@ -74,6 +91,12 @@ export class TransTable {
    * re-search.
    */
   store(cells: Uint8Array, remaining: number): void {
+    // Enforced rather than assumed: a 0 here writes a slot that `findEntry` and
+    // `insert` both read back as empty, while `entryCount` has already counted
+    // it — a leak the table could never recover from and nothing would report.
+    if (remaining === 0) {
+      throw new RangeError("remaining 0 marks an empty slot; it cannot be stored");
+    }
     this.packAndHash(cells);
     // Growing on overflow is safe exactly because the hash avalanches:
     // colliding keys differ somewhere, so each doubling gets a fresh bit to
