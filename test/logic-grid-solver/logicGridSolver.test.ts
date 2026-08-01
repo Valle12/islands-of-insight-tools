@@ -53,10 +53,10 @@ const MARKUP = `
     <md-icon-button id="upload-config"></md-icon-button>
     <md-icon-button id="download-config"></md-icon-button>
     <input id="config-file-input" type="file" />
-    <div id="solution-panel" class="hidden">
+    <output id="solution-panel" class="hidden">
       <span id="solution-status"></span>
       <div id="solution-message"></div>
-    </div>
+    </output>
   </div>
   <md-dialog id="reset-dialog">
     <md-text-button id="reset-cancel">Cancel</md-text-button>

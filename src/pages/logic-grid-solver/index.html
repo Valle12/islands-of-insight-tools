@@ -119,7 +119,8 @@
           <!-- Both this and #solution-panel below appear by losing a `hidden`
                class, which a screen reader has no reason to notice, so each
                announces itself: a rejected config is an alert, the solver's
-               reply is polite status. -->
+               reply is a polite status. There is no native element for an
+               alert, so this one keeps the role. -->
           <div id="warning-banner" class="hidden" role="alert"></div>
 
           <div id="grid-shell">
@@ -225,18 +226,16 @@
             />
           </div>
 
-          <div
-            id="solution-panel"
-            class="hidden"
-            role="status"
-            aria-live="polite"
-          >
+          <!-- An <output>, not a div with role="status": it carries that role
+               and a polite live region natively, and the native element is the
+               one assistive tech supports everywhere. -->
+          <output id="solution-panel" class="hidden">
             <div id="solution-header">
               <h2>Solver</h2>
               <span id="solution-status"></span>
             </div>
             <div id="solution-message"></div>
-          </div>
+          </output>
         </div>
 
         <md-dialog id="reset-dialog">
