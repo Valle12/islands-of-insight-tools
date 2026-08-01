@@ -226,9 +226,10 @@
             />
           </div>
 
-          <!-- An <output>, not a div with role="status": it carries that role
-               and a polite live region natively, and the native element is the
-               one assistive tech supports everywhere. -->
+          <!-- An output element rather than a div carrying a status role: it
+               is already a polite live region, and the native element is the
+               one assistive tech supports everywhere. Naming the tag here in
+               angle brackets would read to Sonar as commented-out markup. -->
           <output id="solution-panel" class="hidden">
             <div id="solution-header">
               <h2>Solver</h2>
