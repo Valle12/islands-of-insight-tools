@@ -1,9 +1,11 @@
 import { registerCoiShim } from "../../common/coiRegister";
+import { downloadJson, readJsonFile } from "../../util/configFile";
 import {
-  downloadJson,
-  readJsonFile,
-  setupDragAndDrop,
-} from "../../util/configFile";
+  openResetDialog,
+  warningBanner,
+  wireConfigIo,
+  wireResetDialog,
+} from "../../util/editorShell";
 import type { ShiftingMosaicTest, ShiftingMosaicTool } from "../../util/types";
 import { Board } from "./board";
 import { validateConfig } from "./config";
@@ -34,10 +36,10 @@ export class ShiftingMosaicSolverEditor {
   private readonly placementBanner = document.getElementById(
     "placement-banner",
   ) as HTMLDivElement;
-  private readonly warningBanner = document.getElementById(
-    "warning-banner",
-  ) as HTMLDivElement;
-  private warningTimeoutId: number | null = null;
+  /** Public: the board raises overlap warnings through the editor. */
+  readonly showWarning = warningBanner(
+    document.getElementById("warning-banner") as HTMLDivElement,
+  );
 
   private readonly editorCard = document.getElementById(
     "editor-card",
@@ -106,7 +108,7 @@ export class ShiftingMosaicSolverEditor {
         const tool = button.dataset.tool as ShiftingMosaicTool;
 
         if (tool === "reset") {
-          (document.getElementById("reset-dialog") as HTMLDialogElement).show();
+          openResetDialog();
           return;
         }
 
@@ -118,44 +120,21 @@ export class ShiftingMosaicSolverEditor {
       });
     });
 
-    const resetCancelBtn = document.getElementById("reset-cancel");
-    const resetConfirmBtn = document.getElementById("reset-confirm");
-    const resetDialog = document.getElementById(
-      "reset-dialog",
-    ) as HTMLDialogElement;
-
-    resetCancelBtn?.addEventListener("click", () => {
-      resetDialog.close();
-    });
-
-    resetConfirmBtn?.addEventListener("click", () => {
+    wireResetDialog(() => {
       this.resetToDefaults();
       this.hideSolution();
       this.render();
-      resetDialog.close();
     });
 
     this.calculateBtn.addEventListener("click", () => {
       this.calculateSolution();
     });
 
-    document
-      .getElementById("download-config")
-      ?.addEventListener("click", () => this.downloadCurrentConfig());
-
-    document
-      .getElementById("upload-config")
-      ?.addEventListener("click", () => this.fileInput.click());
-
-    this.fileInput.addEventListener("change", () => {
-      const file = this.fileInput.files?.[0];
-      if (file) void this.loadConfigFromFile(file);
-      // Clear the value so re-selecting the same file fires "change" again.
-      this.fileInput.value = "";
-    });
-
-    setupDragAndDrop(this.dropOverlay, file => {
-      void this.loadConfigFromFile(file);
+    wireConfigIo({
+      fileInput: this.fileInput,
+      dropOverlay: this.dropOverlay,
+      onFile: file => void this.loadConfigFromFile(file),
+      onDownload: () => this.downloadCurrentConfig(),
     });
 
     document
@@ -230,18 +209,6 @@ export class ShiftingMosaicSolverEditor {
 
   notifyGoalZonePlacementChanged() {
     this.render();
-  }
-
-  showWarning(message: string) {
-    this.warningBanner.textContent = message;
-    this.warningBanner.classList.remove("hidden");
-    if (this.warningTimeoutId !== null) {
-      window.clearTimeout(this.warningTimeoutId);
-    }
-    this.warningTimeoutId = window.setTimeout(() => {
-      this.warningBanner.classList.add("hidden");
-      this.warningTimeoutId = null;
-    }, 3500);
   }
 
   render() {

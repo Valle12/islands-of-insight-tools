@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 import { Board } from "../../src/pages/logic-grid-solver/board";
 import {
   DARK,
@@ -55,12 +63,22 @@ describe("Board (logic grid)", () => {
     );
   }
 
+  /**
+   * A move is hit-tested by coordinate, not by `event.target` — a touch pointer
+   * is implicitly captured by the cell the stroke began on. happy-dom has no
+   * layout, so `elementFromPoint` is stubbed to name the cell being dragged
+   * over; the coordinates themselves are what the browser resolves.
+   */
   function drag(x: number, y: number) {
-    cellAt(x, y).dispatchEvent(new MouseEvent("pointermove", { bubbles: true }));
+    const cell = cellAt(x, y);
+    spyOn(document, "elementFromPoint").mockReturnValue(cell);
+    cellAt(0, 0).dispatchEvent(
+      new MouseEvent("pointermove", { bubbles: true }),
+    );
   }
 
-  function release() {
-    document.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+  function release(type = "pointerup") {
+    document.dispatchEvent(new MouseEvent(type, { bubbles: true }));
   }
 
   function type(x: number, y: number, key: string) {
@@ -202,6 +220,54 @@ describe("Board (logic grid)", () => {
     test("a pointermove with the pointer up paints nothing", () => {
       const board = makeBoard(2, 1);
       drag(0, 0);
+      expect(board.getCells()[0]![0]).toBe(UNKNOWN);
+    });
+
+    /**
+     * A touch that becomes a system gesture ends as pointercancel rather than
+     * pointerup. A board that kept the stroke would carry on painting.
+     */
+    test("pointercancel ends the stroke", () => {
+      const board = makeBoard(4, 1);
+      press(0, 0, LEFT);
+      release("pointercancel");
+      drag(2, 0);
+      expect(board.getCells()[2]![0]).toBe(UNKNOWN);
+    });
+  });
+
+  describe("Keyboard painting", () => {
+    /** Colouring is the page's main task, so it cannot be pointer-only. */
+    test.each(["Enter", " "])("%s applies the selected tool", key => {
+      const board = makeBoard(2, 2);
+      type(0, 0, key);
+      expect(board.getCells()[0]![0]).toBe(DARK);
+    });
+
+    test("the light tool paints light from the keyboard too", () => {
+      const board = makeBoard(2, 2, "light");
+      type(1, 1, "Enter");
+      expect(board.getCells()[1]![1]).toBe(LIGHT);
+    });
+
+    test("pressing it again on the same colour clears the cell", () => {
+      const board = makeBoard(2, 2);
+      type(0, 0, "Enter");
+      type(0, 0, "Enter");
+      expect(board.getCells()[0]![0]).toBe(UNKNOWN);
+    });
+
+    /** A keystroke has no drag to carry, so it must leave no stroke behind. */
+    test("it leaves no stroke for a later pointermove to continue", () => {
+      const board = makeBoard(4, 1);
+      type(0, 0, "Enter");
+      drag(2, 0);
+      expect(board.getCells()[2]![0]).toBe(UNKNOWN);
+    });
+
+    test("the reset tool paints nothing", () => {
+      const board = makeBoard(2, 2, "reset");
+      type(0, 0, "Enter");
       expect(board.getCells()[0]![0]).toBe(UNKNOWN);
     });
   });

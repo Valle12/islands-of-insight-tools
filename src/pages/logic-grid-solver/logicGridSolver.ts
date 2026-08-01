@@ -1,8 +1,11 @@
+import { downloadJson, readJsonFile } from "./../../util/configFile";
 import {
-  downloadJson,
-  readJsonFile,
-  setupDragAndDrop,
-} from "./../../util/configFile";
+  openResetDialog,
+  parsePositiveInt,
+  warningBanner,
+  wireConfigIo,
+  wireResetDialog,
+} from "./../../util/editorShell";
 import type {
   LogicGridSymbolValue,
   LogicGridTest,
@@ -59,16 +62,12 @@ export class LogicGridSolverEditor {
     "solve-puzzle",
   ) as HTMLButtonElement;
 
-  private readonly warningBanner = document.getElementById(
-    "warning-banner",
-  ) as HTMLDivElement;
-  private warningTimeoutId: number | null = null;
+  private readonly showWarning = warningBanner(
+    document.getElementById("warning-banner") as HTMLDivElement,
+  );
   private readonly fileInput = document.getElementById(
     "config-file-input",
   ) as HTMLInputElement;
-  private readonly dropOverlay = document.getElementById(
-    "drop-overlay",
-  ) as HTMLDivElement;
 
   private gridWidth = LogicGridSolverEditor.DEFAULT_GRID_WIDTH;
   private gridHeight = LogicGridSolverEditor.DEFAULT_GRID_HEIGHT;
@@ -173,42 +172,19 @@ export class LogicGridSolverEditor {
       if (Number.isInteger(index)) this.toggleRule(index);
     });
 
-    const resetCancelBtn = document.getElementById("reset-cancel");
-    const resetConfirmBtn = document.getElementById("reset-confirm");
-    const resetDialog = document.getElementById(
-      "reset-dialog",
-    ) as HTMLDialogElement;
-
-    resetCancelBtn?.addEventListener("click", () => {
-      resetDialog.close();
-    });
-
-    resetConfirmBtn?.addEventListener("click", () => {
+    wireResetDialog(() => {
       this.resetToDefaults();
       this.hideSolution();
       this.render();
-      resetDialog.close();
     });
 
     this.solveButton.addEventListener("click", () => this.solve());
 
-    document
-      .getElementById("download-config")
-      ?.addEventListener("click", () => this.downloadCurrentConfig());
-
-    document
-      .getElementById("upload-config")
-      ?.addEventListener("click", () => this.fileInput.click());
-
-    this.fileInput.addEventListener("change", () => {
-      const file = this.fileInput.files?.[0];
-      if (file) void this.loadConfigFromFile(file);
-      // Clear the value so re-selecting the same file fires "change" again.
-      this.fileInput.value = "";
-    });
-
-    setupDragAndDrop(this.dropOverlay, file => {
-      void this.loadConfigFromFile(file);
+    wireConfigIo({
+      fileInput: this.fileInput,
+      dropOverlay: document.getElementById("drop-overlay") as HTMLDivElement,
+      onFile: file => void this.loadConfigFromFile(file),
+      onDownload: () => this.downloadCurrentConfig(),
     });
 
     this.widthField.addEventListener("input", () => this.handleSizeUpdate());
@@ -223,7 +199,7 @@ export class LogicGridSolverEditor {
   /** Paint tools select; `reset` is a command, not a tool. */
   private handleToolClick(tool: LogicGridTool) {
     if (tool === "reset") {
-      (document.getElementById("reset-dialog") as HTMLDialogElement).show();
+      openResetDialog();
       return;
     }
 
@@ -269,11 +245,8 @@ export class LogicGridSolverEditor {
   }
 
   private handleSizeUpdate() {
-    const parsedWidth = this.parsePositiveInt(
-      this.widthField.value,
-      MAX_GRID_SIDE,
-    );
-    const parsedHeight = this.parsePositiveInt(
+    const parsedWidth = parsePositiveInt(this.widthField.value, MAX_GRID_SIDE);
+    const parsedHeight = parsePositiveInt(
       this.heightField.value,
       MAX_GRID_SIDE,
     );
@@ -288,14 +261,6 @@ export class LogicGridSolverEditor {
     this.replaceBoard();
     this.hideSolution();
     this.render();
-  }
-
-  private parsePositiveInt(value: string, max: number): number | null {
-    const parsed = Number(value);
-    if (!Number.isInteger(parsed) || parsed <= 0 || parsed > max) {
-      return null;
-    }
-    return parsed;
   }
 
   private resetToDefaults() {
@@ -476,18 +441,6 @@ export class LogicGridSolverEditor {
       `The solver is not written yet. Your puzzle (${result.summary}) is ` +
       "complete though — download it, and it will load straight back in once " +
       "the search lands.";
-  }
-
-  private showWarning(message: string) {
-    this.warningBanner.textContent = message;
-    this.warningBanner.classList.remove("hidden");
-    if (this.warningTimeoutId !== null) {
-      window.clearTimeout(this.warningTimeoutId);
-    }
-    this.warningTimeoutId = window.setTimeout(() => {
-      this.warningBanner.classList.add("hidden");
-      this.warningTimeoutId = null;
-    }, 3500);
   }
 
   private downloadCurrentConfig() {

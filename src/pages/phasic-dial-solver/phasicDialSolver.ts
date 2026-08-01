@@ -4,11 +4,8 @@ import greenDial from "./../../../images/green-dial.png";
 import purpleDial from "./../../../images/purple-dial.png";
 import redDial from "./../../../images/red-dial.png";
 import yellowDial from "./../../../images/yellow-dial.png";
-import {
-  downloadJson,
-  readJsonFile,
-  setupDragAndDrop,
-} from "../../util/configFile";
+import { downloadJson, readJsonFile } from "../../util/configFile";
+import { warningBanner, wireConfigIo } from "../../util/editorShell";
 import type { PhasicDialTest } from "../../util/types";
 import { Button } from "./button";
 import { ButtonsView, type DialDescriptor } from "./buttonsView";
@@ -49,7 +46,9 @@ export class PhasicDialSolver {
   // looks free.
   private lastResult: number[] | null = null;
   private lastResultKey: string | null = null;
-  private warningTimeoutId: number | null = null;
+  private readonly showWarning = warningBanner(
+    document.getElementById("warning-banner")!,
+  );
   // Bumped whenever a search starts or the board changes, so an answer that
   // arrives after either is discarded.
   private solveGeneration = 0;
@@ -95,31 +94,14 @@ export class PhasicDialSolver {
       (document.getElementById("help-dialog") as HTMLDialogElement).close();
     });
 
-    document
-      .getElementById("download-config")
-      ?.addEventListener("click", () => this.downloadCurrentConfig());
-
-    const fileInput = document.getElementById(
-      "config-file-input",
-    ) as HTMLInputElement | null;
-
-    document.getElementById("upload-config")?.addEventListener("click", () => {
-      fileInput?.click();
+    wireConfigIo({
+      fileInput: document.getElementById(
+        "config-file-input",
+      ) as HTMLInputElement,
+      dropOverlay: document.getElementById("drop-overlay")!,
+      onFile: file => void this.loadConfigFromFile(file),
+      onDownload: () => this.downloadCurrentConfig(),
     });
-
-    fileInput?.addEventListener("change", () => {
-      const file = fileInput.files?.[0];
-      if (file) void this.loadConfigFromFile(file);
-      // Clear the value so re-selecting the same file fires "change" again.
-      fileInput.value = "";
-    });
-
-    const dropOverlay = document.getElementById("drop-overlay");
-    if (dropOverlay) {
-      setupDragAndDrop(dropOverlay, file => {
-        void this.loadConfigFromFile(file);
-      });
-    }
 
     // How many cards fit on a row is the only thing balancing depends on that
     // the page cannot know until it is measured.
@@ -311,19 +293,6 @@ export class PhasicDialSolver {
     const calculateBtn = document.getElementById("calculate")!;
     calculateBtn.toggleAttribute("disabled", solving);
     if (solving) document.getElementById("result")!.hidden = true;
-  }
-
-  private showWarning(message: string) {
-    const banner = document.getElementById("warning-banner")!;
-    banner.textContent = message;
-    banner.classList.remove("hidden");
-    if (this.warningTimeoutId !== null) {
-      window.clearTimeout(this.warningTimeoutId);
-    }
-    this.warningTimeoutId = window.setTimeout(() => {
-      banner.classList.add("hidden");
-      this.warningTimeoutId = null;
-    }, 3500);
   }
 
   private async calculate() {

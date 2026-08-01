@@ -1,8 +1,9 @@
-import type {
-  LogicGridCell,
-  LogicGridSymbol,
-  LogicGridTest,
-} from "../../util/types";
+import {
+  intInRange,
+  readGridSize,
+  type ConfigResult,
+} from "../../util/configValidation";
+import type { LogicGridSymbol, LogicGridTest } from "../../util/types";
 import { CELL_LIMIT, UNPLAYABLE } from "./cell";
 import { RULE_COUNT } from "./rules";
 import { SYMBOL_KIND_COUNT, symbolKindAt, symbolValueError } from "./symbols";
@@ -14,17 +15,7 @@ import { SYMBOL_KIND_COUNT, symbolKindAt, symbolValueError } from "./symbols";
  */
 export const MAX_GRID_SIDE = 32;
 
-export type ConfigParseResult =
-  | { ok: true; config: LogicGridTest }
-  | { ok: false; error: string };
-
-function intInRange(value: unknown, min: number, max: number): value is number {
-  return (
-    Number.isInteger(value) &&
-    (value as number) >= min &&
-    (value as number) <= max
-  );
-}
+export type ConfigParseResult = ConfigResult<LogicGridTest>;
 
 /** Returns the first problem with the colour grid, or null when it is valid. */
 function cellsError(
@@ -74,7 +65,7 @@ function symbolError(
   symbol: unknown,
   gridWidth: number,
   gridHeight: number,
-  cells: LogicGridCell[][],
+  cells: number[][],
 ): string | null {
   if (typeof symbol !== "object" || symbol === null) {
     return "Every symbol must be a JSON object.";
@@ -109,7 +100,7 @@ function symbolsError(
   symbols: unknown,
   gridWidth: number,
   gridHeight: number,
-  cells: LogicGridCell[][],
+  cells: number[][],
 ): string | null {
   if (!Array.isArray(symbols)) {
     return "symbols must be an array.";
@@ -138,29 +129,14 @@ function symbolsError(
  * and the rule list comes back sorted whatever order the file listed it in.
  */
 export function validateConfig(data: unknown): ConfigParseResult {
-  if (typeof data !== "object" || data === null) {
-    return { ok: false, error: "Config must be a JSON object." };
-  }
+  const size = readGridSize(data, MAX_GRID_SIDE);
+  if (!size.ok) return size;
+  const { gridWidth, gridHeight } = size.config;
   const raw = data as Record<string, unknown>;
-
-  if (!intInRange(raw.gridWidth, 1, MAX_GRID_SIDE)) {
-    return {
-      ok: false,
-      error: `gridWidth must be an integer between 1 and ${MAX_GRID_SIDE}.`,
-    };
-  }
-  if (!intInRange(raw.gridHeight, 1, MAX_GRID_SIDE)) {
-    return {
-      ok: false,
-      error: `gridHeight must be an integer between 1 and ${MAX_GRID_SIDE}.`,
-    };
-  }
-  const gridWidth = raw.gridWidth as number;
-  const gridHeight = raw.gridHeight as number;
 
   const cellsProblem = cellsError(raw.cells, gridWidth, gridHeight);
   if (cellsProblem !== null) return { ok: false, error: cellsProblem };
-  const cells = raw.cells as LogicGridCell[][];
+  const cells = raw.cells as number[][];
 
   const rulesProblem = rulesError(raw.rules);
   if (rulesProblem !== null) return { ok: false, error: rulesProblem };

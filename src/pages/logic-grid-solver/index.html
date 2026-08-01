@@ -116,7 +116,11 @@
             ></md-outlined-text-field>
           </div>
 
-          <div id="warning-banner" class="hidden"></div>
+          <!-- Both this and #solution-panel below appear by losing a `hidden`
+               class, which a screen reader has no reason to notice, so each
+               announces itself: a rejected config is an alert, the solver's
+               reply is polite status. -->
+          <div id="warning-banner" class="hidden" role="alert"></div>
 
           <div id="grid-shell">
             <div id="grid" aria-label="Logic grid editor"></div>
@@ -221,7 +225,12 @@
             />
           </div>
 
-          <div id="solution-panel" class="hidden">
+          <div
+            id="solution-panel"
+            class="hidden"
+            role="status"
+            aria-live="polite"
+          >
             <div id="solution-header">
               <h2>Solver</h2>
               <span id="solution-status"></span>

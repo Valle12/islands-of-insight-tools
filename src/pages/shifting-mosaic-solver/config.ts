@@ -1,3 +1,4 @@
+import type { ConfigResult } from "../../util/configValidation";
 import type { Position, ShiftingMosaicTest } from "../../util/types";
 
 /**
@@ -18,9 +19,7 @@ export const MAX_GRID_SIDE = 64;
  */
 export const MAX_BLOCKS = 255;
 
-export type ConfigParseResult =
-  | { ok: true; config: ShiftingMosaicTest }
-  | { ok: false; error: string };
+export type ConfigParseResult = ConfigResult<ShiftingMosaicTest>;
 
 function isIntPosition(value: unknown): value is Position {
   if (typeof value !== "object" || value === null) return false;

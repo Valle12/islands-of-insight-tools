@@ -89,6 +89,7 @@ h2 {
 
   md-outlined-text-field {
     --md-outlined-text-field-container-shape: 10px;
+
     width: 160px;
   }
 }

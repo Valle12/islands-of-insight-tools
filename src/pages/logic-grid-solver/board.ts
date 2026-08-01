@@ -1,5 +1,4 @@
 import type {
-  LogicGridCell,
   LogicGridClue,
   LogicGridSymbol,
   LogicGridSymbolValue,
@@ -17,7 +16,7 @@ import { symbolKindAt } from "./symbols";
  * pointerdown — see `toggled`.
  */
 type Stroke =
-  | { kind: "color"; value: LogicGridCell }
+  | { kind: "color"; value: number }
   | { kind: "clue"; clue: LogicGridClue | null }
   | { kind: "erase" };
 
@@ -39,7 +38,7 @@ export class Board {
   private readonly solver: LogicGridSolverEditor;
 
   /** The colour layer, column-major. */
-  private cells: LogicGridCell[][] = [];
+  private cells: number[][] = [];
   /** The clue layer, indexed like `cells`. Independent of the colour. */
   private clues: (LogicGridClue | null)[][] = [];
   /**
@@ -191,20 +190,29 @@ export class Board {
     this.grid.addEventListener(
       "pointermove",
       event => {
-        if (!this.stroke) return;
-        const position = this.extractCellPosition(event.target);
-        if (position) this.applyStroke(position);
+        const stroke = this.stroke;
+        if (!stroke) return;
+        // Hit-tested by coordinate, NOT taken from `event.target`. A touch or
+        // pen pointer is implicitly captured by the cell the stroke began on,
+        // so every later move reports that same cell and a drag would paint
+        // exactly one square. `touch-action: none` does not prevent that —
+        // implicit capture is what the spec does on pointerdown for direct
+        // manipulation devices, whatever the touch action is.
+        const under = document.elementFromPoint(event.clientX, event.clientY);
+        const position = this.extractCellPosition(under);
+        if (position) this.applyStroke(stroke, position);
       },
       { signal },
     );
 
-    document.addEventListener(
-      "pointerup",
-      () => {
-        this.stroke = null;
-      },
-      { signal },
-    );
+    // A stroke does not always end in a pointerup: a touch that turns into a
+    // system gesture arrives as pointercancel instead, and a board that kept
+    // the stroke would carry on painting on the next move.
+    const endStroke = () => {
+      this.stroke = null;
+    };
+    document.addEventListener("pointerup", endStroke, { signal });
+    document.addEventListener("pointercancel", endStroke, { signal });
 
     // Right-dragging the light colour across the board would otherwise open the
     // context menu on the first cell and end the stroke there.
@@ -247,7 +255,7 @@ export class Board {
 
     this.stroke = this.toggled(stroke, position);
     this.digitCell = null;
-    this.applyStroke(position);
+    this.applyStroke(this.stroke, position);
   }
 
   /**
@@ -309,10 +317,12 @@ export class Board {
     return stroke;
   }
 
-  private applyStroke(position: Position) {
-    const stroke = this.stroke;
-    if (!stroke) return;
-
+  /**
+   * Writes one stroke onto one cell. Takes the stroke rather than reading the
+   * one in progress, so the keyboard path can apply a single-cell stroke
+   * without touching the drag state.
+   */
+  private applyStroke(stroke: Stroke, position: Position) {
     if (stroke.kind === "erase") {
       this.writeCell(position, UNKNOWN, null);
       return;
@@ -331,7 +341,7 @@ export class Board {
     this.writeCell(position, this.colorAt(position), stroke.clue);
   }
 
-  private colorAt(position: Position): LogicGridCell {
+  private colorAt(position: Position): number {
     return this.cells[position.x]?.[position.y] ?? UNKNOWN;
   }
 
@@ -345,7 +355,7 @@ export class Board {
    */
   private writeCell(
     position: Position,
-    color: LogicGridCell,
+    color: number,
     clue: LogicGridClue | null,
   ) {
     const column = this.cells[position.x];
@@ -368,6 +378,20 @@ export class Board {
   private handleKey(event: KeyboardEvent) {
     const position = this.extractCellPosition(event.target);
     if (!position) return;
+
+    // Colouring is this page's main task, so it cannot be pointer-only. The
+    // activation keys apply the selected tool to the focused cell under the
+    // same re-click-erases rule a click gets — as a one-cell stroke, since a
+    // keystroke has no drag to carry. Without the preventDefault, Space also
+    // scrolls the page and the button's synthesised click follows.
+    if (event.key === "Enter" || event.key === " ") {
+      const stroke = this.strokeFor(false);
+      if (!stroke) return;
+      event.preventDefault();
+      this.digitCell = null;
+      this.applyStroke(this.toggled(stroke, position), position);
+      return;
+    }
 
     if (event.key === "Backspace" || event.key === "Delete") {
       event.preventDefault();

@@ -76,15 +76,6 @@ export type MatchThreeTest = {
   cells: MatchThreeCell[][];
 };
 
-/**
- * A logic grid cell, encoded as a single index — see
- * `src/pages/logic-grid-solver/cell.ts` for the constants. 0 is uncoloured, 1
- * dark, 2 light, 3 an unplayable gap in the board. Clues are a SEPARATE layer:
- * a cell carries a colour and, independently, at most one clue, so a clue on an
- * uncoloured cell is one whose colour the player still has to deduce.
- */
-export type LogicGridCell = number;
-
 /** An area number is a number; a letter is a single `A`-`Z` character. */
 export type LogicGridSymbolValue = number | string;
 
@@ -106,8 +97,16 @@ export type LogicGridTest = {
   gridHeight: number;
   /** Indices into `RULES`, which is append-only. Ascending and unique. */
   rules: number[];
-  /** Column-major, holding the colour layer only. */
-  cells: LogicGridCell[][];
+  /**
+   * The colour layer alone, column-major, one index per cell — see
+   * `src/pages/logic-grid-solver/cell.ts` for the constants. 0 is uncoloured,
+   * 1 dark, 2 light, 3 an unplayable gap in the board.
+   *
+   * Clues are the SEPARATE layer below: a cell carries a colour and,
+   * independently, at most one clue, so a clue on an uncoloured cell is one
+   * whose colour the player still has to deduce.
+   */
+  cells: number[][];
   symbols: LogicGridSymbol[];
 };
 

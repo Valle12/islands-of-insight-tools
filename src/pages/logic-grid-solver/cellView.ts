@@ -1,4 +1,4 @@
-import type { LogicGridCell, LogicGridClue } from "../../util/types";
+import type { LogicGridClue } from "../../util/types";
 import { colorLabel, colorId } from "./cell";
 import { symbolKindAt } from "./symbols";
 
@@ -9,7 +9,7 @@ import { symbolKindAt } from "./symbols";
 export function describeCell(
   x: number,
   y: number,
-  cell: LogicGridCell,
+  cell: number,
   clue: LogicGridClue | null,
 ): string {
   const position = `Column ${x + 1}, Row ${y + 1}, ${colorLabel(cell)}`;
@@ -28,7 +28,7 @@ export function describeCell(
  */
 export function dressCell(
   element: HTMLElement,
-  cell: LogicGridCell,
+  cell: number,
   clue: LogicGridClue | null,
   x: number,
   y: number,
