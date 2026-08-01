@@ -96,7 +96,6 @@ private:
     lastProgressMs_ = now;
     cfg_.callbacks->onProgress({.phase = phase_,
                                 .nodes = stats_.nodesExpanded,
-                                .ruledOut = bounds_.ruledOut(),
                                 .bestLength = bounds_.bestLength()});
   }
 

@@ -112,7 +112,7 @@ describe("TransTable", () => {
 });
 
 describe("solveMatchThree under a tiny evicting table", () => {
-  test("a captured board keeps its exact proven answer", async () => {
+  test("a captured board keeps its exact answer", async () => {
     const config = (await Bun.file(
       `${FIXTURE_DIR}/matchThreeTest28.json`,
     ).json()) as MatchThreeTest;

@@ -13,11 +13,14 @@
 //   1. Any witness either engine produces replays LEGALLY under the TypeScript
 //      rules — the page renders solutions by replaying them through
 //      rules.applyMove, so a witness that fails here would be unplayable.
-//   2. When both engines prove a length, the lengths are EQUAL. A difference
-//      is a rules divergence, not a search difference.
-//   3. Neither engine calls a board unsolvable that the other solved.
-//   4. `proven` is never claimed without `ruledOut` reaching one below the
-//      reported length.
+//   2. Neither engine calls a board unsolvable that the other solved.
+//
+// It used to check two more, both about `proven` lengths. Those went with the
+// proving: the engines no longer claim a length is minimal, so the checks could
+// only ever have passed vacuously — and a fuzz campaign that prints "No
+// divergences" while checking less than it used to is worse than one that
+// checks less and says so. With the length pins gone from the corpus tests as
+// well, THIS harness plus the replay check is the main cross-engine guard.
 //
 // Failures are archived under test-results/mt-fuzz with the board, so any of
 // them is reproducible from the seed alone.
@@ -48,9 +51,7 @@ const defaultExe = resolve(
 
 interface NativeReport {
   turns: number;
-  proven: boolean;
   unsolvable: boolean;
-  ruledOut: number;
   valid: boolean;
   moves: { a: { x: number; y: number }; b: { x: number; y: number } }[];
   wallMs: number;
@@ -143,23 +144,12 @@ function divergences(
       problems.push("native witness leaves blocks on the board");
     }
   }
-  if (native.proven && native.moves.length > 0 &&
-      native.ruledOut !== native.moves.length - 1) {
-    problems.push(
-      `native claims proven at ${native.moves.length} with ruledOut ${native.ruledOut}`,
-    );
-  }
   if (!compare) return problems;
 
   const ts = solveMatchThree(board, { budgetMs: 10_000 });
   if (ts.status === "solved") {
     const verdict = replay(board, ts.moves);
     if (!verdict.cleared) problems.push("TS witness does not clear the board");
-    if (ts.proven && native.proven && ts.moves.length !== native.moves.length) {
-      problems.push(
-        `proven lengths differ: TS ${ts.moves.length} vs native ${native.moves.length}`,
-      );
-    }
     if (native.unsolvable) {
       problems.push("native says unsolvable, TS found a solution");
     }
@@ -177,7 +167,6 @@ const kinds = opts.kind === "both" ? ["random", "cluster"] : [opts.kind];
 let checked = 0;
 let compared = 0;
 let solvedCount = 0;
-let provenCount = 0;
 const failures: string[] = [];
 
 console.log(
@@ -209,7 +198,6 @@ for (let i = 0; i < opts.count; i++) {
   }
   checked++;
   if (native.moves.length > 0) solvedCount++;
-  if (native.proven) provenCount++;
 
   const compare = board.cells.length <= opts.maxCells;
   if (compare) compared++;
@@ -222,14 +210,14 @@ for (let i = 0; i < opts.count; i++) {
   if ((i + 1) % 25 === 0) {
     console.log(
       `  ${i + 1}/${opts.count} — ${solvedCount} solved, ` +
-        `${provenCount} proven, ${failures.length} problems`,
+        `${failures.length} problems`,
     );
   }
 }
 
 console.log(
   `\nchecked ${checked} boards (${compared} cross-engine), ` +
-    `${solvedCount} solved, ${provenCount} proven`,
+    `${solvedCount} solved`,
 );
 if (failures.length === 0) {
   console.log("No divergences.");

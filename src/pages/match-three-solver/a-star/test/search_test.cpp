@@ -9,9 +9,9 @@
 #include <string>
 #include <vector>
 
-// What each arm may and may not claim. The line that matters: only the two
-// proving arms ever set `proven` or `unsolvable`, and neither may set them
-// without having searched something out.
+// What each arm may and may not claim. The line that matters: only the
+// exhaustive search may ever set `unsolvable`, and only by searching
+// maxDepth out with nothing found. No arm claims anything about LENGTH.
 namespace {
 
 using namespace mt;
@@ -58,25 +58,18 @@ TEST(Search, EveryArmSolvesTheOneMoveBoard) {
   }
 }
 
-TEST(Search, TheProvingArmsProveTheLength) {
-  for (const char *engine : {"iddfs", "bnb", "cascade"}) {
+TEST(Search, EveryArmAnswersATwoMoveBoard) {
+  for (const char *engine : {"exhaustive", "cascade", "greedy", "beam"}) {
     const Outcome outcome = solve(board(kTwoMoves), engine);
-    EXPECT_TRUE(outcome.proven) << "engine " << engine;
     EXPECT_EQ(outcome.moves.size(), 2U) << "engine " << engine;
-    EXPECT_EQ(outcome.ruledOut, 1) << "engine " << engine;
-  }
-}
-
-TEST(Search, TheFastArmsNeverClaimAProof) {
-  for (const char *engine : {"greedy", "beam"}) {
-    const Outcome outcome = solve(board(kTwoMoves), engine);
-    EXPECT_FALSE(outcome.proven) << "engine " << engine;
     EXPECT_FALSE(outcome.unsolvable) << "engine " << engine;
   }
 }
 
+/// Only the exhaustive search may ever say a board cannot be cleared, and the
+/// cascade only because it ends on that arm.
 TEST(Search, ABoardWithNoLegalSwapIsProvenUnsolvable) {
-  for (const char *engine : {"iddfs", "bnb", "cascade"}) {
+  for (const char *engine : {"exhaustive", "cascade"}) {
     const Outcome outcome = solve(board(kNoSwaps), engine);
     EXPECT_TRUE(outcome.unsolvable) << "engine " << engine;
     EXPECT_TRUE(outcome.moves.empty()) << "engine " << engine;
@@ -92,7 +85,6 @@ TEST(Search, ABoardWhoseEveryMoveStrandsWhatIsLeftIsUnsolvable) {
 TEST(Search, AnEmptyBoardNeedsNoMoves) {
   const Outcome outcome = solve(board({"..", "#."}), "cascade");
   EXPECT_TRUE(outcome.moves.empty());
-  EXPECT_TRUE(outcome.proven);
   EXPECT_FALSE(outcome.unsolvable);
 }
 
@@ -111,22 +103,18 @@ TEST(Search, ACascadeUnderNoBudgetReportsNothingItCannotBack) {
   EXPECT_FALSE(outcome.unsolvable);
 }
 
-TEST(Search, AnIncumbentCapsTheProver) {
-  // A solution handed in as a bound must come back proven without the prover
-  // ever searching its own depth — the same 2-move answer, proven at 1.
+TEST(Search, AnArmsFindSettlesTheSharedBounds) {
+  // What one arm finds is what stops every other one: `settled` is the whole
+  // race-ending condition now that no length is proven minimal.
   Bounds bounds;
   const Board value = board(kTwoMoves);
-  const Outcome greedy =
-      arms::solve(value, arms::ArmSpec{.engine = "greedy"}, Config{.maxMs = 5000},
-                  bounds);
-  ASSERT_EQ(greedy.moves.size(), 2U);
-  ASSERT_EQ(bounds.bestLength(), 2);
+  EXPECT_FALSE(bounds.settled());
 
-  const Outcome proof = arms::solve(
-      value, arms::ArmSpec{.engine = "iddfs"}, Config{.maxMs = 30000}, bounds);
-  EXPECT_TRUE(proof.proven);
-  EXPECT_EQ(proof.moves.size(), 2U);
-  EXPECT_TRUE(bounds.proven());
+  const Outcome greedy = arms::solve(
+      value, arms::ArmSpec{.engine = "greedy"}, Config{.maxMs = 5000}, bounds);
+  ASSERT_EQ(greedy.moves.size(), 2U);
+  EXPECT_EQ(bounds.bestLength(), 2);
+  EXPECT_TRUE(bounds.settled());
 }
 
 } // namespace

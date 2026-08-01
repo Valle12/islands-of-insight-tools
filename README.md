@@ -20,9 +20,9 @@ JSON file and loaded again later.
 ### Match Three Solver
 
 For the grids of coloured blocks that clear when three or more line up. Paint the
-board with the blocks and blockades you see, and the solver returns the **shortest
-possible sequence of swaps** that clears the whole board, one step at a time —
-each step showing exactly which two blocks to exchange.
+board with the blocks and blockades you see, and the solver returns a **sequence
+of swaps that clears the whole board**, one step at a time — each step showing
+exactly which two blocks to exchange. Most boards answer in well under a second.
 
 ### Phasic Dial Solver
 

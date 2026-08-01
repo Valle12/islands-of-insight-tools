@@ -369,7 +369,6 @@ Outcome runNrpa(const Board &board, const Config &cfg, Bounds &bounds) {
   outcome.arm = "nrpa";
   Nrpa nrpa(board, cfg, bounds, outcome.stats);
   outcome.moves = nrpa.run();
-  outcome.ruledOut = bounds.ruledOut();
   return outcome;
 }
 

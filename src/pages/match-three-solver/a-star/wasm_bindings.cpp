@@ -137,7 +137,6 @@ public:
     val message = val::object();
     message.set("type", val("progress"));
     message.set("progress", static_cast<double>(progress.nodes));
-    message.set("ruledOut", progress.ruledOut);
     message.set("bestLength", progress.bestLength);
     post(message);
     // Streaming the whole move list on every improvement is what lets the page
@@ -238,9 +237,7 @@ val solve(const val puzzleVal, const val configVal) {
 
   val result = val::object();
   result.set("moves", movesToVal(outcome.moves));
-  result.set("proven", outcome.proven);
   result.set("unsolvable", outcome.unsolvable);
-  result.set("ruledOut", outcome.ruledOut);
   result.set("stats", statsToVal(outcome, wallMs));
   return result;
 }

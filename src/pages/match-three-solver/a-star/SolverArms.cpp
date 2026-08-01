@@ -21,47 +21,39 @@ namespace {
 /// by what is actually left, so an early leg that gives up cheaply hands its
 /// unused time to the ones behind it.
 struct Leg {
-  Outcome (*run)(const Board &, const Config &, Bounds &);
-  const char *name;
-  int share;
-  /// Skipped once any solution is in hand. True for the arms that can only
-  /// FIND one: measured, neither the beam nor NRPA has ever shortened a witness
-  /// greedy already had, and every millisecond they spend trying is one bnb and
-  /// iddfs do not get — which cost matchThreeTest47 its answer outright.
+  Outcome (*run)(const Board &, const Config &, Bounds &) = nullptr;
+  const char *name = "";
+  int share = 0;
+  /// Skipped once any solution is in hand. Every leg is effectively that now,
+  /// since the cascade returns on the first witness, but the flag stays on the
+  /// two arms that could never have done anything else.
   bool findsOnly = false;
 };
 
-/// Order and shares as measured on the captured corpus: greedy alone finds a
-/// minimal-length solution on all 49 solvable boards inside 100 ms, so it leads
-/// and everything behind it usually only has to confirm. nrpa sits third
-/// because it is the arm that produces a witness where the cheap two cannot —
-/// matchThreeTest51 is its board — and bnb precedes iddfs because confirming an
-/// incumbent is one pass at its depth where deepening climbs to it. iddfs comes
-/// last: it is the arm that raises the proven lower bound on boards nothing
-/// cracks, and it should inherit whatever the others did not spend.
+/// Order and shares as measured on the captured corpus. greedy leads because
+/// it alone answers 38 of the 52 boards, worst case 4 ms. nrpa sits third
+/// because it produces a witness where the cheap two cannot — matchThreeTest50
+/// and 51 are its boards. The exhaustive search comes last and inherits
+/// whatever the others did not spend: it is both the finder of last resort and
+/// the only arm that can call a board unclearable.
 constexpr auto kCascade = std::to_array<Leg>({
     {.run = runGreedy, .name = "greedy", .share = 5},
     {.run = runBeam, .name = "beam", .share = 15, .findsOnly = true},
     {.run = runNrpa, .name = "nrpa", .share = 15, .findsOnly = true},
-    {.run = runBnb, .name = "bnb", .share = 40},
-    {.run = proveIddfs, .name = "iddfs", .share = 100},
+    {.run = runExhaustive, .name = "exhaustive", .share = 100},
 });
 
-/// Whichever outcome is worth keeping: a proof beats a guess, a shorter answer
-/// beats a longer one, and the ruled-out floor is the best either established.
+/// Whichever outcome is worth keeping: an answer beats no answer, and between
+/// two answers the shorter one wins — which only comes up when two legs land in
+/// the same instant, since the cascade stops at the first.
 /// The winner keeps its own `arm`, which is how the report names the leg that
 /// actually produced the answer rather than the last one to run.
 Outcome pickBetter(Outcome left, Outcome right) {
-  const bool takeRight = [&] {
-    if (right.proven != left.proven)
-      return right.proven;
-    if (right.moves.empty() != left.moves.empty())
-      return left.moves.empty();
-    return right.moves.size() < left.moves.size();
-  }();
+  const bool takeRight = left.moves.empty() != right.moves.empty()
+                             ? left.moves.empty()
+                             : right.moves.size() < left.moves.size();
   // Everything that merges rather than being chosen is read out first: after
   // the move below, only the winner is left to speak for both.
-  const int ruledOut = std::max(left.ruledOut, right.ruledOut);
   const bool unsolvable = left.unsolvable || right.unsolvable;
   const uint64_t nodes =
       left.stats.nodesExpanded + right.stats.nodesExpanded;
@@ -70,7 +62,6 @@ Outcome pickBetter(Outcome left, Outcome right) {
       left.stats.stoppedOnMemory || right.stats.stoppedOnMemory;
 
   Outcome winner = takeRight ? std::move(right) : std::move(left);
-  winner.ruledOut = ruledOut;
   winner.unsolvable = unsolvable;
   winner.stats.nodesExpanded = nodes;
   winner.stats.statesStored = states;
@@ -107,7 +98,7 @@ Outcome runCascade(const Board &board, const Config &cfg, Bounds &bounds) {
     Outcome outcome = leg.run(board, legCfg, bounds);
     outcome.arm = std::string("cascade:") + leg.name;
     best = pickBetter(std::move(best), std::move(outcome));
-    if (best.proven || best.unsolvable)
+    if (!best.moves.empty() || best.unsolvable)
       return best;
     if (cfg.cancel != nullptr && cfg.cancel->load(std::memory_order_relaxed))
       return best;
@@ -133,10 +124,8 @@ Outcome solve(const Board &board, const ArmSpec &spec, const Config &cfg,
   armCfg.nrpaLevel = spec.nrpaLevel;
   armCfg.nrpaIterations = spec.nrpaIterations;
 
-  if (std::strcmp(spec.engine, "iddfs") == 0)
-    return proveIddfs(board, armCfg, bounds);
-  if (std::strcmp(spec.engine, "bnb") == 0)
-    return runBnb(board, armCfg, bounds);
+  if (std::strcmp(spec.engine, "exhaustive") == 0)
+    return runExhaustive(board, armCfg, bounds);
   if (std::strcmp(spec.engine, "greedy") == 0)
     return runGreedy(board, armCfg, bounds);
   if (std::strcmp(spec.engine, "beam") == 0)
@@ -182,8 +171,7 @@ constexpr auto kPortfolio = std::to_array<ArmSpec>({
     {.engine = "greedy", .seed = 0},
     // test50 in 542 ms.
     {.engine = "nrpa", .seed = 1, .nrpaLevel = 2, .nrpaIterations = 100},
-    {.engine = "bnb", .seed = 0},
-    {.engine = "iddfs"},
+    {.engine = "exhaustive"},
     // The ladder: test47 in 1.4 s, test51 in 5.1 s.
     {.engine = "nrpa", .seed = 6},
     {.engine = "beam", .beamWidth = 8192},
@@ -207,7 +195,6 @@ void pollUntilDone(const Config &cfg, Bounds &bounds,
       cfg.callbacks->onProgress(
           {.phase = "race",
            .nodes = progress.load(std::memory_order_relaxed),
-           .ruledOut = bounds.ruledOut(),
            .bestLength = bounds.bestLength()});
     }
     const int best = bounds.bestLength();
@@ -217,7 +204,7 @@ void pollUntilDone(const Config &cfg, Bounds &bounds,
         cfg.callbacks->onArmStart("improved");
     }
     // The bounds meeting IS the proof: no arm has anything left to add.
-    if (bounds.proven())
+    if (bounds.settled())
       cancel.store(true, std::memory_order_relaxed);
     emscripten_thread_sleep(kPollMs);
   }

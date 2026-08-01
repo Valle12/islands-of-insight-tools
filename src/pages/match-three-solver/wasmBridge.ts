@@ -9,19 +9,17 @@ import type { Move } from "./rules";
  *
  * Unlike the rolling-blocks portfolio these arms do NOT share bounds — a
  * separate worker is a separate module instance, and the C++ side has no way to
- * accept a bound mid-solve. That is affordable here because the two arms that
- * matter need no incumbent: `bnb` dives straight to the deepest length worth
- * trying (the only arm that produces anything at all on the hardest captured
- * boards), and `iddfs` deepens from zero (the only one that can prove a length
- * minimal or a board unsolvable). Real cooperation happens on the isolated
- * path, where one module races the same arm set over a shared `Bounds` —
- * SolverArms.cpp's kPortfolio, which this list mirrors.
+ * accept a bound mid-solve. That costs nothing now: the race ends at the first
+ * answer any arm produces, so there is no incumbent for the others to benefit
+ * from. Real cooperation happens on the isolated path, where one module races
+ * the same arm set over a shared `Bounds` — SolverArms.cpp's kPortfolio, which
+ * this list mirrors.
  */
 export const PORTFOLIO: Record<string, unknown>[] = [
   // Near-free, and remarkably good when it lands: measured over the 52 captured
-  // boards it answers 38 of them, and every one of those 38 answers is already
-  // the proven optimum — worst case 4 ms. It just says nothing about the other
-  // 14, which is what the rest of this list is for.
+  // boards it answers 38 of them, worst case 4 ms, and every one of those 38 is
+  // what an exhaustive search would have called optimal anyway. It just says
+  // nothing about the other 14, which is what the rest of this list is for.
   { engine: "greedy", maxMs: SOLVE_BUDGET_MS },
   // Policy-adapting rollouts: the only arm that answers the two hardest captured
   // boards — 23 moves on matchThreeTest50 and 15 on matchThreeTest51, where
@@ -38,10 +36,9 @@ export const PORTFOLIO: Record<string, unknown>[] = [
   //
   // test50 in 542 ms.
   { engine: "nrpa", seed: 1, nrpaLevel: 2, nrpaIterations: 100, maxMs: SOLVE_BUDGET_MS },
-  // The dive. Measured: the arm that answers matchThreeTest47 fastest.
-  { engine: "bnb", maxMs: SOLVE_BUDGET_MS },
-  // The prover: raises the ruled-out floor, and settles easy boards outright.
-  { engine: "iddfs", maxMs: SOLVE_BUDGET_MS },
+  // The exhaustive search: the finder of last resort, and the only arm that can
+  // report a board unclearable. Measured: it answers matchThreeTest47.
+  { engine: "exhaustive", maxMs: SOLVE_BUDGET_MS },
   // The ladder: test47 in 1.4 s, test51 in 5.1 s.
   { engine: "nrpa", seed: 6, maxMs: SOLVE_BUDGET_MS },
   // A beam far wider than the arm's own ladder goes, for boards where the
@@ -62,15 +59,13 @@ export interface SolveStats {
 /** What one arm came back with, already converted out of embind values. */
 export interface ArmResult {
   readonly moves: Move[];
-  readonly proven: boolean;
   readonly unsolvable: boolean;
-  readonly ruledOut: number;
   readonly stats?: SolveStats;
 }
 
 export interface WasmCallbacks {
   /** Cumulative work across every arm, retired ones included. */
-  readonly onProgress?: (nodes: number, ruledOut: number) => void;
+  readonly onProgress?: (nodes: number) => void;
   /** A candidate solution, before any validation. */
   readonly onBest?: (moves: Move[]) => void;
   /** An arm that finished, whatever it found. */
@@ -144,12 +139,19 @@ export function searchMatchThreeWasm(
   let anyArmFinished = false;
   let lastError = "";
   const nodesByWorker = new Map<Worker, number>();
-  const ruledOutByWorker = new Map<Worker, number>();
   // Idempotent per worker: a failing arm can deliver both an error message AND
   // an onerror event, and the double decrement would settle the race early.
   const retired = new Set<Worker>();
 
+  // Sets `settled` as well as killing the workers. Without that flag, `retire`
+  // and `spawnNext` both still think the race is live: a "done" message that
+  // reaches `finish()` synchronously would fall through to `retire`, which
+  // back-fills a FRESH worker after the portfolio was supposed to be dead, and
+  // that worker then runs its whole budget with nobody listening. Rare while
+  // the race only ended on a proof; the normal case now that the first witness
+  // ends it with most of the portfolio still queued.
   const terminateAll = () => {
+    settled = true;
     for (const worker of workers) worker.terminate();
     workers = [];
   };
@@ -165,11 +167,7 @@ export function searchMatchThreeWasm(
   const reportProgress = () => {
     let nodes = 0;
     for (const count of nodesByWorker.values()) nodes += count;
-    let ruledOut = 0;
-    for (const depth of ruledOutByWorker.values()) {
-      ruledOut = Math.max(ruledOut, depth);
-    }
-    callbacks.onProgress?.(nodes, ruledOut);
+    callbacks.onProgress?.(nodes);
   };
 
   const retire = (worker: Worker) => {
@@ -184,7 +182,6 @@ export function searchMatchThreeWasm(
   const handleMessage = (worker: Worker, data: Record<string, unknown>) => {
     if (data.type === "progress") {
       nodesByWorker.set(worker, Number(data.progress));
-      ruledOutByWorker.set(worker, Number(data.ruledOut ?? 0));
       reportProgress();
       return;
     }
@@ -194,13 +191,10 @@ export function searchMatchThreeWasm(
     }
     if (data.type === "done") {
       anyArmFinished = true;
-      ruledOutByWorker.set(worker, Number(data.ruledOut ?? 0));
       reportProgress();
       callbacks.onArm?.({
         moves: data.moves as Move[],
-        proven: data.proven === true,
         unsolvable: data.unsolvable === true,
-        ruledOut: Number(data.ruledOut ?? 0),
         stats: data.stats as SolveStats | undefined,
       });
       retire(worker);

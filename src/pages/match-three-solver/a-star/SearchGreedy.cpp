@@ -208,7 +208,6 @@ Outcome runGreedy(const Board &board, const Config &cfg, Bounds &bounds) {
   }
 
   outcome.moves = best;
-  outcome.ruledOut = bounds.ruledOut();
   return outcome;
 }
 

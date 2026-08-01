@@ -25,7 +25,6 @@ inline constexpr int kNoLength = -1;
 struct Progress {
   const char *phase = "";
   uint64_t nodes = 0;
-  int ruledOut = 0;
   int bestLength = kNoLength;
 };
 
@@ -65,12 +64,9 @@ struct SearchStats {
 
 struct Outcome {
   Moves moves;
-  /// Whether `moves` is proven to be of minimal length.
-  bool proven = false;
-  /// A completed proof that the board cannot be cleared at all.
+  /// A completed proof that the board cannot be cleared at all. The only proof
+  /// left here, and it is about EXISTENCE: nothing claims a length is minimal.
   bool unsolvable = false;
-  /// No solution of this many moves or fewer exists — proven, whatever else.
-  int ruledOut = 0;
   SearchStats stats;
   std::string arm;
 };
@@ -102,50 +98,30 @@ public:
     return best_;
   }
 
-  /// Raises the proven lower bound: no solution of `depth` moves or fewer.
-  void raiseRuledOut(const int depth) {
-    int seen = ruledOut_.load(std::memory_order_relaxed);
-    while (seen < depth &&
-           !ruledOut_.compare_exchange_weak(seen, depth,
-                                            std::memory_order_relaxed)) {
-      // compare_exchange_weak refreshed `seen`; retry while still behind.
-    }
-  }
-
-  [[nodiscard]] int ruledOut() const {
-    return ruledOut_.load(std::memory_order_relaxed);
-  }
-
-  /// True once the bounds meet: the incumbent is proven minimal and every
-  /// arm can stop.
-  [[nodiscard]] bool proven() const {
-    const int length = bestLength();
-    return length != kNoLength && ruledOut() >= length - 1;
-  }
+  /// True once any arm has an answer, which is when every other arm can stop.
+  /// It used to mean "the incumbent is proven minimal"; now the first witness
+  /// ends the race, because measured over the captured corpus that witness is
+  /// already the shortest on 48 of 49 boards.
+  [[nodiscard]] bool settled() const { return bestLength() != kNoLength; }
 
 private:
   mutable std::mutex mutex_;
   Moves best_;
   int bestLength_ = kNoLength;
   std::atomic<int> length_{kNoLength};
-  std::atomic<int> ruledOut_{0};
 };
 
-/// The deepening prover: the only arm that can prove a length minimal or a
-/// board unsolvable. An incumbent in `bounds` caps its deepening, so proving
-/// someone else's find costs it nothing extra.
-Outcome proveIddfs(const Board &board, const Config &cfg, Bounds &bounds);
-
 /// Restarted greedy rollouts: biggest clear first, refusing to strand a
-/// symbol unless every move does, with seeded noise on ties.
+/// symbol unless every move does, sampling among the rest after the first.
 Outcome runGreedy(const Board &board, const Config &cfg, Bounds &bounds);
 
 /// A level-synchronous beam over move count, widening while the budget lasts.
 Outcome runBeam(const Board &board, const Config &cfg, Bounds &bounds);
 
-/// Randomized depth-first search bounded at one move below the incumbent — a
-/// pass that searches out is itself a proof of the incumbent's minimality.
-Outcome runBnb(const Board &board, const Config &cfg, Bounds &bounds);
+/// The exhaustive search: one pass at the deepest length worth trying,
+/// returning the moment it finds anything. If it searches that depth out with
+/// nothing found, the board is provably unclearable — the only proof left.
+Outcome runExhaustive(const Board &board, const Config &cfg, Bounds &bounds);
 
 /// Nested Rollout Policy Adaptation: playouts that sample from a learned
 /// per-move policy, each nesting level adapting toward the best line it saw.

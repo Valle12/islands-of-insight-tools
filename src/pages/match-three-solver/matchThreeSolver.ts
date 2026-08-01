@@ -54,9 +54,6 @@ export class MatchThreeSolverEditor {
   private readonly solutionCancel = document.getElementById(
     "solution-cancel",
   ) as HTMLButtonElement;
-  private readonly provenNote = document.getElementById(
-    "solution-proven-note",
-  ) as HTMLDivElement;
   private readonly solveButton = document.getElementById(
     "solve-puzzle",
   ) as HTMLButtonElement;
@@ -85,7 +82,6 @@ export class MatchThreeSolverEditor {
    * it belongs to. This is what makes stopping safe: the Stop button renders
    * this instead of discarding the search.
    */
-  private lastBest: Move[] | null = null;
   private pendingConfig: MatchThreeTest | null = null;
   /**
    * Bumped whenever a running search stops mattering. A worker that reports
@@ -169,12 +165,8 @@ export class MatchThreeSolverEditor {
     this.solveButton.addEventListener("click", () => this.solve());
 
     this.solutionCancel.addEventListener("click", () => {
-      // With a best in hand, stopping keeps it; without one there is nothing
-      // to keep and the search is simply discarded.
-      if (this.lastBest && this.pendingConfig) {
-        this.finishWithBest();
-        return;
-      }
+      // There is never a partial answer to keep: the search ends itself the
+      // moment it has one, so reaching this button means nothing was found.
       this.cancelSearch();
       this.solutionStatus.textContent = "Cancelled";
     });
@@ -385,10 +377,13 @@ export class MatchThreeSolverEditor {
         if (!isCurrent()) return;
         this.solutionProgress.textContent = this.progressText(progress);
       },
+      // The first solution the search can play is the answer. Nothing waits
+      // to find out whether a shorter one exists, so this is where a solve
+      // normally ends — `onResult` only gets there on an unsolvable board, an
+      // empty one, or a board nothing cracked inside the budget.
       onBest: moves => {
         if (!isCurrent()) return;
-        this.lastBest = moves;
-        this.solutionCancel.textContent = "Stop — use best so far";
+        this.finishWith(config, moves);
       },
       onResult: result => {
         if (!isCurrent()) return;
@@ -404,44 +399,16 @@ export class MatchThreeSolverEditor {
     });
   }
 
-  /** One line saying what the engine is doing and the best it holds. */
+  /** One line saying how hard the search is still looking. */
   private progressText(progress: SolveProgress): string {
     const checked = `${progress.nodes.toLocaleString()} positions checked`;
-    const length = progress.bestLength;
-    if (progress.phase === "grouping" && length !== null) {
-      // Grouping only runs once the length is settled — say so.
-      return (
-        `Proven: ${length} move${length === 1 ? "" : "s"} — ` +
-        `tidying the move order — ${checked}`
-      );
-    }
-    const plural = length === 1 ? "" : "s";
-    const best =
-      length !== null
-        ? `Best so far: ${length} move${plural} (not yet proven shortest) — `
-        : "";
-    if (progress.phase === "prove") {
-      const target = progress.ruledOut + 1;
-      return (
-        `${best}${best ? "ruling" : "Ruling"} out ${target} ` +
-        `move${target === 1 ? "" : "s"} — ${checked}`
-      );
-    }
-    const doing = best ? "still improving" : "Looking for a first solution";
-    return `${best}${doing} — ${checked}`;
+    return `Looking for a solution — ${checked}`;
   }
 
-  /** Stops the search and shows the streamed best as the answer it is. */
-  private finishWithBest() {
-    const config = this.pendingConfig!;
-    const moves = this.lastBest!;
+  /** Stops the search and shows the solution it just produced. */
+  private finishWith(config: MatchThreeTest, moves: Move[]) {
     this.cancelSearch();
-    this.showResult(config, {
-      status: "solved",
-      moves,
-      proven: false,
-      groupingProven: false,
-    });
+    this.showResult(config, { status: "solved", moves });
   }
 
   private showResult(config: MatchThreeTest, result: SolveResult) {
@@ -457,9 +424,7 @@ export class MatchThreeSolverEditor {
     if (result.status === "budget") {
       this.solutionStatus.textContent = "Gave up";
       this.solutionMessage.textContent =
-        `No solution of ${result.ruledOut} moves or fewer exists, and the ` +
-        `search ran out of time before it could find any solution or rule ` +
-        `out longer ones.`;
+        "No solution was found within the time limit.";
       return;
     }
 
@@ -469,18 +434,13 @@ export class MatchThreeSolverEditor {
       return;
     }
 
-    this.enterSolutionView(config, result.moves, result.proven);
+    this.enterSolutionView(config, result.moves);
   }
 
-  private enterSolutionView(
-    config: MatchThreeTest,
-    moves: Move[],
-    proven: boolean,
-  ) {
+  private enterSolutionView(config: MatchThreeTest, moves: Move[]) {
     this.solutionPanel.classList.add("hidden");
     this.editorSection.classList.add("hidden");
     this.solutionViewEl.classList.remove("hidden");
-    this.provenNote.classList.toggle("hidden", proven);
     this.solutionView?.dispose();
     this.solutionView = new SolutionView({ board: toBoard(config), moves });
   }
@@ -499,7 +459,6 @@ export class MatchThreeSolverEditor {
     this.solutionStatus.textContent = "";
     this.solutionMessage.textContent = "";
     this.solutionProgress.textContent = "Searching…";
-    this.lastBest = null;
     this.solutionCancel.textContent = "Cancel";
     this.setSolving(true);
   }
@@ -513,9 +472,7 @@ export class MatchThreeSolverEditor {
     this.solveGeneration++;
     this.search?.cancel();
     this.search = null;
-    this.lastBest = null;
     this.pendingConfig = null;
-    this.solutionCancel.textContent = "Cancel";
     this.setSolving(false);
   }
 

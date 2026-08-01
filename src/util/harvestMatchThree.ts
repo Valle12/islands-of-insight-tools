@@ -107,7 +107,6 @@ interface Verdict {
   solved: boolean;
   unsolvable: boolean;
   turns: number;
-  ruledOut: number;
 }
 
 async function proveEndgame(
@@ -116,7 +115,7 @@ async function proveEndgame(
 ): Promise<Verdict | null> {
   const { json } = await runCli(
     exe,
-    ["--fixture", path, "--engine", "iddfs",
+    ["--fixture", path, "--engine", "exhaustive",
      "--budget-ms", String(PROVE_MS), "--quiet"],
     PROVE_MS + 30_000,
   );
@@ -127,7 +126,7 @@ function describe(verdict: Verdict | null): string {
   if (!verdict) return "the prover did not report";
   if (verdict.unsolvable) return "DEAD (proven unsolvable)";
   if (verdict.solved) return `WINNABLE in ${verdict.turns} more moves`;
-  return `undecided (ruled out ${verdict.ruledOut})`;
+  return "undecided (the budget ran out first)";
 }
 
 const opts = parseArgs(Bun.argv.slice(2));

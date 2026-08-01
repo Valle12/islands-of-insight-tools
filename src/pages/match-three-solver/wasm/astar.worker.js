@@ -1,7 +1,7 @@
 // Worker that loads the requested match-three WASM build variant and runs one
 // solve. Message in: { puzzle, config, variant }; messages out: progress,
 // phase and best (posted by the wasm module itself, which runs in this scope),
-// then done { moves, proven, unsolvable, ruledOut, stats } or error.
+// then done { moves, unsolvable, stats } or error.
 //
 // Hand-written source living in an otherwise generated directory — the
 // astar*.mjs/wasm files beside it are em++ output and gitignored.
@@ -84,9 +84,7 @@ self.onmessage = async event => {
     self.postMessage({
       type: "done",
       moves: plainMoves(result.moves),
-      proven: result.proven === true,
       unsolvable: result.unsolvable === true,
-      ruledOut: result.ruledOut ?? 0,
       stats,
     });
   } catch (err) {

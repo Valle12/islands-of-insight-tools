@@ -1,18 +1,24 @@
-# The three captured boards nothing proves
+# The three captured boards that resist a systematic search
 
-`matchThreeTest47`, `matchThreeTest50` and `matchThreeTest51` are the boards
-`test/match-three-solver/engine.solve.slow.test.ts` names in `BEYOND_BUDGET`.
-They are legal game states like every other fixture; what no engine here can do
-is exhaust every shorter length for them. This file records what each of them
-actually costs, so the next attempt starts from measurements rather than from
-scratch.
+`matchThreeTest47`, `matchThreeTest50` and `matchThreeTest51` are the boards the
+cheap arms cannot crack — named `STOCHASTIC` in the corpus sweeps, because what
+answers them is NRPA rather than anything systematic. This file records what each
+of them costs, so the next attempt starts from measurements rather than scratch.
 
-**All three now have a witness** (2026-07-31). That is new — test50 and test51
-had never produced one from any arm at any budget. What settled both was NRPA
-with restarts; the story is under "NRPA, and why restarts are the whole trick"
-below. Every one of the three is still *unproven*, and the reason has not
-changed: exhausting the nineteen-to-twenty-two shorter lengths is orders of
-magnitude away.
+**Read the proof arithmetic below as history.** The solver stopped proving
+minimality on 2026-08-01: it returns the first solution it can play, which over
+the corpus is the shortest one on 48 of 49 boards, and the three boards here now
+answer on the page in 2.4 s, 1.4 s and 7.9 s rather than running a 300 s budget
+out. Everything about `ruledOut`, proof floors and the ×2.5-per-level wall is
+kept because it was expensive to measure and would be needed again if anyone
+wanted minimality back — not because any of it still runs.
+
+**All three have a witness** (2026-07-31). That was new — test50 and test51 had
+never produced one from any arm at any budget. What settled both was NRPA with
+restarts; the story is under "NRPA, and why restarts are the whole trick" below.
+None of the three is proven minimal, and none ever will be here: exhausting the
+nineteen-to-twenty-two shorter lengths is orders of magnitude away, which is a
+large part of why the solver stopped trying.
 
 | | moves | found by | cost |
 | --- | --- | --- | --- |
@@ -219,8 +225,12 @@ counting argument alone can refute. There is no cheap extension here.
 ## The forced-single-clear bound (shipped)
 
 `ForcedClear.h` and `forcedClear.ts`. The one admissible lower bound here that
-earns its keep — it takes test47's proof floor from **11 to 12** and does it with
-*fewer* nodes.
+earns its keep. It was measured against the proof floor — it took test47's
+`ruledOut` from **11 to 12**, with *fewer* nodes — and it still ships now that
+nothing is proven, because what it actually does is cut dead subtrees out of the
+exhaustive search. That is what makes the `unsolvable` verdict reachable in
+practice, and it is why deleting it along with the rest of the proving machinery
+would have been a mistake.
 
 The stranded prune catches a symbol down to one or two blocks. Four and five say
 something stronger. Every clear takes at least three blocks of the symbol it

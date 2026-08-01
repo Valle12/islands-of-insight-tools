@@ -60,8 +60,6 @@ test.describe("Match Three Solver solving", () => {
     const view = page.locator("#solution-view");
     await expect(view).toBeVisible({ timeout: 60_000 });
     await expect(page.locator("#editor-section")).toBeHidden();
-    // A proven answer carries no budget note.
-    await expect(page.locator("#solution-proven-note")).toBeHidden();
     await expect(page.locator("#solution-step-counter")).toHaveText(
       "Step 1 of 5",
     );

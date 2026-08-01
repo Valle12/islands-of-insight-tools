@@ -52,26 +52,18 @@ struct Level {
   Board leaf;
 };
 
-/// How one search pass ended.
-enum class Step : uint8_t { Found, Expired, Continue };
-
-/// Which arm the shared engine is being driven as.
-enum class Mode : uint8_t { Deepening, Bounded };
-
 class Prover {
 public:
-  Prover(const Board &board, const Config &cfg, Bounds &bounds, const Mode mode)
-      : board_(board), bounds_(bounds), mode_(mode),
+  Prover(const Board &board, const Config &cfg, Bounds &bounds)
+      : board_(board), bounds_(bounds),
         table_(board.cellCount(), cfg.tableBytes),
-        budget_(cfg, bounds, mode == Mode::Deepening ? "prove" : "bnb",
-                stats_) {}
+        budget_(cfg, bounds, "exhaustive", stats_) {}
 
   Outcome run();
 
 private:
   const Board &board_;
   Bounds &bounds_;
-  Mode mode_;
   TransTable table_;
   SearchStats stats_;
   Budget budget_;
@@ -86,77 +78,47 @@ private:
   int pathLength_ = 0;
 
   int depth_ = 0;
-  bool stopAtFirst_ = true;
-  bool passFound_ = false;
   uint64_t solutions_ = 0;
   Moves best_;
-  int bestSwitches_ = INT32_MAX;
 
-  Outcome runDeepening(int blocks, int natural);
-  Outcome runBounded(int blocks, int natural);
-  Step runDepth(int depth, int blocks);
-  Step runPass(int depth, int blocks);
-  void tidyGrouping(int blocks);
   void explore(const Board &board, int remaining, int blocks);
   bool exploreInner(const Board &board, int remaining, int blocks);
   bool exploreLeaf(const Board &board, int blocks);
   static int collectMoves(const Board &board, Level &scratch);
   static void buildChildren(const Board &board, Level &scratch, int count);
-  void sortChildren(Level &scratch, int count) const;
+  static void sortChildren(Level &scratch, int count);
   void pushStep(const Level &scratch, int child);
   void popStep(const Level &scratch, int child);
   [[nodiscard]] bool hasStrandedSymbol() const;
-  [[nodiscard]] int countSwitches() const;
   void keepSolution();
   [[nodiscard]] Moves decodePath() const;
-  [[nodiscard]] Outcome finish(bool proven) const;
+  [[nodiscard]] Outcome finish() const;
 };
 
-/// The grouping metric of a solution found elsewhere, replayed to read each
-/// swap's pre-swap symbols — so an equal-grouping rearrangement cannot oust
-/// an incumbent for nothing.
-int movesSwitches(const Board &board, const Moves &moves) {
-  Board current = board;
-  Board next;
-  rules::Mask mask{};
-  int previous = -1;
-  int switches = 0;
-  for (const Move &move : moves) {
-    const int first = current.at(move.ax, move.ay) - kFirstSymbol;
-    const int second = current.at(move.bx, move.by) - kFirstSymbol;
-    const int symbols = (first << 4) | second;
-    if (previous >= 0 && !sharesSymbol(previous, symbols))
-      switches++;
-    previous = symbols;
-    rules::ApplyResult applied;
-    if (!rules::applyMove(current, move, next, mask, applied))
-      break;
-    current = next;
-  }
-  return switches;
-}
-
-Outcome Prover::finish(const bool proven) const {
+Outcome Prover::finish() const {
   Outcome outcome;
   outcome.moves = best_;
-  outcome.proven = proven;
-  outcome.ruledOut = bounds_.ruledOut();
   outcome.stats = stats_;
   outcome.stats.statesStored = table_.size();
-  outcome.arm = "iddfs";
+  outcome.arm = "exhaustive";
   return outcome;
 }
 
+/// One exhaustive pass at the deepest length worth trying, stopping the moment
+/// it finds anything.
+///
+/// `natural = blocks / kMinRun` is a real ceiling, because every move clears at
+/// least kMinRun cells — so a pass that searches out having found nothing has
+/// PROVEN the board cannot be cleared. That is the only proof left in this
+/// engine, and it is about existence rather than length.
 Outcome Prover::run() {
   const int blocks = rules::blockCount(board_);
   if (blocks == 0)
-    return finish(true);
+    return finish();
 
   rules::symbolCountsInto(board_, symbolCounts_);
   const int natural = blocks / kMinRun;
   best_ = bounds_.best();
-  if (!best_.empty())
-    bestSwitches_ = movesSwitches(board_, best_);
   pathMoves_.assign(static_cast<size_t>(natural) + 1, 0);
   pathSymbols_.assign(static_cast<size_t>(natural) + 1, 0);
   levels_.resize(static_cast<size_t>(natural) + 2);
@@ -167,95 +129,20 @@ Outcome Prover::run() {
     scratch.leaf.height = board_.height;
   }
 
-  return mode_ == Mode::Deepening ? runDeepening(blocks, natural)
-                                  : runBounded(blocks, natural);
-}
-
-Outcome Prover::runDeepening(const int blocks, const int natural) {
-  // With an incumbent in hand, exhausting every shorter length is a proof of
-  // its minimality — the deepening never has to visit its own depth.
-  const int cap = best_.empty()
-                      ? natural
-                      : std::min(natural, static_cast<int>(best_.size()) - 1);
-
-  for (int depth = 0; depth <= cap; depth++) {
-    const Step step = runDepth(depth, blocks);
-    if (step == Step::Found)
-      return finish(true);
-    if (step == Step::Expired)
-      return finish(false);
-    bounds_.raiseRuledOut(depth);
-  }
-
-  if (best_.empty()) {
-    Outcome outcome = finish(false);
+  if (natural <= 0) {
+    Outcome outcome = finish();
     outcome.unsolvable = true;
     return outcome;
   }
-  // Every shorter length is searched out: the incumbent is minimal.
-  tidyGrouping(blocks);
-  return finish(true);
-}
 
-/// One search per bound: at depth B every path of length <= B is covered, so
-/// coming back empty proves nothing shorter than B+1 exists. A solution found
-/// instead tightens B and the loop goes again.
-Outcome Prover::runBounded(const int blocks, const int natural) {
-  for (;;) {
-    const int known = static_cast<int>(best_.size());
-    const int bound = best_.empty() ? natural : std::min(natural, known - 1);
-    if (bound <= 0) {
-      // A one-move solution cannot be beaten, and depth 0 clears nothing.
-      bounds_.raiseRuledOut(0);
-      return finish(!best_.empty());
-    }
+  depth_ = natural;
+  explore(board_, natural, blocks);
 
-    const Step step = runPass(bound, blocks);
-    if (step == Step::Expired)
-      return finish(false);
-    if (step == Step::Found)
-      continue;
-
-    bounds_.raiseRuledOut(bound);
-    if (best_.empty()) {
-      Outcome outcome = finish(false);
-      outcome.unsolvable = true;
-      return outcome;
-    }
-    tidyGrouping(blocks);
-    return finish(true);
-  }
-}
-
-Step Prover::runDepth(const int depth, const int blocks) {
-  const Step step = runPass(depth, blocks);
-  if (step != Step::Found)
-    return step;
-  // The length is settled — shorter than anything known. Spend what is left of
-  // the budget looking for it arranged more conveniently.
-  stopAtFirst_ = false;
-  explore(board_, depth, blocks);
-  return Step::Found;
-}
-
-Step Prover::runPass(const int depth, const int blocks) {
-  depth_ = depth;
-  passFound_ = false;
-  stopAtFirst_ = true;
-  explore(board_, depth, blocks);
-  if (passFound_)
-    return Step::Found;
-  // The pass the clock interrupted proved nothing.
-  return budget_.expired() ? Step::Expired : Step::Continue;
-}
-
-/// Re-enumerates solutions at the proven length to pick the best-grouped one.
-/// Never touches the move count, only which of the equally short answers the
-/// player is shown.
-void Prover::tidyGrouping(const int blocks) {
-  depth_ = static_cast<int>(best_.size());
-  stopAtFirst_ = false;
-  explore(board_, depth_, blocks);
+  Outcome outcome = finish();
+  // Searched out with nothing found, and the clock never interrupted it.
+  if (outcome.moves.empty() && !budget_.expired())
+    outcome.unsolvable = true;
+  return outcome;
 }
 
 void Prover::explore(const Board &board, const int remaining, const int blocks) {
@@ -299,7 +186,7 @@ bool Prover::exploreInner(const Board &board, const int remaining,
   sortChildren(scratch, moveCount);
 
   for (int i = 0; i < moveCount; i++) {
-    if (budget_.exhausted() || (stopAtFirst_ && passFound_))
+    if (budget_.exhausted() || !best_.empty())
       return false;
     const int child = scratch.order[static_cast<size_t>(i)];
     pushStep(scratch, child);
@@ -319,7 +206,7 @@ bool Prover::exploreLeaf(const Board &board, const int blocks) {
   const int moveCount = collectMoves(board, scratch);
 
   for (int i = 0; i < moveCount; i++) {
-    if (budget_.exhausted() || (stopAtFirst_ && passFound_))
+    if (budget_.exhausted() || !best_.empty())
       return false;
     const rules::PackedMove packed = scratch.moves[static_cast<size_t>(i)];
     const rules::ApplyResult applied =
@@ -373,21 +260,13 @@ void Prover::buildChildren(const Board &board, Level &scratch,
   }
 }
 
-/// Biggest clear first while the length is still in question — that is the
-/// order that reaches an empty board soonest. Only once the length is settled
-/// is it worth spending the ordering on staying with one symbol, which is a
-/// property of the answer rather than a way of finding it. Insertion sort,
-/// stable: descending score, ties in enumeration order.
-void Prover::sortChildren(Level &scratch, const int count) const {
-  const int previous =
-      stopAtFirst_ || pathLength_ == 0
-          ? -1
-          : pathSymbols_[slot(pathLength_ - 1)];
+/// Biggest clear first — the order that reaches an empty board soonest, which
+/// is now the only thing the ordering is for. Insertion sort, stable:
+/// descending score, ties in enumeration order.
+void Prover::sortChildren(Level &scratch, const int count) {
   for (int i = 0; i < count; i++) {
     const auto slot = static_cast<size_t>(i);
-    const bool stay =
-        previous >= 0 && sharesSymbol(scratch.symbols[slot], previous);
-    scratch.scores[slot] = (stay ? 65536 : 0) + scratch.cleared[slot];
+    scratch.scores[slot] = scratch.cleared[slot];
     scratch.order[slot] = i;
   }
   for (int i = 1; i < count; i++) {
@@ -430,29 +309,11 @@ bool Prover::hasStrandedSymbol() const {
   });
 }
 
-int Prover::countSwitches() const {
-  int switches = 0;
-  for (int i = 1; i < pathLength_; i++) {
-    if (!sharesSymbol(pathSymbols_[slot(i - 1)],
-                      pathSymbols_[static_cast<size_t>(i)]))
-      switches++;
-  }
-  return switches;
-}
-
+/// The first solution reached is the answer; the search unwinds right after.
 void Prover::keepSolution() {
   solutions_++;
-  passFound_ = true;
-  const int length = pathLength_;
-  const int switches = countSwitches();
-  if (!best_.empty()) {
-    const int known = static_cast<int>(best_.size());
-    if (length > known)
-      return;
-    if (length == known && switches >= bestSwitches_)
-      return;
-  }
-  bestSwitches_ = switches;
+  if (!best_.empty())
+    return;
   best_ = decodePath();
   // Published as early as it exists: a racing arm's deepening cap and the
   // page's best-so-far both read this.
@@ -478,16 +339,9 @@ Moves Prover::decodePath() const {
 
 } // namespace
 
-Outcome proveIddfs(const Board &board, const Config &cfg, Bounds &bounds) {
-  Prover prover(board, cfg, bounds, Mode::Deepening);
+Outcome runExhaustive(const Board &board, const Config &cfg, Bounds &bounds) {
+  Prover prover(board, cfg, bounds);
   return prover.run();
-}
-
-Outcome runBnb(const Board &board, const Config &cfg, Bounds &bounds) {
-  Prover prover(board, cfg, bounds, Mode::Bounded);
-  Outcome outcome = prover.run();
-  outcome.arm = "bnb";
-  return outcome;
 }
 
 } // namespace mt

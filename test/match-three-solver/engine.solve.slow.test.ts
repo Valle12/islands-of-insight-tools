@@ -12,21 +12,14 @@ import { clearsBoard, FIXTURE_DIR, FIXTURES } from "./boards";
 
 describe.skipIf(Bun.env.IOI_SKIP_SLOW === "1")("Captured boards are solvable", () => {
   /**
-   * The captured boards no engine can PROVE. Membership says nothing about
-   * whether an answer exists — all three of these now have one, and two of them
-   * are recent: test47 is 20 moves (a 46-minute run in July confirmed that is
-   * optimal), test50 is 23 and test51 is 15, the last two from NRPA. What cannot
-   * be done is exhausting the shorter lengths, which at the measured x2.5 per
-   * level is orders of magnitude away (a-star/bench/HARD-BOARDS.md). A fixture
-   * leaves this set the day the sweep proves it at SWEEP_BUDGET_MS, and this
-   * test is what says so.
-   *
-   * That the witnesses EXIST is asserted positively in wasm.slow.test.ts
-   * (`NRPA_WITNESSES`), not here: the probe below tolerates a find rather than
-   * requiring one, because the TypeScript engine alone does not reach test50 —
-   * measured, still `budget` at 180 s, where the native arms need under a second.
+   * The boards the cheap arms cannot crack. Their answers come from NRPA, a
+   * stochastic arm, and the TypeScript engine on its own does not reliably get
+   * there — measured, it was still empty-handed on matchThreeTest50 at 180 s
+   * where the native seeds do it in about a second. So this sweep only asks
+   * them to be honest, and `wasm.slow.test.ts` carries the positive assertion
+   * that the witnesses exist, using the seeds measured to find them.
    */
-  const BEYOND_BUDGET = new Set([
+  const STOCHASTIC = new Set([
     "matchThreeTest47.json",
     "matchThreeTest50.json",
     "matchThreeTest51.json",
@@ -45,11 +38,17 @@ describe.skipIf(Bun.env.IOI_SKIP_SLOW === "1")("Captured boards are solvable", (
   const SWEEP_TIMEOUT_MS = 60_000;
 
   /**
-   * Proven-minimal lengths, from bench/baseline-ts-30s.json. Pinned so an
-   * engine change that silently flips a proof goes red here; a fixture
-   * dropped in later has no entry and simply skips the pin.
+   * Length CEILINGS, not proven minima.
+   *
+   * These were exact proven lengths, and the equality was the cross-engine
+   * check. The search no longer proves anything about length — it returns the
+   * first solution it finds — so they are an upper bound instead: a quality net
+   * that catches an arm-ordering regression which starts returning fifteen-move
+   * answers where seven exist. Every value is the measured optimum, which the
+   * first find still matches on all but one board (see matchThreeTest46). A
+   * fixture with no entry simply skips the check.
    */
-  const PROVEN_LENGTHS: Record<string, number> = {
+  const LENGTH_CEILINGS: Record<string, number> = {
     "matchThreeTest.json": 1,
     "matchThreeTest1.json": 2,
     "matchThreeTest2.json": 2,
@@ -96,12 +95,13 @@ describe.skipIf(Bun.env.IOI_SKIP_SLOW === "1")("Captured boards are solvable", (
     "matchThreeTest43.json": 8,
     "matchThreeTest44.json": 14,
     "matchThreeTest45.json": 7,
-    "matchThreeTest46.json": 7,
+    // The one board where the first find is not the optimum: 8, optimum 7.
+    "matchThreeTest46.json": 8,
     "matchThreeTest48.json": 7,
     "matchThreeTest49.json": 10,
   };
 
-  test.each(FIXTURES.filter(name => !BEYOND_BUDGET.has(name)))(
+  test.each(FIXTURES.filter(name => !STOCHASTIC.has(name)))(
     "%s is clearable",
     async name => {
       const config = (await Bun.file(
@@ -112,17 +112,18 @@ describe.skipIf(Bun.env.IOI_SKIP_SLOW === "1")("Captured boards are solvable", (
       const result = solveMatchThree(start, { budgetMs: SWEEP_BUDGET_MS });
       expect(result.status).toBe("solved");
       if (result.status !== "solved") return;
-      expect(result.proven).toBeTrue();
       expect(result.moves.length).toBeGreaterThan(0);
-      const pinned = PROVEN_LENGTHS[name];
-      if (pinned !== undefined) expect(result.moves).toHaveLength(pinned);
+      const ceiling = LENGTH_CEILINGS[name];
+      if (ceiling !== undefined) {
+        expect(result.moves.length).toBeLessThanOrEqual(ceiling);
+      }
       // The move list is only an answer if it survives being played.
       expect(clearsBoard(start, result.moves)).toBeTrue();
     },
     SWEEP_TIMEOUT_MS,
   );
 
-  test.each([...BEYOND_BUDGET])("%s still outruns the budget", async name => {
+  test.each([...STOCHASTIC])("%s answers honestly or not at all", async name => {
     expect(FIXTURES).toContain(name);
     const config = (await Bun.file(
       `${FIXTURE_DIR}/${name}`,
@@ -130,12 +131,11 @@ describe.skipIf(Bun.env.IOI_SKIP_SLOW === "1")("Captured boards are solvable", (
     const start = toBoard(config);
 
     const result = solveMatchThree(start, { budgetMs: PROBE_MS });
-    // Never "unsolvable": that would be a proof, and no proof was reached.
+    // Never "unsolvable": these are captured boards, and all three are known to
+    // have answers, so claiming otherwise would be a proof contradicting itself.
     expect(result.status).not.toBe("unsolvable");
+    // Whatever it does find has to be playable.
     if (result.status === "solved") {
-      // The fast arms may well find SOMETHING at 2s — but a PROVEN minimum
-      // here is the signal to move the fixture into the sweep above.
-      expect(result.proven).toBeFalse();
       expect(clearsBoard(start, result.moves)).toBeTrue();
     }
   }, SWEEP_TIMEOUT_MS);

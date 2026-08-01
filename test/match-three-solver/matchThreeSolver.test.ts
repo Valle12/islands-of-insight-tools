@@ -75,7 +75,6 @@ const MARKUP = `
     </div>
   </div>
   <div id="solution-view" class="hidden">
-    <div id="solution-proven-note" class="hidden"></div>
     <span id="solution-step-counter"></span>
     <div id="solution-grid"></div>
     <div id="solution-step-text"></div>
@@ -328,37 +327,21 @@ describe("MatchThreeSolverEditor", () => {
       expect(byId("solve-puzzle").hasAttribute("disabled")).toBeTrue();
     });
 
-    test("reports how far the search has got", () => {
+    test("reports how much work the search has done", () => {
       paintBoard(ONE_MOVE);
       solve();
       lastSearch().handlers.onProgress?.({
-        phase: "prove",
-        ruledOut: 3,
-        bestLength: null,
+        phase: "exhaustive",
         nodes: 4000,
       });
 
-      // Depths 0..3 are exhausted, so 4 is what is being ruled out now.
       expect(byId("solution-progress-text").textContent).toContain(
-        "Ruling out 4 moves",
+        "Looking for a solution",
       );
+      // Not the grouped number itself — `toLocaleString` renders it with the
+      // machine's separator, which is a comma here and a dot elsewhere.
       expect(byId("solution-progress-text").textContent).toContain(
         "positions checked",
-      );
-    });
-
-    test("a best in hand shows up in the progress line", () => {
-      paintBoard(ONE_MOVE);
-      solve();
-      lastSearch().handlers.onProgress?.({
-        phase: "prove",
-        ruledOut: 3,
-        bestLength: 9,
-        nodes: 4000,
-      });
-
-      expect(byId("solution-progress-text").textContent).toContain(
-        "Best so far: 9 moves (not yet proven shortest)",
       );
     });
 
@@ -393,21 +376,18 @@ describe("MatchThreeSolverEditor", () => {
     test("a search that ran out of time reports no length at all", () => {
       paintBoard(ONE_MOVE);
       solve();
-      lastSearch().handlers.onResult({ status: "budget", ruledOut: 4 });
+      lastSearch().handlers.onResult({ status: "budget" });
 
       expect(byId("solution-status").textContent).toBe("Gave up");
-      expect(byId("solution-message").textContent).toContain("4 moves or fewer");
+      expect(byId("solution-message").textContent).toContain(
+        "No solution was found within the time limit.",
+      );
       expect(hidden("solution-view")).toBeTrue();
     });
 
     test("an empty board needs no moves", () => {
       solve();
-      lastSearch().handlers.onResult({
-        status: "solved",
-        moves: [],
-        proven: true,
-        groupingProven: true,
-      });
+      lastSearch().handlers.onResult({ status: "solved", moves: [] });
 
       expect(byId("solution-status").textContent).toBe("Already solved");
       expect(hidden("solution-view")).toBeTrue();
@@ -416,43 +396,17 @@ describe("MatchThreeSolverEditor", () => {
     test("a solution opens the step viewer over the editor", () => {
       paintBoard(ONE_MOVE);
       solve();
-      lastSearch().handlers.onResult({
-        status: "solved",
-        moves: [THE_MOVE],
-        proven: true,
-        groupingProven: true,
-      });
+      lastSearch().handlers.onResult({ status: "solved", moves: [THE_MOVE] });
 
       expect(hidden("solution-view")).toBeFalse();
       expect(hidden("editor-section")).toBeTrue();
       expect(byId("solution-step-counter").textContent).toBe("Step 1 of 1");
-      // Proven means no budget note.
-      expect(hidden("solution-proven-note")).toBeTrue();
-    });
-
-    test("an unproven solution carries the not-proven note", () => {
-      paintBoard(ONE_MOVE);
-      solve();
-      lastSearch().handlers.onResult({
-        status: "solved",
-        moves: [THE_MOVE],
-        proven: false,
-        groupingProven: false,
-      });
-
-      expect(hidden("solution-view")).toBeFalse();
-      expect(hidden("solution-proven-note")).toBeFalse();
     });
 
     test("Back to editor returns to the board", () => {
       paintBoard(ONE_MOVE);
       solve();
-      lastSearch().handlers.onResult({
-        status: "solved",
-        moves: [THE_MOVE],
-        proven: true,
-        groupingProven: true,
-      });
+      lastSearch().handlers.onResult({ status: "solved", moves: [THE_MOVE] });
       byId("solution-exit").click();
 
       expect(hidden("solution-view")).toBeTrue();
@@ -481,22 +435,30 @@ describe("MatchThreeSolverEditor", () => {
       expect(byId("solution-status").textContent).toBe("Cancelled");
     });
 
-    test("a streamed best turns Cancel into Stop, and Stop keeps it", () => {
+    test("the first streamed solution ends the search and opens the viewer", () => {
+      paintBoard(ONE_MOVE);
+      solve();
+      expect(hidden("solution-view")).toBeTrue();
+
+      // This is the whole behaviour: no second thought, no button to press.
+      lastSearch().handlers.onBest?.([THE_MOVE]);
+
+      expect(cancelled).toBe(1);
+      expect(hidden("solution-view")).toBeFalse();
+      expect(hidden("editor-section")).toBeTrue();
+      expect(byId("solution-step-counter").textContent).toBe("Step 1 of 1");
+    });
+
+    test("Cancel with nothing found just stops", () => {
       paintBoard(ONE_MOVE);
       solve();
       expect(byId("solution-cancel").textContent).toBe("Cancel");
 
-      lastSearch().handlers.onBest?.([THE_MOVE]);
-      expect(byId("solution-cancel").textContent).toBe(
-        "Stop — use best so far",
-      );
-
       byId("solution-cancel").click();
+
       expect(cancelled).toBe(1);
-      // The streamed best is rendered, honestly labeled as unproven.
-      expect(hidden("solution-view")).toBeFalse();
-      expect(hidden("solution-proven-note")).toBeFalse();
-      expect(byId("solution-step-counter").textContent).toBe("Step 1 of 1");
+      expect(byId("solution-status").textContent).toBe("Cancelled");
+      expect(hidden("solution-view")).toBeTrue();
     });
 
     /** Painting a cell the value it already holds is a deliberate no-op. */
@@ -526,7 +488,8 @@ describe("MatchThreeSolverEditor", () => {
 
       stale.onBest?.([THE_MOVE]);
 
-      expect(byId("solution-cancel").textContent).toBe("Cancel");
+      // The viewer must not open for a board that is no longer on screen.
+      expect(hidden("solution-view")).toBeTrue();
     });
 
     test("editing the board hides the panel again", () => {
@@ -541,12 +504,7 @@ describe("MatchThreeSolverEditor", () => {
     test("editing the board closes an open step viewer", () => {
       paintBoard(ONE_MOVE);
       solve();
-      lastSearch().handlers.onResult({
-        status: "solved",
-        moves: [THE_MOVE],
-        proven: true,
-        groupingProven: true,
-      });
+      lastSearch().handlers.onResult({ status: "solved", moves: [THE_MOVE] });
       byId("solution-exit").click();
       erase(0, 0);
 

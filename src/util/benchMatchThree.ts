@@ -9,9 +9,9 @@
 // TypeScript engine in-process; with it, the native CLI over the shared
 // last-JSON-line protocol — the same fixtures, the same record shape, so
 // --diff compares the two engines directly. Diff mode joins two baselines by
-// fixture and prints a regression table: a PROVEN move count that changes is a
-// regression in either direction, because a proven count is a claim about the
-// board rather than about the engine.
+// fixture and prints a regression table: a LONGER move count is a regression,
+// because the count is a claim about the arms rather than about the board, so
+// it may improve freely but never get worse.
 
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -40,9 +40,6 @@ interface BenchResult {
   fixture: string;
   status: "solved" | "unsolvable" | "budget";
   moves?: number;
-  /** Whether the move count is proven minimal (absent in legacy baselines). */
-  proven?: boolean;
-  groupingProven?: boolean;
   /** Whether the solution survived an independent replay. */
   valid?: boolean;
   /** When the first best-so-far streamed in, and how long it was. */
@@ -152,8 +149,6 @@ async function benchFixture(
   }
   if (result.status === "solved") {
     record.moves = result.moves.length;
-    record.proven = result.proven;
-    record.groupingProven = result.groupingProven;
     record.valid = clearsBoard(start, result.moves);
   }
   return record;
@@ -179,22 +174,18 @@ async function benchNative(
     budgetMs * 3 + 60_000,
   );
   const json = res.json ?? {};
-  const status: BenchResult["status"] = json.unsolvable
-    ? "unsolvable"
-    : json.turns > 0
-      ? "solved"
-      : "budget";
+  const solved: BenchResult["status"] = json.turns > 0 ? "solved" : "budget";
+  const status: BenchResult["status"] = json.unsolvable ? "unsolvable" : solved;
   const record: BenchResult = {
     fixture,
     status: res.json ? status : "budget",
-    depthReached: json.ruledOut ?? 0,
+    depthReached: json.turns ?? 0,
     nodes: json.nodesExpanded ?? 0,
     tableEntries: json.statesStored ?? 0,
     wallMs: json.wallMs ?? Date.now() - started,
   };
   if (status === "solved" && res.json) {
     record.moves = json.turns;
-    record.proven = json.proven === true;
     record.valid = json.valid === true;
   }
   return record;
@@ -203,8 +194,7 @@ async function benchNative(
 function describeResult(r: BenchResult): string {
   if (r.status === "solved") {
     const invalid = r.valid === false ? " *** REPLAY FAILED ***" : "";
-    const label = r.proven === false ? " (unproven)" : "";
-    return `solved — ${r.moves} moves${label} in ${r.wallMs}ms${invalid}`;
+    return `solved — ${r.moves} moves in ${r.wallMs}ms${invalid}`;
   }
   if (r.status === "budget") {
     return (
@@ -215,14 +205,10 @@ function describeResult(r: BenchResult): string {
   return `unsolvable in ${r.wallMs}ms`;
 }
 
-/** Legacy baselines predate the anytime engine; everything solved was proven. */
-function isProven(r: BenchResult): boolean {
-  return r.status === "solved" && r.proven !== false;
-}
-
-// Every way an "after" run can be worse. A lost "unsolvable" would mean a
-// completed proof went missing; a proven length may never move; an unproven
-// one may (it is not a claim of minimality), so it is exempt from the pin.
+// Every way an "after" run can be worse. Lengths are no longer pinned in
+// either direction — the search returns the first solution it finds and makes
+// no claim of minimality — but a LONGER answer is still a quality regression
+// worth seeing, because it means the arm order changed for the worse.
 function rowRegressions(b: BenchResult, a: BenchResult): string[] {
   const problems: string[] = [];
   if (b.status === "solved" && a.status !== "solved") {
@@ -231,11 +217,14 @@ function rowRegressions(b: BenchResult, a: BenchResult): string[] {
   if (b.status === "unsolvable" && a.status !== "unsolvable") {
     problems.push(`unsolvable → ${a.status.toUpperCase()}`);
   }
-  if (isProven(b) && a.status === "solved" && !isProven(a)) {
-    problems.push("proven → unproven");
-  }
-  if (isProven(b) && isProven(a) && b.moves !== a.moves) {
-    problems.push(`proven length changed (${b.moves} → ${a.moves})`);
+  if (
+    b.status === "solved" &&
+    a.status === "solved" &&
+    b.moves !== undefined &&
+    a.moves !== undefined &&
+    a.moves > b.moves
+  ) {
+    problems.push(`longer answer (${b.moves} → ${a.moves} moves)`);
   }
   if (a.valid === false) problems.push("solution failed replay");
   if (

@@ -27,22 +27,22 @@ export interface SolveHandle {
   cancel(): void;
 }
 
-/** A solution some arm is putting forward, and what it claims about it. */
+/** A solution some arm is putting forward. */
 interface Candidate {
   readonly moves: Move[];
-  readonly proven: boolean;
-  readonly groupingProven: boolean;
 }
 
 /**
- * What every arm reports into, and the rules for merging it.
+ * What every arm reports into, and the rule for accepting it.
  *
- * A proof beats a guess and a shorter answer beats a longer one, but the
- * load-bearing rule is the first one applied: a candidate is only accepted once
- * it has been REPLAYED through this page's own rules. The wasm arms are a
- * second implementation of those rules, and the solution viewer replays
- * whatever it is handed; a witness that disagreed would render as a broken
- * walkthrough rather than as an error, so it is refused here instead.
+ * There is one rule now, and it is the load-bearing one: a candidate is
+ * accepted once it has been REPLAYED through this page's own rules. The wasm
+ * arms are a second implementation of those rules, and the solution viewer
+ * replays whatever it is handed; a witness that disagreed would render as a
+ * broken walkthrough rather than as an error, so it is refused here instead.
+ *
+ * With no proving left this replay is the ONLY thing between a bad witness and
+ * the viewer, so it is also the last place to weaken.
  */
 class Merged {
   private readonly board: ReturnType<typeof toBoard>;
@@ -53,7 +53,6 @@ class Merged {
    */
   private readonly alreadyClear: boolean;
   private best: Candidate | null = null;
-  private ruledOutDepth = 0;
   private unsolvable = false;
 
   constructor(config: MatchThreeTest) {
@@ -61,26 +60,9 @@ class Merged {
     this.alreadyClear = blockCount(this.board) === 0;
   }
 
-  /** True once the answer is settled and no arm could improve on it. */
+  /** True once there is an answer to show, whatever it is. */
   get done(): boolean {
-    return (
-      this.alreadyClear || this.unsolvable || (this.best?.proven ?? false)
-    );
-  }
-
-  get bestLength(): number | null {
-    return this.best ? this.best.moves.length : null;
-  }
-
-  get ruledOut(): number {
-    return this.ruledOutDepth;
-  }
-
-  /** Raises the proven floor: no solution of `depth` moves or fewer exists. */
-  raiseRuledOut(depth: number): void {
-    if (depth <= this.ruledOutDepth) return;
-    this.ruledOutDepth = depth;
-    this.promoteIfProven();
+    return this.alreadyClear || this.unsolvable || this.best !== null;
   }
 
   /** A completed proof that the board cannot be cleared at all. */
@@ -88,38 +70,21 @@ class Merged {
     if (!this.best) this.unsolvable = true;
   }
 
-  /** Records a candidate when it replays and beats what is known. */
+  /** Records the first candidate that replays. Later ones cannot improve it. */
   offer(candidate: Candidate): boolean {
     const { moves } = candidate;
-    if (moves.length === 0) return false;
-    if (this.best && moves.length >= this.best.moves.length) return false;
+    if (moves.length === 0 || this.best) return false;
     if (!this.replays(moves)) return false;
     this.best = candidate;
-    if (candidate.proven) this.raiseRuledOut(moves.length - 1);
-    this.promoteIfProven();
     return true;
   }
 
   /** What to hand the page once no arm can add anything. */
   result(): SolveResult {
-    if (this.alreadyClear) {
-      return { status: "solved", moves: [], proven: true, groupingProven: true };
-    }
+    if (this.alreadyClear) return { status: "solved", moves: [] };
     if (this.unsolvable) return { status: "unsolvable" };
-    if (!this.best) return { status: "budget", ruledOut: this.ruledOutDepth };
-    return {
-      status: "solved",
-      moves: this.best.moves,
-      proven: this.best.proven,
-      groupingProven: this.best.groupingProven,
-    };
-  }
-
-  /** Exhausting every shorter length is itself the proof of minimality. */
-  private promoteIfProven(): void {
-    if (!this.best || this.best.proven) return;
-    if (this.ruledOutDepth < this.best.moves.length - 1) return;
-    this.best = { ...this.best, proven: true };
+    if (!this.best) return { status: "budget" };
+    return { status: "solved", moves: this.best.moves };
   }
 
   private replays(moves: Move[]): boolean {
@@ -135,7 +100,7 @@ class Merged {
 
 /** How one arm talks back, whichever engine it is. */
 interface ArmHandlers {
-  onProgress: (nodes: number, ruledOut: number, phase?: SolveProgress["phase"]) => void;
+  onProgress: (nodes: number, phase?: SolveProgress["phase"]) => void;
   onCandidate: (candidate: Candidate) => void;
   onUnsolvable: () => void;
   onDone: () => void;
@@ -159,16 +124,12 @@ function spawnTsArm(
   worker.onmessage = (event: MessageEvent<SolveMessage>) => {
     const message = event.data;
     if (message.type === "progress") {
-      const { nodes, ruledOut, phase } = message.progress;
-      arm.onProgress(nodes, ruledOut, phase);
+      const { nodes, phase } = message.progress;
+      arm.onProgress(nodes, phase);
       return;
     }
     if (message.type === "best") {
-      arm.onCandidate({
-        moves: message.moves,
-        proven: false,
-        groupingProven: false,
-      });
+      arm.onCandidate({ moves: message.moves });
       return;
     }
     const result = message.result;
@@ -176,8 +137,6 @@ function spawnTsArm(
       arm.onCandidate(result);
     } else if (result.status === "unsolvable") {
       arm.onUnsolvable();
-    } else {
-      arm.onProgress(0, result.ruledOut);
     }
     arm.onDone();
   };
@@ -189,9 +148,9 @@ function spawnTsArm(
 }
 
 /**
- * Races the TypeScript engine against the wasm portfolio and merges what they
- * find. Both are anytime, so the page sees improvements as they arrive and can
- * stop at any point with a playable answer in hand.
+ * Races the TypeScript engine against the wasm portfolio and takes the first
+ * answer either of them can play. Whichever arm gets there first wins and the
+ * rest are torn down; nothing waits to find out whether a shorter one exists.
  *
  * The TypeScript arm is not a fallback bolted on the side — it is arm zero: it
  * answers an easy board in milliseconds without a single wasm module being
@@ -225,10 +184,8 @@ export function searchMatchThree(
   const emitProgress = () => {
     handlers.onProgress?.({
       // Once the TypeScript arm is done, what is left running is the wasm
-      // portfolio, which is provers all the way down.
-      phase: state.tsDone ? "prove" : state.phase,
-      ruledOut: merged.ruledOut,
-      bestLength: merged.bestLength,
+      // portfolio working through the deepest search it has.
+      phase: state.tsDone ? "exhaustive" : state.phase,
       nodes: state.tsNodes + state.wasmNodes,
     });
   };
@@ -245,13 +202,13 @@ export function searchMatchThree(
     handlers.onResult(result);
   };
 
-  /** Settles as soon as the answer is proven, or once nothing is left running. */
+  /** Settles on the first playable answer, or once nothing is left running. */
   const maybeFinish = () => {
     if (merged.done || (state.tsDone && state.wasmDone)) finish();
   };
 
   const armHandlers = (side: "ts" | "wasm"): ArmHandlers => ({
-    onProgress: (nodes, ruledOut, phase) => {
+    onProgress: (nodes, phase) => {
       if (!live) return;
       if (side === "ts") {
         state.tsNodes = nodes;
@@ -259,7 +216,6 @@ export function searchMatchThree(
       } else {
         state.wasmNodes = nodes;
       }
-      merged.raiseRuledOut(ruledOut);
       emitProgress();
       if (merged.done) finish();
     },
@@ -300,23 +256,12 @@ export function searchMatchThree(
   wasm = searchMatchThreeWasm(
     config,
     {
-      onProgress: (nodes, ruledOut) => wasmArm.onProgress(nodes, ruledOut),
-      onBest: moves =>
-        wasmArm.onCandidate({
-          moves,
-          proven: false,
-          groupingProven: false,
-        }),
+      onProgress: nodes => wasmArm.onProgress(nodes),
+      onBest: moves => wasmArm.onCandidate({ moves }),
       onArm: result => {
         if (result.unsolvable) wasmArm.onUnsolvable();
-        wasmArm.onCandidate({
-          moves: result.moves,
-          proven: result.proven,
-          // Only the arm that proved a length also tidied its grouping, and
-          // that is not something the merge can tell from here.
-          groupingProven: false,
-        });
-        wasmArm.onProgress(state.wasmNodes, result.ruledOut);
+        wasmArm.onCandidate({ moves: result.moves });
+        wasmArm.onProgress(state.wasmNodes);
       },
       onSettled: () => wasmArm.onDone(),
       onError: () => wasmArm.onFailed(),

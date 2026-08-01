@@ -10,14 +10,16 @@ import { SYMBOL_COUNT } from "./symbols";
 export const MAX_GRID_SIDE = 32;
 
 /**
- * How long the search may run before settling for what it has. The engine is
- * anytime: fast arms find a clearing sequence early and stream improvements,
- * while the prover rules shorter lengths out underneath — a solution the
- * budget cut short of a proof is reported as exactly that, never dressed up
- * as minimal. Five minutes matches the rolling-blocks page; easy boards
- * still answer in milliseconds, only genuinely hard ones use the headroom.
+ * How long the search may look for a solution before giving up.
+ *
+ * It bounds only the boards where NOTHING is found, because the search stops
+ * the moment it has an answer to show. Measured on the real page over the 52
+ * captured boards: 49 settle in a median 361 ms and the slowest of the other
+ * three answers in 10.2 s, so a minute is roughly six times the worst case
+ * anything real has needed — enough headroom for a hand-drawn board harder
+ * than the corpus, without making an impossible one feel hung.
  */
-export const SOLVE_BUDGET_MS = 300_000;
+export const SOLVE_BUDGET_MS = 60_000;
 
 export type ConfigParseResult =
   | { ok: true; config: MatchThreeTest }

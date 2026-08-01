@@ -260,9 +260,7 @@ int main(const int argc, char **argv) {
   // An empty result on an unsolved board is "no solution found", not
   // "invalid" — only a move list that fails to replay is invalid.
   report["valid"] = outcome.moves.empty() ? solved : verdict.legal;
-  report["proven"] = outcome.proven;
   report["unsolvable"] = outcome.unsolvable;
-  report["ruledOut"] = outcome.ruledOut;
   report["turns"] = outcome.moves.size();
   report["moves"] = movesToJson(outcome.moves);
   report["stage"] = outcome.arm;

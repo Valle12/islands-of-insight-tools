@@ -25,9 +25,7 @@ interface WasmMove {
 interface WasmResult {
   error?: string;
   moves: { length: number; [index: number]: WasmMove };
-  proven: boolean;
   unsolvable: boolean;
-  ruledOut: number;
 }
 
 interface WasmModule {
@@ -83,18 +81,26 @@ async function readFixture(name: string): Promise<MatchThreeTest> {
 }
 
 /**
- * The boards no engine proves yet. Named here for the same reason
- * engine.solve.slow.test.ts names them: the day one becomes provable, the
- * assertion below is what says so.
+ * The boards the cheap arms cannot crack, whose answers come from the
+ * stochastic NRPA arm. They get their own budget in the sweep, and their own
+ * positive assertion further down.
  */
-const BEYOND_BUDGET = new Set([
+const STOCHASTIC = new Set([
   "matchThreeTest47.json",
   "matchThreeTest50.json",
   "matchThreeTest51.json",
 ]);
 
-/** Proven-minimal lengths — the same table the TypeScript sweep pins. */
-const PROVEN_LENGTHS: Record<string, number> = {
+/**
+ * Length CEILINGS — the same table the TypeScript sweep carries.
+ *
+ * They were exact proven minima, and the equality across the two engines was
+ * the cross-engine check. The search no longer proves anything about length, so
+ * these are an upper bound instead: a quality net against an arm-ordering
+ * regression. The firewall against a rules divergence is now the replay below,
+ * which was always the thing that actually caught an unplayable witness.
+ */
+const LENGTH_CEILINGS: Record<string, number> = {
   "matchThreeTest.json": 1,
   "matchThreeTest1.json": 2,
   "matchThreeTest2.json": 2,
@@ -141,7 +147,8 @@ const PROVEN_LENGTHS: Record<string, number> = {
   "matchThreeTest43.json": 8,
   "matchThreeTest44.json": 14,
   "matchThreeTest45.json": 7,
-  "matchThreeTest46.json": 7,
+  // The one board where the first find is not the optimum: 8, optimum 7.
+  "matchThreeTest46.json": 8,
   "matchThreeTest48.json": 7,
   "matchThreeTest49.json": 10,
 };
@@ -155,14 +162,13 @@ describe.skipIf(Bun.env.IOI_SKIP_SLOW === "1")("Match-three wasm", () => {
     "the whole corpus solves, and every witness replays under the page's rules",
     async () => {
       const module = await loadWasmModule();
-      const unproven: string[] = [];
 
       for (const name of FIXTURES) {
         const config = await readFixture(name);
         const puzzle = toPuzzle(config);
         const result = module.solve(puzzle, {
           engine: "cascade",
-          maxMs: BEYOND_BUDGET.has(name) ? 4_000 : SOLVE_MS,
+          maxMs: STOCHASTIC.has(name) ? 4_000 : SOLVE_MS,
         });
 
         expect(result.error).toBeUndefined();
@@ -177,23 +183,14 @@ describe.skipIf(Bun.env.IOI_SKIP_SLOW === "1")("Match-three wasm", () => {
           expect(clearsBoard(toBoard(config), moves)).toBeTrue();
           expect(module.verify(puzzle, moves)).toBeTrue();
         }
-        if (BEYOND_BUDGET.has(name)) {
-          expect(result.proven).toBeFalse();
-          continue;
-        }
+        if (STOCHASTIC.has(name)) continue;
 
         expect(moves.length).toBeGreaterThan(0);
-        if (!result.proven) {
-          unproven.push(name);
-          continue;
+        const ceiling = LENGTH_CEILINGS[name];
+        if (ceiling !== undefined) {
+          expect(moves.length).toBeLessThanOrEqual(ceiling);
         }
-        const pinned = PROVEN_LENGTHS[name];
-        if (pinned !== undefined) expect(moves).toHaveLength(pinned);
       }
-
-      // Reported together rather than one failure at a time: a budget change
-      // that costs several boards their proof should say which ones.
-      expect(unproven).toBeEmpty();
     },
     TIMEOUT_MS,
   );
@@ -217,20 +214,26 @@ describe.skipIf(Bun.env.IOI_SKIP_SLOW === "1")("Match-three wasm", () => {
   );
 
   test(
-    "matchThreeTest47 gets its 20-move answer, honestly labelled",
+    "matchThreeTest47 gets an answer from the exhaustive search",
     async () => {
-      // The one hard board a systematic arm cracks: the dive finds the solution a
-      // 46-minute deepening run in July confirmed is optimal, and no engine
-      // here can prove that — so it must come back solved but NOT proven.
+      // The one hard board a systematic arm cracks. 20 is the known optimum — a
+      // 46-minute deepening run in July confirmed it, back when this engine
+      // could still prove such a thing — and the search returns 21, because it
+      // takes the first line it reaches at maxDepth instead of re-diving under
+      // a tighter bound. One of the two boards in the corpus where stopping
+      // early costs a move; matchThreeTest46 is the other.
       const module = await loadWasmModule();
       const config = await readFixture("matchThreeTest47.json");
       const puzzle = toPuzzle(config);
-      const result = module.solve(puzzle, { engine: "bnb", maxMs: 60_000 });
+      const result = module.solve(puzzle, {
+        engine: "exhaustive",
+        maxMs: 60_000,
+      });
 
       expect(result.error).toBeUndefined();
       const moves = plainMoves(result);
-      expect(moves).toHaveLength(20);
-      expect(result.proven).toBeFalse();
+      expect(moves.length).toBeGreaterThan(0);
+      expect(moves.length).toBeLessThanOrEqual(21);
       expect(clearsBoard(toBoard(config), moves)).toBeTrue();
     },
     TIMEOUT_MS,
@@ -238,10 +241,9 @@ describe.skipIf(Bun.env.IOI_SKIP_SLOW === "1")("Match-three wasm", () => {
 
   /**
    * The two boards nothing found a witness for until NRPA, pinned as a POSITIVE
-   * assertion rather than as a tolerated maybe. `BEYOND_BUDGET` above only says
-   * these must not come back *proven*; it stays green if the arms lose the
-   * ability to answer them at all, and losing that ability quietly is exactly
-   * what this catches.
+   * assertion rather than as a tolerated maybe. The sweep above skips them, so
+   * it stays green if the arms lose the ability to answer them at all — and
+   * losing that ability quietly is exactly what this catches.
    *
    * Each entry names the arm configuration and the seed measured to answer that
    * board, and the budget is roughly 20x the measured time — a stochastic search
@@ -275,8 +277,6 @@ describe.skipIf(Bun.env.IOI_SKIP_SLOW === "1")("Match-three wasm", () => {
       // The whole point: a witness EXISTS. Length is pinned too, because every
       // seed and level that solves these returns the same count.
       expect(moves).toHaveLength(expected);
-      // Never proven — no engine here exhausts the shorter lengths.
-      expect(result.proven).toBeFalse();
       // And it has to survive the page's own rules, move for move.
       expect(clearsBoard(toBoard(config), moves)).toBeTrue();
       expect(module.verify(puzzle, moves)).toBeTrue();

@@ -66,12 +66,7 @@ const SLOW = [
 
 describe("solveMatchThree", () => {
   test("a board with nothing on it is already solved", () => {
-    expect(solve(["..", "#."])).toEqual({
-      status: "solved",
-      moves: [],
-      proven: true,
-      groupingProven: true,
-    });
+    expect(solve(["..", "#."])).toEqual({ status: "solved", moves: [] });
   });
 
   test("finds the single swap that clears the board", () => {
@@ -129,11 +124,8 @@ describe("solveMatchThree", () => {
       }
     });
 
-    test("gives up rather than report a length it has not proven", () => {
-      const result = solve(SLOW, 0);
-      expect(result.status).toBe("budget");
-      if (result.status !== "budget") return;
-      expect(result.ruledOut).toBeGreaterThanOrEqual(0);
+    test("says it gave up rather than inventing an answer", () => {
+      expect(solve(SLOW, 0).status).toBe("budget");
     });
 
     test("a board it can finish is never reported as a give-up", () => {
@@ -142,38 +134,38 @@ describe("solveMatchThree", () => {
   });
 
   describe("Progress", () => {
-    test("reports what has been ruled out so far", () => {
+    test("reports the work done so far", () => {
       const seen: number[] = [];
       solveMatchThree(board(SLOW), {
         budgetMs: 0,
-        onProgress: progress => seen.push(progress.ruledOut),
+        onProgress: progress => seen.push(progress.nodes),
       });
       expect(seen.length).toBeGreaterThan(0);
-      expect(seen.every(ruledOut => ruledOut >= 0)).toBeTrue();
+      expect(seen.every(nodes => nodes >= 0)).toBeTrue();
     });
   });
 
-  describe("Anytime", () => {
-    test("streamed bests replay, and only ever get better", () => {
+  describe("Streaming", () => {
+    test("a streamed best is the answer, and it replays", () => {
       const bests: Move[][] = [];
       const result = solveMatchThree(board(SLOW), {
         budgetMs: 150,
         onBest: moves => bests.push(moves),
       });
 
-      for (let i = 0; i < bests.length; i++) {
-        expect(clearsBoard(board(SLOW), bests[i]!)).toBeTrue();
-        if (i > 0) {
-          expect(bests[i]!.length).toBeLessThanOrEqual(bests[i - 1]!.length);
-        }
+      for (const best of bests) {
+        expect(clearsBoard(board(SLOW), best)).toBeTrue();
       }
-      // Whether 150ms is enough to prove anything varies with the machine;
-      // what may never vary is the honesty of the outcome.
+      // Whether 150ms is enough varies with the machine; what may never vary is
+      // the honesty of the outcome. A solved run must have streamed exactly the
+      // answer it returns, because the search stops the moment it has one.
       if (result.status === "solved") {
         expect(clearsBoard(board(SLOW), result.moves)).toBeTrue();
-        if (!result.proven) expect(bests.length).toBeGreaterThan(0);
+        expect(bests).toHaveLength(1);
+        expect(bests[0]).toEqual(result.moves);
       } else {
         expect(result.status).toBe("budget");
+        expect(bests).toBeEmpty();
       }
     });
   });
@@ -198,15 +190,10 @@ describe("solveMatchThree", () => {
     });
   });
 
-  describe("Grouping", () => {
-    test("a solution it had time to tidy is marked as proven", () => {
-      const result = solve(TWO_MOVES);
-      if (result.status !== "solved") throw new Error(result.status);
-      expect(result.groupingProven).toBeTrue();
-    });
-
-    test("keeps moves on one symbol together when the length allows it", () => {
-      // Three independent pairs of lines, one swap each, in any order.
+  describe("Independent lines", () => {
+    test("clears three unrelated pairs in three moves", () => {
+      // Three independent pairs of lines, one swap each, in any order. There is
+      // no tidying pass any more, so the only claim is the count.
       const result = solve(["aab", "bba", "ccd", "ddc", "eef", "ffe"]);
       if (result.status !== "solved") throw new Error(result.status);
       expect(result.moves).toHaveLength(3);

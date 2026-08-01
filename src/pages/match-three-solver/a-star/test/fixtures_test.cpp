@@ -25,20 +25,25 @@ using namespace mt;
 /// finishes, short enough that the whole sweep stays inside the ctest timeout.
 constexpr uint32_t kBudgetMs = 30000;
 
-/// The boards no engine can prove yet — legal game states like every other
-/// fixture, but nothing has exhausted every shorter length for them. A fixture
-/// leaves this set the day the sweep proves it, and this test is what says so.
-bool beyondBudget(const std::string &name) {
+/// The boards the cheap arms cannot crack, where the answer comes from a
+/// STOCHASTIC arm and so cannot be pinned. They still have to come back
+/// playable if they come back at all, and they must never be called unsolvable.
+bool stochastic(const std::string &name) {
   return name == "matchThreeTest47.json" || name == "matchThreeTest50.json" ||
          name == "matchThreeTest51.json";
 }
 
-/// Proven-minimal lengths, shared with the TypeScript sweep in
-/// test/match-three-solver/engine.solve.slow.test.ts. Both engines must agree
-/// on every one of them: a length that differs between them is a rules
-/// divergence, which is exactly what would make a wasm witness unplayable on
-/// the page. A fixture with no entry simply skips the check.
-const std::unordered_map<std::string, size_t> &provenLengths() {
+/// Length CEILINGS, shared with the TypeScript sweep in
+/// test/match-three-solver/engine.solve.slow.test.ts.
+///
+/// These used to be exact proven minima, and the equality was the cross-engine
+/// check. The search no longer proves anything about length — it returns the
+/// first solution it finds — so the numbers are an upper bound instead: a
+/// quality net that catches an arm-ordering regression which starts returning
+/// fifteen-move answers where seven exist. Every value is the measured optimum
+/// (which the first find still matches on all but one board) with the one
+/// exception noted at its entry. A fixture with no entry skips the check.
+const std::unordered_map<std::string, size_t> &lengthCeilings() {
   static const std::unordered_map<std::string, size_t> lengths{
       {"matchThreeTest.json", 1},   {"matchThreeTest1.json", 2},
       {"matchThreeTest2.json", 2},  {"matchThreeTest3.json", 2},
@@ -63,7 +68,8 @@ const std::unordered_map<std::string, size_t> &provenLengths() {
       {"matchThreeTest40.json", 3}, {"matchThreeTest41.json", 10},
       {"matchThreeTest42.json", 6}, {"matchThreeTest43.json", 8},
       {"matchThreeTest44.json", 14}, {"matchThreeTest45.json", 7},
-      {"matchThreeTest46.json", 7}, {"matchThreeTest48.json", 7},
+      // The one board where the first find is not the optimum: 8, optimum 7.
+      {"matchThreeTest46.json", 8}, {"matchThreeTest48.json", 7},
       {"matchThreeTest49.json", 10}};
   return lengths;
 }
@@ -119,7 +125,7 @@ TEST_P(MatchThreeFixtureTest, IsSolvedAndReplayValid) {
   // Never "unsolvable" on a captured board: they come from the game.
   EXPECT_FALSE(outcome.unsolvable);
 
-  if (beyondBudget(name)) {
+  if (stochastic(name)) {
     // Whatever came back must still be honest and playable.
     if (!outcome.moves.empty()) {
       const replay::Verdict verdict = replay::replayMoves(board, outcome.moves);
@@ -129,10 +135,9 @@ TEST_P(MatchThreeFixtureTest, IsSolvedAndReplayValid) {
   }
 
   ASSERT_FALSE(outcome.moves.empty()) << "No solution found for " << name;
-  EXPECT_TRUE(outcome.proven);
-  const auto pinned = provenLengths().find(name);
-  if (pinned != provenLengths().end())
-    EXPECT_EQ(outcome.moves.size(), pinned->second);
+  const auto ceiling = lengthCeilings().find(name);
+  if (ceiling != lengthCeilings().end())
+    EXPECT_LE(outcome.moves.size(), ceiling->second);
 
   // The move list is only an answer if it survives being replayed by the
   // oracle, which shares no code with the search that produced it.
