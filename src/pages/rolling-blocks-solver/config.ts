@@ -1,3 +1,8 @@
+import {
+  intInRange,
+  readGridSize,
+  type ConfigResult,
+} from "../../util/configValidation";
 import type { RollingBlocksTest, Tile } from "../../util/types";
 import { Block } from "./block";
 
@@ -24,17 +29,7 @@ const TILES: ReadonlySet<string> = new Set([
   "unplayable",
 ]);
 
-export type ConfigParseResult =
-  | { ok: true; config: RollingBlocksTest }
-  | { ok: false; error: string };
-
-function intInRange(value: unknown, min: number, max: number): value is number {
-  return (
-    Number.isInteger(value) &&
-    (value as number) >= min &&
-    (value as number) <= max
-  );
-}
+export type ConfigParseResult = ConfigResult<RollingBlocksTest>;
 
 /** Returns the first problem with the cells grid, or null when it is valid. */
 function cellsError(
@@ -125,25 +120,10 @@ function parseBlock(
  * in some captured fixtures) is ignored — the board only loads the puzzle.
  */
 export function validateConfig(data: unknown): ConfigParseResult {
-  if (typeof data !== "object" || data === null) {
-    return { ok: false, error: "Config must be a JSON object." };
-  }
+  const size = readGridSize(data, MAX_GRID_SIDE);
+  if (!size.ok) return size;
+  const { gridWidth, gridHeight } = size.config;
   const raw = data as Record<string, unknown>;
-
-  if (!intInRange(raw.gridWidth, 1, MAX_GRID_SIDE)) {
-    return {
-      ok: false,
-      error: `gridWidth must be an integer between 1 and ${MAX_GRID_SIDE}.`,
-    };
-  }
-  if (!intInRange(raw.gridHeight, 1, MAX_GRID_SIDE)) {
-    return {
-      ok: false,
-      error: `gridHeight must be an integer between 1 and ${MAX_GRID_SIDE}.`,
-    };
-  }
-  const gridWidth = raw.gridWidth as number;
-  const gridHeight = raw.gridHeight as number;
 
   const cellsProblem = cellsError(raw.cells, gridWidth, gridHeight);
   if (cellsProblem !== null) {

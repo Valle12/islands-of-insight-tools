@@ -1,3 +1,4 @@
+import { parsePositiveInt as parseBounded } from "../../util/editorShell";
 import type { Position } from "../../util/types";
 import { MAX_GRID_SIDE } from "./config";
 
@@ -5,16 +6,15 @@ import { MAX_GRID_SIDE } from "./config";
 // shiftingMosaicSolver.ts for size; none of them read editor state, so they
 // take what they need as arguments.
 
+/**
+ * A grid dimension, bounded by this page's own cap. The bound matters: the
+ * solver's BitGrid packs one row per uint64_t (64 columns max) and the wasm
+ * boundary narrows dimensions to uint8_t and coordinates to int8_t, so an
+ * unbounded value here silently solves a *different* board — and the editor
+ * would try to build width x height DOM cells first.
+ */
 export function parsePositiveInt(value: string): number | null {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) return null;
-  // Upper bound matters: the solver's BitGrid packs one row per uint64_t
-  // (64 columns max) and the wasm boundary narrows dimensions to uint8_t and
-  // coordinates to int8_t, so an unbounded value here silently solves a
-  // *different* board — and the editor would try to build width x height DOM
-  // cells first.
-  if (parsed > MAX_GRID_SIDE) return null;
-  return parsed;
+  return parseBounded(value, MAX_GRID_SIDE);
 }
 
 

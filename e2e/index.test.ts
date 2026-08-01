@@ -3,7 +3,7 @@ import { waitForCoiSettled } from "./coi";
 
 test.describe("Index", () => {
   test("test navigating to subpages", async ({ page }) => {
-    // Three of the four subpages register the COOP/COEP shim, which reloads
+    // Three of the five subpages register the COOP/COEP shim, which reloads
     // once when its service worker activates. The wait goes immediately after
     // each of those clicks and BEFORE the first assertion, because the pending
     // reload breaks both ends: an interaction issued into it dies with
@@ -11,6 +11,10 @@ test.describe("Index", () => {
     // reload win and cancel the navigation, leaving the next assertion looking
     // at the solver page it just tried to leave.
     await page.goto("/");
+    // Logic grid has no wasm, so no shim and no wait.
+    await page.getByRole("link", { name: "Logic Grid Solver" }).click();
+    await expect(page.getByRole("button", { name: "Solve Grid" })).toBeVisible();
+    await page.getByRole("link", { name: "Home" }).locator("#button").click();
     await page.getByRole("link", { name: "Match Three Solver" }).click();
     await waitForCoiSettled(page);
     await expect(

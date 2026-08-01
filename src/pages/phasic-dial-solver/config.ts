@@ -1,3 +1,4 @@
+import type { ConfigResult } from "../../util/configValidation";
 import type { PhasicDialTest } from "../../util/types";
 import { Button } from "./button";
 
@@ -15,9 +16,7 @@ export const MAX_DIALS = 6;
  */
 export const MIN_DIALS = 2;
 
-export type PhasicDialConfigParseResult =
-  | { ok: true; config: PhasicDialTest }
-  | { ok: false; error: string };
+export type PhasicDialConfigParseResult = ConfigResult<PhasicDialTest>;
 
 type Rejection = { ok: false; error: string };
 

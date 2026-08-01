@@ -1,9 +1,12 @@
 import { registerCoiShim } from "../../common/coiRegister";
+import { downloadJson, readJsonFile } from "./../../util/configFile";
 import {
-  downloadJson,
-  readJsonFile,
-  setupDragAndDrop,
-} from "./../../util/configFile";
+  openResetDialog,
+  parsePositiveInt,
+  warningBanner,
+  wireConfigIo,
+  wireResetDialog,
+} from "./../../util/editorShell";
 import type { PaintTool, RollingBlocksTest } from "./../../util/types";
 import { Board } from "./board";
 import { MAX_BLOCK_DIM, MAX_GRID_SIDE, validateConfig } from "./config";
@@ -54,10 +57,9 @@ export class RollingBlocksSolverEditor {
     "solution-progress-text",
   ) as HTMLSpanElement;
 
-  private readonly warningBanner = document.getElementById(
-    "warning-banner",
-  ) as HTMLDivElement;
-  private warningTimeoutId: number | null = null;
+  private readonly showWarning = warningBanner(
+    document.getElementById("warning-banner") as HTMLDivElement,
+  );
   private readonly fileInput = document.getElementById(
     "config-file-input",
   ) as HTMLInputElement;
@@ -104,7 +106,7 @@ export class RollingBlocksSolverEditor {
         }
 
         if (tool === "reset") {
-          (document.getElementById("reset-dialog") as HTMLDialogElement).show();
+          openResetDialog();
           return;
         }
 
@@ -115,21 +117,10 @@ export class RollingBlocksSolverEditor {
       });
     });
 
-    const resetCancelBtn = document.getElementById("reset-cancel");
-    const resetConfirmBtn = document.getElementById("reset-confirm");
-    const resetDialog = document.getElementById(
-      "reset-dialog",
-    ) as HTMLDialogElement;
-
-    resetCancelBtn?.addEventListener("click", () => {
-      resetDialog.close();
-    });
-
-    resetConfirmBtn?.addEventListener("click", () => {
+    wireResetDialog(() => {
       this.resetToDefaults();
       this.hideSolution();
       this.render();
-      resetDialog.close();
     });
 
     const calculateMovesBtn = document.getElementById("calculate-moves");
@@ -179,23 +170,11 @@ export class RollingBlocksSolverEditor {
       if (this.lastPath) this.enterSolutionView(this.lastPath);
     });
 
-    document
-      .getElementById("download-config")
-      ?.addEventListener("click", () => this.downloadCurrentConfig());
-
-    document
-      .getElementById("upload-config")
-      ?.addEventListener("click", () => this.fileInput.click());
-
-    this.fileInput.addEventListener("change", () => {
-      const file = this.fileInput.files?.[0];
-      if (file) void this.loadConfigFromFile(file);
-      // Clear the value so re-selecting the same file fires "change" again.
-      this.fileInput.value = "";
-    });
-
-    setupDragAndDrop(this.dropOverlay, file => {
-      void this.loadConfigFromFile(file);
+    wireConfigIo({
+      fileInput: this.fileInput,
+      dropOverlay: this.dropOverlay,
+      onFile: file => void this.loadConfigFromFile(file),
+      onDownload: () => this.downloadCurrentConfig(),
     });
 
     this.widthField.addEventListener("input", () => this.handleSizeUpdate());
@@ -209,7 +188,7 @@ export class RollingBlocksSolverEditor {
       const blocks = this.board.getBlocks();
       const block = blocks.get(id);
       if (!block) return;
-      const parsed = this.parsePositiveInt(textField.value, MAX_BLOCK_DIM);
+      const parsed = parsePositiveInt(textField.value, MAX_BLOCK_DIM);
       if (!parsed) return;
       block.height = parsed;
       this.hideSolution();
@@ -240,11 +219,8 @@ export class RollingBlocksSolverEditor {
   }
 
   private handleSizeUpdate() {
-    const parsedWidth = this.parsePositiveInt(
-      this.widthField.value,
-      MAX_GRID_SIDE,
-    );
-    const parsedHeight = this.parsePositiveInt(
+    const parsedWidth = parsePositiveInt(this.widthField.value, MAX_GRID_SIDE);
+    const parsedHeight = parsePositiveInt(
       this.heightField.value,
       MAX_GRID_SIDE,
     );
@@ -259,14 +235,6 @@ export class RollingBlocksSolverEditor {
     );
     this.hideSolution();
     this.render();
-  }
-
-  private parsePositiveInt(value: string, max: number): number | null {
-    const parsed = Number(value);
-    if (!Number.isInteger(parsed) || parsed <= 0 || parsed > max) {
-      return null;
-    }
-    return parsed;
   }
 
   private applyDefaultGridSize() {
@@ -417,18 +385,6 @@ export class RollingBlocksSolverEditor {
     this.solutionError.classList.remove("hidden");
     this.solutionError.textContent = `Error: ${error}`;
     this.solutionStatus.textContent = "Failed";
-  }
-
-  private showWarning(message: string) {
-    this.warningBanner.textContent = message;
-    this.warningBanner.classList.remove("hidden");
-    if (this.warningTimeoutId !== null) {
-      window.clearTimeout(this.warningTimeoutId);
-    }
-    this.warningTimeoutId = window.setTimeout(() => {
-      this.warningBanner.classList.add("hidden");
-      this.warningTimeoutId = null;
-    }, 3500);
   }
 
   private downloadCurrentConfig() {

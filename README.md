@@ -17,6 +17,13 @@ JSON file and loaded again later.
 
 ## The tools
 
+### Logic Grid Solver
+
+For the grids that have to be coloured dark and light under a set of board-wide
+rules, with clues placed on individual cells. Paint the board, place the area
+numbers and letters, switch on the rules the puzzle uses, and save it to a file.
+**The search itself is not written yet** — this is the editor it will hang off.
+
 ### Match Three Solver
 
 For the grids of coloured blocks that clear when three or more line up. Paint the

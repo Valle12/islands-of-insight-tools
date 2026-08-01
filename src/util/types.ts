@@ -76,6 +76,40 @@ export type MatchThreeTest = {
   cells: MatchThreeCell[][];
 };
 
+/** An area number is a number; a letter is a single `A`-`Z` character. */
+export type LogicGridSymbolValue = number | string;
+
+/** A clue as a cell holds it — its position is where it sits. */
+export type LogicGridClue = {
+  /** Index into `SYMBOL_KINDS`, which is append-only. */
+  type: number;
+  value: LogicGridSymbolValue;
+};
+
+/** A clue as the config stores it: sparse, so an unclued board carries none. */
+export type LogicGridSymbol = LogicGridClue & {
+  x: number;
+  y: number;
+};
+
+export type LogicGridTest = {
+  gridWidth: number;
+  gridHeight: number;
+  /** Indices into `RULES`, which is append-only. Ascending and unique. */
+  rules: number[];
+  /**
+   * The colour layer alone, column-major, one index per cell — see
+   * `src/pages/logic-grid-solver/cell.ts` for the constants. 0 is uncoloured,
+   * 1 dark, 2 light, 3 an unplayable gap in the board.
+   *
+   * Clues are the SEPARATE layer below: a cell carries a colour and,
+   * independently, at most one clue, so a clue on an uncoloured cell is one
+   * whose colour the player still has to deduce.
+   */
+  cells: number[][];
+  symbols: LogicGridSymbol[];
+};
+
 export type ShiftingMosaicTest = {
   gridWidth: number;
   gridHeight: number;
@@ -98,6 +132,14 @@ export type PaintTool =
   | "reset";
 
 export type MatchThreeTool = "empty" | "blocked" | "symbol" | "reset";
+
+export type LogicGridTool =
+  | "dark"
+  | "light"
+  | "unplayable"
+  | "erase"
+  | "symbol"
+  | "reset";
 
 export type BlockType = "obstruction" | "goal";
 
