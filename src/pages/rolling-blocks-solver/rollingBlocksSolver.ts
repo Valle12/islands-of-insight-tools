@@ -7,6 +7,7 @@ import {
 import type { PaintTool, RollingBlocksTest } from "./../../util/types";
 import { Board } from "./board";
 import { MAX_BLOCK_DIM, MAX_GRID_SIDE, validateConfig } from "./config";
+import { SolutionView } from "./solutionView";
 import type { Turn } from "./turn";
 import { searchRollingBlocksWasm, type SolverHandle } from "./wasmBridge";
 
@@ -34,9 +35,18 @@ export class RollingBlocksSolverEditor {
   private readonly solutionError = document.getElementById(
     "solution-error",
   ) as HTMLDivElement;
-  private readonly solutionMoves = document.getElementById(
-    "solution-moves",
-  ) as HTMLOListElement;
+  private readonly editorSection = document.getElementById(
+    "editor-section",
+  ) as HTMLDivElement;
+  private readonly solutionViewEl = document.getElementById(
+    "solution-view",
+  ) as HTMLDivElement;
+  private readonly solutionStepsBtn = document.getElementById(
+    "solution-steps",
+  ) as HTMLButtonElement;
+  private solutionView: SolutionView | null = null;
+  // Kept so "Back to editor" can hand the same answer back without re-solving.
+  private lastPath: Turn[] | null = null;
   private readonly solutionStatus = document.getElementById(
     "solution-status",
   ) as HTMLSpanElement;
@@ -159,6 +169,14 @@ export class RollingBlocksSolverEditor {
           },
         },
       );
+    });
+
+    document
+      .getElementById("solution-exit")
+      ?.addEventListener("click", () => this.exitSolutionView());
+
+    this.solutionStepsBtn.addEventListener("click", () => {
+      if (this.lastPath) this.enterSolutionView(this.lastPath);
     });
 
     document
@@ -344,7 +362,7 @@ export class RollingBlocksSolverEditor {
     this.solutionPanel.classList.remove("hidden");
     this.solutionSpinner.classList.remove("hidden");
     this.solutionError.classList.add("hidden");
-    this.solutionMoves.classList.add("hidden");
+    this.solutionStepsBtn.classList.add("hidden");
     this.solutionStatus.textContent = "";
     this.solutionProgressText.textContent = "Searching...";
   }
@@ -354,24 +372,48 @@ export class RollingBlocksSolverEditor {
     this.solutionError.classList.add("hidden");
 
     if (path.length === 0) {
+      // Nothing to step through, so the editor stays put and the panel says so.
       this.solutionStatus.textContent = "No solution found";
-      this.solutionMoves.classList.add("hidden");
       return;
     }
 
     this.solutionStatus.textContent = `${path.length} move${path.length !== 1 ? "s" : ""}`;
-    this.solutionMoves.classList.remove("hidden");
-    this.solutionMoves.innerHTML = path
-      .map(
-        turn =>
-          `<li><span class="move-block">Block ${turn.blockId}</span> <span class="move-direction">${turn.direction.toLowerCase()}</span></li>`,
-      )
-      .join("");
+    this.lastPath = path;
+    this.solutionStepsBtn.classList.remove("hidden");
+    this.enterSolutionView(path);
+  }
+
+  /** Swaps the editor out for the step-by-step view of `path`. */
+  private enterSolutionView(path: Turn[]) {
+    this.solutionView?.dispose();
+    this.solutionView = new SolutionView(
+      {
+        gridWidth: this.gridWidth,
+        gridHeight: this.gridHeight,
+        cells: this.board.getCells(),
+        blocks: this.board.getBlocks().values().toArray(),
+      },
+      path,
+    );
+    this.editorSection.classList.add("hidden");
+    this.solutionPanel.classList.add("hidden");
+    this.solutionViewEl.classList.remove("hidden");
+  }
+
+  /**
+   * Puts the editor back. The answer survives — the panel keeps its move count
+   * and offers the step view again, so tweaking nothing costs nothing.
+   */
+  private exitSolutionView() {
+    this.solutionView?.dispose();
+    this.solutionView = null;
+    this.solutionViewEl.classList.add("hidden");
+    this.editorSection.classList.remove("hidden");
+    if (this.lastPath) this.solutionPanel.classList.remove("hidden");
   }
 
   private showError(error: string) {
     this.solutionSpinner.classList.add("hidden");
-    this.solutionMoves.classList.add("hidden");
     this.solutionError.classList.remove("hidden");
     this.solutionError.textContent = `Error: ${error}`;
     this.solutionStatus.textContent = "Failed";
@@ -447,10 +489,12 @@ export class RollingBlocksSolverEditor {
 
   hideSolution() {
     this.stopCurrentWorker();
+    this.lastPath = null;
+    this.exitSolutionView();
     this.solutionPanel.classList.add("hidden");
     this.solutionSpinner.classList.add("hidden");
     this.solutionError.classList.add("hidden");
-    this.solutionMoves.classList.add("hidden");
+    this.solutionStepsBtn.classList.add("hidden");
   }
 }
 

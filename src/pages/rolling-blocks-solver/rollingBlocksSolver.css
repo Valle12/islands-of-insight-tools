@@ -44,6 +44,15 @@ body {
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.09);
 }
 
+/* The editor and the step-by-step solution are swapped for one another, so
+   each owns the column layout `#editor-card` used to provide directly. */
+#editor-section,
+#solution-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 h1,
 h2 {
   margin: 0;
@@ -105,15 +114,23 @@ h2 {
   position: relative;
 }
 
+/* Material Symbols renders by LIGATURE, so the glyph name is the content and
+   the font does the rest — `star` and `check` have to be in the `icon_names=`
+   subset in common.css or the cell shows the word instead. FILL 1 is the
+   solid star; the outlined one reads as an empty cell at this size. */
 .grid-cell[data-kind="mustTouch"]::after {
-  content: "★";
+  content: "star";
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
+  font-family: "Material Symbols Outlined", sans-serif;
+  font-size: 22px;
+  font-weight: normal;
+  font-variation-settings: "FILL" 1;
+  font-feature-settings: "liga";
+  line-height: 1;
   color: #fff;
-  font-size: 18px;
-  font-weight: bold;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
@@ -362,18 +379,193 @@ h2 {
   background: color-mix(in srgb, var(--md-sys-color-error) 10%, transparent);
 }
 
-#solution-moves {
+#solution-steps {
+  align-self: flex-start;
+}
+
+/* ------------------------------------------- step-by-step solution view -- */
+
+#solution-view-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+#solution-step-counter {
+  font-size: 13px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+#solution-view-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+#solution-board {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 12px;
+  flex: 1 1 420px;
+  min-width: 0;
+}
+
+#solution-grid-shell {
+  display: flex;
+  justify-content: center;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--md-sys-color-surface-container);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  overflow-x: auto;
+}
+
+#solution-grid {
+  display: grid;
+  gap: 6px;
+}
+
+/* The board here is read-only — nothing about it should invite a click. */
+#solution-grid .grid-cell {
+  cursor: default;
+}
+
+#solution-grid .grid-cell:hover {
+  transform: none;
+}
+
+#solution-grid .grid-cell.rb-moving {
+  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.95);
+  filter: brightness(1.2);
+}
+
+/* Where the block lands. Drawn per edge, because the grid has gaps. */
+#solution-grid .grid-cell.rb-dest::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  pointer-events: none;
+  border-style: dashed;
+  border-color: transparent;
+  border-width: 0;
+  border-radius: 10px;
+  z-index: 1;
+}
+
+#solution-grid .grid-cell.rb-dest-edge-top::before {
+  border-top-width: 4px;
+  border-top-color: #23c08a;
+}
+
+#solution-grid .grid-cell.rb-dest-edge-right::before {
+  border-right-width: 4px;
+  border-right-color: #23c08a;
+}
+
+#solution-grid .grid-cell.rb-dest-edge-bottom::before {
+  border-bottom-width: 4px;
+  border-bottom-color: #23c08a;
+}
+
+#solution-grid .grid-cell.rb-dest-edge-left::before {
+  border-left-width: 4px;
+  border-left-color: #23c08a;
+}
+
+/* A star already stepped on is spent — and blocks every later roll. Only the
+   glyph changes; everything else comes from the must-touch rule above. */
+#solution-grid .grid-cell[data-touched="true"] {
+  opacity: 0.5;
+}
+
+/* Bigger and heavier than the star it replaces: `check` is a stroked glyph
+   where `star` is a solid one, so matching their font-size leaves the check
+   looking half the weight. */
+#solution-grid .grid-cell[data-touched="true"]::after {
+  content: "check";
+  font-size: 27px;
+  font-variation-settings: "FILL" 1, "wght" 600;
+}
+
+#solution-step-text {
+  font-size: 14px;
+  color: var(--md-sys-color-on-surface);
+}
+
+.rb-moving-label {
+  color: #8465c8;
+}
+
+.rb-dest-label {
+  color: #23c08a;
+}
+
+#solution-view-controls {
+  display: flex;
+  gap: 10px;
+}
+
+#solution-exit {
+  align-self: flex-start;
+}
+
+#solution-moves {
+  flex: 1 1 250px;
+  align-self: stretch;
+  max-height: 520px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   margin: 0;
-  padding-left: 24px;
+  padding: 8px;
+  list-style: none;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container);
+  border: 1px solid var(--md-sys-color-outline-variant);
 }
 
 #solution-moves li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
   font-size: 14px;
   color: var(--md-sys-color-on-surface);
-  padding: 4px 0;
+  cursor: pointer;
+}
+
+#solution-moves li:hover {
+  background: var(--md-sys-color-surface-container-high);
+}
+
+#solution-moves li.done {
+  opacity: 0.55;
+}
+
+#solution-moves li.current {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  font-weight: 600;
+  opacity: 1;
+}
+
+#solution-moves li[data-unplayable="true"] {
+  color: var(--md-sys-color-error);
+}
+
+.move-index {
+  min-width: 24px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+#solution-moves li.current .move-index {
+  color: inherit;
 }
 
 .move-direction {

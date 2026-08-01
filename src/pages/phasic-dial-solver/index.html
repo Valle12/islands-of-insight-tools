@@ -30,14 +30,66 @@
         <md-icon>home</md-icon>
       </md-icon-button>
     </a>
+
     <div id="container">
-      <div id="dials-config">
-        <div id="dials-header">
-          <md-icon-button id="reset">
+      <div id="editor-card">
+        <h1>Phasic Dial Setup</h1>
+        <p id="subtitle">
+          Give each dial its shape and starting position, say what every button
+          turns, then calculate the presses that aim them all at the hub.
+        </p>
+
+        <!-- Announced: showWarning writes here and hides it again after
+             3500 ms, so a message nobody is told about is simply lost. -->
+        <div id="warning-banner" class="hidden" role="alert"></div>
+
+        <div id="dials-section">
+          <div id="dials-header">
+            <h2>Dials</h2>
+            <span id="dial-controls">
+              <md-icon-button
+                id="remove-dial"
+                title="Remove the last dial"
+                aria-label="Remove the last dial"
+              >
+                <md-icon>remove</md-icon>
+              </md-icon-button>
+              <md-icon-button
+                id="add-dial"
+                title="Add a dial"
+                aria-label="Add a dial"
+              >
+                <md-icon>add</md-icon>
+              </md-icon-button>
+            </span>
+          </div>
+          <div id="dials-list"></div>
+        </div>
+
+        <div id="buttons-section">
+          <div id="buttons-header">
+            <h2>Buttons</h2>
+            <md-icon-button
+              id="add-button"
+              title="Add a button"
+              aria-label="Add a button"
+            >
+              <md-icon>add</md-icon>
+            </md-icon-button>
+          </div>
+          <div id="buttons-list"></div>
+        </div>
+
+        <div id="action-buttons">
+          <md-filled-button id="calculate">Calculate Turns</md-filled-button>
+          <md-icon-button
+            id="reset"
+            title="Reset the puzzle"
+            aria-label="Reset the puzzle"
+          >
             <md-icon>cancel</md-icon>
           </md-icon-button>
-          <h2>Dials</h2>
-          <md-icon-button id="help">
+          <md-icon-button id="help" title="How to use" aria-label="How to use">
             <md-icon>question_mark</md-icon>
           </md-icon-button>
           <span id="config-io">
@@ -64,57 +116,42 @@
             hidden
           />
         </div>
-        <div id="warning-banner" class="hidden"></div>
-        <div id="dials-list"></div>
-        <md-icon-button id="add-dial">
-          <md-icon>add</md-icon>
-        </md-icon-button>
-      </div>
 
-      <md-dialog id="help-dialog">
-        <div slot="headline">How to use</div>
-        <div slot="content">
-          <ol>
-            <li>
-              Add dials first so the table has the right number of columns.
-            </li>
-            <li>
-              Set <strong>Max</strong> to the number of sides of the dial minus
-              1 (e.g. a square dial has 4 sides, so Max = 3). The
-              <strong>Value</strong> is 0 when pointing at the center, then
-              count clockwise by the number of lit-up dots.
-            </li>
-            <li>
-              For each button, enter how many turns it applies to each dial. For
-              example, if you see two blue icons on a button, enter
-              <strong>2</strong> in that button's blue column.
-            </li>
-          </ol>
+        <div id="solve-spinner" class="hidden">
+          <md-circular-progress indeterminate></md-circular-progress>
+          <span>Searching...</span>
         </div>
-        <div slot="actions">
-          <md-text-button id="help-close">Close</md-text-button>
-        </div>
-      </md-dialog>
 
-      <table id="turns-table">
-        <thead>
-          <tr id="table-header"></tr>
-        </thead>
-        <tbody id="table-body"></tbody>
-      </table>
+        <!-- The search is asynchronous, so the answer arrives long after the
+             click that asked for it. -->
+        <div id="result" hidden aria-live="polite"></div>
 
-      <md-icon-button id="add-button">
-        <md-icon>add</md-icon>
-      </md-icon-button>
-
-      <md-filled-button id="calculate">Calculate Turns</md-filled-button>
-
-      <div id="solve-spinner" class="hidden">
-        <md-circular-progress indeterminate></md-circular-progress>
-        <span>Searching...</span>
+        <md-dialog id="help-dialog">
+          <div slot="headline">How to use</div>
+          <div slot="content">
+            <ol>
+              <li>
+                Add one dial per coloured dial in the puzzle, then use
+                <strong>−</strong> / <strong>+</strong> under a dial to match
+                its shape — a square dial has 4 positions, a hexagon has 6.
+              </li>
+              <li>
+                Drag the pointer — or focus the dial and use the arrow keys — to
+                the position the dial starts in. A dial lights up once its
+                pointer is aimed at the hub, which is the solved position.
+              </li>
+              <li>
+                Every button gets one slot per dial: set how many times it turns
+                that dial. If a button shows two blue icons in game, its blue
+                slot is <strong>2</strong>.
+              </li>
+            </ol>
+          </div>
+          <div slot="actions">
+            <md-text-button id="help-close">Close</md-text-button>
+          </div>
+        </md-dialog>
       </div>
-
-      <div id="result" hidden></div>
     </div>
 
     <div id="drop-overlay" class="hidden">

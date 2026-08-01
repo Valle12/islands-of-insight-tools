@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { Block } from "../../src/pages/rolling-blocks-solver/block";
 import { Direction } from "../../src/pages/rolling-blocks-solver/directions";
+import {
+  isSolved,
+  replayTurns,
+} from "../../src/pages/rolling-blocks-solver/replay";
 import type { Turn } from "../../src/pages/rolling-blocks-solver/turn";
 import type { RollingBlocksTest, Tile } from "../../src/util/types";
-import { extractBit, positionToIndex } from "../../src/util/utilMethods";
 
 const TILE_MAP: Record<Tile, number> = {
   regular: 0,
@@ -144,77 +147,22 @@ describe.skipIf(Bun.env.IOI_SKIP_SLOW === "1")("Rolling Blocks A*", () => {
 
       expect(turns.length).toBeGreaterThan(0);
 
-      const blocks = data.blocks.map(
-        b => new Block(b.id, b.x, b.y, b.width, b.depth, b.height),
-      );
+      // The page's own replay is the oracle here: it mirrors the C++
+      // `Replay.cpp` and is what draws the board between two moves, so a
+      // witness it refuses is one the solution view could not show either.
+      const puzzle = {
+        gridWidth: data.gridWidth,
+        gridHeight: data.gridHeight,
+        cells: data.cells,
+        blocks: data.blocks.map(
+          b => new Block(b.id, b.x, b.y, b.width, b.depth, b.height),
+        ),
+      };
+      const { steps, legalUpTo } = replayTurns(puzzle, turns);
+      expect(legalUpTo).toBe(turns.length);
 
-      let mustTouchCellsSatisfied = 0n;
-      for (const block of blocks) {
-        mustTouchCellsSatisfied = block.updateMustTouchCells(
-          data.gridWidth,
-          data.cells,
-          mustTouchCellsSatisfied,
-        );
-      }
-
-      for (const turn of turns) {
-        const block = blocks.find(b => b.id === turn.blockId)!;
-        block.roll(turn.direction);
-        expect(
-          block.checkValidity(
-            data.gridWidth,
-            data.gridHeight,
-            data.cells,
-            blocks,
-            mustTouchCellsSatisfied,
-          ),
-        ).toBe(true);
-        mustTouchCellsSatisfied = block.updateMustTouchCells(
-          data.gridWidth,
-          data.cells,
-          mustTouchCellsSatisfied,
-        );
-      }
-
-      for (let x = 0; x < data.gridWidth; x++) {
-        for (let y = 0; y < data.gridHeight; y++) {
-          if (data.cells[x]![y] !== "mustTouch") continue;
-          const index = positionToIndex(x, y, data.gridWidth);
-          expect(extractBit(mustTouchCellsSatisfied, index)).toBe(1n);
-        }
-      }
-
-      const goalIndices: Set<bigint> = new Set();
-      for (let x = 0; x < data.gridWidth; x++) {
-        for (let y = 0; y < data.gridHeight; y++) {
-          if (data.cells[x]![y] === "goal") {
-            goalIndices.add(positionToIndex(x, y, data.gridWidth));
-          }
-        }
-      }
-
-      if (goalIndices.size > 0) {
-        const coveredGoals: Set<bigint> = new Set();
-        for (const block of blocks) {
-          let fullyOnGoals = true;
-          for (let x = block.x; x < block.x + block.width && fullyOnGoals; x++) {
-            for (let y = block.y; y < block.y + block.depth; y++) {
-              if (data.cells[x]![y] !== "goal") {
-                fullyOnGoals = false;
-                break;
-              }
-            }
-          }
-          if (!fullyOnGoals) continue;
-          for (let x = block.x; x < block.x + block.width; x++) {
-            for (let y = block.y; y < block.y + block.depth; y++) {
-              const idx = positionToIndex(x, y, data.gridWidth);
-              if (goalIndices.has(idx)) coveredGoals.add(idx);
-            }
-          }
-        }
-        expect(coveredGoals.size).toBe(goalIndices.size);
-      }
+      const final = steps[steps.length - 1]!;
+      expect(isSolved(puzzle, final.blocks, final.satisfied)).toBe(true);
       },
       SOLVE_TEST_TIMEOUT_MS,
     );
