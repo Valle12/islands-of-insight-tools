@@ -17,27 +17,199 @@
     </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/png" href="/images/favicon.png" />
-    <title>Islands of Insight Tools</title>
+    <!-- Absolute on purpose, and the one href on the page that must NOT be
+         relative. Bun's HTML bundler resolves every local asset href and
+         inlines the result as a base64 data: URI (measured: 91 KB per page) —
+         and Googlebot-Image cannot fetch a data: URI, so the icon would never
+         be crawlable. An absolute URL is left alone by the bundler, is what
+         Google's favicon docs ask for (a stable, crawlable URL), and matches
+         how og:image and the canonical are already written. build.ts asserts
+         no data: URI comes back. -->
+    <link
+      rel="icon"
+      type="image/png"
+      href="https://valle12.github.io/islands-of-insight-tools/favicon.png"
+    />
+    <title>Islands of Insight Tools | Free Puzzle Solvers</title>
+    <!-- Every tag below is mirrored in src/util/siteMeta.ts and pinned to it by
+         test/siteMeta.test.ts. Edit both, or the test fails. -->
+    <meta
+      name="description"
+      content="Free browser-based solvers for Islands of Insight puzzles: Match Three, Phasic Dial, Rolling Blocks and Shifting Mosaic. Enter the puzzle, get the solution."
+    />
+    <link
+      rel="canonical"
+      href="https://valle12.github.io/islands-of-insight-tools/"
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Islands of Insight Tools" />
+    <meta
+      property="og:title"
+      content="Islands of Insight Tools | Free Puzzle Solvers"
+    />
+    <meta
+      property="og:description"
+      content="Free browser-based solvers for Islands of Insight puzzles: Match Three, Phasic Dial, Rolling Blocks and Shifting Mosaic. Enter the puzzle, get the solution."
+    />
+    <meta
+      property="og:url"
+      content="https://valle12.github.io/islands-of-insight-tools/"
+    />
+    <meta
+      property="og:image"
+      content="https://valle12.github.io/islands-of-insight-tools/og/home.png"
+    />
+    <meta property="og:image:width" content="1600" />
+    <meta property="og:image:height" content="838" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="Islands of Insight Tools | Free Puzzle Solvers"
+    />
+    <meta
+      name="twitter:description"
+      content="Free browser-based solvers for Islands of Insight puzzles: Match Three, Phasic Dial, Rolling Blocks and Shifting Mosaic. Enter the puzzle, get the solution."
+    />
+    <meta
+      name="twitter:image"
+      content="https://valle12.github.io/islands-of-insight-tools/og/home.png"
+    />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://valle12.github.io/islands-of-insight-tools/#website",
+            "url": "https://valle12.github.io/islands-of-insight-tools/",
+            "name": "Islands of Insight Tools",
+            "description": "Free browser-based solvers for the puzzles in Islands of Insight.",
+            "inLanguage": "en"
+          },
+          {
+            "@type": "ItemList",
+            "name": "Islands of Insight puzzle solvers",
+            "itemListElement": [
+              {
+                "@type": "ListItem",
+                "position": 1,
+                "name": "Match Three Solver",
+                "url": "https://valle12.github.io/islands-of-insight-tools/match-three-solver/"
+              },
+              {
+                "@type": "ListItem",
+                "position": 2,
+                "name": "Phasic Dial Solver",
+                "url": "https://valle12.github.io/islands-of-insight-tools/phasic-dial-solver/"
+              },
+              {
+                "@type": "ListItem",
+                "position": 3,
+                "name": "Rolling Blocks Solver",
+                "url": "https://valle12.github.io/islands-of-insight-tools/rolling-blocks-solver/"
+              },
+              {
+                "@type": "ListItem",
+                "position": 4,
+                "name": "Shifting Mosaic Solver",
+                "url": "https://valle12.github.io/islands-of-insight-tools/shifting-mosaic-solver/"
+              }
+            ]
+          }
+        ]
+      }
+    </script>
     <link rel="stylesheet" href="./../common/common.css" />
     <link rel="stylesheet" href="./index.css" />
     <script type="module" src="./../common/common.ts"></script>
   </head>
   <body>
-    <div id="tool-selector">
-      <h1>Islands of Insight Tools</h1>
-      <a href="./match-three-solver">
-        <md-filled-button>Match Three Solver</md-filled-button>
-      </a>
-      <a href="./phasic-dial-solver">
-        <md-filled-button>Phasic Dial Solver</md-filled-button>
-      </a>
-      <a href="./rolling-blocks-solver">
-        <md-filled-button>Rolling Blocks Solver</md-filled-button>
-      </a>
-      <a href="./shifting-mosaic-solver">
-        <md-filled-button>Shifting Mosaic Solver</md-filled-button>
-      </a>
-    </div>
+    <main id="tool-selector">
+      <header id="hero">
+        <h1>Islands of Insight Tools</h1>
+        <p id="intro">
+          Four browser-based solvers for the puzzles in
+          <i>Islands of Insight</i>. Describe the puzzle you are stuck on, press
+          solve, and get the answer back — one step at a time.
+        </p>
+        <p id="assurance">
+          <md-icon>check</md-icon>
+          Free, no account, and every puzzle is solved on your own machine
+        </p>
+      </header>
+
+      <!-- One link per card, wrapping the whole thing: a bigger target for a
+           thumb, and an anchor whose text is the tool name and what it does
+           rather than four bare buttons.
+
+           Every href keeps its trailing slash. GitHub Pages 301s the slash-less
+           form, and that redirect is both a wasted hop and a second URL for the
+           same page. -->
+      <ul id="tool-list">
+        <li>
+          <a class="tool-card" href="./match-three-solver/">
+            <span class="tool-art"><md-icon>apps</md-icon></span>
+            <span class="tool-body">
+              <h2>Match Three Solver</h2>
+              <span class="tool-desc">
+                Grids of coloured blocks that clear when three or more line up.
+                Get the swaps that clear the whole board.
+              </span>
+            </span>
+            <md-icon class="tool-go">chevron_right</md-icon>
+          </a>
+        </li>
+        <li>
+          <a class="tool-card" href="./phasic-dial-solver/">
+            <span class="tool-art"><md-icon>donut_large</md-icon></span>
+            <span class="tool-body">
+              <h2>Phasic Dial Solver</h2>
+              <span class="tool-desc">
+                Rows of dials that must all be turned back to centre, where
+                every button turns several at once.
+              </span>
+            </span>
+            <md-icon class="tool-go">chevron_right</md-icon>
+          </a>
+        </li>
+        <li>
+          <a class="tool-card" href="./rolling-blocks-solver/">
+            <span class="tool-art"><md-icon>view_in_ar</md-icon></span>
+            <span class="tool-body">
+              <h2>Rolling Blocks Solver</h2>
+              <span class="tool-desc">
+                Blocks rolled around a board to cover the marked tiles or reach
+                a goal. Get the exact rolls.
+              </span>
+            </span>
+            <md-icon class="tool-go">chevron_right</md-icon>
+          </a>
+        </li>
+        <li>
+          <a class="tool-card" href="./shifting-mosaic-solver/">
+            <span class="tool-art"><md-icon>dashboard</md-icon></span>
+            <span class="tool-body">
+              <h2>Shifting Mosaic Solver</h2>
+              <span class="tool-desc">
+                Sliding-block puzzles where a goal block has to reach a
+                highlighted zone past a crowd of obstructions.
+              </span>
+            </span>
+            <md-icon class="tool-go">chevron_right</md-icon>
+          </a>
+        </li>
+      </ul>
+
+      <footer id="site-footer">
+        Built for
+        <a href="https://store.steampowered.com/app/2071500/Islands_of_Insight/"
+          >Islands of Insight</a
+        >
+        ·
+        <a href="https://github.com/Valle12/islands-of-insight-tools"
+          >Source on GitHub</a
+        >
+      </footer>
+    </main>
   </body>
 </html>

@@ -35,7 +35,7 @@ test.describe("Rolling Blocks Solver", () => {
   test("test if all tools work as expected", async ({ page }) => {
     await gotoIsolated(page, "/rolling-blocks-solver");
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
-    - heading "Rolling Blocks Setup" [level=1]
+    - heading "Rolling Blocks Solver" [level=1]
     - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
@@ -85,7 +85,7 @@ test.describe("Rolling Blocks Solver", () => {
     await page.getByRole("spinbutton", { name: "Grid Width" }).press("Tab");
     await page.getByRole("spinbutton", { name: "Grid Height" }).fill("7");
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
-    - heading "Rolling Blocks Setup" [level=1]
+    - heading "Rolling Blocks Solver" [level=1]
     - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
@@ -176,7 +176,7 @@ test.describe("Rolling Blocks Solver", () => {
       .getByRole("button", { name: "Column 4, Row 7, Regular" })
       .click();
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
-    - heading "Rolling Blocks Setup" [level=1]
+    - heading "Rolling Blocks Solver" [level=1]
     - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
@@ -240,7 +240,7 @@ test.describe("Rolling Blocks Solver", () => {
     `);
     await page.getByRole("button", { name: "Fill Must-Touch" }).click();
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
-    - heading "Rolling Blocks Setup" [level=1]
+    - heading "Rolling Blocks Solver" [level=1]
     - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
@@ -343,7 +343,7 @@ test.describe("Rolling Blocks Solver", () => {
       .getByRole("button", { name: "Column 5, Row 7, Must-touch" })
       .click();
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
-    - heading "Rolling Blocks Setup" [level=1]
+    - heading "Rolling Blocks Solver" [level=1]
     - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
@@ -407,7 +407,7 @@ test.describe("Rolling Blocks Solver", () => {
     `);
     await page.getByRole("button", { name: "Fill Regular" }).click();
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
-    - heading "Rolling Blocks Setup" [level=1]
+    - heading "Rolling Blocks Solver" [level=1]
     - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
@@ -478,7 +478,7 @@ test.describe("Rolling Blocks Solver", () => {
     });
     await goal1Source.dragTo(goal1Target);
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
-    - heading "Rolling Blocks Setup" [level=1]
+    - heading "Rolling Blocks Solver" [level=1]
     - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
@@ -551,7 +551,7 @@ test.describe("Rolling Blocks Solver", () => {
       .getByRole("button", { name: "Column 6, Row 7, Regular" })
       .click();
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
-    - heading "Rolling Blocks Setup" [level=1]
+    - heading "Rolling Blocks Solver" [level=1]
     - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
@@ -632,7 +632,7 @@ test.describe("Rolling Blocks Solver", () => {
     });
     await block2Source.dragTo(block2Target);
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
-    - heading "Rolling Blocks Setup" [level=1]
+    - heading "Rolling Blocks Solver" [level=1]
     - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
@@ -718,7 +718,7 @@ test.describe("Rolling Blocks Solver", () => {
     await page.keyboard.type("4");
     await page.keyboard.press("Tab");
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
-    - heading "Rolling Blocks Setup" [level=1]
+    - heading "Rolling Blocks Solver" [level=1]
     - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
@@ -802,7 +802,7 @@ test.describe("Rolling Blocks Solver", () => {
     // buttons — adding any icon button to the page used to shift that index.
     await page.locator('md-icon-button[data-block-delete-id="1"]').click();
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
-    - heading "Rolling Blocks Setup" [level=1]
+    - heading "Rolling Blocks Solver" [level=1]
     - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"
@@ -875,7 +875,7 @@ test.describe("Rolling Blocks Solver", () => {
       .getByRole("button", { name: "Reset" })
       .click();
     await expect(page.locator("#editor-card")).toMatchAriaSnapshot(`
-    - heading "Rolling Blocks Setup" [level=1]
+    - heading "Rolling Blocks Solver" [level=1]
     - paragraph: Build the board layout and block definitions, then calculate the rolls that solve it.
     - text: Grid Width
     - spinbutton "Grid Width"

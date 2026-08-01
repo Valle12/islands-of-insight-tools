@@ -17,8 +17,102 @@
     </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/png" href="/images/favicon.png" />
-    <title>Shifting Mosaic Solver</title>
+    <!-- Absolute on purpose, and the one href on the page that must NOT be
+         relative. Bun's HTML bundler resolves every local asset href and
+         inlines the result as a base64 data: URI (measured: 91 KB per page) —
+         and Googlebot-Image cannot fetch a data: URI, so the icon would never
+         be crawlable. An absolute URL is left alone by the bundler, is what
+         Google's favicon docs ask for (a stable, crawlable URL), and matches
+         how og:image and the canonical are already written. build.ts asserts
+         no data: URI comes back. -->
+    <link
+      rel="icon"
+      type="image/png"
+      href="https://valle12.github.io/islands-of-insight-tools/favicon.png"
+    />
+    <title>Shifting Mosaic Solver | Islands of Insight Tools</title>
+    <!-- Every tag below is mirrored in src/util/siteMeta.ts and pinned to it by
+         test/siteMeta.test.ts. Edit both, or the test fails. -->
+    <meta
+      name="description"
+      content="Solve Islands of Insight Shifting Mosaic sliding-block puzzles. Draw the obstructions, the goal block and the goal zone, and get the moves step by step."
+    />
+    <link
+      rel="canonical"
+      href="https://valle12.github.io/islands-of-insight-tools/shifting-mosaic-solver/"
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Islands of Insight Tools" />
+    <meta
+      property="og:title"
+      content="Shifting Mosaic Solver | Islands of Insight Tools"
+    />
+    <meta
+      property="og:description"
+      content="Solve Islands of Insight Shifting Mosaic sliding-block puzzles. Draw the obstructions, the goal block and the goal zone, and get the moves step by step."
+    />
+    <meta
+      property="og:url"
+      content="https://valle12.github.io/islands-of-insight-tools/shifting-mosaic-solver/"
+    />
+    <meta
+      property="og:image"
+      content="https://valle12.github.io/islands-of-insight-tools/og/shifting-mosaic-solver.png"
+    />
+    <meta property="og:image:width" content="1600" />
+    <meta property="og:image:height" content="838" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="Shifting Mosaic Solver | Islands of Insight Tools"
+    />
+    <meta
+      name="twitter:description"
+      content="Solve Islands of Insight Shifting Mosaic sliding-block puzzles. Draw the obstructions, the goal block and the goal zone, and get the moves step by step."
+    />
+    <meta
+      name="twitter:image"
+      content="https://valle12.github.io/islands-of-insight-tools/og/shifting-mosaic-solver.png"
+    />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebApplication",
+            "name": "Shifting Mosaic Solver",
+            "url": "https://valle12.github.io/islands-of-insight-tools/shifting-mosaic-solver/",
+            "description": "Solve Islands of Insight Shifting Mosaic sliding-block puzzles. Draw the obstructions, the goal block and the goal zone, and get the moves step by step.",
+            "applicationCategory": "GameApplication",
+            "operatingSystem": "Any (web browser)",
+            "browserRequirements": "Requires JavaScript",
+            "isAccessibleForFree": true,
+            "inLanguage": "en",
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "EUR"
+            }
+          },
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              {
+                "@type": "ListItem",
+                "position": 1,
+                "name": "Islands of Insight Tools",
+                "item": "https://valle12.github.io/islands-of-insight-tools/"
+              },
+              {
+                "@type": "ListItem",
+                "position": 2,
+                "name": "Shifting Mosaic Solver"
+              }
+            ]
+          }
+        ]
+      }
+    </script>
     <link rel="stylesheet" href="./../../common/common.css" />
     <link rel="stylesheet" href="./shiftingMosaicSolver.css" />
     <script type="module" src="./../../common/common.ts"></script>

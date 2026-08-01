@@ -11,33 +11,35 @@ test.describe("Index", () => {
     // reload win and cancel the navigation, leaving the next assertion looking
     // at the solver page it just tried to leave.
     await page.goto("/");
-    await page.getByRole("button", { name: "Match Three Solver" }).click();
+    await page.getByRole("link", { name: "Match Three Solver" }).click();
     await waitForCoiSettled(page);
     await expect(
       page.getByRole("button", { name: "Solve Puzzle" }),
     ).toBeVisible();
     await page.getByRole("link", { name: "Home" }).locator("#button").click();
     // Phasic dial is the one page that registers no shim, hence no wait here.
-    await page.getByRole("button", { name: "Phasic Dial Solver" }).click();
+    await page.getByRole("link", { name: "Phasic Dial Solver" }).click();
     await expect(
       page.getByRole("button", { name: "Calculate Turns" }),
     ).toBeVisible();
     await page.getByRole("link", { name: "Home" }).locator("#button").click();
-    await page.getByRole("button", { name: "Rolling Blocks Solver" }).click();
+    await page.getByRole("link", { name: "Rolling Blocks Solver" }).click();
     await waitForCoiSettled(page);
     await expect(
       page.getByRole("button", { name: "Calculate Moves" }),
     ).toBeVisible();
     await page.getByRole("link", { name: "Home" }).locator("#button").click();
     await page
-      .getByRole("button", { name: "Shifting Mosaic Solver" })
+      .getByRole("link", { name: "Shifting Mosaic Solver" })
       .click();
     await waitForCoiSettled(page);
     await expect(
       page.getByRole("button", { name: "Calculate Solution" }),
     ).toBeVisible();
     await page.getByRole("link", { name: "Home" }).locator("#button").click();
-    await expect(page.getByRole("heading")).toContainText(
+    // Scoped to level 1: the home page carries prose now, and an unscoped
+    // heading locator is strict-mode — it would break on the first <h2>.
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(
       "Islands of Insight Tools",
     );
   });
