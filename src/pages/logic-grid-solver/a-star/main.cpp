@@ -16,7 +16,7 @@
 
 #include <charconv>
 #include <cstdint>
-#include <cstring>
+#include <string_view>
 #include <system_error>
 #include <iostream>
 #include <nlohmann/json.hpp>
@@ -95,10 +95,10 @@ void printUsage() {
  * report rather than an error. `from_chars` refuses all of that, and requiring
  * it to consume the WHOLE argument is what rejects "12abc".
  */
-template <typename T> bool readNumber(const char *text, T &out) {
-  const char *end = text + std::strlen(text);
+template <typename T> bool readNumber(const std::string_view text, T &out) {
+  const char *end = text.data() + text.size();
   T parsed{};
-  const auto [stop, code] = std::from_chars(text, end, parsed);
+  const auto [stop, code] = std::from_chars(text.data(), end, parsed);
   if (code != std::errc{} || stop != end)
     return false;
   out = parsed;
@@ -107,7 +107,8 @@ template <typename T> bool readNumber(const char *text, T &out) {
 
 /// Reads a flag's value into `out`, naming the flag when it will not parse.
 template <typename T>
-bool readFlag(const std::string_view flag, const char *value, T &out) {
+bool readFlag(const std::string_view flag, const std::string_view value,
+              T &out) {
   if (readNumber(value, out))
     return true;
   std::cerr << "Invalid value for " << flag << ": " << value << "\n";
