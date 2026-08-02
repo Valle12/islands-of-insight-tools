@@ -1,6 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
+import { gotoIsolated, LOGIC_GRID_URL } from "../coi";
 
-const URL = "/logic-grid-solver";
+// Every visit goes through gotoIsolated: this page registers the COOP/COEP
+// shim and reloads once when its service worker activates, and anything issued
+// into that window dies with "Execution context was destroyed".
+const URL = LOGIC_GRID_URL;
 
 // Scoped to #grid throughout: nothing else on this page renders `.grid-cell`
 // today, and scoping keeps that true if a solution grid ever arrives.
@@ -42,7 +46,7 @@ async function dragRow(page: Page, y: number, from: number, to: number,
 
 test.describe("Logic Grid Solver tools", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto(URL);
+    await gotoIsolated(page, URL);
   });
 
   test("opens on an empty board with dark selected", async ({ page }) => {
@@ -241,12 +245,22 @@ test.describe("Logic Grid Solver tools", () => {
     );
   });
 
-  test("resizing redraws an empty board", async ({ page }) => {
+  /** A different size is a different puzzle, and it brings its own rules. */
+  test("resizing redraws an empty board and drops the rules", async ({
+    page,
+  }) => {
     await cellAt(page, 0, 0).click();
+    await ruleChip(page, "no-dark-2x2").click();
+
     await page.getByRole("spinbutton", { name: "Grid Width" }).fill("4");
     await page.getByRole("spinbutton", { name: "Grid Height" }).fill("3");
+
     await expect(page.locator("#grid .grid-cell")).toHaveCount(12);
     await expect(cellAt(page, 0, 0)).toHaveAttribute("data-color", "unknown");
+    await expect(ruleChip(page, "no-dark-2x2")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
   });
 
   test("reset asks first, then clears the board and the rules", async ({

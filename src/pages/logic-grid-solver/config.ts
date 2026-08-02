@@ -15,6 +15,25 @@ import { SYMBOL_KIND_COUNT, symbolKindAt, symbolValueError } from "./symbols";
  */
 export const MAX_GRID_SIDE = 32;
 
+/**
+ * How long the solver may run before it gives up.
+ *
+ * A properly clued board is usually finished by deduction alone, in
+ * milliseconds — 108 of the 111 captured boards total well under a second
+ * between them. The budget exists for the two cases that are not like that: the
+ * underclued mode, where every cell the deduction could not settle costs a search
+ * of its own to prove, and the profile sweep on a wide connectivity board.
+ *
+ * Two minutes rather than one because of the second. `logicGridTest67` is
+ * 15 cells across and measures **45 s in the browser** (38 s natively), so a
+ * one-minute budget left almost no headroom and a machine any slower than this
+ * one would have watched it time out with the answer nearly in hand. Nothing
+ * else in the corpus comes within two orders of magnitude of the limit, so this
+ * is invisible in practice — and the panel has a live step counter and a Cancel
+ * button for the board where it is not.
+ */
+export const SOLVE_BUDGET_MS = 120_000;
+
 export type ConfigParseResult = ConfigResult<LogicGridTest>;
 
 /** Returns the first problem with the colour grid, or null when it is valid. */

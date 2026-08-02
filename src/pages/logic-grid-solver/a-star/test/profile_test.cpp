@@ -1,0 +1,136 @@
+#include "TestBoards.h"
+
+#include "Profile.h"
+#include "Puzzle.h"
+#include "Rules.h"
+#include "Search.h"
+#include "Verify.h"
+
+#include <gtest/gtest.h>
+#include <vector>
+
+// The frontier sweep. `reference_test.cpp` is what proves it agrees with brute
+// force; these are the pieces that would be hard to read out of a disagreement.
+namespace {
+
+using namespace lg;
+using rules::Rule;
+
+Outcome sweep(const std::vector<std::string> &picture,
+              const std::vector<Rule> &ruleList = {}) {
+  const Model model = buildModel(test::board(picture, test::ruleSet(ruleList)));
+  constexpr Config cfg{.maxMs = 30000};
+  return profile::runProfile(model, cfg);
+}
+
+bool takes(const std::vector<std::string> &picture,
+           const std::vector<Rule> &ruleList = {}) {
+  const Model model = buildModel(test::board(picture, test::ruleSet(ruleList)));
+  return profile::applicable(model);
+}
+
+TEST(Profile, SolvesAPairOfLettersThatHaveToReachEachOther) {
+  const Outcome outcome = sweep({"a..", "...", "..a"});
+  EXPECT_EQ(outcome.status, Status::Solved);
+  const Model model = buildModel(test::board({"a..", "...", "..a"}));
+  EXPECT_EQ(verify::check(model, outcome.colors), verify::Violation::None);
+}
+
+/// The two cells of one letter are walled apart by gaps, so nothing joins them.
+TEST(Profile, ProvesAnImpossibleBoardImpossible) {
+  EXPECT_EQ(sweep({"a#b", "###", "b#a"}).status, Status::Unsolvable);
+}
+
+/// Two letters may share a COLOUR, but never a region.
+TEST(Profile, KeepsTwoLettersInDifferentRegions) {
+  const std::vector<std::string> picture = {"a.b", "...", "a.b"};
+  const Outcome outcome = sweep(picture);
+  ASSERT_EQ(outcome.status, Status::Solved);
+  const Model model = buildModel(test::board(picture));
+  EXPECT_EQ(verify::check(model, outcome.colors), verify::Violation::None);
+}
+
+/**
+ * Two letter pairs whose ends alternate around the edge of the board, with
+ * nowhere to go around: A must join corner to opposite corner and so must B, and
+ * on a plane those two paths have to cross. Brute force agrees — this 3x3 has
+ * ZERO solutions.
+ *
+ * Worth pinning because the same shape with room to spare is perfectly solvable:
+ * `logicGridTest67` interleaves the same way on a 15x15 and its answer is four
+ * nested spiral arms. What makes this one impossible is the lack of space, not
+ * the interleaving, and a sweep that "proved" the 15x15 impossible on the
+ * strength of this one would be confidently wrong.
+ */
+TEST(Profile, InterleavedPairsWithNoRoomAreImpossible) {
+  EXPECT_EQ(sweep({"a.b", "...", "b.a"}).status, Status::Unsolvable);
+}
+
+TEST(Profile, RespectsAPaintedCellAsAGiven) {
+  const std::vector<std::string> picture = {"D..", "...", "..L"};
+  const Outcome outcome = sweep(picture);
+  ASSERT_EQ(outcome.status, Status::Solved);
+  const Model model = buildModel(test::board(picture));
+  // GivenChanged is what `Verify` reports when an answer repaints a given.
+  EXPECT_EQ(verify::check(model, outcome.colors), verify::Violation::None);
+}
+
+TEST(Profile, HandlesTheConnectivityRules) {
+  using enum Rule;
+  const std::vector<std::string> picture = {"a..", "...", "..a"};
+  const Outcome outcome = sweep(picture, {ConnectDark, ConnectLight});
+  ASSERT_EQ(outcome.status, Status::Solved);
+  const Model model = buildModel(
+      test::board(picture, test::ruleSet({ConnectDark, ConnectLight})));
+  EXPECT_EQ(verify::check(model, outcome.colors), verify::Violation::None);
+}
+
+/**
+ * The gate, in both directions. A wrong gate here is not a wrong answer —
+ * `Verify` still stands behind everything — but a permissive one would let the
+ * sweep return a colouring that ignores a rule it cannot see, and the arm would
+ * then be dropped as an oracle rejection instead of never running.
+ */
+TEST(Profile, DeclinesWhatItCannotExpress) {
+  EXPECT_TRUE(takes({"a..", "...", "..a"}));
+  EXPECT_TRUE(takes({"a..", "...", "..a"}, {Rule::ConnectDark}));
+  // An area clue would have to carry its region's size in the state.
+  EXPECT_FALSE(takes({"3..", "...", "..a"}));
+  // The pattern rules each need their own extra state; see Profile.h.
+  EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::NoDark2x2}));
+  EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::NoDark1x3}));
+  EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::NoCheckerboard}));
+}
+
+/// A declined board comes back as "nothing to say", never as a negative.
+TEST(Profile, ADeclinedBoardClaimsNothing) {
+  const Outcome outcome = sweep({"3..", "...", "..a"});
+  EXPECT_EQ(outcome.status, Status::Unsolved);
+  EXPECT_EQ(outcome.decided, 0);
+  EXPECT_TRUE(outcome.witnesses.empty());
+}
+
+/**
+ * Running out of room is not a proof either. The cap is expressed through
+ * `maxHeapBytes`, so one byte of budget is enough to hit it immediately.
+ */
+TEST(Profile, RunningOutOfRoomIsNotAProof) {
+  const Model model = buildModel(test::board({"a....", ".....", "....a"}));
+  constexpr Config cfg{.maxMs = 30000, .maxHeapBytes = 1};
+  const Outcome outcome = profile::runProfile(model, cfg);
+  EXPECT_EQ(outcome.status, Status::Unsolved);
+  EXPECT_TRUE(outcome.stats.stoppedOnMemory);
+}
+
+/**
+ * A board wider than it is tall must be swept across the short side: the state
+ * count grows with the frontier's width, so the difference is not a constant.
+ * Both orientations have to answer, which is the cheap way to say the transpose
+ * is wired up consistently.
+ */
+TEST(Profile, SweepsEitherOrientation) {
+  EXPECT_EQ(sweep({"a....", "....a"}).status, Status::Solved);
+  EXPECT_EQ(sweep({"a.", "..", "..", "..", ".a"}).status, Status::Solved);
+}
+
+} // namespace

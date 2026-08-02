@@ -29,8 +29,8 @@ jobs:
   wasm:
     name: Build WASM
     runs-on: ubuntu-latest
-    # Twelve LTO variants on a cold cache now, not eight.
-    timeout-minutes: 35
+    # Sixteen LTO variants on a cold cache now, not twelve.
+    timeout-minutes: 45
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -55,6 +55,9 @@ jobs:
             src/pages/match-three-solver/wasm/astar*.mjs
             src/pages/match-three-solver/wasm/astar*.wasm
             src/pages/match-three-solver/wasm/astar*.stamp
+            src/pages/logic-grid-solver/wasm/astar*.mjs
+            src/pages/logic-grid-solver/wasm/astar*.wasm
+            src/pages/logic-grid-solver/wasm/astar*.stamp
           key: wasm-${{ runner.os }}-emsdk${{ env.EMSDK_VERSION }}-${{ hashFiles('src/pages/*/a-star/*.cpp', 'src/pages/*/a-star/*.h', 'src/util/buildWasm.ts') }}
 
       - name: Setup bun
@@ -159,6 +162,9 @@ jobs:
         include:
           # One shard per slow suite, sized by measured wall clock
           # (~244s / ~60s / ~75s / ~22s), and a fifth for everything else.
+          # Logic-grid's wasm sweep is deliberately NOT one of these: at 617 ms
+          # it belongs in the fast shard, and a whole job's setup for it would
+          # cost more than the suite does.
           - name: sm-wasm
             filter: test/shifting-mosaic-solver/wasm.slow.test.ts
           - name: rb-astar
@@ -277,7 +283,7 @@ jobs:
       # rolling-blocks MEMORY64 build was never loaded in CI; a solver whose
       # test is missing here is a build nothing ever instantiates.
       - name: Run MEMORY64 wasm tests
-        run: node --test test/shifting-mosaic-solver/mem64.node.test.mjs test/rolling-blocks-solver/mem64.node.test.mjs test/match-three-solver/mem64.node.test.mjs
+        run: node --test test/shifting-mosaic-solver/mem64.node.test.mjs test/rolling-blocks-solver/mem64.node.test.mjs test/match-three-solver/mem64.node.test.mjs test/logic-grid-solver/mem64.node.test.mjs
 
   # Proves the production bundle still builds on every PR — nothing checked that
   # before — and publishes the artifact deploy.yml reuses.

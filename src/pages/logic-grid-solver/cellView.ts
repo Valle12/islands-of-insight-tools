@@ -37,12 +37,20 @@ export function dressCell(
 
   const kind = clue ? symbolKindAt(clue.type) : undefined;
   if (clue && kind) {
+    const label = String(clue.value);
     element.dataset.symbol = kind.id;
-    element.dataset.symbolValue = String(clue.value);
-    element.textContent = String(clue.value);
+    element.dataset.symbolValue = label;
+    // How many characters the cell has to hold, so the stylesheet can size the
+    // text to it. CSS cannot measure a string, and an area number is only
+    // bounded by the board's own area — 1024 on the largest grid the editor
+    // accepts — so one fixed size would either look lost in the cell or spill
+    // out of it. Capped at the largest bucket the stylesheet defines.
+    element.dataset.labelLength = String(Math.min(label.length, 4));
+    element.textContent = label;
   } else {
     delete element.dataset.symbol;
     delete element.dataset.symbolValue;
+    delete element.dataset.labelLength;
     element.textContent = "";
   }
 

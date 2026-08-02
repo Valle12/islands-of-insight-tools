@@ -168,6 +168,9 @@ describe("validateConfig (logic grid)", () => {
 describe("Captured boards", () => {
   // Discovered by listing, not enumerated: the fixtures are boards captured
   // from the game, so dropping another one in has to need no code change.
+  //
+  // The directory holds ONLY real captures — anything a test invents lives in
+  // `boards.ts` instead, so a made-up board cannot quietly pad this sweep.
   const FIXTURES = readdirSync(RESOURCE_DIR).filter(name =>
     name.endsWith(".json"),
   );

@@ -1,0 +1,306 @@
+#ifdef __EMSCRIPTEN__
+
+#include "MemoryProbe.h"
+#include "Puzzle.h"
+#include "Rules.h"
+#include "Search.h"
+#include "SolverArms.h"
+#include "SolverClock.h"
+#include "Types.h"
+#include "Verify.h"
+
+#include <cstdint>
+#include <emscripten/bind.h>
+#include <emscripten/val.h>
+#include <string>
+
+// The page's side of the solver.
+//
+// Errors come back IN BAND on the result object: the build is exception-free,
+// and a throw would surface to the page as an aborted module rather than as a
+// message it can show.
+//
+// Two layout notes, both of which the bridge mirrors. `cells` crosses as a
+// FLAT row-major array of gridWidth * gridHeight entries — the editor stores
+// the grid column-major, and `flatten` in wasmBridge.ts transposes it. Clues
+// cross as {x, y, type, value} with a letter already reduced to 0..25, because
+// nothing in the search ever wants the glyph.
+namespace {
+
+using emscripten::val;
+using namespace lg;
+
+template <typename T> T opt(const val &object, const char *key, const T def) {
+  const val held = object[key];
+  return held.isUndefined() || held.isNull() ? def : held.as<T>();
+}
+
+val errorResult(const char *message) {
+  val result = val::object();
+  result.set("cells", val::array());
+  result.set("error", val(std::string(message)));
+  return result;
+}
+
+bool readCells(const val &puzzleVal, Puzzle &puzzle, const char *&error) {
+  const val cells = puzzleVal["cells"];
+  const int count = cells["length"].as<int>();
+  if (count != puzzle.width * puzzle.height) {
+    error = "cells must hold gridWidth * gridHeight entries";
+    return false;
+  }
+  puzzle.givens.fill(kUnplayable);
+  for (int i = 0; i < count; i++) {
+    const int value = cells[i].as<int>();
+    if (value < 0 || value >= kColorLimit) {
+      error = "A cell value is outside the known colours";
+      return false;
+    }
+    const int x = i % puzzle.width;
+    const int y = i / puzzle.width;
+    puzzle.givens[slot(cellIndex(x, y))] = static_cast<uint8_t>(value);
+  }
+  return true;
+}
+
+bool readRules(const val &puzzleVal, Puzzle &puzzle, const char *&error) {
+  const val list = puzzleVal["rules"];
+  if (list.isUndefined() || list.isNull())
+    return true;
+  const int count = list["length"].as<int>();
+  for (int i = 0; i < count; i++) {
+    const int index = list[i].as<int>();
+    if (index < 0 || index >= rules::kRuleCount) {
+      error = "A rule index is not one this solver knows";
+      return false;
+    }
+    puzzle.ruleMask |= rules::RuleMask{1} << index;
+  }
+  return true;
+}
+
+bool readClues(const val &puzzleVal, Puzzle &puzzle, const char *&error) {
+  const val list = puzzleVal["clues"];
+  if (list.isUndefined() || list.isNull())
+    return true;
+  const int count = list["length"].as<int>();
+  for (int i = 0; i < count; i++) {
+    const val entry = list[i];
+    const int x = entry["x"].as<int>();
+    const int y = entry["y"].as<int>();
+    const int kind = entry["type"].as<int>();
+    if (x < 0 || x >= puzzle.width || y < 0 || y >= puzzle.height) {
+      error = "A clue sits outside the board";
+      return false;
+    }
+    if (kind < 0 || kind >= kClueKindCount) {
+      error = "A clue names an unknown kind";
+      return false;
+    }
+    puzzle.clues.push_back({.index = cellIndex(x, y),
+                            .kind = static_cast<uint8_t>(kind),
+                            .value = entry["value"].as<int>()});
+  }
+  return true;
+}
+
+Puzzle puzzleFromVal(const val &puzzleVal, const char *&error) {
+  Puzzle puzzle;
+  puzzle.width = opt(puzzleVal, "gridWidth", 0);
+  puzzle.height = opt(puzzleVal, "gridHeight", 0);
+  if (puzzle.width < 1 || puzzle.width > kMaxSide || puzzle.height < 1 ||
+      puzzle.height > kMaxSide) {
+    error = "Grid must be between 1 and 32 on each side";
+    return puzzle;
+  }
+  if (!readCells(puzzleVal, puzzle, error) ||
+      !readRules(puzzleVal, puzzle, error) ||
+      !readClues(puzzleVal, puzzle, error))
+    return puzzle;
+  if (const Problem problem = structureProblem(puzzle);
+      problem != Problem::None)
+    error = describe(problem);
+  return puzzle;
+}
+
+/// A colouring back in the flat row-major layout the page reads.
+val cellsToVal(const Model &model, const Colors &colors) {
+  val out = val::array();
+  int at = 0;
+  for (int y = 0; y < model.height(); y++) {
+    for (int x = 0; x < model.width(); x++) {
+      out.set(at, colors[slot(cellIndex(x, y))]);
+      at++;
+    }
+  }
+  return out;
+}
+
+const char *statusName(const Status status) {
+  using enum Status;
+  switch (status) {
+  case Solved:
+    return "solved";
+  case Deduced:
+    return "deduced";
+  case Unsolvable:
+    return "unsolvable";
+  case Unsolved:
+    return "unsolved";
+  }
+  return "unsolved";
+}
+
+struct Spec {
+  std::string engine;
+  uint32_t maxMs;
+  uint64_t maxNodes;
+  uint64_t maxHeapBytes;
+  uint32_t seed;
+  int witnessLimit;
+};
+
+Spec specFrom(const val &config) {
+  return {.engine = opt(config, "engine", std::string("cascade")),
+          .maxMs = static_cast<uint32_t>(
+              opt(config, "maxMs", static_cast<double>(60000))),
+          .maxNodes = static_cast<uint64_t>(
+              opt(config, "maxNodes", static_cast<double>(0))),
+          .maxHeapBytes = static_cast<uint64_t>(
+              opt(config, "maxHeapBytes", static_cast<double>(0))),
+          .seed = static_cast<uint32_t>(opt(config, "seed", 0)),
+          .witnessLimit = opt(config, "witnessLimit", 8)};
+}
+
+void post(const val &message) {
+  val self = val::global("self");
+  self.call<void>("postMessage", message);
+}
+
+/// Streams progress out of the search. The module IS the worker, so this posts
+/// on its own scope and needs no relay.
+void report(const Progress &progress) {
+  val message = val::object();
+  message.set("type", val("progress"));
+  message.set("nodes", static_cast<double>(progress.nodes));
+  message.set("decided", progress.decided);
+  message.set("phase", val(std::string(progress.phase)));
+  post(message);
+}
+
+val statsToVal(const Outcome &outcome, const uint64_t wallMs) {
+  val stats = val::object();
+  stats.set("nodes", static_cast<double>(outcome.stats.nodesExpanded));
+  stats.set("refutations", static_cast<double>(outcome.stats.refutations));
+  stats.set("oracleRejections",
+            static_cast<double>(outcome.stats.oracleRejections));
+  stats.set("stoppedOnMemory", outcome.stats.stoppedOnMemory);
+  stats.set("wallMs", static_cast<double>(wallMs));
+  stats.set("arm", val(outcome.arm));
+  return stats;
+}
+
+Outcome dispatch(const Model &model, const Spec &spec, const Config &cfg) {
+#ifdef __EMSCRIPTEN_PTHREADS__
+  if (spec.engine == "cascade")
+    return arms::solveParallel(model, cfg);
+#endif
+  const arms::ArmSpec armSpec{.engine = spec.engine.c_str(),
+                              .seed = spec.seed};
+  return arms::solve(model, armSpec, cfg);
+}
+
+} // namespace
+
+val solve(const val puzzleVal, const val configVal) {
+  const char *error = nullptr;
+  const Puzzle puzzle = puzzleFromVal(puzzleVal, error);
+  if (error != nullptr)
+    return errorResult(error);
+
+  const Spec spec = specFrom(configVal);
+  if (!arms::isEngine(spec.engine.c_str()))
+    return errorResult("Unknown engine");
+
+  const Model model = buildModel(puzzle);
+  if (const Problem problem = contradiction(model); problem != Problem::None) {
+    val result = val::object();
+    result.set("status", val(std::string("unsolvable")));
+    result.set("reason", val(std::string(describe(problem))));
+    result.set("cells", val::array());
+    result.set("proven", true);
+    result.set("decided", 0);
+    result.set("playable", model.playableCount);
+    result.set("witnesses", val::array());
+    result.set("stats", val::object());
+    return result;
+  }
+
+  Callbacks callbacks;
+  callbacks.onProgress = [](const Progress &progress) { report(progress); };
+
+  Config cfg;
+  cfg.maxMs = spec.maxMs;
+  cfg.maxNodes = spec.maxNodes;
+  cfg.seed = spec.seed;
+  cfg.witnessLimit = spec.witnessLimit;
+  cfg.callbacks = &callbacks;
+  // Nearly the whole heap, but NEVER unlimited: a wasm heap that cannot grow
+  // aborts the module rather than failing an allocation.
+  cfg.maxHeapBytes = spec.maxHeapBytes != 0
+                         ? spec.maxHeapBytes
+                         : memprobe::heapCeilingBytes() / 100 * 90;
+
+  const uint64_t startMs = nowMs();
+  const Outcome outcome = dispatch(model, spec, cfg);
+  const uint64_t wallMs = nowMs() - startMs;
+
+  val witnesses = val::array();
+  int at = 0;
+  for (const Colors &witness : outcome.witnesses) {
+    witnesses.set(at, cellsToVal(model, witness));
+    at++;
+  }
+
+  val result = val::object();
+  result.set("status", val(std::string(statusName(outcome.status))));
+  result.set("cells", cellsToVal(model, outcome.colors));
+  result.set("proven", outcome.proven);
+  result.set("decided", outcome.decided);
+  result.set("playable", model.playableCount);
+  result.set("witnesses", witnesses);
+  result.set("stats", statsToVal(outcome, wallMs));
+  return result;
+}
+
+/// The oracle, exported so a test can check an answer without trusting the
+/// same code path that produced it.
+bool verifyColors(const val puzzleVal, const val colorsVal) {
+  const char *error = nullptr;
+  const Puzzle puzzle = puzzleFromVal(puzzleVal, error);
+  if (error != nullptr)
+    return false;
+  const Model model = buildModel(puzzle);
+
+  Colors colors{};
+  colors.fill(kUnplayable);
+  const int count = colorsVal["length"].as<int>();
+  if (count != model.width() * model.height())
+    return false;
+  for (int i = 0; i < count; i++) {
+    const int value = colorsVal[i].as<int>();
+    if (value < 0 || value >= kColorLimit)
+      return false;
+    const int x = i % model.width();
+    const int y = i / model.width();
+    colors[slot(cellIndex(x, y))] = static_cast<uint8_t>(value);
+  }
+  return verify::check(model, colors) == verify::Violation::None;
+}
+
+EMSCRIPTEN_BINDINGS(logic_grid_module) {
+  emscripten::function("solve", &solve);
+  emscripten::function("verify", &verifyColors);
+}
+
+#endif // __EMSCRIPTEN__

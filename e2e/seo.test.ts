@@ -21,8 +21,9 @@ import { waitForCoiSettled } from "./coi";
  * which is what Playwright's loader cannot resolve.
  */
 
-/** The three pages whose service worker reloads the document once. */
+/** The four pages whose service worker reloads the document once. */
 const COI_PATHS = new Set([
+  "logic-grid-solver/",
   "match-three-solver/",
   "rolling-blocks-solver/",
   "shifting-mosaic-solver/",

@@ -235,8 +235,32 @@
               <h2>Solver</h2>
               <span id="solution-status"></span>
             </div>
+            <div id="solution-spinner" class="hidden">
+              <md-circular-progress indeterminate></md-circular-progress>
+              <span id="solution-progress-text">Deducing…</span>
+              <md-text-button id="solution-cancel">Cancel</md-text-button>
+            </div>
             <div id="solution-message"></div>
           </output>
+        </div>
+
+        <!-- The answer, in place of the editor rather than beside it. A solved
+             logic grid is one finished board, so there are no steps to walk —
+             but it lives in its own section anyway, which is where the reason
+             a cell was deduced will go when the solver can explain itself. -->
+        <div id="solution-view" class="hidden">
+          <div id="solution-view-header">
+            <h2>Solution</h2>
+            <span id="solution-count"></span>
+          </div>
+
+          <div id="solution-grid-shell">
+            <div id="solution-grid" aria-label="Logic grid solution"></div>
+          </div>
+
+          <div id="solution-note"></div>
+
+          <md-text-button id="solution-exit">Back to editor</md-text-button>
         </div>
 
         <md-dialog id="reset-dialog">

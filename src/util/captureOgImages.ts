@@ -57,10 +57,11 @@ parseFlags(Bun.argv.slice(2), {
 
 /**
  * The pages that register the COOP/COEP shim and reload once when its service
- * worker activates — the same three `e2e/coi.ts` waits on. A screenshot taken
+ * worker activates — the same four `e2e/coi.ts` waits on. A screenshot taken
  * before that reload catches a half-built document, so they get a longer wait.
  */
 const COI_PATHS = new Set([
+  "logic-grid-solver/",
   "match-three-solver/",
   "rolling-blocks-solver/",
   "shifting-mosaic-solver/",

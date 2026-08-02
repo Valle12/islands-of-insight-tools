@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 
 export const SHIFTING_MOSAIC_URL = "/shifting-mosaic-solver";
 export const MATCH_THREE_URL = "/match-three-solver";
+export const LOGIC_GRID_URL = "/logic-grid-solver";
 
 /**
  * Navigates to a page that registers the COOP/COEP service-worker shim and
