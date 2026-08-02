@@ -292,14 +292,18 @@ So the options, in order:
    Migrating one leaves the new shared file duplicating the copies left behind —
    which scores the same, because the shared file is new code.
 2. **Declare the deliberate copies.** `sonar.cpd.exclusions` is what it is for,
-   and `sonar-project.properties` at the repo root now carries it for the three
-   files the architecture forces to be duplicated — with the reasoning, and with
-   a note on what is deliberately left counted. **Verify it took effect**: this
-   project runs SonarCloud **automatic analysis**, which does not honour every
-   property a scanner run would. If the next PR still reports those files as
-   duplicated, set the same value in the UI instead — *Administration → Analysis
-   Scope → Duplication Exclusions* — and say so in the properties file so nobody
-   re-adds it there.
+   and **`.sonarcloud.properties`** at the repo root carries it for the three
+   files the architecture forces to be duplicated, with the reasoning and with a
+   note on what is deliberately left counted.
+   **The filename is the whole trick.** This project runs SonarCloud *automatic
+   analysis*, which reads `.sonarcloud.properties`. A `sonar-project.properties`
+   is the CLI scanner's filename — automatic analysis ignores it in silence, so
+   the gate simply stays red with no hint that the file was never read. Measured
+   on PR #42: identical content under the wrong name changed nothing (3.7% then
+   3.5%, the drop being unrelated edits).
+   If it still does not take, the same value can be set in the UI —
+   *Administration → Analysis Scope → Duplication Exclusions* — but prefer the
+   file, because the reasoning lives next to it.
 3. **Accept the failure and say so in the PR.** Legitimate when the duplication
    really is the architecture, but it stops being legitimate the moment someone
    stops reading the number.

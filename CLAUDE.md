@@ -666,7 +666,7 @@ All three solvers gate on clang-tidy through `cmake/ClangTidyGate.cmake` and fai
 
 The other SonarQube MCP tools (`search_sonar_issues_in_projects`, `get_component_measures`, coverage, quality gate) read the **last server-side analysis**, not the working tree. Do not use them to check your own edits.
 
-**The quality gate fails on DUPLICATION almost every time a solver page lands**, and it is the only condition that ever does — every solver copies `MemoryProbe.h`, its worker, its bridge and its `buildWasm` block. `CLION-INSPECTIONS.md` has the measured breakdown, why extracting the C++ into a shared directory is the wrong fix here, and the curl commands that read the gate and the per-file numbers off the public API. Read it before deciding what to do about a red gate.
+**The quality gate fails on DUPLICATION almost every time a solver page lands**, and it is the only condition that ever does — every solver copies `MemoryProbe.h`, its worker, its bridge and its `buildWasm` block. `.sonarcloud.properties` declares the copies the architecture forces (and that filename is load-bearing — automatic analysis ignores `sonar-project.properties` silently). `CLION-INSPECTIONS.md` has the measured breakdown, why extracting the C++ into a shared directory is the wrong fix here, and the curl commands that read the gate and the per-file numbers off the public API. Read it before deciding what to do about a red gate.
 
 ### C++
 
