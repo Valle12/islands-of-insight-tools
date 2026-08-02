@@ -1,0 +1,38 @@
+/**
+ * The files `src/util/buildWasm.ts` leaves in each solver's `wasm/` directory,
+ * and where each solver's are published.
+ *
+ * One list, because there used to be one per solver plus a fourth as a `Set`
+ * in `serve.ts`: four copies of the same nine names, which meant a fifth
+ * solver was a fifth copy and a new variant was four edits. Missing the
+ * `serve.ts` copy 404s in dev; missing a `build.ts` copy 404s only in
+ * production, after CI has gone green.
+ *
+ * `astar.worker.js` is the odd one out — it is hand-written source that lives
+ * in the generated directory rather than em++ output — but it is published the
+ * same way, so it belongs on the same list.
+ */
+export const WASM_VARIANT_FILES = [
+  "astar.mjs",
+  "astar.wasm",
+  "astar.worker.js",
+  "astar.threads.mjs",
+  "astar.threads.wasm",
+  "astar.mem64.mjs",
+  "astar.mem64.wasm",
+  "astar.threads.mem64.mjs",
+  "astar.threads.mem64.wasm",
+] as const;
+
+/**
+ * Every solver that ships wasm: the page directory holding its `wasm/` output,
+ * and the url prefix it is served from. The prefix is reached PAGE-relative
+ * (`../lg-wasm/…`), never root-absolute — the site is served from a GitHub
+ * Pages project sub-path, so a leading slash resolves outside it.
+ */
+export const WASM_SOLVERS = [
+  { page: "rolling-blocks-solver", prefix: "rb-wasm" },
+  { page: "shifting-mosaic-solver", prefix: "sm-wasm" },
+  { page: "match-three-solver", prefix: "mt-wasm" },
+  { page: "logic-grid-solver", prefix: "lg-wasm" },
+] as const;

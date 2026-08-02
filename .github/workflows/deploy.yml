@@ -136,6 +136,9 @@ jobs:
             src/pages/match-three-solver/wasm/astar*.mjs
             src/pages/match-three-solver/wasm/astar*.wasm
             src/pages/match-three-solver/wasm/astar*.stamp
+            src/pages/logic-grid-solver/wasm/astar*.mjs
+            src/pages/logic-grid-solver/wasm/astar*.wasm
+            src/pages/logic-grid-solver/wasm/astar*.stamp
           key: wasm-${{ runner.os }}-emsdk${{ env.EMSDK_VERSION }}-${{ hashFiles('src/pages/*/a-star/*.cpp', 'src/pages/*/a-star/*.h', 'src/util/buildWasm.ts') }}
 
       # Needed whenever the cache misses, which is the whole fallback story.

@@ -411,3 +411,60 @@ await Promise.all(
     }),
   ),
 );
+
+// Logic-grid's four variants. What each one buys here:
+//   - threads:       four arms race inside one module on a cross-origin
+//                    isolated page, and — unlike the other solvers — they
+//                    genuinely cooperate on an underclued board, where every
+//                    arm is doing independent work towards the same answer.
+//   - mem64:         the least useful of the four here. A whole solver state
+//                    is two 1024-bit boards plus a trail, so nothing in this
+//                    search is anywhere near a 4GB wall; it is built for
+//                    consistency, and because the variant probes, the worker's
+//                    fallback ladder and the mem64 test all assume four.
+//   - threads+mem64: both, and what an isolated page reaches for first.
+// FixtureIo.cpp, Reference.cpp and GenerateCommands.cpp are deliberately
+// absent — the first two need nlohmann and exceptions, and Reference is the
+// exponential brute force the tests check the engine against, which must never
+// be reachable from the page.
+const LOGIC_GRID_VARIANTS: WasmVariant[] = [
+  { outputJs: "astar.mjs" },
+  { outputJs: "astar.threads.mjs", threads: true },
+  { outputJs: "astar.mem64.mjs", memory64: true },
+  { outputJs: "astar.threads.mem64.mjs", threads: true, memory64: true },
+];
+
+await Promise.all(
+  LOGIC_GRID_VARIANTS.map(variant =>
+    build({
+      aStarDir: resolve(projectRoot, "src/pages/logic-grid-solver/a-star"),
+      outDir: resolve(projectRoot, "src/pages/logic-grid-solver/wasm"),
+      // Keep in sync with logic_grid_core in that directory's CMakeLists.txt,
+      // which lists the same TUs plus the native-only fixture I/O and the
+      // brute-force reference.
+      sources: [
+        "wasm_bindings.cpp",
+        "Rules.cpp",
+        "Puzzle.cpp",
+        "Regions.cpp",
+        "Verify.cpp",
+        "Propagate.cpp",
+        "Probe.cpp",
+        "Search.cpp",
+        "Profile.cpp",
+        "Underclued.cpp",
+        "SolverArms.cpp",
+        "SolverClock.cpp",
+      ],
+      outputJs: variant.outputJs,
+      exportName: "createLogicGridModule",
+      needsBoost: false,
+      memory64: variant.memory64 === true,
+      maxMemory: variant.memory64 === true ? "8GB" : "4GB",
+      extraArgs:
+        variant.threads === true
+          ? ["-pthread", "-sPTHREAD_POOL_SIZE=8"]
+          : [],
+    }),
+  ),
+);

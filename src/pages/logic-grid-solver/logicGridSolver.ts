@@ -1,3 +1,4 @@
+import { registerCoiShim } from "./../../common/coiRegister";
 import { downloadJson, readJsonFile } from "./../../util/configFile";
 import {
   openResetDialog,
@@ -14,7 +15,13 @@ import type {
 import { Board } from "./board";
 import { MAX_GRID_SIDE, validateConfig } from "./config";
 import { RULES } from "./rules";
-import { solveLogicGrid } from "./solver";
+import {
+  solveLogicGrid,
+  type LogicGridSolveResult,
+  type SolveHandle,
+} from "./solver";
+import { SolutionView } from "./solutionView";
+import { UNDERCLUED } from "./verify";
 import {
   MIN_AREA_VALUE,
   normalizeSymbolInput,
@@ -59,9 +66,30 @@ export class LogicGridSolverEditor {
   private readonly solutionMessage = document.getElementById(
     "solution-message",
   ) as HTMLDivElement;
+  private readonly solutionSpinner = document.getElementById(
+    "solution-spinner",
+  ) as HTMLDivElement;
+  private readonly solutionProgressText = document.getElementById(
+    "solution-progress-text",
+  ) as HTMLSpanElement;
+  private readonly editorSection = document.getElementById(
+    "editor-section",
+  ) as HTMLDivElement;
+  private readonly solutionViewEl = document.getElementById(
+    "solution-view",
+  ) as HTMLDivElement;
   private readonly solveButton = document.getElementById(
     "solve-puzzle",
   ) as HTMLButtonElement;
+
+  private solutionView: SolutionView | null = null;
+  /** The search in flight, or null. */
+  private search: SolveHandle | null = null;
+  /**
+   * Which solve the page is waiting for. A result from an earlier one is
+   * dropped rather than drawn: the board it answers no longer exists.
+   */
+  private solveGeneration = 0;
 
   private readonly showWarning = warningBanner(
     document.getElementById("warning-banner") as HTMLDivElement,
@@ -180,6 +208,12 @@ export class LogicGridSolverEditor {
     });
 
     this.solveButton.addEventListener("click", () => this.solve());
+    document
+      .getElementById("solution-cancel")
+      ?.addEventListener("click", () => this.cancelSearch());
+    document
+      .getElementById("solution-exit")
+      ?.addEventListener("click", () => this.exitSolutionView());
 
     wireConfigIo({
       fileInput: this.fileInput,
@@ -257,8 +291,11 @@ export class LogicGridSolverEditor {
     }
     this.gridWidth = parsedWidth;
     this.gridHeight = parsedHeight;
-    // A resize means a different puzzle, so both cell layers go with it. The
-    // rules describe the puzzle rather than the board, so they stay.
+    // A resize means a different puzzle, so everything describing the old one
+    // goes with it: both cell layers AND the rule set. Keeping the rules would
+    // be the worse default — a new board is entered from a fresh screen in the
+    // game, and carrying over a rule silently solves a puzzle nobody set.
+    this.activeRules.clear();
     this.replaceBoard();
     this.hideSolution();
     this.render();
@@ -435,13 +472,113 @@ export class LogicGridSolverEditor {
   }
 
   private solve() {
-    const result = solveLogicGrid(this.currentConfig());
+    if (this.search) return;
+    const config = this.currentConfig();
+    const generation = ++this.solveGeneration;
+
     this.solutionPanel.classList.remove("hidden");
-    this.solutionStatus.textContent = "Not implemented";
-    this.solutionMessage.textContent =
-      `The solver is not written yet. Your puzzle (${result.summary}) is ` +
-      "complete though — download it, and it will load straight back in once " +
-      "the search lands.";
+    this.solutionSpinner.classList.remove("hidden");
+    this.solutionStatus.textContent = "Working";
+    this.solutionMessage.textContent = "";
+    this.solutionProgressText.textContent = "Deducing…";
+    this.solveButton.disabled = true;
+
+    this.search = solveLogicGrid(config, {
+      onProgress: (nodes, decided) => {
+        if (generation !== this.solveGeneration) return;
+        // The step count is the part that keeps moving. `decided` comes from
+        // the deduction pass, which finishes in milliseconds and then never
+        // changes again — on a board that needs the long search it would sit
+        // frozen at its number for the whole minute, which reads as a hang.
+        const steps = `${nodes.toLocaleString()} steps`;
+        this.solutionProgressText.textContent =
+          decided > 0
+            ? `Deducing… ${decided} cells settled, ${steps}`
+            : `Deducing… ${steps}`;
+      },
+      onDone: result => {
+        if (generation !== this.solveGeneration) return;
+        this.finishSolve(config, result);
+      },
+    });
+  }
+
+  private cancelSearch() {
+    this.search?.cancel();
+    this.search = null;
+    this.solveGeneration++;
+    this.solutionSpinner.classList.add("hidden");
+    this.solveButton.disabled = false;
+  }
+
+  private finishSolve(config: LogicGridTest, result: LogicGridSolveResult) {
+    this.search = null;
+    this.solutionSpinner.classList.add("hidden");
+    this.solveButton.disabled = false;
+
+    if (result.status === "failed") {
+      // Every arm died. The raw text is whatever the module threw — useful in a
+      // bug report and meaningless to a player — so it goes after a sentence
+      // that says what actually happened and what to do about it.
+      this.solutionStatus.textContent = "Failed";
+      this.solutionMessage.textContent =
+        "The solver stopped before it could answer. Reloading the page and " +
+        `trying again usually clears it. (${result.error})`;
+      return;
+    }
+    if (result.status === "unsolvable") {
+      this.solutionStatus.textContent = "No solution";
+      this.solutionMessage.textContent = result.reason
+        ? `This board cannot be completed: ${result.reason.toLowerCase()}.`
+        : "No colouring of this board satisfies every rule and clue. Every " +
+          "puzzle in the game is solvable, so something on the board is not " +
+          "what the game showed.";
+      return;
+    }
+    if (result.status === "budget") {
+      // Not the same claim as "no solution": the search stopped looking, it did
+      // not rule anything out. The nudge about the board is still worth making
+      // — every puzzle the game ships can be finished, so a board that runs the
+      // clock out is far more often mis-entered than genuinely hard.
+      this.solutionStatus.textContent = "Gave up";
+      this.solutionMessage.textContent =
+        (result.decided > 0
+          ? `The time limit ran out. ${result.decided} cells were settled ` +
+            "before it did, but the rest are still open. "
+          : "The time limit ran out before anything could be settled. ") +
+        "Every puzzle in the game can be finished, so it is worth checking " +
+        "the board against the one on screen — a missing gap or clue is the " +
+        "usual reason.";
+      return;
+    }
+    this.enterSolutionView(config, result);
+  }
+
+  private enterSolutionView(
+    config: LogicGridTest,
+    result: Extract<LogicGridSolveResult, { status: "solved" | "deduced" }>,
+  ) {
+    this.solutionPanel.classList.add("hidden");
+    this.editorSection.classList.add("hidden");
+    this.solutionViewEl.classList.remove("hidden");
+    this.solutionView?.dispose();
+    this.solutionView = new SolutionView({
+      config,
+      cells: result.cells,
+      decided: result.decided,
+      playable: result.playable,
+      proven: result.status === "deduced" ? result.proven : true,
+      underclued: config.rules.includes(UNDERCLUED),
+    });
+  }
+
+  private exitSolutionView() {
+    this.solutionView?.dispose();
+    this.solutionView = null;
+    this.solutionViewEl.classList.add("hidden");
+    this.editorSection.classList.remove("hidden");
+    this.solutionPanel.classList.add("hidden");
+    this.render();
   }
 
   private downloadCurrentConfig() {
@@ -480,12 +617,14 @@ export class LogicGridSolverEditor {
   }
 
   /**
-   * Drops whatever the solver last said. Called on every board edit, so it does
-   * nothing unless there is something to drop — a drag fires it once per cell
-   * and must stay free.
+   * Drops whatever the solver last said. Called on every board edit, so it has
+   * to stay cheap — a drag fires it once per cell — which is why the two
+   * branches below are guarded rather than run unconditionally.
    */
   hideSolution() {
+    if (this.search) this.cancelSearch();
     this.solutionPanel.classList.add("hidden");
+    if (this.solutionView) this.exitSolutionView();
   }
 }
 
@@ -496,5 +635,11 @@ export class LogicGridSolverEditor {
 export const page: { editor?: LogicGridSolverEditor } = {};
 
 if (process.env.NODE_ENV !== "test") {
+  // Registers the COOP/COEP shim and reloads once, which is what lets the
+  // pthreads build run its arms on real threads. The page works without it —
+  // everything falls back to one worker per arm — but the underclued mode is
+  // where the threads earn their keep, so every e2e visit here has to go
+  // through gotoIsolated.
+  registerCoiShim();
   page.editor = new LogicGridSolverEditor();
 }

@@ -19,19 +19,8 @@ import {
   ROBOTS_FILE,
   SITEMAP_FILE,
 } from "./siteMeta";
+import { WASM_SOLVERS, WASM_VARIANT_FILES } from "./wasmAssets";
 
-const wasmDir = resolve(
-  import.meta.dir,
-  "./../pages/rolling-blocks-solver/wasm",
-);
-const shiftingMosaicWasmDir = resolve(
-  import.meta.dir,
-  "./../pages/shifting-mosaic-solver/wasm",
-);
-const matchThreeWasmDir = resolve(
-  import.meta.dir,
-  "./../pages/match-three-solver/wasm",
-);
 const imagesDir = resolve(import.meta.dir, "./../../images");
 
 /**
@@ -114,26 +103,12 @@ const server = Bun.serve({
     // Solver wasm assets (all build variants: wasm32, pthreads, MEMORY64),
     // one directory per solver. Served by extension — bun can hand the
     // browser the mem64 binary even though it cannot instantiate it itself.
-    const wasmVariantFiles = new Set([
-      "astar.mjs",
-      "astar.wasm",
-      "astar.worker.js",
-      "astar.threads.mjs",
-      "astar.threads.wasm",
-      "astar.mem64.mjs",
-      "astar.mem64.wasm",
-      "astar.threads.mem64.mjs",
-      "astar.threads.mem64.wasm",
-    ]);
-    const wasmDirs: Record<string, string> = {
-      "/rb-wasm/": wasmDir,
-      "/sm-wasm/": shiftingMosaicWasmDir,
-      "/mt-wasm/": matchThreeWasmDir,
-    };
-    for (const [prefix, dir] of Object.entries(wasmDirs)) {
-      if (!url.pathname.startsWith(prefix)) continue;
-      const name = url.pathname.slice(prefix.length);
+    const wasmVariantFiles = new Set<string>(WASM_VARIANT_FILES);
+    for (const { page, prefix } of WASM_SOLVERS) {
+      if (!url.pathname.startsWith(`/${prefix}/`)) continue;
+      const name = url.pathname.slice(prefix.length + 2);
       if (wasmVariantFiles.has(name)) {
+        const dir = resolve(import.meta.dir, `./../pages/${page}/wasm`);
         return new Response(Bun.file(resolve(dir, name)), {
           headers: {
             "Content-Type": name.endsWith(".wasm")

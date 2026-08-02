@@ -55,8 +55,18 @@ const MARKUP = `
     <input id="config-file-input" type="file" />
     <output id="solution-panel" class="hidden">
       <span id="solution-status"></span>
+      <div id="solution-spinner" class="hidden">
+        <span id="solution-progress-text"></span>
+        <md-text-button id="solution-cancel">Cancel</md-text-button>
+      </div>
       <div id="solution-message"></div>
     </output>
+  </div>
+  <div id="solution-view" class="hidden">
+    <span id="solution-count"></span>
+    <div id="solution-grid"></div>
+    <div id="solution-note"></div>
+    <md-text-button id="solution-exit">Back to editor</md-text-button>
   </div>
   <md-dialog id="reset-dialog">
     <md-text-button id="reset-cancel">Cancel</md-text-button>
@@ -301,10 +311,12 @@ describe("LogicGridSolverEditor", () => {
       expect(ruleChips()[2]!.getAttribute("aria-pressed")).toBe("false");
     });
 
-    test("rules survive a resize, because they describe the puzzle", () => {
+    /** A different size is a different puzzle, and it brings its own rules. */
+    test("rules go with a resize, along with the board", () => {
       ruleChips()[3]!.click();
       setSize("4", "4");
-      expect(ruleChips()[3]!.classList.contains("selected")).toBeTrue();
+      expect(ruleChips()[3]!.classList.contains("selected")).toBeFalse();
+      expect(ruleChips()[3]!.getAttribute("aria-pressed")).toBe("false");
     });
   });
 
@@ -349,32 +361,121 @@ describe("LogicGridSolverEditor", () => {
     });
   });
 
+  /**
+   * The arms are wasm in a worker, which this DOM has neither of, so each one
+   * is answered by a stub. What these pin is the wiring the page owns — the
+   * panel, the spinner, the button, entering and leaving the solution view, and
+   * every edit dropping what was said. The answers themselves are checked
+   * against the real module in `wasm.slow.test.ts` and end to end in e2e.
+   *
+   * Note the stub still has to send a LEGAL board: `solver.ts` replays every
+   * answer through `verify.ts` before showing it, and refuses one that fails —
+   * which is the point of that gate, and means a stub cannot fake its way past.
+   */
   describe("Solve", () => {
-    test("says the search is not written yet, and what it was handed", () => {
-      setSize("2", "2");
-      ruleChips()[0]!.click();
-      symbolChips()[0]!.click();
-      press(1, 1);
+    let reply: Record<string, unknown> | null;
+    let originalWorker: unknown;
 
+    const solved = (cells: number[]) => ({
+      type: "done",
+      status: "solved",
+      cells,
+      proven: true,
+      decided: cells.length,
+      playable: cells.length,
+      witnesses: [],
+      stats: { nodes: 1, wallMs: 1 },
+    });
+
+    beforeEach(() => {
+      reply = solved([DARK, DARK, DARK, DARK]);
+      originalWorker = (globalThis as Record<string, unknown>).Worker;
+      (globalThis as Record<string, unknown>).Worker = class {
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: ErrorEvent) => void) | null = null;
+        postMessage() {
+          queueMicrotask(() => {
+            if (reply) this.onmessage?.({ data: reply } as MessageEvent);
+            else this.onerror?.({ message: "no engine" } as ErrorEvent);
+          });
+        }
+        terminate() {}
+      };
+      setSize("2", "2");
+    });
+
+    afterEach(() => {
+      (globalThis as Record<string, unknown>).Worker = originalWorker;
+    });
+
+    test("shows the finished board in place of the editor", async () => {
       byId("solve-puzzle").click();
+      expect(byId("solution-spinner").classList.contains("hidden")).toBeFalse();
+      await flush();
+
+      expect(byId("solution-view").classList.contains("hidden")).toBeFalse();
+      expect(byId("editor-section").classList.contains("hidden")).toBeTrue();
+      expect(byId("solution-grid").children).toHaveLength(4);
+      expect(
+        (byId("solution-grid").children[0] as HTMLElement).dataset.color,
+      ).toBe("dark");
+      expect((byId("solve-puzzle") as HTMLButtonElement).disabled).toBeFalse();
+    });
+
+    test("Back to editor restores the board", async () => {
+      byId("solve-puzzle").click();
+      await flush();
+      byId("solution-exit").click();
+
+      expect(byId("solution-view").classList.contains("hidden")).toBeTrue();
+      expect(byId("editor-section").classList.contains("hidden")).toBeFalse();
+      expect(byId("solution-panel").classList.contains("hidden")).toBeTrue();
+    });
+
+    test("reports an arm that could not start at all", async () => {
+      reply = null;
+      byId("solve-puzzle").click();
+      await flush();
 
       expect(byId("solution-panel").classList.contains("hidden")).toBeFalse();
-      expect(byId("solution-status").textContent).toBe("Not implemented");
+      expect(byId("solution-status").textContent).toBe("Failed");
+      // What the module threw is kept, but it reads as a parenthetical after a
+      // sentence a player can act on — "Out of bounds memory access" on its own
+      // told them nothing.
       expect(byId("solution-message").textContent).toContain(
-        "(2x2, 1 rule, 1 symbol)",
+        "The solver stopped before it could answer",
       );
+      expect(byId("solution-message").textContent).toContain("(no engine)");
+      expect(byId("solution-spinner").classList.contains("hidden")).toBeTrue();
     });
 
-    test("editing the board drops the message again", () => {
-      byId("solve-puzzle").click();
-      press(0, 0);
-      expect(byId("solution-panel").classList.contains("hidden")).toBeTrue();
-    });
-
-    test("toggling a rule drops it too", () => {
-      byId("solve-puzzle").click();
+    test("refuses an answer that does not satisfy the rules", async () => {
+      // A 2x2 all-dark board with "no dark 2x2" switched on: the stub says
+      // solved, `verify.ts` says otherwise, and the page believes `verify.ts`.
       ruleChips()[0]!.click();
+      byId("solve-puzzle").click();
+      await flush();
+
+      expect(byId("solution-view").classList.contains("hidden")).toBeTrue();
+      expect(byId("solution-status").textContent).toBe("Gave up");
+    });
+
+    test("editing the board drops the answer again", async () => {
+      byId("solve-puzzle").click();
+      await flush();
+      press(0, 0);
+
       expect(byId("solution-panel").classList.contains("hidden")).toBeTrue();
+      expect(byId("solution-view").classList.contains("hidden")).toBeTrue();
+      expect(byId("editor-section").classList.contains("hidden")).toBeFalse();
+    });
+
+    test("toggling a rule drops it too", async () => {
+      byId("solve-puzzle").click();
+      await flush();
+      ruleChips()[0]!.click();
+
+      expect(byId("solution-view").classList.contains("hidden")).toBeTrue();
     });
   });
 

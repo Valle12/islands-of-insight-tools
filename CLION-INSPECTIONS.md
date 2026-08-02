@@ -47,6 +47,11 @@ retrofitting them later means a manual IDE pass.
 - **Designated initializers can be used** — brace-init aggregates by
   member name: `{.blockId = id, .direction = dir}`. Style is `.x = x`
   (spaces), wrap at ~80 columns.
+- **Declarator is never used** — a function nothing in the TU names, but
+  something else finds. The case that recurs is a gtest `PrintTo(const
+  Case &, std::ostream *)` reached through ADL by the universal printer;
+  mark it `[[maybe_unused]]` rather than deleting it, or the ctest listing
+  goes back to dumping the parameter's raw bytes.
 - **Possibly unused #include directive** — two flavors: genuinely unused
   includes (remove), and includes whose symbols also arrive transitively.
   For the second kind, remove a PROJECT include only when an interface
@@ -62,10 +67,23 @@ does not enable. A one-off run from the a-star directory lists (or with
 
 ```powershell
 $tidy = "C:\Program Files\JetBrains\CLion 2024.1.4\bin\clang\win\x64\bin\clang-tidy.exe"
-& $tidy -p cmake-build-release-visual-studio `
+& $tidy -p cmake-build-debug-visual-studio `
   "--checks=-*,modernize-use-designated-initializers,misc-const-correctness,modernize-use-auto,misc-include-cleaner" `
   "--header-filter=.*a-star.*" --extra-arg=-EHsc --extra-arg-before=--driver-mode=cl <files>
 ```
+
+**`-p` must name a directory that actually has a
+`compile_commands.json`,** and the *release* dirs do not — only the debug
+ones export one. Point `-p` at a dir without it and clang-tidy does not
+fail: it silently falls back to default flags, which are **not C++23**, so
+`std::ranges`, `std::to_array`, `std::popcount` and vector CTAD all come
+back as `clang-diagnostic-error` and every real check runs against a
+half-parsed TU. Measured on the logic-grid tree: the release dir produced
+40+ cascading errors plus a fistful of bogus `misc-const-correctness`
+findings on reference parameters; the debug dir, same files, same command,
+produced one genuine finding. **A run that emits `no member named 'ranges'
+in namespace 'std'` is a broken invocation, not a codebase problem** — fix
+`-p` before reading anything else in the output.
 
 | CLion inspection | clang-tidy check |
 |---|---|
@@ -73,6 +91,27 @@ $tidy = "C:\Program Files\JetBrains\CLion 2024.1.4\bin\clang\win\x64\bin\clang-t
 | Local variable / parameter can be made const | `misc-const-correctness` (misses value params and some locals CLion finds) |
 | Type can be replaced with auto | `modernize-use-auto` |
 | Possibly unused #include directive | `misc-include-cleaner` — but ONLY the "included header X **is not used directly**" lines; the "no header providing …" lines are IWYU strictness CLion does not flag, and tidy misses CLion's transitive-removability findings entirely |
+
+**`wasm_bindings.cpp` needs its own invocation, and nothing else reaches
+it.** It is in no CMake target and no compile database, so neither the gate
+nor SonarLint nor Inspect Code has anything to analyse it with — see the
+`getDiagnostics` section in `CLAUDE.md`. Target wasm32 against the emsdk
+sysroot, isolated from the MSVC headers: without `-nostdinc -nostdinc++`
+the driver mixes the two and buries the output under `typedef redefinition`
+errors from `bits/alltypes.h`.
+
+```powershell
+$sr = "<emsdk>\upstream\emscripten\cache\sysroot"
+& $tidy "--checks=-*,modernize-use-auto,misc-const-correctness,modernize-use-designated-initializers" `
+  "--header-filter=.*a-star.*" --quiet wasm_bindings.cpp -- `
+  -std=c++23 -D__EMSCRIPTEN__ -fno-exceptions `
+  --target=wasm32-unknown-emscripten "--sysroot=$sr" -nostdinc -nostdinc++ `
+  "-isystem$sr\include\c++\v1" "-isystem$sr\include\compat" "-isystem$sr\include" -I.
+```
+
+The `--header-filter` matters here: this is the only way headers reached
+solely from a wasm TU get analysed at all (`MemoryProbe.h`'s emscripten
+branch, for one).
 
 Everything else in the checklist has no tidy equivalent — it must be
 right when written, or found via Inspect Code in the IDE.
@@ -149,7 +188,15 @@ the idiom that satisfies them:
 - **`using enum X;`** when a scope repeats `X::` several times.
 - **`std::to_underlying`** (C++23, `<utility>`) when casting an enum to an
   integral type that is not its underlying type — `kInverse[
-  std::to_underlying(dir)]`, not `static_cast<size_t>(dir)`.
+  std::to_underlying(dir)]`, not `static_cast<size_t>(dir)`. **When the
+  value is being STREAMED, keep an outer `static_cast<int>`** — the rule
+  asks for an "intermediary", not a replacement. Most enums here are
+  `: uint8_t`, and `ostream << uint8_t` prints the CHARACTER with that
+  code: swapping `static_cast<int>(outcome.status)` for a bare
+  `std::to_underlying(...)` in a gtest failure message turns "status 2"
+  into an invisible control byte, and no test fails to tell you (measured
+  2026-08-02 on `fixtures_test.cpp`). Write
+  `static_cast<int>(std::to_underlying(e))`.
 - **No C-style arrays** — `constexpr auto k = std::to_array<T>({…})` keeps
   designated initializers and needs no element count.
 - **Moves must be noexcept** (S5018) for types stored in vectors: a
@@ -222,6 +269,19 @@ code:
   removable, but every one declares symbols the header genuinely uses and
   no project header guarantees them — removing would be include-what-you-
   use-incorrect. Leave them.
+- `<cstddef>` in the logic-grid `Rules.cpp` and `Search.cpp`: reported as
+  possibly unused because `<array>`/`<vector>` drag it in, but both name
+  `size_t` (`Rules.cpp` as `template <std::size_t N>`). Same rule as
+  `NodeKey.h` below — `misc-include-cleaner` agrees and does not flag them.
+  `Profile.cpp` was in this list until its `Frontier::closed` became a
+  `std::byte`; it now uses the header unambiguously and is no longer
+  reported.
+- **`static_cast<size_t>(hash)` in the logic-grid `Profile.cpp`'s
+  `FrontierHash::hashOf`** — reported as a redundant cast, and it is
+  redundant on the native build alone. `hash` is a `uint64_t` because FNV-1a
+  is a 64-bit mix, and `size_t` is 32 bits under wasm32, where the cast is
+  the truncation the function means. Dropping it makes it an implicit
+  narrowing that only the native reader sees as a no-op.
 - `<cmath>` in the match-three `SearchGreedy.cpp` and `SearchNrpa.cpp`:
   flagged as possibly unused, but both call `std::exp` — it only *looks*
   removable because `SeededRng.h` drags `<random>` in. Same rule as

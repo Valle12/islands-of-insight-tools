@@ -121,7 +121,13 @@ h2 {
   border: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 60%, white);
   border-radius: 8px;
   font-family: inherit;
-  font-size: 16px;
+  /**
+   * The size for a single character, which is what all but a handful of clues
+   * are — across 111 captured boards, 217 area numbers are one digit and four
+   * are two. `data-label-length` shrinks it for the longer ones below rather
+   * than every cell paying for a case that hardly ever happens.
+   */
+  font-size: 26px;
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
@@ -138,6 +144,26 @@ h2 {
 /* An uncoloured cell is the one the player still has to work out, so it reads
    as absence: no fill, dashed outline. A clue sitting on one is the game's own
    colourless clue. */
+/**
+ * Longer labels, stepped down so they still sit inside a 42px cell.
+ *
+ * An area number can name as many cells as the board has, so four digits is
+ * reachable on the 32x32 the editor allows; `cellView.ts` caps the attribute at
+ * 4 and this is the last rung. Letters are always one character.
+ */
+.grid-cell[data-label-length="2"] {
+  font-size: 21px;
+}
+
+.grid-cell[data-label-length="3"] {
+  font-size: 15px;
+}
+
+.grid-cell[data-label-length="4"] {
+  font-size: 12px;
+  letter-spacing: -0.5px;
+}
+
 .grid-cell[data-color="unknown"] {
   background: transparent;
   border-style: dashed;
@@ -418,6 +444,83 @@ h2 {
   display: none;
 }
 
+#solution-spinner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  --md-circular-progress-size: 28px;
+}
+
+#solution-progress-text {
+  font-size: 14px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+#solution-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+}
+
+#solution-view-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+
+  h2 {
+    margin: 0;
+  }
+}
+
+#solution-count {
+  font-size: 13px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+#solution-grid-shell {
+  display: flex;
+  justify-content: center;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--md-sys-color-surface-container);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+#solution-grid {
+  display: grid;
+  gap: 6px;
+  user-select: none;
+}
+
+/* The answer is read, not painted: nothing in this grid is interactive. */
+#solution-grid .grid-cell {
+  cursor: default;
+}
+
+/* A cell the solver worked out, as opposed to one that was already on the
+   board when Solve was pressed. On an underclued board that difference is the
+   whole answer, so it is worth showing. */
+#solution-grid .grid-cell[data-deduced="true"] {
+  box-shadow: 0 0 0 2px var(--md-sys-color-primary);
+}
+
+#solution-note {
+  font-size: 14px;
+  color: var(--md-sys-color-on-surface-variant);
+  max-width: 60ch;
+  text-align: center;
+}
+
+#solution-note:empty {
+  display: none;
+}
+
 @media (max-width: 720px) {
   body {
     padding: 14px;
@@ -430,6 +533,18 @@ h2 {
   .grid-cell {
     width: 34px;
     height: 34px;
-    font-size: 14px;
+    font-size: 21px;
+  }
+
+  .grid-cell[data-label-length="2"] {
+    font-size: 17px;
+  }
+
+  .grid-cell[data-label-length="3"] {
+    font-size: 12px;
+  }
+
+  .grid-cell[data-label-length="4"] {
+    font-size: 10px;
   }
 }

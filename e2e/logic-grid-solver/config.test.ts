@@ -1,7 +1,18 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "fs";
+import { gotoIsolated, LOGIC_GRID_URL } from "../coi";
+import { formatSample } from "../../test/logic-grid-solver/boards";
+// Read rather than restated: the catalogue's upper bound moves every time a
+// rule lands, and its INDICES moved once when the list was regrouped. A literal
+// here survives neither.
+import { RULE_COUNT, RULES } from "../../src/pages/logic-grid-solver/rules";
 
-const URL = "/logic-grid-solver";
+const ruleIndex = (id: string) => RULES.findIndex(rule => rule.id === id);
+
+// Every visit goes through gotoIsolated: this page registers the COOP/COEP
+// shim and reloads once when its service worker activates, and anything issued
+// into that window dies with "Execution context was destroyed".
+const URL = LOGIC_GRID_URL;
 
 // A small, structurally valid config in the editor's download format. `cells`
 // carries the colour layer only — 0 unknown, 1 dark, 2 light, 3 unplayable —
@@ -9,7 +20,9 @@ const URL = "/logic-grid-solver";
 const SAMPLE_CONFIG = {
   gridWidth: 3,
   gridHeight: 2,
-  rules: [0, 10],
+  rules: [ruleIndex("no-dark-2x2"), ruleIndex("underclued")].sort(
+    (a, b) => a - b,
+  ),
   cells: [
     [1, 0],
     [2, 0],
@@ -39,7 +52,7 @@ async function upload(page: Page, config: unknown, name = "puzzle.json") {
 
 test.describe("Logic Grid Solver config", () => {
   test("uploads a config file and populates the editor", async ({ page }) => {
-    await page.goto(URL);
+    await gotoIsolated(page, URL);
     await upload(page, SAMPLE_CONFIG);
 
     await expect(page.locator("#grid .grid-cell")).toHaveCount(6);
@@ -66,16 +79,12 @@ test.describe("Logic Grid Solver config", () => {
     await expect(page.locator("#warning-banner")).toBeHidden();
   });
 
-  test("loads the captured fixture", async ({ page }) => {
-    await page.goto(URL);
-    const json = readFileSync(
-      "test/resources/logic-grid-solver/logicGridTest.json",
-      "utf8",
-    );
+  test("loads a board using every part of the format", async ({ page }) => {
+    await gotoIsolated(page, URL);
     await page.locator("#config-file-input").setInputFiles({
       name: "logicGridTest.json",
       mimeType: "application/json",
-      buffer: Buffer.from(json),
+      buffer: Buffer.from(JSON.stringify(formatSample())),
     });
 
     await expect(page.locator("#grid .grid-cell")).toHaveCount(25);
@@ -85,7 +94,7 @@ test.describe("Logic Grid Solver config", () => {
   });
 
   test("loads a config dropped onto the page", async ({ page }) => {
-    await page.goto(URL);
+    await gotoIsolated(page, URL);
 
     const dataTransfer = await page.evaluateHandle(json => {
       const dt = new DataTransfer();
@@ -102,18 +111,18 @@ test.describe("Logic Grid Solver config", () => {
   });
 
   test("reports why a config was rejected", async ({ page }) => {
-    await page.goto(URL);
+    await gotoIsolated(page, URL);
     await upload(page, { ...SAMPLE_CONFIG, rules: [999] }, "bad.json");
 
     await expect(page.locator("#warning-banner")).toHaveText(
-      "Invalid config: Rules must be integers between 0 and 11.",
+      `Invalid config: Rules must be integers between 0 and ${RULE_COUNT - 1}.`,
     );
     await expect(page.locator("#grid .grid-cell")).toHaveCount(36);
   });
 
   /** A gap is not a cell the puzzle clues, and the editor cannot produce one. */
   test("refuses a clue sitting on a gap", async ({ page }) => {
-    await page.goto(URL);
+    await gotoIsolated(page, URL);
     await upload(
       page,
       {
@@ -129,7 +138,7 @@ test.describe("Logic Grid Solver config", () => {
   });
 
   test("rejects a file that is not JSON", async ({ page }) => {
-    await page.goto(URL);
+    await gotoIsolated(page, URL);
 
     const dataTransfer = await page.evaluateHandle(() => {
       const dt = new DataTransfer();
@@ -148,7 +157,7 @@ test.describe("Logic Grid Solver config", () => {
   });
 
   test("downloads the current puzzle as JSON", async ({ page }) => {
-    await page.goto(URL);
+    await gotoIsolated(page, URL);
 
     await cellAt(page, 0, 0).click();
     await cellAt(page, 1, 0).click({ button: "right" });
@@ -168,14 +177,14 @@ test.describe("Logic Grid Solver config", () => {
     expect(config.cells[0][0]).toBe(1);
     expect(config.cells[1][0]).toBe(2);
     expect(config.cells[5][5]).toBe(0);
-    expect(config.rules).toEqual([10]);
+    expect(config.rules).toEqual([ruleIndex("underclued")]);
     expect(config.symbols).toEqual([{ x: 2, y: 2, type: 0, value: 5 }]);
   });
 
   test("round-trips a downloaded config back through upload", async ({
     page,
   }) => {
-    await page.goto(URL);
+    await gotoIsolated(page, URL);
 
     await cellAt(page, 2, 3).click();
     await page
@@ -212,7 +221,7 @@ test.describe("Logic Grid Solver config", () => {
   });
 
   test("ignores grid sizes beyond the 32 cap", async ({ page }) => {
-    await page.goto(URL);
+    await gotoIsolated(page, URL);
 
     await page.getByRole("spinbutton", { name: "Grid Width" }).fill("33");
     await expect(page.locator("#grid .grid-cell")).toHaveCount(36);

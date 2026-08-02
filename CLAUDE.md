@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A static, zero-framework site of five puzzle solvers for the game *Islands of Insight*, deployed to GitHub Pages. Each solver is a page under `src/pages/`; three of them run their search in C++ compiled to WebAssembly, and one (logic-grid) has no search at all yet. There is no backend and no client-side router — `src/util/serve.ts` maps six URLs to six HTML entry points, and `bun run build` emits the same six pages into `dist/`.
+A static, zero-framework site of five puzzle solvers for the game *Islands of Insight*, deployed to GitHub Pages. Each solver is a page under `src/pages/`; four of them run their search in C++ compiled to WebAssembly. There is no backend and no client-side router — `src/util/serve.ts` maps six URLs to six HTML entry points, and `bun run build` emits the same six pages into `dist/`.
 
 **match-three runs TWO engines and races them.** Its TypeScript search (a bundled Web Worker, `solverWorker.ts`) is arm zero and answers most boards in milliseconds without fetching a single wasm module; the C++ portfolio races beside it for the boards it cannot crack. `solveClient.ts` is the merge point. See "The match-three solver" below.
 
@@ -41,6 +41,26 @@ bun run bench:rb         # rolling-blocks bench over all fixtures; --diff works 
 bun run fuzz:rb          # rolling-blocks campaign into test-results/rb-fuzz
                          # (--kind goal|coverage|mixed|cycle; boards are solvable
                          #  by construction and the witness is replay-validated)
+bun run bench:lg         # logic-grid bench over every captured board; --diff
+                         #  before.json after.json gates on a REGRESSION, which
+                         #  here means fewer cells decided or a proof lost, not
+                         #  only a slower clock. Needs the native exe.
+bun run fuzz:lg          # logic-grid campaign into test-results/lg-fuzz. Boards
+                         #  are solvable by construction — the colouring comes
+                         #  first and the clues are read off it — so the sharp
+                         #  check is that every cell reported FORCED matches
+                         #  that colouring. That only applies to an UNDERCLUED
+                         #  board: a clued one has many solutions and the
+                         #  generator holds just one, so `--kind` defaults to
+                         #  alternating the two by seed. Pin the dimensions
+                         #  small (--width 4 --height 5) to get under the
+                         #  brute-force cap and have `--brute` compare whole
+                         #  solution sets rather than one witness.
+                         #  `--engine <arm> --rules 0` campaigns ONE arm on
+                         #  boards with no rules, which is the only way to
+                         #  hammer `profile` — the cascade reaches it just on
+                         #  the boards it applies to, so a default campaign
+                         #  barely touches it.
 bun run bench:mt         # match-three bench; the TS engine in-process by default,
                          #  the native CLI with --exe. That default exe path is
                          #  the CLion release dir, so --exe is required unless
@@ -112,7 +132,7 @@ and `utilMethods.test.ts`). `bun test slow` selects the four by name.
 `bun test --changed=<ref>` walks the import graph — measured: on the match-three
 commit it selected exactly the match-three files.
 
-`bun run test:mem64` runs the three `mem64.node.test.mjs` files (shifting-mosaic + rolling-blocks + match-three) under node, not bun: bun cannot instantiate a Memory64 module. Under `bun test` they register as skips.
+`bun run test:mem64` runs the four `mem64.node.test.mjs` files (shifting-mosaic + rolling-blocks + match-three + logic-grid) under node, not bun: bun cannot instantiate a Memory64 module. Under `bun test` they register as skips.
 
 Playwright aria snapshots are inline. `--update-snapshots` only rewrites *failing* ones; aria matching is **partial**, so a snapshot keeps passing when new nodes appear. Use `--update-snapshots=all` to get a faithful tree — it writes `test-results/playwright/rebaselines.patch` for `git apply`.
 
@@ -141,7 +161,9 @@ The dev server keeps `development: true` for HMR and therefore *does* log that w
 
 ### C++ → WebAssembly
 
-`src/util/buildWasm.ts` drives `em++` (resolved via `Bun.which`, emsdk ≥ 6.0.0 required for `-m64`) and produces **four variants per solver** from the same translation units — plain wasm32, `-pthread`, MEMORY64 (8GB heap), and pthreads+MEMORY64 — built concurrently, for all three C++ solvers. Assets are served/copied under `/rb-wasm/`, `/sm-wasm/` and `/mt-wasm/` (`serve.ts` allowlist, `build.ts` copies; workers are reached page-relative as `../rb-wasm/astar.worker.js`). Twelve LTO variants is why the CI wasm job allows 35 minutes on a cold cache.
+`src/util/buildWasm.ts` drives `em++` (resolved via `Bun.which`, emsdk ≥ 6.0.0 required for `-m64`) and produces **four variants per solver** from the same translation units — plain wasm32, `-pthread`, MEMORY64 (8GB heap), and pthreads+MEMORY64 — built concurrently, for all four C++ solvers. Sixteen LTO variants is why the CI wasm job allows 45 minutes on a cold cache.
+
+**`src/util/wasmAssets.ts` is the single list of what each solver ships and where.** `WASM_VARIANT_FILES` (the nine per-solver filenames, `astar.worker.js` included) and `WASM_SOLVERS` (page directory → url prefix: `/rb-wasm/`, `/sm-wasm/`, `/mt-wasm/`, `/lg-wasm/`) are read by both `serve.ts`'s allowlist and `build.ts`'s copy step. Those used to be a block per solver in `build.ts` plus a fourth copy as a `Set` in `serve.ts`; a solver added by copy-paste is how one of them ends up missing a variant, and missing the `serve.ts` copy 404s in dev while missing a `build.ts` copy 404s only in production, after CI has gone green. Workers are reached page-relative (`../rb-wasm/astar.worker.js`), never root-absolute.
 
 `src/pages/*/wasm/` is generated output and gitignored, **except** `astar.worker.js`, which is hand-written source living in the same directory. Do not delete the directory wholesale.
 
@@ -159,9 +181,9 @@ The source lists are duplicated in two places that must stay in sync: `buildWasm
 
 `resolveEmcc()` is **lazy and returns null rather than throwing**, so a tree whose wasm is already current builds with no emsdk at all — which is what lets the CI `dist` job and deploy's cache-hit path run `bun run build` on a runner that never installed emscripten. A skip with no compiler to compare versions against warns loudly, because "no emsdk" must never look like "verified current".
 
-### The three solver bridges
+### The four solver bridges
 
-All three are **portfolios** with the same mechanics: an exported `PORTFOLIO` array of engine configs, one worker per arm racing the others, the rest terminated once the answer is settled. Concurrency is bounded by `hardwareConcurrency`, not the arm count — every arm always runs, queued and back-filled. An arm that exhausts the heap retires itself and the race continues. Cross-origin isolated pages collapse to ONE worker on the pthreads build, whose in-module race runs the same arm set on real threads. Variant priority (threads-mem64 > threads > mem64 > default) comes from the shared probes in `src/util/wasmFeatureProbes.ts`.
+All four are **portfolios** with the same mechanics: an exported `PORTFOLIO` array of engine configs, one worker per arm racing the others, the rest terminated once the answer is settled. Concurrency is bounded by `hardwareConcurrency`, not the arm count — every arm always runs, queued and back-filled. An arm that exhausts the heap retires itself and the race continues. Cross-origin isolated pages collapse to ONE worker on the pthreads build, whose in-module race runs the same arm set on real threads. Variant priority (threads-mem64 > threads > mem64 > default) comes from the shared probes in `src/util/wasmFeatureProbes.ts`.
 
 All three now stop at the **first non-empty plan**. Match-three used to be the exception — it aggregated, because a plan was not the answer and a *shortest* plan was — and dropping that is what made its hard boards fast: the whole 52-board corpus finishes in 16.9 s where three of them used to run a five-minute budget each.
 
@@ -169,7 +191,7 @@ All three now stop at the **first non-empty plan**. Match-three used to be the e
 - **shifting-mosaic** (`wasmBridge.ts` → `searchShiftingMosaicWasm`): the original portfolio; `PORTFOLIO` is exported so `test/shifting-mosaic-solver/wasm.slow.test.ts` races the exact production arm set.
 - **match-three** (`wasmBridge.ts` → `searchMatchThreeWasm`, merged in `solveClient.ts`): wasm exports `solve(puzzle, config)` and `verify(puzzle, moves)`. `puzzle` is `{gridWidth, gridHeight, cells}` with cells **flat and row-major** (the fixture format is column-major — `flatten()` in the bridge converts). Config keys (all optional): `engine` (`cascade` default | `greedy` | `beam` | `nrpa` | `exhaustive`), `maxMs` (300000), `tableBytes`, `maxHeapBytes`, `seed`, `beamWidth`, `nrpaLevel`, `nrpaIterations`. `solve` returns `{moves, unsolvable, stats}` or `{moves: [], error}` — there is no `proven` and no `ruledOut`, because nothing here claims a length is minimal. Errors are in-band because the build is `-fno-exceptions`: a throw would reach the page as an aborted module rather than a message it can show.
 
-**Three** solver pages need `SharedArrayBuffer` for their threads builds, which GitHub Pages cannot grant via headers. `src/common/coiRegister.ts` registers `coi-serviceworker.js` and **reloads once** when it activates. `page.goto()` resolves on the *pre-reload* document, so any e2e interaction in that window can die with "Execution context was destroyed". Always reach the rolling-blocks, shifting-mosaic AND match-three pages through `gotoIsolated` / `waitForCoiSettled` in `e2e/coi.ts` (`MATCH_THREE_URL` is exported there); `e2e/index.test.ts` needs a `waitForCoiSettled` before every Home click that leaves one of them.
+**Four** solver pages need `SharedArrayBuffer` for their threads builds, which GitHub Pages cannot grant via headers. `src/common/coiRegister.ts` registers `coi-serviceworker.js` and **reloads once** when it activates. `page.goto()` resolves on the *pre-reload* document, so any e2e interaction in that window can die with "Execution context was destroyed". Always reach the rolling-blocks, shifting-mosaic, match-three AND logic-grid pages through `gotoIsolated` / `waitForCoiSettled` in `e2e/coi.ts` (`MATCH_THREE_URL` and `LOGIC_GRID_URL` are exported there); `e2e/index.test.ts` needs a `waitForCoiSettled` before every Home click that leaves one of them. The same four paths are listed in the `COI_PATHS` sets in `e2e/seo.test.ts` and `src/util/captureOgImages.ts`.
 
 ### Step-by-step solution views
 
@@ -220,11 +242,10 @@ Two things about that capture size. **Chromium renders light unless told otherwi
 
 ### The logic grid page
 
-The newest page, and the only one with **no search behind it**: `solver.ts` is a
-stub returning `{status: "unimplemented"}` and `#solution-panel` says so. There
-is no worker, no wasm, no COI shim and no `#solution-view` — a solved logic grid
-is one finished board rather than a sequence of steps, so when the search lands
-it will most likely render into the editor grid.
+The newest page. Its answer is a finished board rather than a sequence of steps,
+so `#solution-view` holds one grid and a Back button — no Previous/Next — but it
+is a real view that replaces `#editor-section`, and the room beside the grid is
+where a per-cell explanation of *why* would go.
 
 **A cell carries two independent layers.** `cell.ts` owns the colour only
 (`UNKNOWN` 0, `DARK` 1, `LIGHT` 2, `UNPLAYABLE` 3) and `cells` is a flat
@@ -244,6 +265,26 @@ rendered from the list by JS (`#rule-row`, `#symbol-row`) precisely so a new
 entry costs no markup and no test edit. The validator **rejects** an index it
 does not know rather than ignoring it — a silently dropped rule would load a
 different puzzle under the same name.
+
+**The rule list was REGROUPED once, and that is the only time it may happen.**
+It now reads: forbidden arrangements 0–10 (dark before light in every pair),
+then `connect-dark`/`connect-light` 11–12, `one-symbol-dark`/`one-symbol-light`
+13–14, and `underclued` last at 15 because it alone changes what the answer is.
+That reorder was safe only because nothing was live and the captured fixtures
+were the only saved configs — all 69 were rewritten in the same change and
+checked to produce a byte-identical answer afterwards. Once a player has a
+downloaded config it can never happen again: appending is the only safe edit.
+
+**Indices are copied in four places, and one of them cannot be avoided.**
+`catalog.test.ts` and `rules_test.cpp` pin every index on both sides — that is
+the point of them. `e2e/logic-grid-solver/config.test.ts` derives what it needs
+from `RULES` rather than restating it. The unavoidable one is
+`test/logic-grid-solver/mem64.node.test.mjs`, which runs under node and cannot
+import TypeScript, so its board carries literal indices; the regroup moved
+`connect-dark` from 2 to 11 and silently turned that board into "no runs of two
+of either colour", and that test failing is what caught it. Anything meaning "a
+family of rules" must still LIST its members — `shortestRun` in `Rules.cpp`,
+`kRunRules` in `Verify.cpp`, `RUN_RULES` in `verify.ts`.
 
 **A clue kind is a split control, and its value field lives INSIDE the row.**
 Each kind renders as chip + divider + its own `<input class="symbol-value">`,
@@ -280,6 +321,151 @@ Three things in `board.ts` are load-bearing:
 Painting `UNPLAYABLE` drops the cell's clue (a gap is not clued, and the
 validator refuses a file that says otherwise); the eraser clears both layers;
 colouring a clued cell keeps its clue.
+
+### The logic grid solver
+
+`src/pages/logic-grid-solver/a-star/` (the directory name is the repo's
+convention, not a claim about the algorithm — match-three's is the same, and the
+CI wasm cache key globs `src/pages/*/a-star/*`). There is **no TypeScript
+engine**; `verify.ts` is the page's own rule checker and nothing else, in the
+same role as rolling-blocks' `replay.ts`.
+
+**A painted cell is a GIVEN.** The answer has to keep it, which is what lets a
+half-finished board be handed back for checking — and why a board painted wrong
+comes back unsolvable rather than quietly re-solved.
+
+**`Underclued` (rule 10) changes what the answer IS, not what a legal colouring
+is.** Normally the answer is one complete board; underclued, it is the set of
+cells that hold the same colour in **every** solution, and the rest stay blank.
+That is a different computation, not a different search, and it is why the
+result carries `proven`: a partial deduction that says it is partial is worth
+showing, and one that pretends to be the whole answer is not.
+
+Four things in the engine are load-bearing:
+
+- **`Verify.cpp` and `verify.ts` share nothing with the search.** Both re-scan
+  the whole board per rule rather than reading the compiled clause list. An
+  oracle built out of the thing it checks only proves the two agree. On the page
+  side, `solver.ts` runs every answer through `verify.ts` before it can be
+  drawn, and **drops** an arm that fails rather than ranking it low.
+- **`Reference.cpp` is the only thing that can catch over-pruning.** `Verify`
+  catches an answer that is not a solution; nothing at runtime catches a
+  propagator that removes a colouring which WAS one — in normal mode that is
+  just a different valid answer, and underclued it is a confidently wrong one.
+  `reference_test.cpp` compares whole solution sets and exact forced sets
+  against brute force over a shape × rule-set sweep. Do not delete it, and do
+  not let it stop covering a propagator you added.
+- **The pattern table is the extensibility claim, and it has been cashed in.**
+  Rules 0–10 compile into one list of forbidden arrangements in `Rules.cpp`, and
+  one propagator drives all of them. The 1x5 pair (rules 12/13)
+  was added afterwards and cost one row in `shortestRun`, one enum entry, one
+  row in each of the two `Verify` oracles, and no new code anywhere — which is
+  what the claim was. The only thing to watch is `kMaxPatternCells`: it sizes
+  `Clause`, so a pattern longer than every existing one has to raise it (a
+  `static_assert` in `fromCells` catches the omission at compile time). Two
+  things happen there beyond translation: a shorter run rule **subsumes** the longer
+  ones for its colour (generating both only adds instances that can never fire),
+  and both connect rules being on **implies** the checkerboard patterns — a
+  Jordan-curve argument, spelled out in the source, that holds with holes in the
+  board. The table may only ever hold *containment* rules: instances touching a
+  gap are dropped, which is right for "this arrangement never occurs" and wrong
+  for anything else.
+- **"One symbol per area" (rules 13/14) is two deductions, and the game names
+  them.** *Exactly one means less than two* is a refutation — a finished piece
+  already holding two clues can never be legal, and a cell that would weld two
+  clued pieces together cannot take that colour (`mergeLimits`). *Exactly one
+  means more than zero* is the half that paints: every cell of the colour has to
+  end up sharing a region with a clue, so a cell no clue can REACH is a cell that
+  cannot hold it. That reach is bounded by an area number's own value, which is
+  what the game calls **tethering**; feed the cells it settles to the pattern
+  clauses and **area reach** falls out too. Neither of those has its own code and
+  neither should: they are this rule met by propagation, the same way the rest of
+  the technique list is.
+- **An aborted look-ahead proves nothing.** `ProbeResult` is tri-state for that
+  reason. Reading a budget-expired probe as a refutation is the standard way
+  this kind of solver goes quietly unsound, and the underclued mode rests
+  entirely on telling "no solution exists" apart from "I stopped looking".
+- **`Profile.cpp` is a second engine, not a heuristic, and it is what makes the
+  letter-only boards tractable.** It sweeps cell by cell keeping a FRONTIER —
+  the colour of each boundary cell, which of them are in the same region, and
+  which letter each region carries — so partial colourings that agree on that
+  much collapse into one state and the cost becomes the number of distinct
+  frontiers rather than the number of colourings. It is complete, so it answers
+  `Unsolvable` honestly. Measured: `logicGridTest47` went **8 200 ms → 2 ms**,
+  and `logicGridTest67`, which no search or local method could touch, comes out
+  in 38 s natively and **45 s in the browser**. Four things about it are load-bearing:
+  - **A class that MERGES is not a class that CLOSED.** Both make a label
+    vanish from the frontier and they mean opposite things — a merge is two
+    pieces of one region meeting, a close is a region that can never grow. The
+    first version conflated them and threw out the known answer to board 67 at
+    the very last cell.
+  - **Class ids can reach `width`, so the per-class arrays are sized above it.**
+    An id one past the end read as letter 0 (`A`) in the prototype and quietly
+    corrupted the tags; in C++ that is a buffer overrun rather than a wrong
+    answer.
+  - **It declines rather than guesses.** Area clues would need each region's
+    size in the state, and the pattern rules each need their own extra state, so
+    `applicable()` refuses both — and refusing costs nothing, since those boards
+    are exactly the ones propagation already finishes in milliseconds. Running
+    out of room sets `stoppedOnMemory` and claims NOTHING, because an empty
+    sweep must never read as "no solution".
+  - **It answers the UNDERCLUED mode too, and that is where it pays most.**
+    `runProfileForced` reads the forced set straight off one backward pass —
+    mark the states that can still reach an accepting end, and a cell is forced
+    exactly when every surviving path paints it the same way. `runForced` gets
+    the same answer by proving each candidate cell with its own search, which on
+    a letter-only board with no rules has nothing to prune with. Measured on the
+    captured boards that stalled: `logicGridTest96` 60 s → 1.0 s,
+    `logicGridTest108` and `109` from timing out to 12 ms and 1 ms,
+    `logicGridTest107` 13.3 s → 1 ms. It keeps every layer's frontiers where the
+    witness sweep keeps five bytes a state, so its cap is much tighter and it
+    declines rather than thrashes.
+  - **Only seed 0 runs it, and the other cascade arms are not started at all**
+    (`armIsUseful` in `SolverArms.cpp`) when it applies. It is deterministic, so
+    those arms would repeat identical work, and their DFS cannot finish the
+    boards it exists for. This is the single biggest number in the whole change:
+    every thread in the in-module race shares one wasm heap and one allocator
+    lock, and leaving three useless arms running took board 67 from **45 s to
+    160 s** in the browser — the difference between fitting the page's budget
+    and not. `SOLVE_BUDGET_MS` is 120 s for the same reason: 45 s measured with
+    almost nothing else in the corpus above a tenth of a second.
+- **The DFS keeps its own stack, and must not go back to recursing.**
+  `Dfs::descend` is a loop over a `std::vector<Frame>`. Written the natural
+  recursive way it costs one machine frame per GUESSED cell, and the compiler
+  inlines `pickCell`'s several `Bits` temporaries into that frame — measured at
+  roughly 900 bytes. Emscripten's default stack is 64 KB, so a 10×7 board with
+  no rules (seventy cells, nearly all of them guessed) overflowed it and the
+  module trapped with `RuntimeError: Out of bounds memory access`, while the
+  native build solved the same board in 32 ms. **Raising `STACK_SIZE` is not the
+  fix**: the depth bound is the playable-cell count, up to `kMaxCells` = 1024,
+  which is close to a megabyte of frames on a board the editor accepts — the
+  native build is not far from its own limit either. Boards with few rules are
+  what reach that depth, because rules are what let propagation decide cells
+  instead of guessing them. `deepSearchBoard` in `boards.ts` goes through the
+  real wasm on every run to keep this from coming back; **only the wasm lane can
+  catch it**, so it must not be moved to a native-only test.
+
+The underclued answer is a sandwich — what deduction proved ⊆ what is really
+forced ⊆ what every solution found so far agrees on — and only the gap between
+the ends costs anything. Deduction gives the lower end for nothing and is
+usually most of the answer, because these puzzles are built to be worked out by
+hand. Each remaining candidate is settled by searching the whole space with that
+cell painted the other way: nothing found proves it, and a solution found
+instead knocks out every other candidate it disagrees with.
+
+Deliberately absent: a transposition table (states essentially never recur along
+different paths of a fixed-variable CSP), a rollback union-find (every region
+question is a flood fill over 1024-bit boards, which needs no undo), and
+restarts in the DFS (a restarting search that keeps nothing it learned is not
+complete, and "there is no solution" is only worth anything from a complete
+one — diversity comes from a random starting colour instead).
+
+`Bitboard.h` is why the row pitch is a fixed 32 rather than the board's width:
+one 64-bit word holds exactly two rows, so up/down are a 32-bit shift and
+left/right are a 1-bit shift after masking the column that would wrap. The two
+boundaries that speak the packed `y * width + x` layout — the wasm bridge and
+`FixtureIo` — convert, which they were already doing because the config's
+`cells` is column-major.
 
 ### The match-three solver
 
@@ -386,7 +572,17 @@ Unlike before, **the page keeps a real model** (`maxValues` / `values` / `button
 
 `test/` and `e2e/` mirror `src/pages/` with kebab-case folders (`logic-grid-solver`, `match-three-solver`, `phasic-dial-solver`, `rolling-blocks-solver`, `shifting-mosaic-solver`); shared tests sit at the root of each. `test/resources/` is split the same way. Fixtures are produced by the app's own download button, so the JSON *is* the download format.
 
-`test/resources/phasic-dial-solver/` and `test/resources/match-three-solver/` are discovered by directory listing rather than a hard-coded list, so dropping a captured fixture in makes it run with no code change. The other fixture families are enumerated explicitly: the C++ suites run rollingBlocksTest 1–48 and shiftingMosaicTest 1–43, and `test/rolling-blocks-solver/aStar.slow.test.ts` runs the same full 1–48 range through wasm on the cascade engine (120 s per-test timeout, 90 s solve budget). Real captured rolling-blocks boards top out at 13×15 / 8 blocks / dimension-6 blocks / 83 must-touch — the 64×64 caps and fuzz sizes are stress headroom, not game reality.
+`test/resources/phasic-dial-solver/`, `test/resources/match-three-solver/` and `test/resources/logic-grid-solver/` are discovered by directory listing rather than a hard-coded list, so dropping a captured fixture in makes it run with no code change.
+
+**`test/resources/logic-grid-solver/` holds boards captured from the game and NOTHING else** — 111 of them (`logicGridTest.json`, then `logicGridTest1..110.json`), 3×3 to 21×15. No two are the same puzzle: checked pairwise under all eight square symmetries, both exactly and by cell distance, with zero pairs inside 12%. `logicGridTest68` is a fully painted board, which is a real capture and the one that exercises handing a FINISHED grid back for checking. Anything a test invents lives in `test/logic-grid-solver/boards.ts` — a picture parser plus the named boards (solvable, underclued, impossible, the 1x5 runs, the deep search, and one using every part of the download format), imported by the unit suites **and** the e2e ones so a board cannot drift between them. The split is the point: a sweep over the corpus measures the solver against real puzzles, and a made-up board in that directory would quietly pad the number. `wasm.test.ts` runs its hand-built boards *before* the captured ones for the same reason — so the sweep still means something if the directory is ever empty.
+
+**The two sweeps over the corpus ask different questions, and their budgets follow from that.** `wasm.test.ts` checks AGREEMENT — the shipped module never errors, its oracle never rejects its own propagators, any complete answer passes `verify.ts`, no two arms disagree about solvability — and races all four arms, so it keeps a short 2 s per-arm budget and lets the slow boards report `unsolved` (which is already left out of the vote). The C++ `fixtures_test.cpp` is where **"the corpus still answers"** is asserted, one engine per board at 90 s (`logicGridTest67` needs ~38 s of that; everything else is milliseconds). Do not move that claim into the TS sweep: four arms × the slowest board is four times the cost for the same fact. Do keep a deep board in the TS sweep — `deepSearchBoard` — because the stack overflow below was wasm-only and the native lane could never have caught it.
+
+**All 111 answer**: 55 of 55 plain boards solved and verified, and **56 of 56 underclued boards `deduced` AND `proven`** — that mode is no longer covered only by `reference_test.cpp` and `fuzz:lg`. 48 never branch at all (`cascade:deduce`), 27 come out of the profile sweep, 33 out of the underclued refutation loop, 3 out of the DFS. Total search across the corpus is 38.8 s, of which 37 s is `logicGridTest67` alone; only two other boards pass 200 ms. `fixtures_test.cpp` asserts every board answers, with **no exception list**: a captured board that does not come out is either a mis-entry or a hole in the engine, and both deserve a red test rather than an entry on a list.
+
+**`logicGridTest67` is where the profile sweep came from, and it is also a lesson about extrapolating.** It is 15×15, four letter pairs, no rules, and the DFS does not touch it in ten million nodes. I concluded from small analogues that it was *impossible* — 5×4 refuted in 86 nodes, 6×5 in 4 390, 7×6 in 1 357 188, nothing larger refuted at all — and that was **wrong**. Those boards are unsolvable for lack of ROOM, not for topology: the interleaving argument needs every terminal on the outer face, and this board's `(5,13)` is interior, so the regions nest instead of crossing. The answer is four nested spiral arms, sizes 127/62/28/8, and the sweep finds it in 38 s natively, 45 s in the browser. `Profile.InterleavedPairsWithNoRoomAreImpossible` pins the 3×3 where the obstruction is real, next to the note that the same shape with room is fine — the two cases look identical and are not.
+
+Sweeps over the corpus assert what holds whatever a board turns out to be — the module never errors, its oracle never rejects its own propagators' work, any complete answer verifies — rather than that a board comes out solved. A generated fixture may also carry an optional `solution` key, which `FixtureIo` reads back and the C++ sweep uses to check that no cell reported *forced* disagrees with a known solution; the page's validator drops the key, so such a file still loads into the editor. Captured fixtures do not carry it, and `config.test.ts` asserts a byte-identical round-trip through `validateConfig`. The other fixture families are enumerated explicitly: the C++ suites run rollingBlocksTest 1–48 and shiftingMosaicTest 1–43, and `test/rolling-blocks-solver/aStar.slow.test.ts` runs the same full 1–48 range through wasm on the cascade engine (120 s per-test timeout, 90 s solve budget). Real captured rolling-blocks boards top out at 13×15 / 8 blocks / dimension-6 blocks / 83 must-touch — the 64×64 caps and fuzz sizes are stress headroom, not game reality.
 
 `test/resources/match-three-solver/` holds 52 boards captured from the game (`matchThreeTest.json`, then `matchThreeTest1..51.json`), swept by directory listing — `config.test.ts` (format), `engine.test.ts` (legal game state), `engine.solve.slow.test.ts` (TypeScript engine), `wasm.slow.test.ts` (C++ engine) and the C++ `fixtures_test.cpp`. They span 2×2 to 13×23, 1 to 20 moves, with and without blockades, and between them use every symbol.
 
@@ -420,6 +616,10 @@ cmake --build build-ci -j                            # ~73 s at -j 16, 3 solvers
 ctest --test-dir build-ci -j 4 --output-on-failure   # 311 tests, ~152 s
 ```
 
+Those two numbers were measured with **three** solvers in the aggregate and have
+not been re-measured since logic-grid joined; its suite adds roughly 130 cases,
+all of them fast except the reference sweep. Re-measure before quoting them.
+
 **`-j` is never implicit — you have to pass it.** Neither `cmake --build` nor
 `ctest` parallelises by default, and the `-j` in `.github/workflows/test.yml` is
 only in that YAML. CLion passes its own `-j` when *it* drives a build, which is
@@ -431,19 +631,19 @@ export CMAKE_BUILD_PARALLEL_LEVEL=16   # what `cmake --build` uses without -j
 export CTEST_PARALLEL_LEVEL=4          # what `ctest` uses without -j
 ```
 
-It is **additive only** — each `src/pages/*/a-star` stays independently configurable, because CLion's profiles point straight at them. Never move something a child needs up into the root. `-DIOI_ROLLING_BLOCKS=OFF` / `-DIOI_SHIFTING_MOSAIC=OFF` / `-DIOI_MATCH_THREE=OFF` drop a solver from the aggregate. A fresh CLion "Open project" on the **repo root** now loads the aggregate rather than a page; the existing per-page profiles are unaffected.
+It is **additive only** — each `src/pages/*/a-star` stays independently configurable, because CLion's profiles point straight at them. Never move something a child needs up into the root. `-DIOI_ROLLING_BLOCKS=OFF` / `-DIOI_SHIFTING_MOSAIC=OFF` / `-DIOI_MATCH_THREE=OFF` / `-DIOI_LOGIC_GRID=OFF` drop a solver from the aggregate. A fresh CLion "Open project" on the **repo root** now loads the aggregate rather than a page; the existing per-page profiles are unaffected.
 
 Three things are load-bearing and easy to undo:
 
 - **`${PROJECT_SOURCE_DIR}`, never `${CMAKE_SOURCE_DIR}`, in the three `test/CMakeLists.txt`.** Under the aggregate the latter is the repo root, so `TEST_RESOURCES_DIR` would resolve *outside* the repo — where the rolling-blocks fixture tests `GTEST_SKIP()` rather than fail. A silently green run.
 - **`a_star_core` / `shifting_mosaic_core` / `match_three_core` are `OBJECT` libraries** consumed by both the CLI and the gtest binary. The solver TUs used to be listed in both targets and compiled (and clang-tidied) twice. This is only correct because `TEST_RESOURCES_DIR` is the sole per-target compile definition and no solver TU reads it — **if a solver TU ever needs a target-specific define, the object library has to be split.**
-- **`PROCESSORS 8` on the shifting-mosaic `gtest_discover_tests`** (`SM_TEST_PROCESSORS`, kept in sync with `ARMS` in `ParallelCascade.h`). Each fixture spawns 8 `std::thread`s, so it claims 8 ctest slots — one per thread it really runs — and ctest never oversubscribes: at `-j 4` the count exceeds the parallel level so the test runs **alone**, and at `-j 16` two run at a time. The cheap rolling-blocks and match-three tests fill the remaining slots — both use `PROCESSORS 1`, because every match-three arm is single-threaded natively (its thread race is `__EMSCRIPTEN_PTHREADS__`-only, like rolling-blocks'). Without it `ctest -j` runs them 4- or 16-wide, they starve each other, and `shiftingMosaicTest37` blows its per-arm budget — which reads as a regression and is not one. Measured at `-j 4`: 311/311 in ~152 s, test37 alone at 112 s.
+- **`PROCESSORS 8` on the shifting-mosaic `gtest_discover_tests`** (`SM_TEST_PROCESSORS`, kept in sync with `ARMS` in `ParallelCascade.h`). Each fixture spawns 8 `std::thread`s, so it claims 8 ctest slots — one per thread it really runs — and ctest never oversubscribes: at `-j 4` the count exceeds the parallel level so the test runs **alone**, and at `-j 16` two run at a time. The cheap rolling-blocks, match-three and logic-grid tests fill the remaining slots — all three use `PROCESSORS 1`, because their arms are single-threaded natively (each thread race is `__EMSCRIPTEN_PTHREADS__`-only). Without it `ctest -j` runs them 4- or 16-wide, they starve each other, and `shiftingMosaicTest37` blows its per-arm budget — which reads as a regression and is not one. Measured at `-j 4`: 311/311 in ~152 s, test37 alone at 112 s.
 
-`gtest_discover_tests` also sets `LABELS`, so a single page's suite runs as `ctest --test-dir build-ci -L rolling-blocks` (or `-L shifting-mosaic`, `-L match-three`).
+`gtest_discover_tests` also sets `LABELS`, so a single page's suite runs as `ctest --test-dir build-ci -L rolling-blocks` (or `-L shifting-mosaic`, `-L match-three`, `-L logic-grid`).
 
-All three solvers have a real CLI (`a_star.exe` for rolling-blocks, `match_three.exe` for match-three): `--fixture <path> [--engine cascade|wastar|exact|cracker|beam|greedy] [--weight N] [--budget-ms N] [--max-nodes N] [--max-states N] [--max-heap-bytes N] [--seed N] [--beam N] [--gated] [--no-post] [--json]`, plus `--generate <path> --seed N [--shuffle N] [--kind goal|coverage|mixed]`; the LAST stdout line starting with `{` is the JSON report, with `stage` naming the winning arm and `alreadySolved` flagging boards solved before any move. Match-three's is the same protocol with its own flags (`--engine cascade|exhaustive|greedy|beam|nrpa`, `--table-bytes N`, `--nrpa-level N`, `--nrpa-iterations N`, `--quiet`, and `--generate … --kind random|cluster [--width N] [--height N] [--symbols N]`). Those three generator dimensions are **clamped** to `kMaxSide` / `kSymbolCount` — `Board::cells` is a fixed `kMaxCells` array and the per-symbol counters are `kSymbolCount` wide, so `--width 33 --height 32` used to write 1056 of 1024 entries. Clamping rather than re-drawing keeps every rng draw where it was, so a pinned dimension still consumes no random number. `--generate` also **exits 1 without writing** when no attempt produced a usable board, rather than saving the last candidate under a success line. All six bench/fuzz harnesses speak that protocol through `src/util/solverCli.ts` (`runCli` child-process runner + `parseFlags` flag-map parser) — extend it there, not per-harness.
+All the C++ solvers have a real CLI (`a_star.exe` for rolling-blocks, `match_three.exe` for match-three, `logic_grid.exe` for logic-grid): `--fixture <path> [--engine cascade|wastar|exact|cracker|beam|greedy] [--weight N] [--budget-ms N] [--max-nodes N] [--max-states N] [--max-heap-bytes N] [--seed N] [--beam N] [--gated] [--no-post] [--json]`, plus `--generate <path> --seed N [--shuffle N] [--kind goal|coverage|mixed]`; the LAST stdout line starting with `{` is the JSON report, with `stage` naming the winning arm and `alreadySolved` flagging boards solved before any move. Match-three's is the same protocol with its own flags (`--engine cascade|exhaustive|greedy|beam|nrpa`, `--table-bytes N`, `--nrpa-level N`, `--nrpa-iterations N`, `--quiet`, and `--generate … --kind random|cluster [--width N] [--height N] [--symbols N]`). Those three generator dimensions are **clamped** to `kMaxSide` / `kSymbolCount` — `Board::cells` is a fixed `kMaxCells` array and the per-symbol counters are `kSymbolCount` wide, so `--width 33 --height 32` used to write 1056 of 1024 entries. Clamping rather than re-drawing keeps every rng draw where it was, so a pinned dimension still consumes no random number. `--generate` also **exits 1 without writing** when no attempt produced a usable board, rather than saving the last candidate under a success line. Logic-grid's CLI is the same protocol again (`--engine cascade|deduce|dfs|forced|profile`, `--brute` to run brute force beside the engine and report whether the two agree, and `--generate … --kind clued|underclued [--width N] [--height N] [--rules MASK]`). All eight bench/fuzz harnesses speak that protocol through `src/util/solverCli.ts` (`runCli` child-process runner + `parseFlags` flag-map parser) — extend it there, not per-harness.
 
-Every solver's replay validity oracle lives in a `Replay.{h,cpp}` compiled into **both** wasm and native, and its `FixtureIo.{h,cpp}` / `GenerateCommands.{h,cpp}` are native only — they drag in nlohmann + exceptions, so they must never join the wasm source lists. Generator invariants worth knowing: rolling-blocks goal boards paint goals only under blocks with at least one legal roll (a frozen block keeps its own patch covered through any scramble — measured on seed 42) and re-scramble up to 3× if the start is still solved; coverage walks mark cells must-touch on first touch, which makes the walk itself the forward witness; mixed boards keep the two families in regions split by an unplayable divider column so the witnesses cannot interact.
+Every solver's validity oracle is compiled into **both** wasm and native — `Replay.{h,cpp}` for the three that answer with a move list, `Verify.{h,cpp}` for logic-grid, which answers with a board. Their `FixtureIo.{h,cpp}` / `GenerateCommands.{h,cpp}` are native only — they drag in nlohmann + exceptions, so they must never join the wasm source lists, and logic-grid's `Reference.{h,cpp}` is native only for a second reason: it is exponential brute force that must not be reachable from the page. Generator invariants worth knowing: rolling-blocks goal boards paint goals only under blocks with at least one legal roll (a frozen block keeps its own patch covered through any scramble — measured on seed 42) and re-scramble up to 3× if the start is still solved; coverage walks mark cells must-touch on first touch, which makes the walk itself the forward witness; mixed boards keep the two families in regions split by an unplayable divider column so the witnesses cannot interact.
 
 **Match-three cannot generate solvable-by-construction boards**, unlike a rolling-blocks scramble: a clear destroys the blocks it consumed, so there is no solution to play backwards. Its generator instead builds legal states of unknown solvability, and `fuzz:mt` checks the properties that hold regardless — every witness replays under the TypeScript rules, and neither engine calls a board unsolvable that the other solved. **With the corpus length pins reduced to ceilings, this is the main automated cross-engine guard**, so run it wide. Two things it had to learn the hard way: **a symbol's block count must be a multiple of three** (five blocks of one symbol is dead before the first move, which is why the first version produced nothing solvable), and boards are filled **match-free by construction** bottom-up rather than settled afterwards, so the planned counts survive.
 
@@ -513,6 +713,19 @@ indistinguishable. The header's code IS covered when a `.cpp` that includes
 it is analysed, so the honest reading of an empty header result is "no
 findings reported, covered indirectly via N analysed TUs", not "clean".
 Analyse the `.cpp` files first for this reason.
+
+**`wasm_bindings.cpp` is invisible to every tool above and reports clean
+because of it.** It is in no CMake target and no `compile_commands.json` —
+`buildWasm.ts` hands it straight to `em++` — so SonarLint has no compile
+command for it, `getDiagnostics` returns `[]` whatever the file contains, and
+the clang-tidy gate never sees it either. Its whole body sits behind
+`#ifdef __EMSCRIPTEN__`, so the native build does not even parse it. Measured
+2026-08-02 on the logic-grid one: empty three calls running, while the file
+held the same `using enum Status` finding SonarLint had just reported in
+`main.cpp`. **The blind spot covers any header reached only from a wasm TU
+too** — `MemoryProbe.h`'s emscripten branch carried two `modernize-use-auto`
+findings nothing else in the toolchain could reach. `CLION-INSPECTIONS.md` has
+the wasm32-target clang-tidy invocation that does analyse it.
 
 **So: for C++ changes, finish by asking the user to open and focus each changed file in CLion, then call `getDiagnostics` (no `uri`) and check the file is actually listed before concluding it is clean.** For TS/JS this hand-off is unnecessary — `analyze_code_snippet` covers it headlessly.
 

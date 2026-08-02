@@ -285,6 +285,38 @@ describe("Board (logic grid)", () => {
       );
     });
 
+    /**
+     * The stylesheet sizes a clue by how many characters it has, because CSS
+     * cannot measure a string and an area number is only bounded by the board's
+     * own area. Without this the one-digit case — which is all but four of the
+     * 221 area clues in the captured corpus — has to be sized for a number that
+     * hardly ever turns up.
+     */
+    test("a clue reports how long its label is", () => {
+      const board = makeBoard(4, 4, "symbol", 0, 7);
+      press(0, 0, LEFT);
+      release();
+      expect(cellAt(0, 0).dataset.labelLength).toBe("1");
+
+      board.setSymbolValue(12);
+      press(1, 0, LEFT);
+      release();
+      expect(cellAt(1, 0).dataset.labelLength).toBe("2");
+
+      // Lifting the clue takes the attribute with it, or an empty cell would
+      // keep sizing text it no longer has.
+      press(1, 0, RIGHT);
+      release();
+      expect(cellAt(1, 0).dataset.labelLength).toBeUndefined();
+    });
+
+    test("a letter is always one character long", () => {
+      makeBoard(2, 2, "symbol", 1, "C");
+      press(0, 0, LEFT);
+      release();
+      expect(cellAt(0, 0).dataset.labelLength).toBe("1");
+    });
+
     test("stamping the same clue again lifts it", () => {
       const board = makeBoard(2, 2, "symbol", 0, 4);
       press(1, 1, LEFT);
