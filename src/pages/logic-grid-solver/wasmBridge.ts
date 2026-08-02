@@ -109,11 +109,16 @@ export function searchLogicGridWasm(
     Math.min(PORTFOLIO.length, (navigator.hardwareConcurrency || 2) - 1),
   );
   // Every arm always runs: poolSize bounds how many go at once, never which
-  // ones exist — they queue and back-fill as earlier ones retire.
-  const configs =
-    isolated || poolSize === 1
-      ? [{ engine: "cascade", maxMs: budgetMs }]
-      : PORTFOLIO.map(arm => ({ ...arm, maxMs: budgetMs }));
+  // ones exist — they queue and back-fill as earlier ones retire. That is why
+  // only the ISOLATED case collapses the list: there the pthreads module races
+  // `kPortfolio` on real threads inside one worker, so spawning the arms out
+  // here as well would run each of them twice. A small `poolSize` is not a
+  // reason to drop any — it just means they take longer to all get a turn, and
+  // dropping them would cost a one- or two-core machine the near-free `deduce`
+  // arm that finishes most boards on its own.
+  const configs = isolated
+    ? [{ engine: "cascade", maxMs: budgetMs }]
+    : PORTFOLIO.map(arm => ({ ...arm, maxMs: budgetMs }));
 
   let workers: Worker[] = [];
   let settled = false;

@@ -254,8 +254,77 @@ code:
   build (clang), the native Ninja build (gate), and the fixture suite
   before trusting a restructuring of measured solver code.
 
+## The SonarCloud quality gate — read this BEFORE adding a solver
+
+The gate is on **new** code only, and four of its five conditions are ratings
+that ordinary care keeps at A. The fifth is the one that fails, and it fails
+almost every time a solver page lands:
+
+```
+new_duplicated_lines_density   must be <= 3%
+```
+
+Measured on PR #42 (the logic-grid solver): **3.7%**, from 374 duplicated new
+lines. Every one of them is infrastructure this repo duplicates ON PURPOSE, one
+copy per solver:
+
+| file | dup lines | why there are four copies |
+|---|---|---|
+| `a-star/MemoryProbe.h` | 168 | verbatim; only the `RB_`/`MT_` macro prefix and a `const auto` differ |
+| `wasmBridge.ts` | 85 | the worker race, copied per page |
+| `wasm/astar.worker.js` | 39 | hand-written worker, reached page-relative from its own `*-wasm/` dir |
+| `a-star/Budget.h` | 38 | genuinely diverged — logic-grid's carries progress publishing |
+| `util/buildWasm.ts` | 32 | the four-variant block per solver |
+| `a-star/test/fixtures_test.cpp` | 12 | the corpus sweep |
+
+**Do not "fix" this by extracting the C++ into a shared directory.** `CLAUDE.md`
+is explicit that each `src/pages/*/a-star` stays independently configurable
+because CLion's profiles point straight at it, and `buildWasm.ts` hashes every
+`*.h` in that directory's ROOT for the rebuild stamp — a header moved out of it
+would stop invalidating the wasm when it changed, which is a silently stale
+binary. The TS side is different: `src/util/` already holds shared code and the
+repo has extracted there before (`editorShell.ts`, `configFile.ts`,
+`configValidation.ts`, when the fifth editor pushed this same gate over).
+
+So the options, in order:
+
+1. **Extract on the TS side only**, and migrate EVERY copy in the same change.
+   Migrating one leaves the new shared file duplicating the copies left behind —
+   which scores the same, because the shared file is new code.
+2. **Declare the deliberate copies.** `sonar.cpd.exclusions` is what it is for,
+   and `sonar-project.properties` at the repo root now carries it for the three
+   files the architecture forces to be duplicated — with the reasoning, and with
+   a note on what is deliberately left counted. **Verify it took effect**: this
+   project runs SonarCloud **automatic analysis**, which does not honour every
+   property a scanner run would. If the next PR still reports those files as
+   duplicated, set the same value in the UI instead — *Administration → Analysis
+   Scope → Duplication Exclusions* — and say so in the properties file so nobody
+   re-adds it there.
+3. **Accept the failure and say so in the PR.** Legitimate when the duplication
+   really is the architecture, but it stops being legitimate the moment someone
+   stops reading the number.
+
+Whichever route, check the actual figures rather than guessing — the gate and
+the per-file breakdown are public for a public project:
+
+```bash
+curl -s "https://sonarcloud.io/api/qualitygates/project_status?projectKey=Valle12_islands-of-insight-tools&pullRequest=<N>"
+curl -s "https://sonarcloud.io/api/measures/component_tree?component=Valle12_islands-of-insight-tools&pullRequest=<N>&metricKeys=new_duplicated_lines,new_lines&qualifiers=FIL&ps=300"
+curl -s "https://sonarcloud.io/api/issues/search?componentKeys=Valle12_islands-of-insight-tools&pullRequest=<N>&resolved=false&ps=100"
+```
+
+Note the JSON shape: a measure's value for a PR is in `periods[0].value`, NOT
+`value` — reading `value` returns nothing and looks like "no duplication".
+
 ## Known intentional findings — leave them
 
+- `MemoryProbe.h`'s two Windows findings, both required by the Win32 API:
+  `cpp:S954` (move the `#include`s to the top) cannot be obeyed — `Windows.h`
+  has to follow the `WIN32_LEAN_AND_MEAN` define and `Psapi.h` has to follow
+  `Windows.h`; and `cpp:S3630` (replace `reinterpret_cast`) is the documented
+  calling convention for `GetProcessMemoryInfo`, which takes a
+  `PROCESS_MEMORY_COUNTERS *` and is handed the `_EX` form on purpose. Both are
+  commented in the file.
 - `#include <yvals_core.h>` under `#ifdef __clang__` in the gtest TUs is
   the clang+MSVC-STL `__cpp_lib_is_pointer_interconvertible` workaround.
   Removing it breaks the clang-tidy gate's parse of gtest headers.

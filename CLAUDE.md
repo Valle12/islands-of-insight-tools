@@ -334,14 +334,14 @@ same role as rolling-blocks' `replay.ts`.
 half-finished board be handed back for checking — and why a board painted wrong
 comes back unsolvable rather than quietly re-solved.
 
-**`Underclued` (rule 10) changes what the answer IS, not what a legal colouring
+**`Underclued` (rule 15) changes what the answer IS, not what a legal colouring
 is.** Normally the answer is one complete board; underclued, it is the set of
 cells that hold the same colour in **every** solution, and the rest stay blank.
 That is a different computation, not a different search, and it is why the
 result carries `proven`: a partial deduction that says it is partial is worth
 showing, and one that pretends to be the whole answer is not.
 
-Four things in the engine are load-bearing:
+The engine's load-bearing pieces:
 
 - **`Verify.cpp` and `verify.ts` share nothing with the search.** Both re-scan
   the whole board per rule rather than reading the compiled clause list. An
@@ -665,6 +665,8 @@ All three solvers gate on clang-tidy through `cmake/ClangTidyGate.cmake` and fai
    - It catches things `tsc` cannot: S3776 cognitive complexity (>15), S2933 fields that should be `readonly`, S3358 nested ternary, S1854 dead assignment, S4138 index-`for` over `for-of`. Treat a finding on code you touched as something to fix, not report.
 
 The other SonarQube MCP tools (`search_sonar_issues_in_projects`, `get_component_measures`, coverage, quality gate) read the **last server-side analysis**, not the working tree. Do not use them to check your own edits.
+
+**The quality gate fails on DUPLICATION almost every time a solver page lands**, and it is the only condition that ever does — every solver copies `MemoryProbe.h`, its worker, its bridge and its `buildWasm` block. `CLION-INSPECTIONS.md` has the measured breakdown, why extracting the C++ into a shared directory is the wrong fix here, and the curl commands that read the gate and the per-file numbers off the public API. Read it before deciding what to do about a red gate.
 
 ### C++
 

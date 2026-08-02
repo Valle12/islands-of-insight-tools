@@ -20,7 +20,12 @@ import type { LogicGridTest } from "../../src/util/types";
  * cannot drift between the unit tests and the browser ones.
  */
 
-const ruleIndex = (id: string) => RULES.findIndex(rule => rule.id === id);
+/** Throws on a typo rather than putting `findIndex`'s -1 into a fixture. */
+const ruleIndex = (id: string) => {
+  const index = RULES.findIndex(rule => rule.id === id);
+  if (index < 0) throw new Error(`boards.ts asks for an unknown rule: ${id}`);
+  return index;
+};
 
 /**
  * A puzzle from a picture, one string per row:

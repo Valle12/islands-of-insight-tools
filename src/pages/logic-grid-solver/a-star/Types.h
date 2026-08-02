@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <utility>
 #include <vector>
@@ -78,7 +79,9 @@ constexpr int rowOf(const int index) { return index / kStride; }
 /// An already-flat index as an array subscript. Exists so the widening cast
 /// applies to a value rather than to an arithmetic expression, which is what
 /// `bugprone-misplaced-widening-cast` is asking for.
-constexpr size_t slot(const int index) { return static_cast<size_t>(index); }
+constexpr std::size_t slot(const int index) {
+  return static_cast<std::size_t>(index);
+}
 
 /// A clue as the solver holds it: where it sits, what kind it is, and its
 /// value — an area size, or a letter as 0..25.

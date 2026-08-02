@@ -46,17 +46,19 @@ async function loadModule(variant) {
   return getModule("astar.mjs");
 }
 
-/** Embind values have to become plain structures before they can be posted. */
+/**
+ * Embind values have to become plain structures before they can be posted.
+ *
+ * `Array.from` rather than a spread or a for-of: the bindings build these with
+ * `val::array()`, so they are real arrays here, but copying by length and index
+ * also works for anything array-LIKE if that ever changes.
+ */
 function plainCells(cells) {
-  const out = [];
-  for (let i = 0; i < cells.length; i++) out.push(cells[i]);
-  return out;
+  return Array.from(cells);
 }
 
 function plainWitnesses(witnesses) {
-  const out = [];
-  for (let i = 0; i < witnesses.length; i++) out.push(plainCells(witnesses[i]));
-  return out;
+  return Array.from(witnesses, plainCells);
 }
 
 self.onmessage = async event => {

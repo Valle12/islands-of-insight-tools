@@ -32,9 +32,19 @@ export type LogicGridViolation =
   | "area-without-symbol"
   | "area-with-many-symbols";
 
-/** A rule's position in the append-only catalogue, by its stable id. */
+/**
+ * A rule's position in the append-only catalogue, by its stable id.
+ *
+ * Throws rather than returning `findIndex`'s -1, and that matters here more
+ * than anywhere: every constant below is resolved once at module load, and a
+ * -1 would make `has()` answer false for every board — silently switching the
+ * rule off in the one file that is supposed to catch a broken answer. A
+ * mistyped id or a renamed rule has to fail loudly at import.
+ */
 function ruleIndex(id: string): number {
-  return RULES.findIndex(rule => rule.id === id);
+  const index = RULES.findIndex(rule => rule.id === id);
+  if (index < 0) throw new Error(`verify.ts refers to an unknown rule: ${id}`);
+  return index;
 }
 
 const NO_DARK_2X2 = ruleIndex("no-dark-2x2");
@@ -301,33 +311,53 @@ function letterProblem(
  * test catches it — and leaving it out keeps this file free of anything the
  * solver derived rather than was told.
  */
-export function verifyLogicGrid(
+/** The 2x2 rules and the checkerboard: everything read off one small window. */
+function squareProblem(
   config: LogicGridTest,
   cells: number[],
 ): LogicGridViolation {
-  const shape = shapeProblem(config, cells);
-  if (shape !== "none") return shape;
-
   if (has(config, NO_DARK_2X2) && hasSquare(config, cells, DARK))
     return "square";
   if (has(config, NO_LIGHT_2X2) && hasSquare(config, cells, LIGHT))
     return "square";
+  if (has(config, NO_CHECKERBOARD) && hasCheckerboard(config, cells))
+    return "checkerboard";
+  return "none";
+}
 
+/** Both colours measured once, then every active run rule asked about them. */
+function runProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
   const darkRun = longestRun(config, cells, DARK);
   const lightRun = longestRun(config, cells, LIGHT);
   for (const rule of RUN_RULES) {
     const found = rule.color === DARK ? darkRun : lightRun;
     if (has(config, rule.index) && found >= rule.length) return "run";
   }
+  return "none";
+}
 
-  if (has(config, NO_CHECKERBOARD) && hasCheckerboard(config, cells))
-    return "checkerboard";
-
-  const connectivity = connectivityProblem(config, cells);
-  if (connectivity !== "none") return connectivity;
-  const area = areaProblem(config, cells);
-  if (area !== "none") return area;
-  const symbols = symbolProblem(config, cells);
-  if (symbols !== "none") return symbols;
-  return letterProblem(config, cells);
+export function verifyLogicGrid(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  // One family per entry, each returning "none" when it has nothing to say, so
+  // adding a rule family is one line here rather than another branch inside an
+  // already-long function.
+  const checks = [
+    shapeProblem,
+    squareProblem,
+    runProblem,
+    connectivityProblem,
+    areaProblem,
+    symbolProblem,
+    letterProblem,
+  ];
+  for (const check of checks) {
+    const problem = check(config, cells);
+    if (problem !== "none") return problem;
+  }
+  return "none";
 }

@@ -14,8 +14,10 @@
 #include "Types.h"
 #include "Verify.h"
 
+#include <charconv>
 #include <cstdint>
-#include <cstdlib>
+#include <cstring>
+#include <system_error>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -83,6 +85,35 @@ void printUsage() {
                "                  [--width N] [--height N] [--rules MASK]\n";
 }
 
+/**
+ * A numeric flag value, or nothing when the text is not one.
+ *
+ * `strtoul` and friends answer 0 for text with no digits and report it only
+ * through `errno`, so `--budget-ms abc` used to run with a zero budget and
+ * `--max-nodes -1` used to wrap to the maximum. The bench and fuzz harnesses in
+ * src/util drive this CLI, so a mistyped flag produced a plausible-looking
+ * report rather than an error. `from_chars` refuses all of that, and requiring
+ * it to consume the WHOLE argument is what rejects "12abc".
+ */
+template <typename T> bool readNumber(const char *text, T &out) {
+  const char *end = text + std::strlen(text);
+  T parsed{};
+  const auto [stop, code] = std::from_chars(text, end, parsed);
+  if (code != std::errc{} || stop != end)
+    return false;
+  out = parsed;
+  return true;
+}
+
+/// Reads a flag's value into `out`, naming the flag when it will not parse.
+template <typename T>
+bool readFlag(const std::string_view flag, const char *value, T &out) {
+  if (readNumber(value, out))
+    return true;
+  std::cerr << "Invalid value for " << flag << ": " << value << "\n";
+  return false;
+}
+
 bool assignValue(CliOptions &opts, const std::string_view flag,
                  const char *value) {
   if (flag == "--fixture")
@@ -94,19 +125,19 @@ bool assignValue(CliOptions &opts, const std::string_view flag,
   else if (flag == "--kind")
     opts.kind = value;
   else if (flag == "--budget-ms")
-    opts.budgetMs = static_cast<uint32_t>(std::strtoul(value, nullptr, 10));
+    return readFlag(flag, value, opts.budgetMs);
   else if (flag == "--max-nodes")
-    opts.maxNodes = std::strtoull(value, nullptr, 10);
+    return readFlag(flag, value, opts.maxNodes);
   else if (flag == "--max-heap-bytes")
-    opts.maxHeapBytes = std::strtoull(value, nullptr, 10);
+    return readFlag(flag, value, opts.maxHeapBytes);
   else if (flag == "--seed")
-    opts.seed = static_cast<uint32_t>(std::strtoul(value, nullptr, 10));
+    return readFlag(flag, value, opts.seed);
   else if (flag == "--width")
-    opts.width = static_cast<int>(std::strtol(value, nullptr, 10));
+    return readFlag(flag, value, opts.width);
   else if (flag == "--height")
-    opts.height = static_cast<int>(std::strtol(value, nullptr, 10));
+    return readFlag(flag, value, opts.height);
   else if (flag == "--rules")
-    opts.rules = static_cast<int>(std::strtol(value, nullptr, 10));
+    return readFlag(flag, value, opts.rules);
   else {
     std::cerr << "Unknown argument: " << flag << "\n";
     return false;

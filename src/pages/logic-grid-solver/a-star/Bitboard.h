@@ -174,17 +174,21 @@ struct Bits {
 
   /// Cells orthogonally touching this set but not in it.
   [[nodiscard]] constexpr Bits border() const { return grown().without(*this); }
+
+  // Hidden friends: defined inside the class, found only by argument-dependent
+  // lookup. A free operator at namespace scope joins the overload set of every
+  // unqualified `|` and `&` in the namespace and has to be rejected one
+  // candidate at a time, which is what cpp:S2807 is about.
+  [[nodiscard]] friend constexpr Bits operator|(Bits left, const Bits &right) {
+    left |= right;
+    return left;
+  }
+
+  [[nodiscard]] friend constexpr Bits operator&(Bits left, const Bits &right) {
+    left &= right;
+    return left;
+  }
 };
-
-[[nodiscard]] constexpr Bits operator|(Bits left, const Bits &right) {
-  left |= right;
-  return left;
-}
-
-[[nodiscard]] constexpr Bits operator&(Bits left, const Bits &right) {
-  left &= right;
-  return left;
-}
 
 /// A set holding exactly one cell.
 [[nodiscard]] constexpr Bits oneCell(const int index) {

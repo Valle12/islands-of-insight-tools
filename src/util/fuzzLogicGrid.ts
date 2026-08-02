@@ -75,15 +75,31 @@ function parseArgs(argv: string[]) {
     /** Passed to `--generate`; `0` asks for boards with no rules at all. */
     rules: -1,
   };
+  /**
+   * A flag's value as a number, or a hard stop.
+   *
+   * `Number("abc")` is NaN and every comparison against it is false, so a
+   * mistyped `--count` used to run the loop zero times and exit 0 — a CI fuzz
+   * job passing without having tested anything. A mistyped `--budget-ms` made
+   * every timeout fire immediately and every board report "no report".
+   */
+  const number = (flag: string, raw: string) => {
+    const value = Number(raw);
+    if (!Number.isFinite(value)) {
+      console.error(`${flag} needs a number, got: ${raw}`);
+      process.exit(2);
+    }
+    return value;
+  };
   parseFlags(argv, {
-    "--count": next => (opts.count = Number(next())),
-    "--seed-base": next => (opts.seedBase = Number(next())),
-    "--budget-ms": next => (opts.budgetMs = Number(next())),
+    "--count": next => (opts.count = number("--count", next())),
+    "--seed-base": next => (opts.seedBase = number("--seed-base", next())),
+    "--budget-ms": next => (opts.budgetMs = number("--budget-ms", next())),
     "--kind": next => (opts.kind = next()),
     "--engine": next => (opts.engine = next()),
-    "--rules": next => (opts.rules = Number(next())),
-    "--width": next => (opts.width = Number(next())),
-    "--height": next => (opts.height = Number(next())),
+    "--rules": next => (opts.rules = number("--rules", next())),
+    "--width": next => (opts.width = number("--width", next())),
+    "--height": next => (opts.height = number("--height", next())),
     "--exe": next => {
       const value = next();
       opts.exe = value === "default" ? defaultExe : resolve(value);
@@ -212,9 +228,17 @@ for (let i = 0; i < opts.count; i++) {
     continue;
   }
 
-  const fixture = (await Bun.file(path).json()) as Record<string, unknown>;
-  const report = await solve(opts, path);
-  const problems = divergences(fixture, report);
+  // A campaign has to survive the bad output it exists to find: an unreadable
+  // fixture or a report that will not parse is a DIVERGENCE to record, not a
+  // reason to stop with the remaining seeds untried.
+  let problems: string[];
+  try {
+    const fixture = (await Bun.file(path).json()) as Record<string, unknown>;
+    const report = await solve(opts, path);
+    problems = divergences(fixture, report);
+  } catch (error) {
+    problems = [`threw: ${error instanceof Error ? error.message : error}`];
+  }
   if (problems.length === 0) {
     if (!opts.keepAll) rmSync(path, { force: true });
     continue;

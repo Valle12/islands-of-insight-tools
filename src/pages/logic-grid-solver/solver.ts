@@ -124,10 +124,25 @@ export function solveLogicGrid(
   let bestRank = -1;
   let finished = false;
   let handle: WasmHandle | null = null;
+  /**
+   * An answer that arrived before `searchLogicGridWasm` returned.
+   *
+   * It can: the bridge settles synchronously when no worker could be started at
+   * all, and `handle` is only assigned once the call comes back. Reporting from
+   * inside the call would hand the page a result while `handle` is still null —
+   * so the portfolio never gets torn down — and would run `onDone` before the
+   * caller holds anything it could cancel.
+   */
+  let pending: LogicGridSolveResult | null = null;
+  let started = false;
 
   const finish = (result: LogicGridSolveResult) => {
     if (finished) return;
     finished = true;
+    if (!started) {
+      pending = result;
+      return;
+    }
     handle?.terminate();
     callbacks.onDone(result);
   };
@@ -163,6 +178,11 @@ export function solveLogicGrid(
     },
     budgetMs,
   );
+  started = true;
+  if (pending !== null) {
+    handle.terminate();
+    callbacks.onDone(pending);
+  }
 
   return {
     cancel: () => {

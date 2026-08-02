@@ -19,9 +19,9 @@ export const MAX_GRID_SIDE = 32;
  * How long the solver may run before it gives up.
  *
  * A properly clued board is usually finished by deduction alone, in
- * milliseconds — 68 of the 69 captured boards total about a tenth of a second
+ * milliseconds — 108 of the 111 captured boards total well under a second
  * between them. The budget exists for the two cases that are not like that: the
- * underclued mode, where every cell deduction could not settle costs a search
+ * underclued mode, where every cell the deduction could not settle costs a search
  * of its own to prove, and the profile sweep on a wide connectivity board.
  *
  * Two minutes rather than one because of the second. `logicGridTest67` is

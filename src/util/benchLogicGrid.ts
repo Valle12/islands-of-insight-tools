@@ -92,14 +92,19 @@ async function benchOne(
     budgetMs * 3 + 60_000,
   );
   const report = (json ?? {}) as Record<string, unknown>;
+  // `String(unknown)` turns an object into "[object Object]", which would land
+  // in the baseline as a status and compare unequal to itself forever. A report
+  // field that is not a string is a broken report, so say so.
+  const text = (value: unknown, fallback: string) =>
+    typeof value === "string" ? value : fallback;
   return {
     fixture: name,
-    status: String(report.status ?? "missing"),
+    status: text(report.status, "missing"),
     decided: Number(report.decided ?? 0),
     playable: Number(report.playable ?? 0),
     proven: report.proven === true,
     valid: report.valid !== false,
-    arm: String(report.arm ?? ""),
+    arm: text(report.arm, ""),
     nodes: Number(report.nodes ?? 0),
     refutations: Number(report.refutations ?? 0),
     searchMs: Number(report.searchMs ?? 0),

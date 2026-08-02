@@ -8,10 +8,12 @@
 
 // The arms, and the order the cascade runs them in.
 //
-// `kPortfolio` below is mirrored by `PORTFOLIO` in
-// src/pages/logic-grid-solver/wasmBridge.ts: on a cross-origin isolated page
-// one module races these on real threads, and everywhere else the bridge
-// spreads the same list over separate workers. The two have to stay in step.
+// `kEngines` below is just the set of names `--engine` and the wasm boundary
+// accept. The list that has to stay in step with the page is `kPortfolio` in
+// SolverArms.cpp, mirrored by `PORTFOLIO` in
+// src/pages/logic-grid-solver/wasmBridge.ts — same arms, same order, same
+// seeds: on a cross-origin isolated page one module races them on real threads,
+// and everywhere else the bridge spreads them over separate workers.
 namespace lg::arms {
 
 inline constexpr auto kEngines = std::to_array<const char *>(
