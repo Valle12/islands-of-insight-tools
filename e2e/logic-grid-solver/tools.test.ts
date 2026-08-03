@@ -30,6 +30,14 @@ function ruleChip(page: Page, id: string) {
   return page.locator(`#rule-row .tool-button[data-rule="${id}"]`);
 }
 
+/** One of a directed kind's four arrows, by the direction it aims at. */
+function directionToggle(page: Page, id: string, direction: string) {
+  return page.locator(
+    `#symbol-row .symbol-tool[data-symbol="${id}"] ` +
+      `.direction-toggle[data-direction="${direction}"]`,
+  );
+}
+
 /** Drags the given button across one row of cells, in one stroke. */
 async function dragRow(page: Page, y: number, from: number, to: number,
   button: "left" | "right" = "left") {
@@ -67,7 +75,10 @@ test.describe("Logic Grid Solver tools", () => {
     // Four: the three colours plus merge, which also changes what the board is
     // rather than doing something to it once.
     await expect(page.locator("#color-row .tool-button")).toHaveCount(4);
-    await expect(page.locator("#symbol-row .symbol-chip")).toHaveCount(2);
+    // `.symbol-chip` means "the clue KINDS". A dart's four direction toggles
+    // sit inside its control and deliberately do not answer to that class.
+    await expect(page.locator("#symbol-row .symbol-chip")).toHaveCount(3);
+    await expect(page.locator("#symbol-row .direction-toggle")).toHaveCount(4);
   });
 
   test("left paints dark and right paints light", async ({ page }) => {
@@ -340,5 +351,101 @@ test.describe("Logic Grid Solver tools", () => {
       "aria-pressed",
       "false",
     );
+  });
+
+  /**
+   * The dart is placed with its aim already set, and re-aimed afterwards by
+   * dragging the arrow drawn on it. The drag is the half no unit test can
+   * reach: happy-dom has no layout, and the gesture is hit-tested by where the
+   * cursor sits relative to the middle of the tile.
+   */
+  test.describe("darts", () => {
+    /** Arms the dart tool with a value and an aim, then stamps it on a cell. */
+    async function placeDart(
+      page: Page,
+      x: number,
+      y: number,
+      value: string,
+      direction: string,
+    ) {
+      await clueValue(page, "dart").fill(value);
+      await directionToggle(page, "dart", direction).click();
+      await cellAt(page, x, y).click();
+    }
+
+    test("stamps a number and an arrow together", async ({ page }) => {
+      await placeDart(page, 1, 1, "2", "down");
+      await expect(cellAt(page, 1, 1)).toHaveAttribute("data-symbol", "dart");
+      await expect(cellAt(page, 1, 1)).toHaveAttribute("data-direction", "down");
+      await expect(cellAt(page, 1, 1).locator(".cell-value")).toHaveText("2");
+      await expect(cellAt(page, 1, 1)).toHaveAccessibleName(
+        "Column 2, Row 2, Unknown, Dart 2 pointing down",
+      );
+    });
+
+    test("exactly one arrow reads as chosen", async ({ page }) => {
+      await directionToggle(page, "dart", "left").click();
+      await expect(directionToggle(page, "dart", "left")).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      await expect(directionToggle(page, "dart", "right")).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+    });
+
+    /**
+     * The re-click rule for a directed clue TURNS it rather than lifting, so
+     * placing a row of darts and then aiming them is all plain clicks. Lifting
+     * is the right button's job alone.
+     */
+    test("clicking a placed dart turns it clockwise", async ({ page }) => {
+      await placeDart(page, 2, 2, "1", "right");
+      const cell = cellAt(page, 2, 2);
+
+      await cell.click();
+      await expect(cell).toHaveAttribute("data-direction", "down");
+      await cell.click();
+      await expect(cell).toHaveAttribute("data-direction", "left");
+
+      await cell.click({ button: "right" });
+      await expect(cell).not.toHaveAttribute("data-direction", /.*/);
+      await expect(cell).toHaveAccessibleName("Column 3, Row 3, Unknown");
+    });
+
+    test("an arrow key aims a focused dart", async ({ page }) => {
+      await placeDart(page, 1, 0, "1", "right");
+      await cellAt(page, 1, 0).press("ArrowUp");
+      await expect(cellAt(page, 1, 0)).toHaveAttribute("data-direction", "up");
+    });
+
+    /**
+     * The arrow SITS a quarter turn clockwise of the way it points, which is
+     * how the game draws it. Only the stylesheet says so — `cellView.ts` just
+     * writes the number, the arrow and `data-direction` — and only a real
+     * browser has the layout to check it, so it is pinned here.
+     */
+    test("seats the arrow a quarter turn clockwise of its aim", async ({
+      page,
+    }) => {
+      const seatOf = async (at: number, direction: string) => {
+        await placeDart(page, at, 4, "1", direction);
+        return cellAt(page, at, 4).evaluate(cell => {
+          const n = cell.querySelector(".cell-value")!.getBoundingClientRect();
+          const a = cell.querySelector(".cell-arrow")!.getBoundingClientRect();
+          const dx = a.x - n.x;
+          const dy = a.y - n.y;
+          if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? "right" : "left";
+          return dy > 0 ? "below" : "above";
+        });
+      };
+
+      expect(await seatOf(0, "up")).toBe("right");
+      expect(await seatOf(1, "right")).toBe("below");
+      expect(await seatOf(2, "down")).toBe("left");
+      expect(await seatOf(3, "left")).toBe("above");
+    });
+
   });
 });

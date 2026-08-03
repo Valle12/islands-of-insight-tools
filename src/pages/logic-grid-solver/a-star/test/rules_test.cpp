@@ -34,7 +34,9 @@ TEST(Rules, IndicesMirrorTheCatalogue) {
   EXPECT_EQ(std::to_underlying(Rule::Underclued), 15);
   EXPECT_EQ(std::to_underlying(Rule::AreaTwoDark), 16);
   EXPECT_EQ(std::to_underlying(Rule::AreaTwoLight), 17);
-  EXPECT_EQ(rules::kRuleCount, 18);
+  EXPECT_EQ(std::to_underlying(Rule::AreaFourDark), 18);
+  EXPECT_EQ(std::to_underlying(Rule::AreaFourLight), 19);
+  EXPECT_EQ(rules::kRuleCount, 20);
 }
 
 TEST(Rules, NamesAreTheIdsFromTheCatalogue) {
@@ -49,14 +51,53 @@ TEST(Rules, NamesAreTheIdsFromTheCatalogue) {
   EXPECT_STREQ(rules::name(Rule::OneSymbolLight), "one-symbol-light");
   EXPECT_STREQ(rules::name(Rule::AreaTwoDark), "area-two-dark");
   EXPECT_STREQ(rules::name(Rule::AreaTwoLight), "area-two-light");
+  EXPECT_STREQ(rules::name(Rule::AreaFourDark), "area-four-dark");
+  EXPECT_STREQ(rules::name(Rule::AreaFourLight), "area-four-light");
 }
 
 TEST(Rules, GlobalAreaListsItsMembers) {
-  using rules::globalArea;
-  EXPECT_EQ(globalArea(rules::bit(Rule::AreaTwoDark), kDark), 2);
-  EXPECT_EQ(globalArea(rules::bit(Rule::AreaTwoDark), kLight), 0);
-  EXPECT_EQ(globalArea(rules::bit(Rule::AreaTwoLight), kLight), 2);
-  EXPECT_EQ(globalArea(rules::bit(Rule::ConnectDark), kDark), 0);
+  using rules::smallestGlobalArea;
+  EXPECT_EQ(smallestGlobalArea(rules::bit(Rule::AreaTwoDark), kDark), 2);
+  EXPECT_EQ(smallestGlobalArea(rules::bit(Rule::AreaTwoDark), kLight), 0);
+  EXPECT_EQ(smallestGlobalArea(rules::bit(Rule::AreaTwoLight), kLight), 2);
+  EXPECT_EQ(smallestGlobalArea(rules::bit(Rule::AreaFourDark), kDark), 4);
+  EXPECT_EQ(smallestGlobalArea(rules::bit(Rule::ConnectDark), kDark), 0);
+}
+
+/**
+ * The min, and only for `impliedRun`, where it is sound because the rules are
+ * conjunctive. What it may NOT be read as is "the size a region has to be":
+ * with both sizes on for a colour the answer is that the colour is absent, and
+ * a caller taking 2 from here would force exactly two cells of it instead.
+ */
+TEST(Rules, GlobalAreaTakesTheSmallestOfSeveral) {
+  constexpr rules::RuleMask both =
+      rules::bit(Rule::AreaTwoDark) | rules::bit(Rule::AreaFourDark);
+  EXPECT_EQ(rules::smallestGlobalArea(both, kDark), 2);
+  EXPECT_EQ(rules::smallestGlobalArea(both, kLight), 0);
+}
+
+/**
+ * The asymmetry between the two sizes, stated where it can be seen. Area two
+ * forbids the four bent trominoes outright; area four's equivalent would be 61
+ * pentominoes, so it is `regionArea` in `Propagate.cpp` instead and contributes
+ * only the run its number implies.
+ */
+TEST(Patterns, AnAreaOfFourAddsNoShapesBeyondItsImpliedRun) {
+  const rules::Patterns patterns =
+      rules::patternsFor(rules::bit(Rule::AreaFourDark));
+  ASSERT_EQ(patterns.size(), 2U);
+  EXPECT_EQ(patterns.front().count, 5);
+  EXPECT_EQ(patterns.back().count, 5);
+}
+
+/// Both sizes on one colour take the shorter implied run, and nothing else.
+TEST(Patterns, TheSmallerAreaWinsTheImpliedRun) {
+  const rules::Patterns patterns = rules::patternsFor(
+      rules::bit(Rule::AreaTwoDark) | rules::bit(Rule::AreaFourDark));
+  // The two straight trominoes from area two, plus its four bent ones.
+  ASSERT_EQ(patterns.size(), 6U);
+  EXPECT_EQ(patterns.front().count, 3);
 }
 
 TEST(Patterns, ASquareRuleIsOneFourCellPattern) {

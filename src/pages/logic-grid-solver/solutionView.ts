@@ -65,6 +65,12 @@ export class SolutionView {
       clues.set(`${symbol.x},${symbol.y}`, {
         type: symbol.type,
         value: symbol.value,
+        // The answer is drawn with the same clues the editor showed, arrows
+        // included: a dart with no direction here would come out as a bare
+        // number and read as a different puzzle from the one just solved.
+        ...(symbol.direction === undefined
+          ? {}
+          : { direction: symbol.direction }),
       });
 
     // Which merged cell each square is in, so the answer is drawn with the same
@@ -94,7 +100,13 @@ export class SolutionView {
         cell.dataset.x = String(x);
         cell.dataset.y = String(y);
         const color = cells[y * config.gridWidth + x] ?? UNKNOWN;
-        if (color !== UNKNOWN && config.cells[x]![y] === UNKNOWN)
+        // A square inside a merged cell leaves the mark to the outline: the
+        // ring is drawn per square and would cut the tile into its pieces.
+        if (
+          color !== UNKNOWN &&
+          config.cells[x]![y] === UNKNOWN &&
+          !cellOf.has(y * config.gridWidth + x)
+        )
           cell.dataset.deduced = "true";
         dressCell(cell, color, clues.get(`${x},${y}`) ?? null, x, y);
         markGroupJoins(cell, x, y, (nx, ny) => sameCell(x, y, nx, ny));
@@ -107,6 +119,11 @@ export class SolutionView {
       gridWidth: config.gridWidth,
       gridHeight: config.gridHeight,
       colorOf: square => cells[square] ?? UNKNOWN,
+      deducedAt: square =>
+        (cells[square] ?? UNKNOWN) !== UNKNOWN &&
+        config.cells[square % config.gridWidth]![
+          Math.floor(square / config.gridWidth)
+        ] === UNKNOWN,
       host: this.grid,
     });
 

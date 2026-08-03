@@ -36,11 +36,28 @@ Problem cellValueProblem(const Puzzle &puzzle) {
   return Problem::None;
 }
 
-Problem clueValueProblem(const Clue &clue, const int playableCount) {
+/**
+ * What each kind's `value` — and, for a directed one, its `direction` — may be.
+ *
+ * Three ways, one per kind, and never a two-way `if area else letter`: read as
+ * a letter, a dart's number would be validated against 0..25 and then indexed
+ * into a 26-entry array by `buildClueTables`.
+ */
+Problem clueValueProblem(const Clue &clue, const Puzzle &puzzle,
+                         const int playableCount) {
   using enum Problem;
   if (clue.kind == kClueArea)
     return clue.value >= 1 && clue.value <= playableCount ? None : AreaValue;
-  return clue.value >= 0 && clue.value < kLetterCount ? None : LetterValue;
+  if (clue.kind == kClueLetter)
+    return clue.value >= 0 && clue.value < kLetterCount ? None : LetterValue;
+
+  if (clue.direction < 0 || clue.direction >= kDirectionCount)
+    return DartDirection;
+  // Bounded by the board's longest line rather than by its own line, which the
+  // model has not been built yet to know. A dart too long for the line it
+  // really sits on is caught by name in `contradiction`.
+  const int longest = std::max(puzzle.width, puzzle.height) - 1;
+  return clue.value >= 0 && clue.value <= longest ? None : DartValue;
 }
 
 Problem cluesProblem(const Puzzle &puzzle) {
@@ -58,7 +75,7 @@ Problem cluesProblem(const Puzzle &puzzle) {
     if (seen.test(clue.index))
       return ClueDuplicated;
     seen.set(clue.index);
-    if (const Problem problem = clueValueProblem(clue, playableCount);
+    if (const Problem problem = clueValueProblem(clue, puzzle, playableCount);
         problem != None)
       return problem;
   }
@@ -244,10 +261,14 @@ void buildClueTables(Model &model) {
   groupOf.fill(-1);
 
   int id = 0;
-  for (const auto &[index, kind, value] : model.puzzle.clues) {
+  // Three ways, one per kind. `else` would put a dart in a letter group and
+  // subscript `groupOf` — twenty-six entries — with the dart's own number.
+  for (const auto &[index, kind, value, direction] : model.puzzle.clues) {
     model.clueAt[slot(index)] = id;
     if (kind == kClueArea) {
       model.areaClues.push_back(id);
+    } else if (kind == kClueDart) {
+      model.dartClues.push_back(id);
     } else {
       int &group = groupOf[slot(value)];
       if (group < 0) {
@@ -262,6 +283,49 @@ void buildClueTables(Model &model) {
     }
     id++;
   }
+}
+
+/**
+ * Each dart's line, worked out once: rays depend on the board, never on the
+ * colouring.
+ *
+ * Gaps are stepped over rather than ending the walk, and the dart's own cell is
+ * taken out at the end — see `Model::darts` for why that is a correctness
+ * requirement rather than a tightening.
+ */
+void buildDarts(Model &model) {
+  for (const int id : model.dartClues) {
+    const Clue &clue = model.puzzle.clues[slot(id)];
+    // Only a puzzle that skipped validation can fail this. Left out of `darts`
+    // it constrains nothing — but it stays in `dartClues`, so `verify::check`
+    // refuses every colouring and the board comes back unsolvable rather than
+    // quietly solved without it.
+    if (!isDirection(clue.direction))
+      continue;
+    const auto [stepX, stepY] = kDirectionSteps[slot(clue.direction)];
+    Bits ray;
+    for (int x = columnOf(clue.index) + stepX, y = rowOf(clue.index) + stepY;
+         x >= 0 && x < model.width() && y >= 0 && y < model.height();
+         x += stepX, y += stepY) {
+      if (const int at = cellIndex(x, y); model.playable.test(at))
+        ray.set(at);
+    }
+    model.darts.push_back({.clueId = id,
+                           .index = clue.index,
+                           .value = clue.value,
+                           .direction = clue.direction,
+                           .ray = ray.without(model.cellMask(clue.index))});
+  }
+}
+
+/// A dart can never name more squares than its own line holds. The board-wide
+/// bound in `clueValueProblem` cannot see this one: the line is shortened by
+/// every gap on it and by the dart's own merged cell.
+Problem dartFitsLine(const Model &model) {
+  const bool bad = std::ranges::any_of(model.darts, [](const Dart &dart) {
+    return dart.value > dart.ray.count();
+  });
+  return bad ? Problem::DartExceedsLine : Problem::None;
 }
 
 /// An area clue can never name more cells than its own playable region holds.
@@ -331,6 +395,12 @@ const char *describe(const Problem problem) {
     return "An area number is larger than the board";
   case LetterValue:
     return "A letter is outside A to Z";
+  case DartValue:
+    return "A dart's number is larger than the board's longest line";
+  case DartDirection:
+    return "A dart does not say which way it points";
+  case DartExceedsLine:
+    return "A dart's number is larger than the number of squares in its line";
   case ShapeOffBoard:
     return "A merged cell claims a square outside the board";
   case ShapeOnGap:
@@ -403,6 +473,9 @@ Model buildModel(const Puzzle &puzzle) {
   buildClauses(model);
   buildClauseIndex(model);
   buildClueTables(model);
+  // After the clue tables, which is where `dartClues` comes from, and after the
+  // shapes, since a dart's line has its own cell taken out of it.
+  buildDarts(model);
   return model;
 }
 
@@ -411,6 +484,8 @@ Problem contradiction(const Model &model) {
   if (const Problem problem = areaFitsRegion(model); problem != None)
     return problem;
   if (const Problem problem = areaFitsCell(model); problem != None)
+    return problem;
+  if (const Problem problem = dartFitsLine(model); problem != None)
     return problem;
   if (const Problem problem = lettersReachable(model); problem != None)
     return problem;

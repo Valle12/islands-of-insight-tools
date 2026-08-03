@@ -228,6 +228,8 @@ Violation regionSizeProblem(const Model &model, const Bits &dark,
   constexpr auto kAreaRules = std::to_array<AreaRule>({
       {.rule = AreaTwoDark, .color = kDark, .area = 2},
       {.rule = AreaTwoLight, .color = kLight, .area = 2},
+      {.rule = AreaFourDark, .color = kDark, .area = 4},
+      {.rule = AreaFourLight, .color = kLight, .area = 4},
   });
   const bool wrong = std::ranges::any_of(
       kAreaRules, [&model, &dark, &light](const AreaRule &row) {
@@ -283,6 +285,43 @@ Violation symbolProblem(const Model &model, const Bits &dark,
   }
   if (model.hasRule(Rule::OneSymbolLight))
     return symbolCountProblem(model, light);
+  return Violation::None;
+}
+
+/**
+ * Every dart counts the squares of the OTHER colour along its own line.
+ *
+ * The line runs from the dart's square to the edge of the board, and a gap is
+ * stepped over rather than stopping it — a dart sees past a hole exactly as the
+ * eye does. Squares are counted one at a time, so a merged cell lying along the
+ * line contributes every square of itself that the line crosses.
+ *
+ * Walked here rather than read off `Model::darts`, which holds the very same
+ * line precomputed. That is the point: an oracle sharing the search's tables
+ * can only prove the two agree, and a wrongly built line is exactly the kind of
+ * mistake this has to be able to catch. The dart's own cell needs no special
+ * case for the same reason it needs none in the search — every square of it
+ * holds the dart's own colour, so none of them is ever the other one.
+ */
+Violation dartProblem(const Model &model, const Colors &colors) {
+  for (const int id : model.dartClues) {
+    const Clue &clue = model.puzzle.clues[slot(id)];
+    // A dart nobody can read is a dart nothing satisfies. Only reachable from a
+    // puzzle that skipped `structureProblem`, which is what names it properly.
+    if (!isDirection(clue.direction))
+      return Violation::DartCount;
+    const auto [stepX, stepY] = kDirectionSteps[slot(clue.direction)];
+    const uint8_t other = opposite(colors[slot(clue.index)]);
+    int count = 0;
+    for (int x = columnOf(clue.index) + stepX, y = rowOf(clue.index) + stepY;
+         x >= 0 && x < model.width() && y >= 0 && y < model.height();
+         x += stepX, y += stepY) {
+      if (colors[slot(cellIndex(x, y))] == other)
+        count++;
+    }
+    if (count != clue.value)
+      return Violation::DartCount;
+  }
   return Violation::None;
 }
 
@@ -346,6 +385,8 @@ const char *describe(const Violation violation) {
     return "A region does not have the area its colour's rule requires";
   case CellSplit:
     return "A merged cell came back in two colours";
+  case DartCount:
+    return "A dart does not count what its line really holds";
   }
   return "Unknown violation";
 }
@@ -385,7 +426,10 @@ Violation check(const Model &model, const Colors &colors) {
   if (const Violation problem = symbolProblem(model, dark, light);
       problem != None)
     return problem;
-  return letterProblem(model, colors, dark, light);
+  if (const Violation problem = letterProblem(model, colors, dark, light);
+      problem != None)
+    return problem;
+  return dartProblem(model, colors);
 }
 
 } // namespace lg::verify

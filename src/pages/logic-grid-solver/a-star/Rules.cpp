@@ -75,7 +75,9 @@ int shortestRun(const RuleMask mask, const uint8_t color) {
  */
 int impliedRun(const RuleMask mask, const uint8_t color) {
   const int direct = shortestRun(mask, color);
-  const int area = globalArea(mask, color);
+  // The SMALLEST active area, because the rules are conjunctive: with both
+  // sizes on, the shorter forbidden run wins and subsumes the longer one.
+  const int area = smallestGlobalArea(mask, color);
   if (area == 0)
     return direct;
   return direct == 0 ? area + 1 : std::min(direct, area + 1);
@@ -110,13 +112,23 @@ std::array<Pattern, 4> bentPatterns(const uint8_t color) {
   return out;
 }
 
-/// The half of an area rule this table can carry: no region BIGGER than the
-/// number. A connected set of three or more cells always contains a connected
-/// three, so for an area of two, forbidding every tromino says exactly that.
-/// Another area would need its own set of shapes here — the straight one is
-/// `addRuns`'s either way, so what is left is every bent (N+1)-omino.
+/**
+ * The half of an area rule this table can carry: no region BIGGER than the
+ * number. A connected set of three or more cells always contains a connected
+ * three, so for an area of TWO, forbidding every tromino says exactly that.
+ *
+ * Only for two, and the asymmetry is deliberate. The same argument at four asks
+ * for every connected FIVE — the 61 non-straight fixed pentominoes, since the
+ * straight one is `addRuns`'s — which is roughly 15 000 clause instances per
+ * colour on the largest board against the trominoes' 1 200, and every one of
+ * them is rescanned whenever a square it names is decided. `regionArea` in
+ * `Propagate.cpp` enforces both halves at any size for the cost of a component
+ * walk, so four is left entirely to it while two keeps the cheap table it was
+ * measured with. What neither size gets from this table is the other half of
+ * the rule, that no region is SMALLER than the number.
+ */
 void addAreaShapes(const RuleMask mask, const uint8_t color, Patterns &into) {
-  if (globalArea(mask, color) != 2)
+  if (smallestGlobalArea(mask, color) != 2)
     return;
   // The straight pair came from `addRuns`. The bent four go the same way when
   // pairs of this colour are forbidden outright, since every one contains a
@@ -169,17 +181,23 @@ const char *name(const Rule rule) {
       "underclued",
       "area-two-dark",
       "area-two-light",
+      "area-four-dark",
+      "area-four-light",
   });
   static_assert(kNames.size() == kRuleCount,
                 "every rule needs its id, in index order");
   return kNames[slot(std::to_underlying(rule))];
 }
 
-int globalArea(const RuleMask mask, const uint8_t color) {
-  using enum Rule;
-  if (has(mask, color == kDark ? AreaTwoDark : AreaTwoLight))
-    return 2;
-  return 0;
+int smallestGlobalArea(const RuleMask mask, const uint8_t color) {
+  int smallest = 0;
+  for (const auto &[rule, ruleColor, area] : kAreaFamily) {
+    if (ruleColor != color || !has(mask, rule))
+      continue;
+    if (smallest == 0 || area < smallest)
+      smallest = area;
+  }
+  return smallest;
 }
 
 Patterns patternsFor(const RuleMask mask) {

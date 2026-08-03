@@ -6,13 +6,20 @@ import {
   ruleAt,
 } from "../../src/pages/logic-grid-solver/rules";
 import {
+  DIRECTION_COUNT,
+  DIRECTIONS,
   MIN_AREA_VALUE,
   parseSymbolValue,
+  symbolDirectionError,
   SYMBOL_KIND_COUNT,
   SYMBOL_KINDS,
   symbolKindAt,
   symbolValueError,
+  symbolValueMax,
 } from "../../src/pages/logic-grid-solver/symbols";
+
+/** A 5x5 board: 25 cells, and a longest line of 4 squares. */
+const SIZE = { gridWidth: 5, gridHeight: 5 };
 
 /**
  * Both catalogues are stored by INDEX, so their order is part of the file
@@ -39,6 +46,8 @@ const RULE_ORDER: [number, string][] = [
   [15, "underclued"],
   [16, "area-two-dark"],
   [17, "area-two-light"],
+  [18, "area-four-dark"],
+  [19, "area-four-light"],
 ];
 
 /**
@@ -62,6 +71,8 @@ const ROW_ORDER: string[] = [
   "connect-light",
   "area-two-dark",
   "area-two-light",
+  "area-four-dark",
+  "area-four-light",
   "one-symbol-dark",
   "one-symbol-light",
   "underclued",
@@ -70,6 +81,15 @@ const ROW_ORDER: string[] = [
 const SYMBOL_ORDER: [number, string][] = [
   [0, "area"],
   [1, "letter"],
+  [2, "dart"],
+];
+
+/** The four directions are stored by index too, so their order is frozen. */
+const DIRECTION_ORDER: [number, string][] = [
+  [0, "up"],
+  [1, "right"],
+  [2, "down"],
+  [3, "left"],
 ];
 
 describe("RULES", () => {
@@ -134,59 +154,143 @@ describe("SYMBOL_KINDS", () => {
   });
 });
 
+describe("DIRECTIONS", () => {
+  test.each(DIRECTION_ORDER)("index %i is still %s", (index, id) => {
+    expect(DIRECTIONS[index]?.id).toBe(id);
+  });
+
+  test("the pinned order covers every direction", () => {
+    expect(DIRECTION_COUNT).toBe(DIRECTION_ORDER.length);
+  });
+
+  /**
+   * The order is clockwise from up because that is what `nearestVertex` returns
+   * for four sides, which is what lets a dragged arrow land on the right entry
+   * with no translation table. Each step is also the offset it names.
+   */
+  test("reads clockwise from up, and each step is its own offset", () => {
+    expect(DIRECTIONS.map(one => [one.dx, one.dy])).toEqual([
+      [0, -1],
+      [1, 0],
+      [0, 1],
+      [-1, 0],
+    ]);
+  });
+});
+
+describe("symbolValueMax", () => {
+  test("an area is bounded by the board and a dart by its line", () => {
+    expect(symbolValueMax(symbolKindAt(0)!, SIZE)).toBe(25);
+    // The longest ray on a 5x5 leaves the dart's own square behind.
+    expect(symbolValueMax(symbolKindAt(2)!, SIZE)).toBe(4);
+    expect(
+      symbolValueMax(symbolKindAt(2)!, { gridWidth: 3, gridHeight: 9 }),
+    ).toBe(8);
+  });
+});
+
 describe("symbolValueError", () => {
   const area = symbolKindAt(0)!;
   const letter = symbolKindAt(1)!;
+  const dart = symbolKindAt(2)!;
 
   test("accepts an area inside the board", () => {
-    expect(symbolValueError(area, MIN_AREA_VALUE, 25)).toBeNull();
-    expect(symbolValueError(area, 25, 25)).toBeNull();
+    expect(symbolValueError(area, MIN_AREA_VALUE, SIZE)).toBeNull();
+    expect(symbolValueError(area, 25, SIZE)).toBeNull();
   });
 
   test("an area of zero is not a region", () => {
-    expect(symbolValueError(area, 0, 25)).toBe(
+    expect(symbolValueError(area, 0, SIZE)).toBe(
       "Area number values must be integers between 1 and 25.",
     );
   });
 
   test("an area cannot name more cells than the board has", () => {
-    expect(symbolValueError(area, 26, 25)).not.toBeNull();
+    expect(symbolValueError(area, 26, SIZE)).not.toBeNull();
   });
 
   test("an area must be a whole number, not a string", () => {
-    expect(symbolValueError(area, 2.5, 25)).not.toBeNull();
-    expect(symbolValueError(area, "3", 25)).not.toBeNull();
+    expect(symbolValueError(area, 2.5, SIZE)).not.toBeNull();
+    expect(symbolValueError(area, "3", SIZE)).not.toBeNull();
+  });
+
+  /** Zero is one of the two darts that fill in immediately, not a mistake. */
+  test("a dart of zero is a real dart", () => {
+    expect(symbolValueError(dart, 0, SIZE)).toBeNull();
+  });
+
+  test("a dart cannot name more squares than its line holds", () => {
+    expect(symbolValueError(dart, 4, SIZE)).toBeNull();
+    expect(symbolValueError(dart, 5, SIZE)).toBe(
+      "Dart values must be integers between 0 and 4.",
+    );
   });
 
   test("accepts a single upper-case letter", () => {
-    expect(symbolValueError(letter, "A", 25)).toBeNull();
-    expect(symbolValueError(letter, "Z", 25)).toBeNull();
+    expect(symbolValueError(letter, "A", SIZE)).toBeNull();
+    expect(symbolValueError(letter, "Z", SIZE)).toBeNull();
   });
 
   test("rejects lower case, multiple letters and non-letters", () => {
     for (const value of ["a", "AB", "", "1", 1]) {
-      expect(symbolValueError(letter, value, 25)).toBe(
+      expect(symbolValueError(letter, value, SIZE)).toBe(
         "Letter values must be a single letter from A to Z.",
       );
     }
   });
 });
 
+describe("symbolDirectionError", () => {
+  const area = symbolKindAt(0)!;
+  const dart = symbolKindAt(2)!;
+
+  test("a directed kind takes one of the four", () => {
+    for (let index = 0; index < DIRECTION_COUNT; index++) {
+      expect(symbolDirectionError(dart, index)).toBeNull();
+    }
+  });
+
+  test("a directed kind refuses a missing or unknown direction", () => {
+    for (const value of [undefined, -1, DIRECTION_COUNT, 1.5, "up"]) {
+      expect(symbolDirectionError(dart, value)).toBe(
+        `Dart directions must be integers between 0 and ${DIRECTION_COUNT - 1}.`,
+      );
+    }
+  });
+
+  /**
+   * Not merely ignored: a direction stored on a clue that never reads one
+   * would look like part of the puzzle and change nothing about it.
+   */
+  test("an undirected kind refuses to carry one at all", () => {
+    expect(symbolDirectionError(area, undefined)).toBeNull();
+    expect(symbolDirectionError(area, 0)).toBe(
+      "Only a directed symbol carries a direction, and Area number is not one.",
+    );
+  });
+});
+
 describe("parseSymbolValue", () => {
   const area = symbolKindAt(0)!;
   const letter = symbolKindAt(1)!;
+  const dart = symbolKindAt(2)!;
 
   test("reads a number for an area and upper-cases a letter", () => {
-    expect(parseSymbolValue(area, " 12 ", 25)).toBe(12);
-    expect(parseSymbolValue(letter, "b", 25)).toBe("B");
+    expect(parseSymbolValue(area, " 12 ", SIZE)).toBe(12);
+    expect(parseSymbolValue(letter, "b", SIZE)).toBe("B");
+  });
+
+  test("reads a dart of zero, which an area could not be", () => {
+    expect(parseSymbolValue(dart, "0", SIZE)).toBe(0);
+    expect(parseSymbolValue(area, "0", SIZE)).toBeNull();
   });
 
   /** A half-typed field must stamp nothing rather than stamping a guess. */
   test("returns null for anything the kind cannot use", () => {
-    expect(parseSymbolValue(area, "", 25)).toBeNull();
-    expect(parseSymbolValue(area, "-", 25)).toBeNull();
-    expect(parseSymbolValue(area, "99", 25)).toBeNull();
-    expect(parseSymbolValue(letter, "", 25)).toBeNull();
-    expect(parseSymbolValue(letter, "AB", 25)).toBeNull();
+    expect(parseSymbolValue(area, "", SIZE)).toBeNull();
+    expect(parseSymbolValue(area, "-", SIZE)).toBeNull();
+    expect(parseSymbolValue(area, "99", SIZE)).toBeNull();
+    expect(parseSymbolValue(letter, "", SIZE)).toBeNull();
+    expect(parseSymbolValue(letter, "AB", SIZE)).toBeNull();
   });
 });

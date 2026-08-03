@@ -9,7 +9,10 @@ import { verifyLogicGrid } from "../../src/pages/logic-grid-solver/verify";
 import { instantiateFromDisk } from "../../src/util/wasmModule";
 import type { LogicGridTest } from "../../src/util/types";
 import {
+  areaFourBoard,
   areaTwoBoard,
+  dartBoard,
+  dartOverMergedBoard,
   deepSearchBoard,
   impossibleBoard,
   mergedCellBoard,
@@ -109,6 +112,15 @@ const CASES: Case[] = [
   ["impossible", impossibleBoard],
   ["run-five", runFiveBoard],
   ["area-two", areaTwoBoard],
+  ["area-four", areaFourBoard],
+  // The two dart boards are here for the same reason the merged-cell one is:
+  // `toPuzzle` is the only place a clue's `direction` crosses the boundary, and
+  // a sweep over the captured corpus would go green while never once sending
+  // the key — every captured board predates it. A dart that arrived without a
+  // direction is refused by the module, so these fail loudly rather than
+  // quietly solving a different puzzle.
+  ["dart", dartBoard],
+  ["dart-over-merged", dartOverMergedBoard],
   ["merged-cells", mergedCellBoard],
   ["deep-search", deepSearchBoard],
   ...captured.map(

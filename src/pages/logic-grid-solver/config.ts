@@ -6,7 +6,13 @@ import {
 import type { LogicGridSymbol, LogicGridTest } from "../../util/types";
 import { CELL_LIMIT, UNPLAYABLE } from "./cell";
 import { RULE_COUNT } from "./rules";
-import { SYMBOL_KIND_COUNT, symbolKindAt, symbolValueError } from "./symbols";
+import { anchorSquare } from "./shapes";
+import {
+  SYMBOL_KIND_COUNT,
+  symbolDirectionError,
+  symbolKindAt,
+  symbolValueError,
+} from "./symbols";
 
 /**
  * Hard ceiling on either grid side. Real logic grids in the game are small;
@@ -111,7 +117,11 @@ function symbolError(
     return `Column ${x + 1}, row ${y + 1} is unplayable and cannot carry a symbol.`;
   }
 
-  return symbolValueError(kind, raw.value, gridWidth * gridHeight);
+  const valueProblem = symbolValueError(kind, raw.value, {
+    gridWidth,
+    gridHeight,
+  });
+  return valueProblem ?? symbolDirectionError(kind, raw.direction);
 }
 
 /** Returns the first problem with the clue layer, or null when it is valid. */
@@ -248,11 +258,26 @@ function shapesError(
 
     // A merged cell is ONE cell, so it carries at most one clue however many
     // squares it spans.
+    const squares = shape as number[];
     const clued = symbols.filter(symbol =>
-      (shape as number[]).includes(symbol.y * size.gridWidth + symbol.x),
+      squares.includes(symbol.y * size.gridWidth + symbol.x),
     );
     if (clued.length > 1) {
       return "A merged cell carries more than one symbol.";
+    }
+
+    // Where an undirected clue sits inside its cell is decoration, and the
+    // editor is free to re-home it on load. A DIRECTED one is different: the
+    // square it sits on is where its ray starts, so moving it would quietly
+    // load a different puzzle. Refuse instead — only a hand-edited file can
+    // reach this, since the editor never writes one anywhere else.
+    const directed = clued[0];
+    if (directed?.direction === undefined) continue;
+    const anchor = anchorSquare(squares, size.gridWidth);
+    if (directed.y * size.gridWidth + directed.x !== anchor) {
+      const x = anchor % size.gridWidth;
+      const y = Math.floor(anchor / size.gridWidth);
+      return `A directed symbol on a merged cell must sit on column ${x + 1}, row ${y + 1}.`;
     }
   }
   return null;
@@ -292,11 +317,15 @@ export function validateConfig(data: unknown): ConfigParseResult {
   if (symbolsProblem !== null) return { ok: false, error: symbolsProblem };
 
   const rules = [...(raw.rules as number[])].sort((a, b) => a - b);
+  // `direction` is spread only when the clue has one, for the same reason
+  // `shapes` is omitted below: every captured fixture predates the key and has
+  // to keep round-tripping byte-identically.
   const symbols = (raw.symbols as LogicGridSymbol[]).map(symbol => ({
     x: symbol.x,
     y: symbol.y,
     type: symbol.type,
     value: symbol.value,
+    ...(symbol.direction === undefined ? {} : { direction: symbol.direction }),
   }));
 
   const config: LogicGridTest = {

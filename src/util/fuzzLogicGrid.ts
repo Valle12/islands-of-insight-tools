@@ -80,6 +80,12 @@ function parseArgs(argv: string[]) {
      * campaign without it reproduces exactly the boards it always did.
      */
     shapes: 0,
+    /**
+     * Roughly how often a region that would carry no clue gets a DART instead.
+     * 0 — the default — draws no random number for one, so a campaign without
+     * it reproduces exactly the boards it always did.
+     */
+    darts: 0,
   };
   /**
    * A flag's value as a number, or a hard stop.
@@ -105,6 +111,7 @@ function parseArgs(argv: string[]) {
     "--engine": next => (opts.engine = next()),
     "--rules": next => (opts.rules = number("--rules", next())),
     "--shapes": next => (opts.shapes = number("--shapes", next())),
+    "--darts": next => (opts.darts = number("--darts", next())),
     "--width": next => (opts.width = number("--width", next())),
     "--height": next => (opts.height = number("--height", next())),
     "--exe": next => {
@@ -136,6 +143,7 @@ async function generate(opts: Options, path: string, seed: number) {
   if (opts.height > 0) args.push("--height", String(opts.height));
   if (opts.rules >= 0) args.push("--rules", String(opts.rules));
   if (opts.shapes > 0) args.push("--shapes", String(opts.shapes));
+  if (opts.darts > 0) args.push("--darts", String(opts.darts));
   const { exitCode } = await runCli(opts.exe, args, 120_000);
   return exitCode === 0;
 }

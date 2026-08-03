@@ -86,10 +86,10 @@ TEST(Profile, HandlesTheConnectivityRules) {
 }
 
 /**
- * The gate, in both directions. A wrong gate here is not a wrong answer —
- * `Verify` still stands behind everything — but a permissive one would let the
- * sweep return a colouring that ignores a rule it cannot see, and the arm would
- * then be dropped as an oracle rejection instead of never running.
+ * The gate, in both directions. A permissive one here IS a wrong answer:
+ * `runProfileForced` sets `proven` with no oracle behind its forced set, so a
+ * sweep blind to part of the puzzle enumerates a superset of the solutions and
+ * then reports the cells they disagree about as proved to go either way.
  */
 TEST(Profile, DeclinesWhatItCannotExpress) {
   EXPECT_TRUE(takes({"a..", "...", "..a"}));
@@ -108,6 +108,44 @@ TEST(Profile, DeclinesWhatItCannotExpress) {
   // they disagree about were proved to go either way.
   EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::AreaTwoDark}));
   EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::AreaTwoLight}));
+  EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::AreaFourDark}));
+  EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::AreaFourLight}));
+}
+
+/**
+ * A dart, which the sweep cannot express for a reason of its own: its line
+ * crosses the sweep rather than following it, so a running count of what the
+ * line holds would have to survive in the frontier from one end of the board to
+ * the other.
+ *
+ * This is the case the gate got wrong when it was a denylist. A dart-only board
+ * names no area clue and no listed rule, so it was ACCEPTED, and `planOf` reads
+ * letters only — the dart was then silently ignored and the forced set claimed
+ * as proved. Whitelisted, anything unrecognised declines by default.
+ */
+TEST(Profile, DeclinesDarts) {
+  const Puzzle plain = test::board({"a..", "...", "..a"});
+  ASSERT_TRUE(profile::applicable(buildModel(plain)));
+
+  Puzzle darted = plain;
+  test::withDart(darted, 1, 1, 1, kDirRight);
+  EXPECT_FALSE(profile::applicable(buildModel(darted)));
+}
+
+/**
+ * And the whitelist itself: every rule the sweep does not name is refused,
+ * whatever it is. Without this a rule appended to the catalogue tomorrow would
+ * be accepted by default, exactly as `area-four-*` and darts would have been.
+ */
+TEST(Profile, DeclinesEveryRuleItDoesNotName) {
+  for (int index = 0; index < rules::kRuleCount; index++) {
+    const auto rule = static_cast<Rule>(index);
+    const bool supported = rule == Rule::ConnectDark ||
+                           rule == Rule::ConnectLight ||
+                           rule == Rule::Underclued;
+    EXPECT_EQ(takes({"a..", "...", "..a"}, {rule}), supported)
+        << "rule " << rules::name(rule);
+  }
 }
 
 /**

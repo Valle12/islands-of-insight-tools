@@ -288,7 +288,10 @@ Plan planOf(const Model &model) {
   plan.connectDark = model.hasRule(Rule::ConnectDark);
   plan.connectLight = model.hasRule(Rule::ConnectLight);
 
-  for (const auto &[index, kind, value] : model.puzzle.clues) {
+  // Letters only, and `applicable` above has already refused any board that
+  // carries anything else — without which a clue this sweep cannot express
+  // would be silently skipped here and the answer claimed as proved.
+  for (const auto &[index, kind, value, direction] : model.puzzle.clues) {
     if (kind != kClueLetter)
       continue;
     const int pos = plan.scan.posOf(index);
@@ -842,33 +845,46 @@ void expandOne(const Plan &plan, const Cursor &cursor, const Layer &layer,
 
 } // namespace
 
+/**
+ * Whether this sweep can express the board at all.
+ *
+ * A WHITELIST on both axes, and that is the whole point of it. Declining is a
+ * correctness requirement rather than a tidiness one: `runProfileForced` sets
+ * `proven` with no oracle gate on its forced set, so a sweep blind to some part
+ * of the puzzle enumerates a SUPERSET of the solutions and then claims the
+ * cells they disagree about were proved to go either way. A denylist gets that
+ * right for everything written the day it was written and wrong for the next
+ * clue kind or rule appended, silently — which is exactly what it did when
+ * darts arrived, since a dart-only board named no area clue and no listed rule.
+ * Listed the other way round, anything new declines by default and costs at
+ * worst a re-measurement.
+ *
+ * What it can express is small and has not grown: letter clues, the two
+ * connect rules, and `Underclued`, which is not a colouring rule at all.
+ */
 bool applicable(const Model &model) {
   // A merged cell spans several squares, and the frontier carries one class
   // slot per COLUMN joined only leftwards and upwards, over a `y * width + x`
   // sweep. Nothing in it can say "this square takes the colour a square two
   // rows back already took", and carrying that would mean a per-column cell
   // identity plus a colour commitment for cells still open — a different
-  // design, not a bigger constant. Declining is a correctness requirement for
-  // the same reason as the rules below.
+  // design, not a bigger constant.
   if (model.hasShapes)
     return false;
-  if (!model.areaClues.empty())
+  // An area clue would need each open class's SIZE in the state, and a dart a
+  // running count along a line the sweep crosses rather than follows.
+  if (std::ranges::any_of(model.puzzle.clues, [](const Clue &clue) {
+        return clue.kind != kClueLetter;
+      }))
     return false;
   // The pattern rules would each need their own extra state; see the header.
-  //
-  // The two area rules are declined for the same reason area CLUES are: the
-  // frontier carries each open class's colour and letter but not its size. And
-  // declining them is a correctness requirement rather than a tidiness one —
-  // `runProfileForced` sets `proven` with no oracle gate on its forced set, so a
-  // sweep blind to a rule would enumerate a superset of the solutions and then
-  // claim the cells they disagree about were proved to go either way.
+  // The area rules would need each class's size, like an area clue.
   using enum Rule;
-  constexpr auto kUnsupported = std::to_array<Rule>(
-      {NoDark2x2, NoLight2x2, NoCheckerboard, NoLight1x2, NoDark1x2,
-       NoLight1x3, NoDark1x3, NoLight1x4, NoDark1x4, NoLight1x5, NoDark1x5,
-       OneSymbolDark, OneSymbolLight, AreaTwoDark, AreaTwoLight});
-  for (const Rule rule : kUnsupported) {
-    if (model.hasRule(rule))
+  constexpr auto kSupported =
+      std::to_array<Rule>({ConnectDark, ConnectLight, Underclued});
+  for (int index = 0; index < rules::kRuleCount; index++) {
+    if (const auto rule = static_cast<Rule>(index);
+        model.hasRule(rule) && !std::ranges::contains(kSupported, rule))
       return false;
   }
   const Scan scan = scanOf(model);

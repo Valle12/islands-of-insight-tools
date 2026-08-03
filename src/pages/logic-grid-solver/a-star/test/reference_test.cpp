@@ -30,11 +30,21 @@ using rules::Rule;
 /// Squares fused into one merged cell, as the picture cannot say it.
 using Merge = std::vector<std::pair<int, int>>;
 
+/// A dart, which the picture cannot say either: where it sits, how many of the
+/// other colour its line holds, and which way it points.
+struct DartSpec {
+  int x = 0;
+  int y = 0;
+  int value = 0;
+  int direction = kDirRight;
+};
+
 struct Case {
   std::string name;
   std::vector<std::string> picture;
   std::vector<Rule> rules;
   std::vector<Merge> merges;
+  std::vector<DartSpec> darts;
 };
 
 /// gtest appends `# GetParam() = …` to every discovered name, and without this
@@ -52,6 +62,7 @@ struct Board {
   const char *name;
   std::vector<std::string> picture;
   std::vector<Merge> merges;
+  std::vector<DartSpec> darts;
 };
 
 struct RuleSet {
@@ -101,6 +112,43 @@ std::vector<Case> allCases() {
       {.name = "twoCells",
        .picture = {"...", "...", "..."},
        .merges = {{{0, 0}, {0, 1}}, {{1, 0}, {1, 1}}}},
+      // Darts. Their propagator paints from a counting argument in BOTH
+      // directions — "taking this cell would overshoot" and "leaving it out
+      // would undershoot" — and an over-eager one of those removes real
+      // solutions, which nothing at runtime can see.
+      {.name = "dart",
+       .picture = {"...", "...", "..."},
+       .darts = {{.x = 0, .y = 0, .value = 1, .direction = kDirRight}}},
+      // Zero and full: the two ends that fill in immediately, and the two the
+      // propagator paints hardest at.
+      {.name = "dartZero",
+       .picture = {"...", "...", "..."},
+       .darts = {{.x = 0, .y = 0, .value = 0, .direction = kDirDown}}},
+      {.name = "dartFull",
+       .picture = {"...", "...", "..."},
+       .darts = {{.x = 0, .y = 0, .value = 2, .direction = kDirRight}}},
+      // A line crossing a gap, which it steps over rather than stopping at.
+      {.name = "dartGap",
+       .picture = {".#.", "...", "..."},
+       .darts = {{.x = 0, .y = 0, .value = 1, .direction = kDirRight}}},
+      // Two darts on one line, aimed the same way — the shape the game's
+      // "overloading darts" technique is about, and the one a pairwise
+      // propagator would have to get exactly right.
+      {.name = "twoDarts",
+       .picture = {"....", "....", "...."},
+       .darts = {{.x = 0, .y = 0, .value = 2, .direction = kDirRight},
+                 {.x = 1, .y = 0, .value = 1, .direction = kDirRight}}},
+      // A dart ON a merged cell: its line starts at the square it sits on and
+      // its own cell is taken out of it.
+      {.name = "dartOnCell",
+       .picture = {"...", "...", "..."},
+       .merges = {{{0, 0}, {0, 1}}},
+       .darts = {{.x = 0, .y = 0, .value = 1, .direction = kDirRight}}},
+      // ...and a merged cell ACROSS one, which the line counts once per square.
+      {.name = "dartOverCell",
+       .picture = {"...", "...", "..."},
+       .merges = {{{1, 0}, {2, 0}}},
+       .darts = {{.x = 0, .y = 0, .value = 2, .direction = kDirRight}}},
   };
   const std::vector<RuleSet> ruleSets = {
       {.name = "none", .rules = {}},
@@ -134,15 +182,26 @@ std::vector<Case> allCases() {
       // to be empty.
       {.name = "areaTwoAndRun3", .rules = {AreaTwoDark, NoDark1x3}},
       {.name = "areaTwoAndPair", .rules = {AreaTwoDark, NoDark1x2}},
+      // Area FOUR, whose "too big" half has no forbidden shapes behind it at
+      // all — `regionArea` is the whole rule — so brute force is the only thing
+      // that can tell an over-eager region walk from a correct one.
+      {.name = "areaFourDark", .rules = {AreaFourDark}},
+      {.name = "areaFourBoth", .rules = {AreaFourDark, AreaFourLight}},
+      {.name = "areaFourAndConnect", .rules = {AreaFourDark, ConnectLight}},
+      // Both sizes on one colour: legal, and satisfied exactly where that
+      // colour is absent. Worth enumerating precisely because it looks like a
+      // contradiction and is not.
+      {.name = "areaTwoAndFourDark", .rules = {AreaTwoDark, AreaFourDark}},
   };
 
   std::vector<Case> cases;
-  for (const auto &[boardName, picture, merges] : boards) {
+  for (const auto &[boardName, picture, merges, darts] : boards) {
     for (const auto &[ruleSetName, ruleList] : ruleSets)
       cases.push_back({.name = std::string(boardName) + "_" + ruleSetName,
                        .picture = picture,
                        .rules = ruleList,
-                       .merges = merges});
+                       .merges = merges,
+                       .darts = darts});
   }
   return cases;
 }
@@ -151,6 +210,8 @@ Puzzle puzzleFor(const Case &one) {
   Puzzle puzzle = test::board(one.picture, test::ruleSet(one.rules));
   for (const Merge &merge : one.merges)
     test::withShape(puzzle, merge);
+  for (const auto &[x, y, value, direction] : one.darts)
+    test::withDart(puzzle, x, y, value, direction);
   return puzzle;
 }
 

@@ -12,7 +12,14 @@ import { dressCell } from "./cellView";
 import type { LogicGridSolverEditor } from "./logicGridSolver";
 import { createOutlineLayer, drawShapeOutlines } from "./outlineLayer";
 import { NO_SHAPE, ShapeLayer } from "./shapes";
-import { symbolKindAt } from "./symbols";
+import {
+  DEFAULT_DIRECTION,
+  DIRECTION_COUNT,
+  directionIndex,
+  symbolKindAt,
+  symbolValueMax,
+  type LogicGridSymbolKind,
+} from "./symbols";
 
 /**
  * What one pointer stroke writes into every cell it touches. Decided once, at
@@ -34,9 +41,71 @@ type Stroke =
 const DIGIT_PATTERN = /^\d$/;
 const LETTER_KEY_PATTERN = /^[a-zA-Z]$/;
 
+/**
+ * The arrow keys, aiming a directed clue ABSOLUTELY rather than stepping it
+ * round. Four keys and four directions, so a step would only be worse.
+ *
+ * Resolved through the catalogue rather than written as indices, so the keys go
+ * on meaning what they say whatever position a direction ends up at.
+ */
+const ARROW_KEYS: Readonly<Record<string, string>> = {
+  ArrowUp: "up",
+  ArrowRight: "right",
+  ArrowDown: "down",
+  ArrowLeft: "left",
+};
+
+function directionForKey(key: string): number | null {
+  const id = ARROW_KEYS[key];
+  if (id === undefined) return null;
+  const index = directionIndex(id);
+  return index < 0 ? null : index;
+}
+
+/**
+ * Whether two clues are the same clue — which is what decides whether writing
+ * one changes anything at all.
+ *
+ * The direction counts, so re-aiming a dart really is a change.
+ */
 function sameClue(a: LogicGridClue | null, b: LogicGridClue | null): boolean {
   if (a === null || b === null) return a === b;
-  return a.type === b.type && a.value === b.value;
+  return (
+    a.type === b.type && a.value === b.value && a.direction === b.direction
+  );
+}
+
+/**
+ * Whether a stroke stamping `next` onto a cell holding `held` should TURN what
+ * is there instead of writing over it.
+ *
+ * This is the directed kinds' replacement for the re-click-erases rule: the
+ * same clue apart from where it points is a request to point it somewhere
+ * else. Four clicks take a dart all the way round, and lifting one is the
+ * right button's job alone — which is what makes placing a row of darts and
+ * then aiming them a sequence of plain clicks.
+ */
+function turnsInstead(
+  held: LogicGridClue | null,
+  next: LogicGridClue | null,
+): boolean {
+  if (!held || next?.direction === undefined) return false;
+  return held.type === next.type && held.value === next.value;
+}
+
+/** The same clue aimed one step CLOCKWISE, which is the order `DIRECTIONS` is in. */
+function turned(clue: LogicGridClue): LogicGridClue {
+  const from = clue.direction ?? DEFAULT_DIRECTION;
+  return { ...clue, direction: (from + 1) % DIRECTION_COUNT };
+}
+
+/** A clue with its direction attached only when its kind carries one. */
+function clueOf(
+  type: number,
+  value: LogicGridSymbolValue,
+  direction: number | null,
+): LogicGridClue {
+  return direction === null ? { type, value } : { type, value, direction };
 }
 
 export class Board {
@@ -46,6 +115,8 @@ export class Board {
   private selectedSymbol: number;
   /** Null while the value field holds nothing usable, which stamps nothing. */
   private symbolValue: LogicGridSymbolValue | null;
+  /** Which way the selected kind points, or null when it points nowhere. */
+  private symbolDirection: number | null;
   private readonly solver: LogicGridSolverEditor;
 
   /** The colour layer, column-major. */
@@ -92,6 +163,7 @@ export class Board {
     selectedTool: LogicGridTool,
     selectedSymbol: number,
     symbolValue: LogicGridSymbolValue | null,
+    symbolDirection: number | null = null,
   ) {
     this.solver = solver;
     this.gridWidth = gridWidth;
@@ -99,6 +171,7 @@ export class Board {
     this.selectedTool = selectedTool;
     this.selectedSymbol = selectedSymbol;
     this.symbolValue = symbolValue;
+    this.symbolDirection = symbolDirection;
     this.shapes = new ShapeLayer(gridWidth, gridHeight);
     this.resetBoardData();
     this.addListeners();
@@ -124,6 +197,10 @@ export class Board {
 
   setSymbolValue(value: LogicGridSymbolValue | null) {
     this.symbolValue = value;
+  }
+
+  setSymbolDirection(direction: number | null) {
+    this.symbolDirection = direction;
   }
 
   /** Clears all three layers. */
@@ -153,7 +230,19 @@ export class Board {
     for (let y = 0; y < this.gridHeight; y++) {
       for (let x = 0; x < this.gridWidth; x++) {
         const clue = this.clues[x]?.[y];
-        if (clue) symbols.push({ x, y, type: clue.type, value: clue.value });
+        // `direction` only where there is one: it is the format's optional key
+        // and every fixture predating it has to round-trip byte-identically.
+        if (clue) {
+          symbols.push({
+            x,
+            y,
+            type: clue.type,
+            value: clue.value,
+            ...(clue.direction === undefined
+              ? {}
+              : { direction: clue.direction }),
+          });
+        }
       }
     }
     return symbols;
@@ -228,7 +317,9 @@ export class Board {
       // place it can be, so what comes back out is canonical.
       const { x, y } = this.anchor({ x: symbol.x, y: symbol.y });
       const column = this.clues[x];
-      if (column) column[y] = { type: symbol.type, value: symbol.value };
+      if (column) {
+        column[y] = clueOf(symbol.type, symbol.value, symbol.direction ?? null);
+      }
     }
   }
 
@@ -322,6 +413,14 @@ export class Board {
     return { x, y };
   }
 
+  /** Re-aims the directed clue on `position`, if there is one. */
+  private aim(position: Position, direction: number) {
+    const anchor = this.anchor(position);
+    const clue = this.clueAt(anchor);
+    if (clue?.direction === undefined) return;
+    this.writeCell(anchor, this.colorAt(anchor), { ...clue, direction });
+  }
+
   private beginStroke(event: PointerEvent) {
     // Left and right only. The middle button and the browser-back buttons all
     // arrive here as pointerdowns and must not paint.
@@ -393,7 +492,7 @@ export class Board {
     if (this.symbolValue === null) return null;
     return {
       kind: "clue",
-      clue: { type: this.selectedSymbol, value: this.symbolValue },
+      clue: clueOf(this.selectedSymbol, this.symbolValue, this.symbolDirection),
     };
   }
 
@@ -412,9 +511,15 @@ export class Board {
         : stroke;
     }
     if (stroke.kind === "clue" && stroke.clue) {
-      return sameClue(this.clueAt(this.anchor(position)), stroke.clue)
-        ? { kind: "clue", clue: null }
-        : stroke;
+      const held = this.clueAt(this.anchor(position));
+      // A DIRECTED clue turns rather than lifting — see `turnsInstead`. The
+      // turned clue is what the whole stroke then writes, so a drag over a row
+      // of matching darts aims them all the same way rather than each one a
+      // different way.
+      if (turnsInstead(held, stroke.clue)) {
+        return { kind: "clue", clue: turned(held!) };
+      }
+      return sameClue(held, stroke.clue) ? { kind: "clue", clue: null } : stroke;
     }
     return stroke;
   }
@@ -675,6 +780,18 @@ export class Board {
       return;
     }
 
+    // An arrow key aims a directed clue, so the gesture is not pointer-only.
+    // Guarded on the cell actually carrying one: everywhere else the arrows go
+    // on scrolling the page, which is what they did before darts existed.
+    const aim = directionForKey(event.key);
+    if (aim !== null) {
+      if (this.clueAt(this.anchor(position))?.direction === undefined) return;
+      event.preventDefault();
+      this.digitCell = null;
+      this.aim(position, aim);
+      return;
+    }
+
     const clue = this.nextClue(position, event.key);
     if (!clue) return;
     event.preventDefault();
@@ -695,27 +812,38 @@ export class Board {
     const kind = symbolKindAt(type);
     if (!kind) return null;
 
+    // Typing edits the clue that is there, so a dart under the cursor keeps its
+    // own aim; only a fresh one takes the tool's.
+    const direction = kind.directed
+      ? (existing?.direction ?? this.symbolDirection ?? DEFAULT_DIRECTION)
+      : null;
+
     if (kind.valueKind === "letter") {
       return LETTER_KEY_PATTERN.test(key)
-        ? { type, value: key.toUpperCase() }
+        ? clueOf(type, key.toUpperCase(), direction)
         : null;
     }
 
     if (!DIGIT_PATTERN.test(key)) return null;
-    const value = this.nextAreaValue(position, existing, Number(key));
-    return value === null ? null : { type, value };
+    const value = this.nextNumberValue(position, existing, Number(key), kind);
+    return value === null ? null : clueOf(type, value, direction);
   }
 
   /**
    * Digits accumulate while one cell keeps taking them, so 12 is "1" then "2".
    * Painting, or moving to another cell, ends the run and the next digit starts
-   * a fresh number. A number that would outgrow the board is refused rather
-   * than truncated, so a slip leaves the last good value standing.
+   * a fresh number. A number the kind cannot use is refused rather than
+   * truncated, so a slip leaves the last good value standing.
+   *
+   * The bounds come from the KIND. Zero is not an area, so a leading zero is
+   * ignored there — but zero is a real dart, and refusing it would leave one of
+   * the two cases that fill in immediately impossible to type.
    */
-  private nextAreaValue(
+  private nextNumberValue(
     position: Position,
     existing: LogicGridClue | null,
     digit: number,
+    kind: LogicGridSymbolKind,
   ): number | null {
     const previous = this.digitCell;
     const continuing =
@@ -724,12 +852,15 @@ export class Board {
       existing && typeof existing.value === "number" ? existing.value : null;
     this.digitCell = { x: position.x, y: position.y };
 
+    const max = symbolValueMax(kind, {
+      gridWidth: this.gridWidth,
+      gridHeight: this.gridHeight,
+    });
     if (!continuing || current === null) {
-      // A leading zero is not an area, so it is ignored rather than clamped.
-      return digit === 0 ? null : digit;
+      return digit < kind.minValue ? null : digit;
     }
 
     const grown = current * 10 + digit;
-    return grown <= this.gridWidth * this.gridHeight ? grown : current;
+    return grown <= max ? grown : current;
   }
 }

@@ -41,6 +41,8 @@ enum class Violation : uint8_t {
   RegionSize,
   /// A merged cell came back with its squares in different colours.
   CellSplit,
+  /// A dart's number does not match what its line really holds.
+  DartCount,
 };
 
 const char *describe(Violation violation);

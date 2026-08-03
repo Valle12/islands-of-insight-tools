@@ -44,7 +44,8 @@ constexpr auto kColorRules = std::to_array<Rule>(
      Rule::NoLight1x2, Rule::NoDark1x2, Rule::NoLight1x3, Rule::NoDark1x3,
      Rule::NoLight1x4, Rule::NoDark1x4, Rule::NoCheckerboard, Rule::NoLight1x5,
      Rule::NoDark1x5, Rule::OneSymbolDark, Rule::OneSymbolLight,
-     Rule::AreaTwoDark, Rule::AreaTwoLight});
+     Rule::AreaTwoDark, Rule::AreaTwoLight, Rule::AreaFourDark,
+     Rule::AreaFourLight});
 
 Bits heldBy(const Model &model, const Colors &colors, const uint8_t color) {
   Bits held;
@@ -67,20 +68,36 @@ int piecesBeyondOne(const Model &model, const Colors &colors,
   return held.without(component(seed, held)).count();
 }
 
-/// Cells of `color` standing alone.
-///
-/// The clause table already scores a region that is too BIG, since every one of
-/// those contains a forbidden tromino. A region of ONE is not a shape, so
-/// without this the local search reaches `cost == 0` with singletons still on
-/// the board, `verify::check` throws the result out, and every attempt fails.
-int lonelyCells(const Model &model, const Colors &colors, const uint8_t color,
-                const Rule rule) {
-  if (!model.hasRule(rule))
-    return 0;
-  const Bits held = heldBy(model, colors, color);
-  const Bits touching = held.shiftUp() | held.shiftDown() | held.shiftLeft() |
-                        held.shiftRight();
-  return held.without(touching).count();
+/**
+ * How far every region of `color` is from the size its rule demands.
+ *
+ * For an area of TWO the clause table already scores a region that is too BIG,
+ * since every one of those contains a forbidden tromino, and all this has to
+ * add is the too-small half — without which the local search reaches `cost == 0`
+ * with singletons still standing, `verify::check` throws the result out, and
+ * every attempt fails. For area FOUR there are no clauses at all, so this is
+ * the whole gradient and it has to score both halves.
+ *
+ * Counted as the distance from the target rather than as a flag per region, so
+ * a region three cells short scores worse than one that is one cell short and
+ * the search has something to walk down.
+ */
+int regionsOffSize(const Model &model, const Colors &colors) {
+  int bad = 0;
+  for (const auto &[rule, color, area] : rules::kAreaFamily) {
+    if (!model.hasRule(rule))
+      continue;
+    const Bits held = heldBy(model, colors, color);
+    Bits seen;
+    for (int i = held.nextSet(0); i >= 0; i = held.nextSet(i + 1)) {
+      if (seen.test(i))
+        continue;
+      const Bits region = component(i, held);
+      seen = seen | region;
+      bad += std::abs(region.count() - area);
+    }
+  }
+  return bad;
 }
 
 bool clauseHolds(const Clause &clause, const Colors &colors) {
@@ -100,8 +117,7 @@ int cost(const Model &model, const Colors &colors) {
     bad += clauseHolds(clause, colors) ? 1 : 0;
   bad += piecesBeyondOne(model, colors, kDark, ConnectDark);
   bad += piecesBeyondOne(model, colors, kLight, ConnectLight);
-  bad += lonelyCells(model, colors, kDark, AreaTwoDark);
-  bad += lonelyCells(model, colors, kLight, AreaTwoLight);
+  bad += regionsOffSize(model, colors);
   return bad;
 }
 
@@ -218,6 +234,9 @@ std::vector<int> freeCellsOf(const Bits &side, const Regions &regions,
 struct ClueChances {
   int area = 0;
   int letter = 0;
+  /// Off unless `--darts` asks for them, so a campaign without it draws no
+  /// random number for a dart and reproduces every board it always did.
+  int dart = 0;
 };
 
 /// The state that crosses every region: where the clues go, which cells already
@@ -229,18 +248,39 @@ struct ClueRun {
   int letter = 0;
 };
 
+/// How many squares of the other colour a dart at `spot` aimed `direction`
+/// really sees, read off the colouring so the clue is satisfiable by
+/// construction. The same walk `Verify` does, and for the same reason: gaps are
+/// stepped over, and the dart's own cell can never be the colour it counts.
+int dartValueAt(const Model &model, const Colors &colors, const int spot,
+                const int direction) {
+  const auto [stepX, stepY] = kDirectionSteps[slot(direction)];
+  const uint8_t other = opposite(colors[slot(spot)]);
+  int count = 0;
+  for (int x = columnOf(spot) + stepX, y = rowOf(spot) + stepY;
+       x >= 0 && x < model.width() && y >= 0 && y < model.height();
+       x += stepX, y += stepY) {
+    if (colors[slot(cellIndex(x, y))] == other)
+      count++;
+  }
+  return count;
+}
+
 /**
  * Puts at most one clue on one region, reading its value off the colouring.
  *
- * The THREE `rng` draws here are in a fixed order — the spot, the area roll,
- * then the letter roll — and the last one is behind a short circuit that skips
- * it entirely once every letter is spent. Reordering them, or hoisting one out
- * of its condition, silently changes every board this generator has ever
- * produced. Hash-compare regenerated fixtures across several seeds after
- * touching this.
+ * The `rng` draws here are in a fixed order — the spot, the area roll, the
+ * letter roll, then the dart roll — and every one after the first is behind a
+ * short circuit that skips it entirely when it cannot apply. Reordering them,
+ * or hoisting one out of its condition, silently changes every board this
+ * generator has ever produced; the dart pair is appended LAST and skipped
+ * outright at `chances.dart == 0`, which is what keeps `--darts 0` reproducing
+ * exactly the boards it always did. Hash-compare regenerated fixtures across
+ * several seeds after touching this.
  */
 void clueOneRegion(ClueRun &run, const ClueChances &chances,
-                   const std::vector<int> &cells, const int size) {
+                   const std::vector<int> &cells, const int size,
+                   const Model &model, const Colors &colors) {
   const int spot =
       cells[slot(run.rng.uniform(0, static_cast<int>(cells.size()) - 1))];
   if (run.rng.uniform(0, 99) < chances.area) {
@@ -254,13 +294,23 @@ void clueOneRegion(ClueRun &run, const ClueChances &chances,
     run.puzzle.clues.push_back(
         {.index = spot, .kind = kClueLetter, .value = run.letter});
     run.letter++;
+    return;
+  }
+  if (chances.dart > 0 && run.rng.uniform(0, 99) < chances.dart) {
+    const int direction = run.rng.uniform(0, kDirectionCount - 1);
+    run.used.set(spot);
+    run.puzzle.clues.push_back(
+        {.index = spot,
+         .kind = kClueDart,
+         .value = dartValueAt(model, colors, spot, direction),
+         .direction = direction});
   }
 }
 
 /// Reads clues off the colouring the board was given, so every one of them is
 /// satisfiable together by construction.
 void deriveClues(const Model &model, const Colors &colors, SeededRng &rng,
-                 const bool sparse, Puzzle &puzzle) {
+                 const bool sparse, const int dartChance, Puzzle &puzzle) {
   Bits colored;
   for (int i = model.playable.nextSet(0); i >= 0;
        i = model.playable.nextSet(i + 1)) {
@@ -272,14 +322,16 @@ void deriveClues(const Model &model, const Colors &colors, SeededRng &rng,
   Bits used;
   ClueRun run{.rng = rng, .puzzle = puzzle, .used = used};
   const ClueChances chances{.area = sparse ? 25 : 70,
-                            .letter = sparse ? 10 : 25};
+                            .letter = sparse ? 10 : 25,
+                            .dart = dartChance};
 
   for (const Bits &side : {colored, light}) {
     const Regions regions = labelRegions(side, model);
     for (int id = 0; id < regions.count(); id++) {
       if (const std::vector<int> cells = freeCellsOf(side, regions, used, id);
           !cells.empty())
-        clueOneRegion(run, chances, cells, regions.size[slot(id)]);
+        clueOneRegion(run, chances, cells, regions.size[slot(id)], model,
+                      colors);
     }
   }
 }
@@ -371,7 +423,7 @@ int run(const Options &options) {
     if (!paintLegal(bare, rng, colors))
       continue;
 
-    deriveClues(bare, colors, rng, sparse, puzzle);
+    deriveClues(bare, colors, rng, sparse, options.darts, puzzle);
     // Off its own stream, and only when asked, so every seed that produced a
     // board before this existed still produces exactly that board.
     if (options.shapes > 0) {

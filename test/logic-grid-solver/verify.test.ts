@@ -10,7 +10,7 @@ import {
   toGrid,
   verifyLogicGrid,
 } from "../../src/pages/logic-grid-solver/verify";
-import { board, painted, withShape } from "./boards";
+import { board, painted, withDart, withShape } from "./boards";
 
 /**
  * The page's own rule checker — the last thing between a bad answer from the
@@ -190,6 +190,43 @@ describe("verifyLogicGrid", () => {
         judge(["..#..", "....."], ["DD#DD", "LLLLL"], ["area-two-dark"]),
       ).toBe("none");
     });
+
+    /**
+     * The area-FOUR pair, which say the same thing at a different size — and
+     * whose "too big" half is a propagator rather than forbidden shapes, so
+     * this oracle is the only place both halves are stated outright.
+     */
+    test("catches an area-four region that is too big or too small", () => {
+      expect(judge(["....", "...."], ["DDDD", "LLLL"], ["area-four-dark"])).toBe(
+        "none",
+      );
+      // The square one, which no run rule reaches.
+      expect(judge(["....", "...."], ["DDLL", "DDLL"], ["area-four-dark"])).toBe(
+        "none",
+      );
+      expect(judge(["....", "...."], ["DDDD", "DLLL"], ["area-four-dark"])).toBe(
+        "region-size",
+      );
+      expect(judge(["....", "...."], ["DDDL", "LLLL"], ["area-four-dark"])).toBe(
+        "region-size",
+      );
+    });
+
+    /**
+     * Not a contradiction, which is the surprising part: every one of a colour's
+     * zero regions is both sizes at once, so the pair is satisfied exactly when
+     * the colour is absent.
+     */
+    test("both sizes on one colour leave only the empty colouring", () => {
+      const both = ["area-two-dark", "area-four-dark"];
+      expect(judge(["....", "...."], ["LLLL", "LLLL"], both)).toBe("none");
+      expect(judge(["....", "...."], ["DDLL", "DDLL"], both)).toBe(
+        "region-size",
+      );
+      expect(judge(["....", "...."], ["DDLL", "LLLL"], both)).toBe(
+        "region-size",
+      );
+    });
   });
 
   describe("clues", () => {
@@ -218,6 +255,76 @@ describe("verifyLogicGrid", () => {
 
     test("different letters may share a colour in different regions", () => {
       expect(judge(["a.b", "..."], ["DLD", "LLL"])).toBe("none");
+    });
+  });
+
+  describe("darts", () => {
+    /** A dart on `(0, 0)` aimed along the top row, and a colouring to judge. */
+    const judgeDart = (
+      picture: string[],
+      answer: string[],
+      value: number,
+      direction = 1,
+    ) => {
+      const config = board(picture);
+      withDart(config, 0, 0, value, direction);
+      return verifyLogicGrid(config, painted(answer));
+    };
+
+    test("counts the squares of the OTHER colour along its line", () => {
+      expect(judgeDart(["....."], ["DLLDD"], 2)).toBe("none");
+      expect(judgeDart(["....."], ["DLLDD"], 3)).toBe("dart");
+    });
+
+    test("a dart takes the colour of its own cell, so it counts the other", () => {
+      // The two colourings differ ONLY in the dart's own square, and the same
+      // line of `LLLD` reads as three lights from a dark dart and one dark
+      // from a light one.
+      expect(judgeDart(["....."], ["DLLLD"], 3)).toBe("none");
+      expect(judgeDart(["....."], ["LLLLD"], 3)).toBe("dart");
+      expect(judgeDart(["....."], ["LLLLD"], 1)).toBe("none");
+    });
+
+    test("zero means the whole line is the dart's own colour", () => {
+      expect(judgeDart(["....."], ["DDDDD"], 0)).toBe("none");
+      expect(judgeDart(["....."], ["DDDDL"], 0)).toBe("dart");
+    });
+
+    /** A gap is stepped over: neither counted, nor a wall the dart stops at. */
+    test("looks straight through a gap", () => {
+      expect(judgeDart(["..#.."], ["DL#LD"], 2)).toBe("none");
+      expect(judgeDart(["..#.."], ["DL#LD"], 1)).toBe("dart");
+    });
+
+    test("counts to the edge and no further", () => {
+      expect(judgeDart([".....", "LLLLL"], ["DDDDD", "LLLLL"], 0)).toBe("none");
+    });
+
+    test("aims where it says it does", () => {
+      // Down the first column rather than along the first row.
+      expect(judgeDart([".....", "....."], ["DLLLL", "LLLLL"], 1, 2)).toBe(
+        "none",
+      );
+      expect(judgeDart([".....", "....."], ["DLLLL", "DLLLL"], 1, 2)).toBe(
+        "dart",
+      );
+    });
+
+    /**
+     * A merged cell lying along the line contributes every square of itself
+     * that the line crosses. Three, here — a count a dart reading CELLS could
+     * never reach on a line only four squares long with one of them apart.
+     */
+    test("counts a merged cell once per square the line crosses", () => {
+      const config = board(["....."]);
+      withDart(config, 0, 0, 3, 1);
+      withShape(config, [
+        [1, 0],
+        [2, 0],
+        [3, 0],
+      ]);
+      expect(verifyLogicGrid(config, painted(["DLLLD"]))).toBe("none");
+      expect(verifyLogicGrid(config, painted(["DDDDL"]))).toBe("dart");
     });
   });
 

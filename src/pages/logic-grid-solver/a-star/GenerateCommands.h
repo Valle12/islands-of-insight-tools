@@ -38,6 +38,15 @@ struct Options {
    * local search whose every draw would otherwise shift.
    */
   int shapes = 0;
+  /**
+   * How often a region that would otherwise carry no clue gets a DART instead,
+   * as a percentage, 0 for none.
+   *
+   * Off by default, and the roll is appended after the letter roll and skipped
+   * outright at zero, so a campaign without it draws no random number for a
+   * dart and reproduces exactly the boards it always did.
+   */
+  int darts = 0;
 };
 
 /// 0 when a puzzle was written, 1 when no attempt produced one. Nothing is

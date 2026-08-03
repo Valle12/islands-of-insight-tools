@@ -19,18 +19,30 @@ const wasmPath = join(wasmDir, "astar.mem64.wasm");
 // `solvableBoard` from there — a 5x5 with both colours connected, no dark 2x2
 // and one area of nine.
 //
-// The rule numbers are therefore COPIES of the catalogue's indices, and the one
-// place in the tree where that cannot be avoided. When `RULES` in rules.ts
-// changes, this list has to change with it — the regroup that moved
-// connect-dark from 2 to 11 turned this board into "no runs of two of either
-// colour", which is unsolvable, and this test is what said so.
+// The rule and clue-kind numbers are therefore COPIES of the catalogues'
+// indices, and the one place in the tree where that cannot be avoided. When
+// `RULES` or `SYMBOL_KINDS` changes, these have to change with them — the
+// regroup that moved connect-dark from 2 to 11 turned this board into "no runs
+// of two of either colour", which is unsolvable, and this test is what said so.
+//
+// The dart is here for the same reason the merged cell below is: this is the
+// only lane that sends the `direction` key without going through `toPuzzle`, so
+// a 64-bit build that could not read one fails here. What it is NOT for is
+// checking the counting — the boards in `wasm.test.ts` do that through the real
+// module — so it is aimed off the edge of the board, where its line is empty
+// and a value of zero is satisfied by every colouring. That keeps this board's
+// answer exactly what it was while still refusing a missing direction.
 const BOARD = {
   gridWidth: 5,
   gridHeight: 5,
   // no-dark-2x2, connect-dark, connect-light
   rules: [0, 11, 12],
   cells: Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => 0)),
-  symbols: [{ x: 2, y: 2, type: 0, value: 9 }],
+  symbols: [
+    { x: 2, y: 2, type: 0, value: 9 },
+    // type 2 is `dart`, direction 0 is up — off the board from the top row.
+    { x: 0, y: 0, type: 2, value: 0, direction: 0 },
+  ],
 };
 
 // The same probes the bridge uses. A 64-bit MEMORY is not sufficient on its
@@ -87,6 +99,9 @@ test(
           symbol.type === 1
             ? (String(symbol.value).codePointAt(0) ?? 65) - 65
             : Number(symbol.value),
+        // -1 where there is none, which is what the module refuses for a kind
+        // that needs one rather than reading as "pointing up".
+        direction: symbol.direction ?? -1,
       })),
       // A merged cell: the two squares of the top-left corner as ONE cell, so
       // the 64-bit build is exercised on the `shapes` key too. Flat row-major,

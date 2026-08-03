@@ -107,6 +107,33 @@ TEST(Verify, AGapSeparatesTwoAreasRatherThanJoiningThem) {
             Violation::None);
 }
 
+/// The area-FOUR pair. `everyRegionIs` was already generic in the number, so
+/// what is really pinned here is that the family listing gained its two rows —
+/// and this is the only place both halves of the size are stated outright,
+/// since four's "too big" half has no forbidden shapes behind it.
+TEST(Verify, CatchesAnAreaFourRegionOfTheWrongSize) {
+  EXPECT_EQ(judge({"....", "...."}, {"DDDD", "LLLL"}, {Rule::AreaFourDark}),
+            Violation::None);
+  // The square one, which no run rule reaches.
+  EXPECT_EQ(judge({"....", "...."}, {"DDLL", "DDLL"}, {Rule::AreaFourDark}),
+            Violation::None);
+  EXPECT_EQ(judge({"....", "...."}, {"DDDD", "DLLL"}, {Rule::AreaFourDark}),
+            Violation::RegionSize);
+  EXPECT_EQ(judge({"....", "...."}, {"DDDL", "LLLL"}, {Rule::AreaFourDark}),
+            Violation::RegionSize);
+}
+
+/// Not a contradiction: every one of a colour's ZERO regions is both sizes at
+/// once, so the pair is satisfied exactly when the colour is absent.
+TEST(Verify, BothSizesOnOneColourLeaveOnlyTheEmptyColouring) {
+  const std::vector both{Rule::AreaTwoDark, Rule::AreaFourDark};
+  EXPECT_EQ(judge({"....", "...."}, {"LLLL", "LLLL"}, both), Violation::None);
+  EXPECT_EQ(judge({"....", "...."}, {"DDLL", "DDLL"}, both),
+            Violation::RegionSize);
+  EXPECT_EQ(judge({"....", "...."}, {"DDLL", "LLLL"}, both),
+            Violation::RegionSize);
+}
+
 /// "Exactly one" is two failures, and the empty half is the easy one to miss:
 /// nothing points at a region that has no symbol in it.
 TEST(Verify, CountsTheSymbolsInEveryArea) {
@@ -198,6 +225,62 @@ TEST(Verify, EveryViolationHasAMessage) {
   EXPECT_STRNE(verify::describe(Violation::LetterShared), "");
   EXPECT_STRNE(verify::describe(Violation::RegionSize), "");
   EXPECT_STRNE(verify::describe(Violation::CellSplit), "");
+  EXPECT_STRNE(verify::describe(Violation::DartCount), "");
+}
+
+/// A dart on `(0, 0)` aimed along the top row, and a colouring to judge.
+Violation judgeDart(const std::vector<std::string> &picture,
+                    const std::vector<std::string> &painted, const int value,
+                    const int direction = kDirRight) {
+  Puzzle puzzle = test::board(picture);
+  test::withDart(puzzle, 0, 0, value, direction);
+  return verify::check(buildModel(puzzle), test::colors(painted));
+}
+
+TEST(Verify, ADartCountsTheOtherColourAlongItsLine) {
+  EXPECT_EQ(judgeDart({"....."}, {"DLLDD"}, 2), Violation::None);
+  EXPECT_EQ(judgeDart({"....."}, {"DLLDD"}, 3), Violation::DartCount);
+}
+
+/// The two colourings differ ONLY in the dart's own square, and the same line
+/// of `LLLD` reads as three lights from a dark dart and one dark from a light.
+TEST(Verify, ADartTakesTheColourOfItsOwnCell) {
+  EXPECT_EQ(judgeDart({"....."}, {"DLLLD"}, 3), Violation::None);
+  EXPECT_EQ(judgeDart({"....."}, {"LLLLD"}, 3), Violation::DartCount);
+  EXPECT_EQ(judgeDart({"....."}, {"LLLLD"}, 1), Violation::None);
+}
+
+TEST(Verify, ADartOfZeroPaintsItsWholeLineItsOwnColour) {
+  EXPECT_EQ(judgeDart({"....."}, {"DDDDD"}, 0), Violation::None);
+  EXPECT_EQ(judgeDart({"....."}, {"DDDDL"}, 0), Violation::DartCount);
+}
+
+/// A gap is stepped over: neither counted, nor a wall the line stops at.
+TEST(Verify, ADartLooksStraightThroughAGap) {
+  EXPECT_EQ(judgeDart({"..#.."}, {"DL#LD"}, 2), Violation::None);
+  EXPECT_EQ(judgeDart({"..#.."}, {"DL#LD"}, 1), Violation::DartCount);
+}
+
+TEST(Verify, ADartAimsWhereItSaysItDoes) {
+  EXPECT_EQ(judgeDart({".....", "....."}, {"DLLLL", "LLLLL"}, 1, kDirDown),
+            Violation::None);
+  EXPECT_EQ(judgeDart({".....", "....."}, {"DLLLL", "DLLLL"}, 1, kDirDown),
+            Violation::DartCount);
+}
+
+/**
+ * A merged cell lying along the line contributes every square of itself the
+ * line crosses. Three, here — a count a dart reading CELLS could never reach
+ * on a line four squares long with three of them fused.
+ */
+TEST(Verify, ADartCountsAMergedCellOncePerSquare) {
+  Puzzle puzzle = test::board({"....."});
+  test::withDart(puzzle, 0, 0, 3, kDirRight);
+  test::withShape(puzzle, {{1, 0}, {2, 0}, {3, 0}});
+  const Model model = buildModel(puzzle);
+  EXPECT_EQ(verify::check(model, test::colors({"DLLLD"})), Violation::None);
+  EXPECT_EQ(verify::check(model, test::colors({"DDDDL"})),
+            Violation::DartCount);
 }
 
 /// The same, for a board carrying one merged cell the picture cannot draw.

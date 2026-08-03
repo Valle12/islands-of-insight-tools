@@ -206,4 +206,95 @@ TEST(Shapes, APlainBoardKnowsItHasNone) {
   EXPECT_EQ(model.shapeAt[slot(cellIndex(0, 0))], -1);
 }
 
+// --- Darts ----------------------------------------------------------------
+
+TEST(Darts, AKindWithNoDirectionIsRefused) {
+  Puzzle puzzle = test::board(open());
+  // What a fixture or a bridge sends for a clue carrying no direction at all.
+  puzzle.clues.push_back(
+      {.index = cellIndex(0, 0), .kind = kClueDart, .value = 1, .direction = -1});
+  EXPECT_EQ(structureProblem(puzzle), Problem::DartDirection);
+}
+
+TEST(Darts, ADirectionOutsideTheFourIsRefused) {
+  Puzzle puzzle = test::board(open());
+  test::withDart(puzzle, 0, 0, 1, kDirectionCount);
+  EXPECT_EQ(structureProblem(puzzle), Problem::DartDirection);
+}
+
+/// Zero is a real dart, unlike an area of zero — it says the whole line holds
+/// the dart's own colour, which is one of the two that fill in immediately.
+TEST(Darts, ZeroIsAValidNumber) {
+  Puzzle puzzle = test::board(open());
+  test::withDart(puzzle, 0, 0, 0, kDirRight);
+  EXPECT_EQ(structureProblem(puzzle), Problem::None);
+}
+
+TEST(Darts, ANumberBeyondTheBoardsLongestLineIsRefused) {
+  Puzzle puzzle = test::board(open());
+  test::withDart(puzzle, 0, 0, 3, kDirRight);
+  EXPECT_EQ(structureProblem(puzzle), Problem::DartValue);
+}
+
+/**
+ * The board-wide bound above cannot see this one. A line is shortened by every
+ * gap on it and by the dart's own merged cell, so "fits the longest line the
+ * board has" and "fits the line this dart really sits on" are different
+ * questions — and the second is worth a name rather than a bare "unsolvable".
+ */
+TEST(Darts, ANumberBeyondItsOwnLineIsNamed) {
+  Puzzle puzzle = test::board({".#."});
+  test::withDart(puzzle, 0, 0, 2, kDirRight);
+  ASSERT_EQ(structureProblem(puzzle), Problem::None);
+  EXPECT_EQ(contradiction(buildModel(puzzle)), Problem::DartExceedsLine);
+}
+
+TEST(Darts, TheLineRunsToTheEdgeAndStepsOverGaps) {
+  Puzzle puzzle = test::board({"..#..", "....."});
+  test::withDart(puzzle, 0, 0, 0, kDirRight);
+  const Model model = buildModel(puzzle);
+  ASSERT_EQ(model.darts.size(), 1U);
+  // Three squares, not two: the gap is neither counted nor a wall.
+  const Bits &ray = model.darts.front().ray;
+  EXPECT_EQ(ray.count(), 3);
+  EXPECT_TRUE(ray.test(cellIndex(1, 0)));
+  EXPECT_FALSE(ray.test(cellIndex(2, 0)));
+  EXPECT_TRUE(ray.test(cellIndex(4, 0)));
+  // And it stays on its own row.
+  EXPECT_FALSE(ray.test(cellIndex(1, 1)));
+}
+
+/**
+ * The dart's own cell is taken out of its line, and that is a correctness
+ * requirement rather than a tightening: left in, "the line is exactly full"
+ * would assign the other colour to one of the dart's own squares, `Domains::
+ * exclude` would fan that over the whole cell, and the dart would refute
+ * itself. Out, the line's length is also exactly the largest legal number.
+ */
+TEST(Darts, TheLineExcludesTheDartsOwnCell) {
+  Puzzle puzzle = test::board({"....."});
+  test::withShape(puzzle, {{0, 0}, {1, 0}});
+  test::withDart(puzzle, 0, 0, 0, kDirRight);
+  const Model model = buildModel(puzzle);
+  ASSERT_EQ(model.darts.size(), 1U);
+  const Bits &ray = model.darts.front().ray;
+  EXPECT_EQ(ray.count(), 3);
+  EXPECT_FALSE(ray.test(cellIndex(1, 0)));
+  EXPECT_TRUE(ray.test(cellIndex(2, 0)));
+}
+
+/// A dart is a symbol like any other for "one symbol per area", but it says
+/// nothing about the SIZE of the region it sits in — so it must never reach
+/// the table that reads a clue's number as its region's area.
+TEST(Darts, ADartIsNotAnAreaClue) {
+  Puzzle puzzle = test::board(open());
+  test::withDart(puzzle, 0, 0, 1, kDirRight);
+  const Model model = buildModel(puzzle);
+  EXPECT_TRUE(model.areaClues.empty());
+  EXPECT_TRUE(model.letters.empty());
+  EXPECT_EQ(model.dartClues.size(), 1U);
+  EXPECT_EQ(model.areaValueAt(cellIndex(0, 0)), 0);
+  EXPECT_GE(model.clueAt[slot(cellIndex(0, 0))], 0);
+}
+
 } // namespace

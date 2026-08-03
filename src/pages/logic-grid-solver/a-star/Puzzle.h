@@ -73,6 +73,16 @@ struct Clause {
   int count = 0;
 };
 
+/// One dart's geometry, worked out once because it never changes: rays are a
+/// property of the board, not of the colouring. See `Model::darts`.
+struct Dart {
+  int clueId = 0;
+  int index = 0;
+  int value = 0;
+  int direction = kDirUp;
+  Bits ray;
+};
+
 /// Every clue carrying one letter. All of them share a region, so they share a
 /// colour too — which is the whole of "letter colour deduction".
 struct LetterGroup {
@@ -110,9 +120,30 @@ struct Model {
   std::vector<int> clueAt;
   /// Indices into `puzzle.clues` of every area clue, in clue order.
   std::vector<int> areaClues;
+  /// ...and of every dart, which `darts` below carries the geometry for.
+  std::vector<int> dartClues;
   std::vector<LetterGroup> letters;
   /// Index into `letters` for each cell, or -1.
   std::vector<int> letterAt;
+
+  /**
+   * Every dart's line, precomputed: the playable squares from its own square to
+   * the edge of the board in the direction it points, MINUS the squares of its
+   * own cell.
+   *
+   * Gaps are stepped over rather than stopping the line — a dart sees past a
+   * hole — so this is not a run and cannot be found by shifting until something
+   * blocks.
+   *
+   * Taking the dart's own cell out is a correctness requirement, not a
+   * tightening. Every square of that cell holds the dart's own colour, so none
+   * of them can ever be the colour it counts; left in, the "the line is exactly
+   * full" branch would assign the OTHER colour to one of them, `Domains::
+   * exclude` would fan that over the whole cell, and the dart would refute
+   * itself. Out, `ray.count()` is also exactly the largest number the dart
+   * could legally carry.
+   */
+  std::vector<Dart> darts;
 
   /**
    * The merged cells as masks, in `puzzle.shapes` order, and which one each
@@ -174,6 +205,9 @@ enum class Problem : uint8_t {
   ClueDuplicated,
   AreaValue,
   LetterValue,
+  DartValue,
+  DartDirection,
+  DartExceedsLine,
   ShapeOffBoard,
   ShapeOnGap,
   ShapeOverlaps,

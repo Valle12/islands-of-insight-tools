@@ -74,6 +74,21 @@ inline void withClue(Puzzle &puzzle, const int x, const int y,
 }
 
 /**
+ * Puts a dart on a cell. A second call rather than a glyph, for the same reason
+ * `withShape` is one: the picture's alphabet is spoken for, and a dart carries
+ * two things rather than one.
+ *
+ * `direction` is `kDirUp`, `kDirRight`, `kDirDown` or `kDirLeft`.
+ */
+inline void withDart(Puzzle &puzzle, const int x, const int y, const int value,
+                     const int direction) {
+  puzzle.clues.push_back({.index = cellIndex(x, y),
+                          .kind = kClueDart,
+                          .value = value,
+                          .direction = direction});
+}
+
+/**
  * Fuses squares into one merged cell. A second call rather than a glyph: the
  * picture's alphabet is entirely spoken for, and a shape needs to say which
  * squares go together rather than just that a square is in one.
