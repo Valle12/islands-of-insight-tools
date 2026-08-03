@@ -4,6 +4,7 @@
 #include "Puzzle.h"
 #include "Types.h"
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -39,7 +40,15 @@ public:
 
   explicit Domains(const Model &model)
       : playable_(model.playable), mayDark_(model.playable),
-        mayLight_(model.playable), playableCount_(model.playableCount) {}
+        mayLight_(model.playable), playableCount_(model.playableCount),
+        shapes_(&model.shapes), shapeAt_(&model.shapeAt),
+        hasShapes_(model.hasShapes) {}
+
+  /// A Domains borrows the merged-cell tables from its Model, so it cannot be
+  /// built from a temporary. `buildModel` returns by value, which makes
+  /// `Domains d(buildModel(puzzle))` the easy way to get a dangling read —
+  /// deleted here so it is a compile error rather than something to notice.
+  explicit Domains(Model &&) = delete;
 
   [[nodiscard]] bool mayBe(const int index, const uint8_t color) const {
     return possible(color).test(index);
@@ -80,23 +89,42 @@ public:
   [[nodiscard]] bool complete() const { return decidedCount() == playableCount_; }
 
   /**
-   * Takes `color` out of a cell's domain. False when that leaves the cell with
+   * Takes `color` out of a CELL's domain. False when that leaves the cell with
    * nothing it can be, which is a contradiction the caller must act on.
    *
-   * A cell that becomes decided joins the propagation queue exactly once: the
-   * second exclusion on the same cell reports the contradiction before it can
+   * A square that becomes decided joins the propagation queue exactly once: the
+   * second exclusion on the same square reports the contradiction before it can
    * enqueue anything.
+   *
+   * This is the ONE place a domain shrinks, and therefore the whole of the
+   * merged-cell layer: a merged cell takes one colour for all of its squares,
+   * so excluding a colour anywhere in it excludes that colour everywhere in it.
+   * That fan-out is what makes every square of a merged cell hold an identical
+   * domain at every point of the search — the invariant everything downstream
+   * silently relies on to go on reading `Bits` one square at a time and still
+   * get adjacency, region membership and area counts right.
    */
   bool exclude(const int index, const uint8_t color) {
-    Bits &mask = color == kDark ? mayDark_ : mayLight_;
-    if (!mask.test(index))
-      return true;
-    mask.reset(index);
-    trail_.push_back({.index = index, .color = color});
-    if (!possible(opposite(color)).test(index))
-      return false;
-    assigned_.push_back(index);
-    return true;
+    // A board with no merged cells never touches the tables at all: this is the
+    // hottest function in the solver and the plain path stays one branch.
+    if (!hasShapes_)
+      return excludeSquare(index, color);
+    const int shape = (*shapeAt_)[slot(index)];
+    if (shape < 0)
+      return excludeSquare(index, color);
+
+    // Deliberately NOT short-circuiting on the first failure. Stopping there
+    // would leave one square of the cell with nothing it can be while its mates
+    // are still undecided — the invariant above broken, in the window where the
+    // failure is still unwinding through callers that go on reading squares.
+    // The cost is at most a handful of calls that take the early-out below.
+    bool ok = true;
+    const Bits &mask = (*shapes_)[slot(shape)];
+    for (int i = mask.nextSet(0); i >= 0; i = mask.nextSet(i + 1)) {
+      if (!excludeSquare(i, color))
+        ok = false;
+    }
+    return ok;
   }
 
   /// Fixes a cell to `color`; the same operation as excluding the other one.
@@ -142,13 +170,40 @@ private:
     uint8_t color = kDark;
   };
 
+  /// One square's domain, which is what the trail records and `restore` undoes.
+  /// A merged cell is several of these driven together by `exclude`.
+  bool excludeSquare(const int index, const uint8_t color) {
+    Bits &mask = color == kDark ? mayDark_ : mayLight_;
+    if (!mask.test(index))
+      return true;
+    mask.reset(index);
+    trail_.push_back({.index = index, .color = color});
+    if (!possible(opposite(color)).test(index))
+      return false;
+    assigned_.push_back(index);
+    return true;
+  }
+
   Bits playable_;
   Bits mayDark_;
   Bits mayLight_;
   int playableCount_ = 0;
   std::vector<Removal> trail_;
+  /**
+   * Every square decided so far, in the order they were, doubling as the
+   * propagation queue via `head_`. One entry per SQUARE rather than per cell,
+   * deliberately: it keeps `complete()`'s arithmetic against `playableCount_`
+   * untouched, and every square of a merged cell really does sit in different
+   * geometric patterns, so each one should drive its own clause rescan.
+   */
   std::vector<int> assigned_;
   size_t head_ = 0;
+
+  // Borrowed from the Model, which outlives every Domains built from it and is
+  // immutable once `buildModel` returns (the parallel arms share one).
+  const std::vector<Bits> *shapes_ = nullptr;
+  const std::array<int16_t, kMaxCells> *shapeAt_ = nullptr;
+  bool hasShapes_ = false;
 };
 
 } // namespace lg

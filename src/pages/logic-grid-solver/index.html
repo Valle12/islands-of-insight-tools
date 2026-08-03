@@ -183,6 +183,23 @@
               >
                 <span class="swatch" data-swatch="unplayable"></span>
               </button>
+              <!-- Merged cells: several grid squares acting as ONE irregular
+                   cell, which is how the game's harder boards are laid out.
+                   Left-drag fuses squares into a cell, right-drag takes them
+                   back out one square at a time.
+
+                   Here rather than in the command row because it changes what
+                   the board IS, like the gap tool beside it, rather than doing
+                   something to it once. -->
+              <button
+                class="tool-button icon-tool"
+                data-tool="merge"
+                type="button"
+                title="Merge cells"
+                aria-label="Merge cells"
+              >
+                <md-icon>cell_merge</md-icon>
+              </button>
             </div>
 
             <div id="symbol-row" class="tool-row" aria-label="Clues"></div>

@@ -90,7 +90,10 @@ ProbeResult probeToFixpoint(const Model &model, Domains &domains,
   bool changed = true;
   while (changed) {
     changed = false;
-    const Bits candidates = domains.undecided();
+    // One probe per CELL. Every square of a merged cell would probe the same
+    // two colourings and reach the same conclusion, and a probe is two full
+    // propagations — the most expensive thing done per candidate here.
+    const Bits candidates = domains.undecided() & model.representatives;
     for (int cell = candidates.nextSet(0); cell >= 0;
          cell = candidates.nextSet(cell + 1)) {
       // Aborted, never Conflict: a look-ahead that ran out of budget has shown

@@ -463,11 +463,11 @@ Painted paint(const Plan &plan, Frontier &work, const Site &site,
   if (mustConnect(plan, color) && hasClosed(work, color))
     return {};
 
-  const Join join = joinAt(work, site, color);
-  if (!join.legal)
+  const auto [cls, joined, legal] = joinAt(work, site, color);
+  if (!legal)
     return {};
 
-  uint8_t mine = join.cls;
+  uint8_t mine = cls;
   if (mine == kNoClass) {
     mine = freeClass(work, site.width);
     if (mine == kNoClass)
@@ -477,7 +477,7 @@ Painted paint(const Plan &plan, Frontier &work, const Site &site,
   work.cls[slot(site.x)] = mine;
   setColor(work, mine, color);
 
-  const Painted painted{.legal = true, .merged = join.merged};
+  const Painted painted{.legal = true, .merged = joined};
   const uint8_t letter = plan.letterAt[slot(site.pos)];
   if (letter == kNoTag)
     return painted;
@@ -523,10 +523,10 @@ bool step(const Plan &plan, const Frontier &in, const int x, const int y,
   if (color == kUnplayable) {
     work.cls[slot(x)] = kNoClass;
   } else {
-    const Painted painted = paint(plan, work, site, color);
-    if (!painted.legal)
+    const auto [legal, absorbed] = paint(plan, work, site, color);
+    if (!legal)
       return false;
-    merged = painted.merged;
+    merged = absorbed;
   }
 
   // Short-circuit order is the whole point: `closeClass` mutates, and it may
@@ -749,10 +749,10 @@ int readForced(const Model &model, const Plan &plan, const Forced &forced,
     const std::vector<uint8_t> &here = forced.alive[slot(pos)];
     Taken taken;
     for (size_t i = 0; i < here.size(); i++) {
-      const Taken one =
+      const auto [dark, light] =
           here[i] == 0 ? Taken{} : takenFrom(forced, pos, i, options);
-      taken.dark = taken.dark || one.dark;
-      taken.light = taken.light || one.light;
+      taken.dark = taken.dark || dark;
+      taken.light = taken.light || light;
     }
     if (taken.dark == taken.light) {
       colors[slot(cell)] = kUnknown;
@@ -843,14 +843,30 @@ void expandOne(const Plan &plan, const Cursor &cursor, const Layer &layer,
 } // namespace
 
 bool applicable(const Model &model) {
+  // A merged cell spans several squares, and the frontier carries one class
+  // slot per COLUMN joined only leftwards and upwards, over a `y * width + x`
+  // sweep. Nothing in it can say "this square takes the colour a square two
+  // rows back already took", and carrying that would mean a per-column cell
+  // identity plus a colour commitment for cells still open — a different
+  // design, not a bigger constant. Declining is a correctness requirement for
+  // the same reason as the rules below.
+  if (model.hasShapes)
+    return false;
   if (!model.areaClues.empty())
     return false;
   // The pattern rules would each need their own extra state; see the header.
+  //
+  // The two area rules are declined for the same reason area CLUES are: the
+  // frontier carries each open class's colour and letter but not its size. And
+  // declining them is a correctness requirement rather than a tidiness one —
+  // `runProfileForced` sets `proven` with no oracle gate on its forced set, so a
+  // sweep blind to a rule would enumerate a superset of the solutions and then
+  // claim the cells they disagree about were proved to go either way.
   using enum Rule;
   constexpr auto kUnsupported = std::to_array<Rule>(
       {NoDark2x2, NoLight2x2, NoCheckerboard, NoLight1x2, NoDark1x2,
        NoLight1x3, NoDark1x3, NoLight1x4, NoDark1x4, NoLight1x5, NoDark1x5,
-       OneSymbolDark, OneSymbolLight});
+       OneSymbolDark, OneSymbolLight, AreaTwoDark, AreaTwoLight});
   for (const Rule rule : kUnsupported) {
     if (model.hasRule(rule))
       return false;

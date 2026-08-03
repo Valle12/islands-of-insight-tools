@@ -13,6 +13,8 @@
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 #include <string>
+#include <utility>
+#include <vector>
 
 // The page's side of the solver.
 //
@@ -104,6 +106,38 @@ bool readClues(const val &puzzleVal, Puzzle &puzzle, const char *&error) {
   return true;
 }
 
+/**
+ * The merged cells, as FLAT `y * gridWidth + x` indices — the same row-major
+ * layout `cells` crosses in, and the same the config file stores.
+ *
+ * Only the range is checked here; that a shape is connected, does not overlap
+ * another, holds at least two squares and agrees with itself about its colour
+ * and its clue is `structureProblem`'s job, so the fixture path gets the same
+ * answers as this one.
+ */
+bool readShapes(const val &puzzleVal, Puzzle &puzzle, const char *&error) {
+  const val list = puzzleVal["shapes"];
+  if (list.isUndefined() || list.isNull())
+    return true;
+  const int count = list["length"].as<int>();
+  for (int i = 0; i < count; i++) {
+    const val entry = list[i];
+    const int members = entry["length"].as<int>();
+    std::vector<int> shape;
+    shape.reserve(slot(members));
+    for (int m = 0; m < members; m++) {
+      const int flat = entry[m].as<int>();
+      if (flat < 0 || flat >= puzzle.width * puzzle.height) {
+        error = "A merged cell claims a square outside the board";
+        return false;
+      }
+      shape.push_back(cellIndex(flat % puzzle.width, flat / puzzle.width));
+    }
+    puzzle.shapes.push_back(std::move(shape));
+  }
+  return true;
+}
+
 Puzzle puzzleFromVal(const val &puzzleVal, const char *&error) {
   Puzzle puzzle;
   puzzle.width = opt(puzzleVal, "gridWidth", 0);
@@ -115,7 +149,8 @@ Puzzle puzzleFromVal(const val &puzzleVal, const char *&error) {
   }
   if (!readCells(puzzleVal, puzzle, error) ||
       !readRules(puzzleVal, puzzle, error) ||
-      !readClues(puzzleVal, puzzle, error))
+      !readClues(puzzleVal, puzzle, error) ||
+      !readShapes(puzzleVal, puzzle, error))
     return puzzle;
   if (const Problem problem = structureProblem(puzzle);
       problem != Problem::None)

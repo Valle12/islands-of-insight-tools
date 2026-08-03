@@ -35,6 +35,12 @@ enum class Violation : uint8_t {
   AreaWithoutSymbol,
   /// ...or carries more than one.
   AreaWithManySymbols,
+  /// A region is not the area its colour's area rule requires. Distinct from
+  /// `AreaSize`, which is one CLUE disagreeing with the region it sits in;
+  /// this one is about every region of a colour, clued or not.
+  RegionSize,
+  /// A merged cell came back with its squares in different colours.
+  CellSplit,
 };
 
 const char *describe(Violation violation);

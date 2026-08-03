@@ -144,6 +144,61 @@ bool propagateConnectivity(const Model &model, Domains &domains) {
   return true;
 }
 
+// ----------------------------------------------------------- region area --
+
+/**
+ * The half of an area rule the pattern table cannot carry: no region SMALLER
+ * than the number. The other half — no region bigger — compiles into forbidden
+ * trominoes and needs no code at all; see `Rules.cpp`.
+ *
+ * "This cell dark and all four of its neighbours light" would be a forbidden
+ * arrangement too, except that an instance running off the board or across a gap
+ * is dropped rather than shortened, and those are exactly the cells where it has
+ * something to say. So it is done here instead, in two sweeps, both written for
+ * an area of two:
+ *
+ * - a cell that MAY hold the colour with nothing beside it that could ever join
+ *   it would be a region of one, so it cannot hold the colour. Four shifts find
+ *   every such cell at once, with no flood fill. Where the cell already holds
+ *   the colour the exclusion fails, and that is the refutation;
+ * - a cell that DOES hold the colour has exactly one same-coloured neighbour, so
+ *   when one candidate is left it is forced. A cell already paired finds its own
+ *   partner here and the assignment is a no-op, which is why a finished region
+ *   needs no special case.
+ */
+bool regionAreaTwo(Domains &domains, const uint8_t color) {
+  const Bits possible = domains.possible(color);
+  // `shiftDown` moves the SET down, so a cell lands in it when the cell ABOVE
+  // it may take the colour. Reading each shift as "the neighbour that way" is
+  // backwards; the union is the same set either way.
+  if (const Bits touching = possible.shiftUp() | possible.shiftDown() |
+                            possible.shiftLeft() | possible.shiftRight();
+      !excludeAll(domains, possible.without(touching), color))
+    return false;
+
+  const Bits definite = domains.definite(color);
+  for (int i = definite.nextSet(0); i >= 0; i = definite.nextSet(i + 1)) {
+    // Re-read rather than reusing `possible`: the sweep above took cells out of
+    // it, and excluding one cell can orphan the next.
+    const Bits ways = oneCell(i).border() & domains.possible(color);
+    if (ways.none())
+      return false;
+    if (ways.count() == 1 && !domains.assign(ways.nextSet(0), color))
+      return false;
+  }
+  return true;
+}
+
+bool propagateRegionAreas(const Model &model, Domains &domains) {
+  constexpr auto kAreaTwo = std::to_array<std::pair<Rule, uint8_t>>(
+      {{Rule::AreaTwoDark, kDark}, {Rule::AreaTwoLight, kLight}});
+  for (const auto &[rule, color] : kAreaTwo) {
+    if (model.hasRule(rule) && !regionAreaTwo(domains, color))
+      return false;
+  }
+  return true;
+}
+
 // ------------------------------------------------------------ area clues --
 
 /// The region is finished, so nothing may join it.
@@ -171,7 +226,18 @@ bool areaColorChoice(Domains &domains, const Clue &clue) {
   return domains.assign(clue.index, darkFits ? kDark : kLight);
 }
 
-bool areaKnownColor(Domains &domains, const Clue &clue, const uint8_t color) {
+/// The one cell every square of `bits` belongs to, or -1 when they span more
+/// than one. On a plain board this is exactly `bits.count() == 1`.
+int soleCell(const Model &model, const Bits &bits) {
+  const int first = bits.nextSet(0);
+  if (first < 0)
+    return -1;
+  const Bits mask = model.cellMask(first);
+  return bits.isSubsetOf(mask) ? first : -1;
+}
+
+bool areaKnownColor(const Model &model, Domains &domains, const Clue &clue,
+                    const uint8_t color) {
   const Bits region = component(clue.index, domains.definite(color));
   const int size = region.count();
   if (size > clue.value)
@@ -191,12 +257,14 @@ bool areaKnownColor(Domains &domains, const Clue &clue, const uint8_t color) {
     return assignAll(domains, closure, color);
 
   // Short of the number with only one way to grow: that way must be taken.
+  // One CELL, not one square — a region whose only way out is a merged cell
+  // spanning three border squares is no less forced for that, and counting
+  // squares here would miss it.
   const Bits frontier = region.border() & domains.possible(color);
-  const int ways = frontier.count();
-  if (ways == 0)
+  if (frontier.none())
     return false;
-  if (ways == 1)
-    return domains.assign(frontier.nextSet(0), color);
+  if (const int only = soleCell(model, frontier); only >= 0)
+    return domains.assign(only, color);
   return true;
 }
 
@@ -206,7 +274,7 @@ bool propagateAreas(const Model &model, Domains &domains) {
     const uint8_t color = domains.colorOf(clue.index);
     const bool ok = color == kUnknown
                         ? areaColorChoice(domains, clue)
-                        : areaKnownColor(domains, clue, color);
+                        : areaKnownColor(model, domains, clue, color);
     if (!ok)
       return false;
   }
@@ -358,11 +426,18 @@ bool propagateSymbolCounts(const Model &model, Domains &domains) {
 
 /// What colouring one cell would join together.
 struct MergeInfo {
-  int total = 1;
+  int total = 0;
   int minArea = 0;
   uint32_t letters = 0;
   /// Clues of any kind the joined piece would end up holding.
   int clues = 0;
+};
+
+/// One stamp per region id, so a merged cell's border scan can skip a region it
+/// has already absorbed with nothing to clear between cells.
+struct MergeScratch {
+  std::vector<int> stamp;
+  int pass = 0;
 };
 
 void absorb(MergeInfo &info, const int size, const int areaValue,
@@ -374,14 +449,18 @@ void absorb(MergeInfo &info, const int size, const int areaValue,
     info.minArea = areaValue;
 }
 
-MergeInfo mergeAround(const Model &model, const Regions &regions,
-                      const int cell) {
-  MergeInfo info;
-  absorb(info, 0, model.areaValueAt(cell), 0,
-         model.clueAt[slot(cell)] >= 0 ? 1 : 0);
-  if (const int group = model.letterAt[slot(cell)]; group >= 0)
+/// Whatever clue one square of the cell being coloured carries.
+void absorbSquare(MergeInfo &info, const Model &model, const int index) {
+  absorb(info, 0, model.areaValueAt(index), 0,
+         model.clueAt[slot(index)] >= 0 ? 1 : 0);
+  if (const int group = model.letterAt[slot(index)]; group >= 0)
     info.letters |= uint32_t{1} << model.letters[slot(group)].letter;
+}
 
+/// The regions a PLAIN square touches: at most four, so a scalar walk and a
+/// four-entry seen list, which is what keeps this hot loop cheap.
+void absorbPlainNeighbours(MergeInfo &info, const Regions &regions,
+                           const int cell) {
   std::array seen{-1, -1, -1, -1};
   int found = 0;
   const int x = columnOf(cell);
@@ -399,6 +478,44 @@ MergeInfo mergeAround(const Model &model, const Regions &regions,
     absorb(info, regions.size[slot(id)], regions.areaValue[slot(id)],
            regions.letters[slot(id)], regions.clues[slot(id)]);
   }
+}
+
+/// The regions a MERGED cell touches. It is adjacent to whatever any of its
+/// squares touches, so the count is not bounded by four and the seen list above
+/// cannot be reused.
+void absorbMergedNeighbours(MergeInfo &info, const Regions &regions,
+                            const Bits &mask, MergeScratch &scratch) {
+  scratch.pass++;
+  const Bits edge = mask.border();
+  for (int i = edge.nextSet(0); i >= 0; i = edge.nextSet(i + 1)) {
+    const int id = regions.id[slot(i)];
+    if (id < 0 || scratch.stamp[slot(id)] == scratch.pass)
+      continue;
+    scratch.stamp[slot(id)] = scratch.pass;
+    absorb(info, regions.size[slot(id)], regions.areaValue[slot(id)],
+           regions.letters[slot(id)], regions.clues[slot(id)]);
+  }
+}
+
+MergeInfo mergeAround(const Model &model, const Regions &regions,
+                      const int cell, MergeScratch &scratch) {
+  MergeInfo info;
+  // What the cell itself brings. A merged cell brings ALL of its squares —
+  // this is the whole of "a merged cell still counts for every square it is
+  // made of" as far as an area number is concerned.
+  info.total = model.cellSize(cell);
+
+  if (model.shapeAt[slot(cell)] < 0) {
+    absorbSquare(info, model, cell);
+    absorbPlainNeighbours(info, regions, cell);
+    return info;
+  }
+
+  const Bits mask = model.cellMask(cell);
+  // A merged cell's one clue may sit on any of its squares.
+  for (int i = mask.nextSet(0); i >= 0; i = mask.nextSet(i + 1))
+    absorbSquare(info, model, i);
+  absorbMergedNeighbours(info, regions, mask, scratch);
   return info;
 }
 
@@ -431,11 +548,16 @@ bool mergeLimits(const Model &model, Domains &domains, const Regions &regions,
   // two clued pieces of this colour into one is a cell that cannot take it.
   const bool oneSymbol = model.hasRule(
       color == kDark ? Rule::OneSymbolDark : Rule::OneSymbolLight);
-  const Bits candidates = domains.undecided();
+  // One candidate per CELL: every square of a merged one would give the same
+  // answer, and excluding any of them excludes all of them anyway.
+  const Bits candidates = domains.undecided() & model.representatives;
+  MergeScratch scratch;
+  if (model.hasShapes)
+    scratch.stamp.assign(slot(regions.count()), 0);
   for (int cell = candidates.nextSet(0); cell >= 0;
        cell = candidates.nextSet(cell + 1)) {
     const auto [total, minArea, letters, clues] =
-        mergeAround(model, regions, cell);
+        mergeAround(model, regions, cell, scratch);
     const bool tooBig = minArea > 0 && total > minArea;
     const bool twoLetters = std::popcount(letters) > 1;
     if (const bool twoSymbols = oneSymbol && clues > 1;
@@ -465,6 +587,11 @@ bool propagateGlobal(const Model &model, Domains &domains) {
   using enum Rule;
   if ((model.hasRule(ConnectDark) || model.hasRule(ConnectLight)) &&
       !propagateConnectivity(model, domains))
+    return false;
+  // Outside the `clued` guard below on purpose: a board can carry this rule and
+  // no clues at all, and then nothing else here would run.
+  if ((model.hasRule(AreaTwoDark) || model.hasRule(AreaTwoLight)) &&
+      !propagateRegionAreas(model, domains))
     return false;
   if (!model.areaClues.empty() && !propagateAreas(model, domains))
     return false;
@@ -500,6 +627,20 @@ bool applyGivens(const Model &model, Domains &domains) {
     // the domains refuse means the board as entered has no solution.
     if (const uint8_t given = model.puzzle.givens[slot(i)];
         (given == kDark || given == kLight) && !domains.assign(i, given))
+      return false;
+  }
+  // A clause of ONE literal is a fact about the board rather than a consequence
+  // of something decided, and nothing else here would ever read it: clauses are
+  // only rescanned off the queue of newly decided squares, and at the root that
+  // queue holds the givens and nothing else.
+  //
+  // A plain board cannot produce one — every forbidden arrangement names at
+  // least two squares. A merged cell can, and it is the sharpest thing about
+  // them: a 1x3 bar that is ONE cell under "no dark 1x3" compiles to the single
+  // literal "this cell is not dark", so the whole bar is settled before
+  // anything has to be guessed. One linear scan, at the root only.
+  for (const auto &[cells, colors, count] : model.clauses) {
+    if (count == 1 && !domains.exclude(cells.front(), colors.front()))
       return false;
   }
   return propagate(model, domains);

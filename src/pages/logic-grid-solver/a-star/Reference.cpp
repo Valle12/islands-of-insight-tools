@@ -1,5 +1,6 @@
 #include "Reference.h"
 
+#include "Bitboard.h"
 #include "Puzzle.h"
 #include "Types.h"
 #include "Verify.h"
@@ -36,17 +37,27 @@ Answer enumerate(const Model &model) {
 
   // Cells already painted are givens, so they are not enumerated over — which
   // also means a fully painted board costs one verification.
+  //
+  // One bit per CELL, not per square: a merged cell takes one colour for all of
+  // its squares, so enumerating them separately would spend almost the whole
+  // space on colourings the puzzle cannot express, and `kMaxFreeCells` would
+  // stop meaning what it says. The comparison set stays square-granular,
+  // because that is what an answer is compared against.
   std::vector<int> playable;
-  std::vector<int> free;
+  std::vector<Bits> free;
   Colors colors{};
   colors.fill(kUnplayable);
   for (int i = model.playable.nextSet(0); i >= 0;
        i = model.playable.nextSet(i + 1)) {
-    const uint8_t given = model.puzzle.givens[slot(i)];
-    colors[slot(i)] = given;
+    colors[slot(i)] = model.puzzle.givens[slot(i)];
     playable.push_back(i);
-    if (given == kUnknown)
-      free.push_back(i);
+  }
+  for (int i = model.representatives.nextSet(0); i >= 0;
+       i = model.representatives.nextSet(i + 1)) {
+    // Validation has already established that a merged cell's squares agree
+    // about their given, so the representative speaks for all of them.
+    if (model.puzzle.givens[slot(i)] == kUnknown)
+      free.push_back(model.cellMask(i));
   }
 
   if (free.size() > static_cast<size_t>(kMaxFreeCells))
@@ -56,8 +67,12 @@ Answer enumerate(const Model &model) {
 
   const uint64_t total = uint64_t{1} << free.size();
   for (uint64_t code = 0; code < total; code++) {
-    for (size_t bit = 0; bit < free.size(); bit++)
-      colors[slot(free[bit])] = (code >> bit & 1U) != 0 ? kLight : kDark;
+    for (size_t bit = 0; bit < free.size(); bit++) {
+      const uint8_t color = (code >> bit & 1U) != 0 ? kLight : kDark;
+      const Bits &cell = free[bit];
+      for (int i = cell.nextSet(0); i >= 0; i = cell.nextSet(i + 1))
+        colors[slot(i)] = color;
+    }
     if (verify::check(model, colors) == verify::Violation::None)
       record(answer, colors, playable);
   }

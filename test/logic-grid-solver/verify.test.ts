@@ -10,7 +10,7 @@ import {
   toGrid,
   verifyLogicGrid,
 } from "../../src/pages/logic-grid-solver/verify";
-import { board, painted } from "./boards";
+import { board, painted, withShape } from "./boards";
 
 /**
  * The page's own rule checker — the last thing between a bad answer from the
@@ -140,6 +140,58 @@ describe("verifyLogicGrid", () => {
     });
   });
 
+  describe("region areas", () => {
+    /**
+     * The two halves of "exactly two" fail differently and are caught by
+     * different machinery — too big compiles into forbidden trominoes, too
+     * small is a propagator — so both are pinned here, where neither exists.
+     */
+    test("catches a region that is too big, straight or bent", () => {
+      expect(judge(["...", "..."], ["DDL", "LLL"], ["area-two-dark"])).toBe(
+        "none",
+      );
+      expect(judge(["...", "..."], ["DDD", "LLL"], ["area-two-dark"])).toBe(
+        "region-size",
+      );
+      // The bent one, which no run rule would have caught.
+      expect(judge(["...", "..."], ["DDL", "DLL"], ["area-two-dark"])).toBe(
+        "region-size",
+      );
+    });
+
+    test("catches a region that is too small", () => {
+      expect(judge(["...", "..."], ["DLD", "LLL"], ["area-two-dark"])).toBe(
+        "region-size",
+      );
+    });
+
+    test("an empty colour has no regions and is legal", () => {
+      // The vacuous case, like "an empty colour is vacuously connected": all
+      // zero of its regions are the right size.
+      expect(judge(["..", ".."], ["DD", "DD"], ["area-two-light"])).toBe("none");
+    });
+
+    test("the two colours are separate switches", () => {
+      // Dark is two dominoes and light is one region of four.
+      expect(judge(["..", "..", ".."], ["DD", "LL", "DD"], [])).toBe("none");
+      expect(
+        judge(["..", "..", ".."], ["DD", "LL", "DD"], ["area-two-dark"]),
+      ).toBe("none");
+      expect(
+        judge(["..", "..", ".."], ["DD", "LL", "DD"], ["area-two-light"]),
+      ).toBe("none");
+      expect(judge(["...", "..."], ["DDL", "LLL"], ["area-two-light"])).toBe(
+        "region-size",
+      );
+    });
+
+    test("a gap separates two regions rather than joining them", () => {
+      expect(
+        judge(["..#..", "....."], ["DD#DD", "LLLLL"], ["area-two-dark"]),
+      ).toBe("none");
+    });
+  });
+
   describe("clues", () => {
     test("checks an area number against its region", () => {
       expect(judge(["2..", "...", "..."], ["DDL", "LLL", "LLL"])).toBe("none");
@@ -166,6 +218,123 @@ describe("verifyLogicGrid", () => {
 
     test("different letters may share a colour in different regions", () => {
       expect(judge(["a.b", "..."], ["DLD", "LLL"])).toBe("none");
+    });
+  });
+
+  describe("merged cells", () => {
+    const judgeMerged = (
+      picture: string[],
+      squares: [number, number][],
+      answer: string[],
+      ruleIds: string[] = [],
+    ) =>
+      verifyLogicGrid(
+        withShape(board(picture, ruleIds), squares),
+        painted(answer),
+      );
+
+    test("refuses a merged cell in two colours", () => {
+      expect(
+        judgeMerged(
+          ["..", ".."],
+          [
+            [0, 0],
+            [1, 0],
+          ],
+          ["DL", "LL"],
+        ),
+      ).toBe("cell-split");
+      expect(
+        judgeMerged(
+          ["..", ".."],
+          [
+            [0, 0],
+            [1, 0],
+          ],
+          ["DD", "LL"],
+        ),
+      ).toBe("none");
+    });
+
+    /**
+     * The arrangement rules count SQUARES, not cells: a merged dark 1x2 IS a
+     * dark 1x2, because they scan the square grid and fusing two squares does
+     * not hide the run they make.
+     */
+    test("arrangement rules count squares rather than cells", () => {
+      expect(
+        judgeMerged(
+          ["..", ".."],
+          [
+            [0, 0],
+            [1, 0],
+          ],
+          ["DD", "LL"],
+          ["no-dark-1x2"],
+        ),
+      ).toBe("run");
+      expect(
+        judgeMerged(
+          ["..", ".."],
+          [
+            [0, 0],
+            [1, 0],
+          ],
+          ["DD", "DD"],
+          ["no-dark-2x2"],
+        ),
+      ).toBe("square");
+    });
+
+    test("an area rule counts a merged cell as its squares", () => {
+      const domino: [number, number][] = [
+        [0, 0],
+        [1, 0],
+      ];
+      // A merged domino is a legal region of two on its own...
+      expect(
+        judgeMerged(["..", ".."], domino, ["DD", "LL"], ["area-two-dark"]),
+      ).toBe("none");
+      // ...while a merged 1x3 is a region of three, which that rule forbids.
+      expect(
+        judgeMerged(
+          ["...", "..."],
+          [
+            [0, 0],
+            [1, 0],
+            [2, 0],
+          ],
+          ["DDD", "LLL"],
+          ["area-two-dark"],
+        ),
+      ).toBe("region-size");
+    });
+
+    test("an area clue counts every square of the cells in its region", () => {
+      const bar: [number, number][] = [
+        [0, 0],
+        [1, 0],
+        [2, 0],
+      ];
+      expect(judgeMerged(["3..", "..."], bar, ["DDD", "LLL"])).toBe("none");
+      expect(judgeMerged(["2..", "..."], bar, ["DDD", "LLL"])).toBe("area");
+    });
+
+    test("a merged cell is adjacent to whatever any of its squares touches", () => {
+      // The bent cell's foot at (0,1) welds the dark cells into one region, so
+      // "connect all dark" holds: fusing changes the VARIABLES, not the
+      // geometry the rules read.
+      expect(
+        judgeMerged(
+          ["..", ".."],
+          [
+            [0, 0],
+            [0, 1],
+          ],
+          ["DL", "DD"],
+          ["connect-dark"],
+        ),
+      ).toBe("none");
     });
   });
 

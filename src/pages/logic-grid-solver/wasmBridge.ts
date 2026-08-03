@@ -78,7 +78,15 @@ function letterIndex(value: number | string): number {
   return (String(value).codePointAt(0) ?? LETTER_A) - LETTER_A;
 }
 
-function toPuzzle(config: LogicGridTest) {
+/**
+ * The puzzle exactly as the module takes it.
+ *
+ * Exported for the same reason `PORTFOLIO` is: `test/logic-grid-solver/
+ * wasm.test.ts` drives the shipped module directly, and a second copy of this
+ * would silently stop sending whatever was added last — which is how a sweep
+ * over the whole corpus can pass while never exercising the new key at all.
+ */
+export function toPuzzle(config: LogicGridTest) {
   return {
     gridWidth: config.gridWidth,
     gridHeight: config.gridHeight,
@@ -91,6 +99,10 @@ function toPuzzle(config: LogicGridTest) {
       value:
         symbol.type === 1 ? letterIndex(symbol.value) : Number(symbol.value),
     })),
+    // Already flat row-major, the same layout `cells` crosses in, so this one
+    // passes straight through. Omitted rather than sent empty, matching the
+    // config format the module also reads from a fixture file.
+    ...(config.shapes ? { shapes: config.shapes.map(shape => [...shape]) } : {}),
   };
 }
 

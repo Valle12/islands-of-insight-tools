@@ -14,7 +14,7 @@ import type {
 } from "./../../util/types";
 import { Board } from "./board";
 import { MAX_GRID_SIDE, validateConfig } from "./config";
-import { RULES } from "./rules";
+import { RULE_DISPLAY_ORDER, RULES } from "./rules";
 import {
   solveLogicGrid,
   type LogicGridSolveResult,
@@ -361,6 +361,8 @@ export class LogicGridSolverEditor {
           symbolKindAt(this.selectedSymbol)?.label ?? "Symbol",
           "Remove symbol",
         ];
+      case "merge":
+        return ["Merge cells", "Split cells"];
       default:
         return ["Dark", "Light"];
     }
@@ -434,15 +436,24 @@ export class LogicGridSolverEditor {
     });
   }
 
-  /** Same reasoning as the clue row: `RULES` is append-only. */
+  /**
+   * Same reasoning as the clue row: `RULES` is append-only.
+   *
+   * Which is why the row is drawn in `RULE_DISPLAY_ORDER` and not in catalogue
+   * order — a rule appended to keep saved puzzles working still belongs beside
+   * its family on screen. The index written into the chip is the STORED one, so
+   * everything downstream keeps reading that attribute rather than counting
+   * chips.
+   */
   private buildRuleRow() {
-    this.ruleRow.innerHTML = RULES.map(
-      (rule, index) => `
+    this.ruleRow.innerHTML = RULE_DISPLAY_ORDER.map(index => {
+      const rule = RULES[index]!;
+      return `
       <button class="tool-button rule-chip" type="button"
         data-rule-index="${index}" data-rule="${rule.id}"
       >${rule.label}</button>
-    `,
-    ).join("");
+    `;
+    }).join("");
   }
 
   /**
@@ -462,12 +473,16 @@ export class LogicGridSolverEditor {
   }
 
   private currentConfig(): LogicGridTest {
+    const shapes = this.board.getShapes();
     return {
       gridWidth: this.gridWidth,
       gridHeight: this.gridHeight,
       rules: [...this.activeRules].sort((a, b) => a - b),
       cells: this.board.getCells(),
       symbols: this.board.getSymbols(),
+      // Omitted rather than written empty: every captured fixture predates the
+      // key, and `config.test.ts` asserts they all round-trip byte-identically.
+      ...(shapes ? { shapes } : {}),
     };
   }
 

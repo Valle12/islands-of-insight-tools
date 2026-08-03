@@ -77,6 +77,21 @@ export function withGiven(
   return config;
 }
 
+/**
+ * Fuses squares into one merged cell. A second call rather than a glyph: the
+ * picture's alphabet is entirely spoken for, and a shape has to say which
+ * squares go together rather than just that a square is in one. Mirrors
+ * `withShape` in the C++ `TestBoards.h`.
+ */
+export function withShape(
+  config: LogicGridTest,
+  squares: [number, number][],
+): LogicGridTest {
+  const shape = squares.map(([x, y]) => y * config.gridWidth + x);
+  config.shapes = [...(config.shapes ?? []), shape];
+  return config;
+}
+
 /** A colouring in the flat row-major layout an answer arrives in. */
 export function painted(rows: string[]): number[] {
   const flat: number[] = [];
@@ -128,6 +143,46 @@ export const undercluedBoard = (): LogicGridTest => {
  */
 export const runFiveBoard = (): LogicGridTest =>
   board(["DDDD.", "....."], ["no-dark-1x5", "no-light-1x5"]);
+
+/**
+ * Four columns two deep with both area rules on, which the vertical dominoes
+ * `DLDL` satisfy: four regions of exactly two, none of them touching another of
+ * its own colour.
+ *
+ * It plays `runFiveBoard`'s role for the newest pair. Half of each rule compiles
+ * into forbidden trominoes and half is a propagator, so a board carrying it
+ * reaches both — and an engine that quietly ignored either half would answer
+ * something `verify.ts` throws out rather than answering nothing.
+ */
+export const areaTwoBoard = (): LogicGridTest =>
+  board(["....", "...."], ["area-two-dark", "area-two-light"]);
+
+/**
+ * A board with merged cells: a 1x3 bar across the top row and an L below it,
+ * with "no dark 1x3" on.
+ *
+ * It reaches everything a merged cell is for in one board. The bar is one cell
+ * three squares wide, so the run rule compiles to a clause in a SINGLE variable
+ * and the whole bar is forced light before anything is guessed — the rules
+ * count squares, and fusing them does not hide the run they make. The L spans a
+ * 2x2 diagonal, which is the pattern instance the compiler drops rather than
+ * collapses. And the area clue counts five squares across two merged cells plus
+ * a plain one, which is the "still counts for every square it is made of" half.
+ */
+export const mergedCellBoard = (): LogicGridTest => {
+  const config = board(["...", "...", "..."], ["no-dark-1x3"]);
+  withShape(config, [
+    [0, 0],
+    [1, 0],
+    [2, 0],
+  ]);
+  withShape(config, [
+    [0, 1],
+    [0, 2],
+    [1, 2],
+  ]);
+  return config;
+};
 
 /**
  * Four letter pairs on a 10x7 board with no rules at all, which means the only

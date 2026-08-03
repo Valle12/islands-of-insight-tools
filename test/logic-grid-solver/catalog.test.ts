@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { RULE_COUNT, RULES, ruleAt } from "../../src/pages/logic-grid-solver/rules";
+import {
+  RULE_COUNT,
+  RULE_DISPLAY_ORDER,
+  RULES,
+  ruleAt,
+} from "../../src/pages/logic-grid-solver/rules";
 import {
   MIN_AREA_VALUE,
   parseSymbolValue,
@@ -32,6 +37,34 @@ const RULE_ORDER: [number, string][] = [
   [13, "one-symbol-dark"],
   [14, "one-symbol-light"],
   [15, "underclued"],
+  [16, "area-two-dark"],
+  [17, "area-two-light"],
+];
+
+/**
+ * And what the ROW looks like, which is a different question with a different
+ * answer — `area-two-dark` is stored at 16 and drawn at 13. This table may be
+ * rewritten whenever the row should read differently; the one above may not.
+ */
+const ROW_ORDER: string[] = [
+  "no-dark-2x2",
+  "no-light-2x2",
+  "no-dark-1x2",
+  "no-light-1x2",
+  "no-dark-1x3",
+  "no-light-1x3",
+  "no-dark-1x4",
+  "no-light-1x4",
+  "no-dark-1x5",
+  "no-light-1x5",
+  "no-checkerboard",
+  "connect-dark",
+  "connect-light",
+  "area-two-dark",
+  "area-two-light",
+  "one-symbol-dark",
+  "one-symbol-light",
+  "underclued",
 ];
 
 const SYMBOL_ORDER: [number, string][] = [
@@ -55,6 +88,32 @@ describe("RULES", () => {
 
   test("an index past the end is undefined rather than a stand-in", () => {
     expect(ruleAt(RULE_COUNT)).toBeUndefined();
+  });
+});
+
+describe("RULE_DISPLAY_ORDER", () => {
+  test("draws the row in family order, not storage order", () => {
+    expect(RULE_DISPLAY_ORDER.map(index => ruleAt(index)?.id)).toEqual(
+      ROW_ORDER,
+    );
+  });
+
+  test("shows every rule exactly once", () => {
+    // The invariant that makes the indirection safe. Grouping is what builds
+    // the list, so a rule can never be left out of it — but a group nobody
+    // draws would drop its chips silently, and this is what says so.
+    expect([...RULE_DISPLAY_ORDER].sort((a, b) => a - b)).toEqual([
+      ...Array(RULE_COUNT).keys(),
+    ]);
+  });
+
+  test("says nothing about where a rule is stored", () => {
+    // Both halves of the point in one assertion: the row is not the file
+    // format, and the file format is still append-only.
+    expect(RULE_DISPLAY_ORDER).not.toEqual([...Array(RULE_COUNT).keys()]);
+    expect(RULE_DISPLAY_ORDER.indexOf(16)).toBeLessThan(
+      RULE_DISPLAY_ORDER.indexOf(15),
+    );
   });
 });
 

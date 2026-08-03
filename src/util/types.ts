@@ -108,6 +108,21 @@ export type LogicGridTest = {
    */
   cells: number[][];
   symbols: LogicGridSymbol[];
+  /**
+   * The merged cells: each one the squares it fuses, as flat
+   * `y * gridWidth + x` indices — row-major, unlike `cells` above, and the same
+   * layout the solver's wasm boundary takes.
+   *
+   * A merged cell is the game's irregular tile: any connected polyomino of at
+   * least two squares, painted as ONE cell and carrying at most one clue, but
+   * still counting every square it is made of towards an area number and
+   * adjacent to whatever any of its squares touches.
+   *
+   * OPTIONAL, and omitted entirely rather than written as `[]` when a board has
+   * none — every captured fixture predates this key and must keep round-tripping
+   * byte-identically through `validateConfig`.
+   */
+  shapes?: number[][];
 };
 
 export type ShiftingMosaicTest = {
@@ -139,6 +154,7 @@ export type LogicGridTool =
   | "unplayable"
   | "erase"
   | "symbol"
+  | "merge"
   | "reset";
 
 export type BlockType = "obstruction" | "goal";

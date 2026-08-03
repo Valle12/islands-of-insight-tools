@@ -25,6 +25,39 @@ export function markBlockEdges(
 }
 
 /**
+ * The inverse of the other two: a class per side whose neighbour is INSIDE the
+ * same group, for a group that has to read as one solid tile rather than as an
+ * outlined set. The stylesheet then drops that side's border and bridges the
+ * grid gap, so the seams between the cells disappear while the outline stays.
+ *
+ * `-corner` marks the little square BETWEEN two gaps, where four cells of one
+ * group meet — and only where all four are in it, so an L-shaped group keeps
+ * the notch at its inner corner.
+ *
+ * Membership comes in as a predicate rather than a grid: the caller may store
+ * it any way it likes, and `toggle` rather than `add` because this runs again
+ * every time a group changes.
+ */
+export function markGroupJoins(
+  cell: HTMLElement,
+  x: number,
+  y: number,
+  sameGroup: (x: number, y: number) => boolean,
+  prefix = "cell-join",
+) {
+  const right = sameGroup(x + 1, y);
+  const bottom = sameGroup(x, y + 1);
+  cell.classList.toggle(`${prefix}-top`, sameGroup(x, y - 1));
+  cell.classList.toggle(`${prefix}-right`, right);
+  cell.classList.toggle(`${prefix}-bottom`, bottom);
+  cell.classList.toggle(`${prefix}-left`, sameGroup(x - 1, y));
+  cell.classList.toggle(
+    `${prefix}-corner`,
+    right && bottom && sameGroup(x + 1, y + 1),
+  );
+}
+
+/**
  * Outlines a zone (destination, goal): `prefix` on every cell in it, plus
  * `prefix-edge-*` wherever the neighbour is outside it. Zone membership is
  * keyed by `"x,y"`.

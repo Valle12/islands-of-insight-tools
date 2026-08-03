@@ -32,7 +32,9 @@ TEST(Rules, IndicesMirrorTheCatalogue) {
   EXPECT_EQ(std::to_underlying(Rule::OneSymbolDark), 13);
   EXPECT_EQ(std::to_underlying(Rule::OneSymbolLight), 14);
   EXPECT_EQ(std::to_underlying(Rule::Underclued), 15);
-  EXPECT_EQ(rules::kRuleCount, 16);
+  EXPECT_EQ(std::to_underlying(Rule::AreaTwoDark), 16);
+  EXPECT_EQ(std::to_underlying(Rule::AreaTwoLight), 17);
+  EXPECT_EQ(rules::kRuleCount, 18);
 }
 
 TEST(Rules, NamesAreTheIdsFromTheCatalogue) {
@@ -45,6 +47,16 @@ TEST(Rules, NamesAreTheIdsFromTheCatalogue) {
   EXPECT_STREQ(rules::name(Rule::NoDark1x5), "no-dark-1x5");
   EXPECT_STREQ(rules::name(Rule::OneSymbolDark), "one-symbol-dark");
   EXPECT_STREQ(rules::name(Rule::OneSymbolLight), "one-symbol-light");
+  EXPECT_STREQ(rules::name(Rule::AreaTwoDark), "area-two-dark");
+  EXPECT_STREQ(rules::name(Rule::AreaTwoLight), "area-two-light");
+}
+
+TEST(Rules, GlobalAreaListsItsMembers) {
+  using rules::globalArea;
+  EXPECT_EQ(globalArea(rules::bit(Rule::AreaTwoDark), kDark), 2);
+  EXPECT_EQ(globalArea(rules::bit(Rule::AreaTwoDark), kLight), 0);
+  EXPECT_EQ(globalArea(rules::bit(Rule::AreaTwoLight), kLight), 2);
+  EXPECT_EQ(globalArea(rules::bit(Rule::ConnectDark), kDark), 0);
 }
 
 TEST(Patterns, ASquareRuleIsOneFourCellPattern) {
@@ -90,6 +102,50 @@ TEST(Patterns, AFiveRunIsSubsumedByEveryShorterRule) {
   EXPECT_EQ(patterns.front().count, 3);
 }
 
+TEST(Patterns, AnAreaRuleIsEveryTromino) {
+  // "No region bigger than two" IS a forbidden arrangement: a connected set of
+  // three or more cells always contains a connected THREE, and the connected
+  // trominoes are the two straight ones plus the four bent ones. That is what
+  // lets half of this rule cost no new code at all.
+  const rules::Patterns patterns =
+      rules::patternsFor(rules::bit(Rule::AreaTwoDark));
+  ASSERT_EQ(patterns.size(), 6U);
+  for (const auto &[cells, count] : patterns)
+    EXPECT_EQ(count, 3);
+}
+
+TEST(Patterns, AnAreaRuleDoesNotRepeatTheRunItImplies) {
+  // The 1x3 rule and the area rule forbid the same two straight trominoes, and
+  // a duplicate would be worse than dead weight: `GenerateCommands::cost`
+  // counts violated clauses, so one broken straight would score two and bias
+  // the generator's local search.
+  const rules::Patterns patterns = rules::patternsFor(
+      rules::bit(Rule::AreaTwoDark) | rules::bit(Rule::NoDark1x3));
+  EXPECT_EQ(patterns.size(), 6U);
+}
+
+TEST(Patterns, AnAreaRuleShortensALongerRunRule) {
+  const rules::Patterns patterns = rules::patternsFor(
+      rules::bit(Rule::AreaTwoDark) | rules::bit(Rule::NoDark1x5));
+  ASSERT_EQ(patterns.size(), 6U);
+  EXPECT_EQ(patterns.front().count, 3);
+}
+
+TEST(Patterns, AForbiddenPairSubsumesEveryTromino) {
+  // Every tromino contains a pair, so with dark pairs forbidden outright the
+  // area rule has nothing left to add — and no dark cell can be painted.
+  const rules::Patterns patterns = rules::patternsFor(
+      rules::bit(Rule::AreaTwoDark) | rules::bit(Rule::NoDark1x2));
+  ASSERT_EQ(patterns.size(), 2U);
+  EXPECT_EQ(patterns.front().count, 2);
+}
+
+TEST(Patterns, TheTwoAreaRulesDoNotSubsumeEachOther) {
+  const rules::Patterns patterns = rules::patternsFor(
+      rules::bit(Rule::AreaTwoDark) | rules::bit(Rule::AreaTwoLight));
+  EXPECT_EQ(patterns.size(), 12U);
+}
+
 TEST(Patterns, TheTwoColoursDoNotSubsumeEachOther) {
   const rules::Patterns patterns = rules::patternsFor(
       rules::bit(Rule::NoDark1x2) | rules::bit(Rule::NoLight1x4));
@@ -121,6 +177,14 @@ TEST(Patterns, AnInstanceTouchingAGapIsDropped) {
 TEST(Patterns, InstancesCoverEveryAnchorThatFits) {
   const Model model =
       buildModel(test::board({"...", "...", "..."}, rules::bit(Rule::NoDark2x2)));
+  EXPECT_EQ(model.clauses.size(), 4U);
+}
+
+TEST(Patterns, ABentInstanceFitsWhereAStraightOneCannot) {
+  // Two by two has no room for a straight tromino and holds all four bent ones,
+  // which is exactly the half of an area rule no run rule could express.
+  const Model model =
+      buildModel(test::board({"..", ".."}, rules::bit(Rule::AreaTwoDark)));
   EXPECT_EQ(model.clauses.size(), 4U);
 }
 

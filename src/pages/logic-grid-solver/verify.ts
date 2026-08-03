@@ -27,10 +27,12 @@ export type LogicGridViolation =
   | "checkerboard"
   | "disconnected"
   | "area"
+  | "region-size"
   | "letter-split"
   | "letter-shared"
   | "area-without-symbol"
-  | "area-with-many-symbols";
+  | "area-with-many-symbols"
+  | "cell-split";
 
 /**
  * A rule's position in the append-only catalogue, by its stable id.
@@ -73,6 +75,21 @@ const RUN_RULES: readonly { index: number; color: number; length: number }[] = [
   { index: ruleIndex("no-light-1x5"), color: LIGHT, length: 5 },
 ];
 
+/**
+ * Each area rule as the colour it constrains and the area it holds EVERY region
+ * of that colour to — the global form of an area number, which names one region
+ * only.
+ *
+ * Listed rather than parsed out of the ids, for the same reason `RUN_RULES` is:
+ * a family that computes its members quietly stops covering the next one
+ * appended. An "area 3" rule would be another row here rather than a number
+ * stored on the board.
+ */
+const AREA_RULES: readonly { index: number; color: number; area: number }[] = [
+  { index: ruleIndex("area-two-dark"), color: DARK, area: 2 },
+  { index: ruleIndex("area-two-light"), color: LIGHT, area: 2 },
+];
+
 /** The editor's column-major grid as the flat row-major one answers use. */
 export function toFlat(config: LogicGridTest): number[] {
   const flat: number[] = [];
@@ -113,6 +130,26 @@ function shapeProblem(
       else if (found !== DARK && found !== LIGHT) return "shape";
       else if (given !== UNKNOWN && given !== found) return "given";
     }
+  }
+  return "none";
+}
+
+/**
+ * Every square of a merged cell holds one colour.
+ *
+ * Nothing the solver produces can break this — its domains fan out over a
+ * merged cell, so its squares are decided together — but this checker also
+ * gates answers that never went through them, and it is the last thing between
+ * a bad answer and the board the player is shown. It is also what entitles
+ * every check below to go on reading the colouring one SQUARE at a time.
+ */
+function fusedProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  for (const shape of config.shapes ?? []) {
+    const color = cells[shape[0]!];
+    if (shape.some(square => cells[square] !== color)) return "cell-split";
   }
   return "none";
 }
@@ -266,6 +303,43 @@ function symbolCountProblem(
   return "none";
 }
 
+/**
+ * Every region of `color` holds exactly `area` cells.
+ *
+ * Region by region, like `symbolCountProblem` and for the same reason: nothing
+ * points at a region, so both halves of "exactly" — too big and too small — are
+ * only visible from the region's own side. A colour with no cells at all has no
+ * regions and is legal: the rule says how big a region is, not that one has to
+ * exist.
+ */
+function regionAreaProblem(
+  config: LogicGridTest,
+  cells: number[],
+  color: number,
+  area: number,
+): LogicGridViolation {
+  const seen = new Set<number>();
+  for (let index = 0; index < cells.length; index++) {
+    if (cells[index] !== color || seen.has(index)) continue;
+    const spread = region(config, cells, index);
+    for (const cell of spread) seen.add(cell);
+    if (spread.size !== area) return "region-size";
+  }
+  return "none";
+}
+
+function regionSizeProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  for (const rule of AREA_RULES) {
+    if (!has(config, rule.index)) continue;
+    const problem = regionAreaProblem(config, cells, rule.color, rule.area);
+    if (problem !== "none") return problem;
+  }
+  return "none";
+}
+
 function symbolProblem(
   config: LogicGridTest,
   cells: number[],
@@ -346,11 +420,16 @@ export function verifyLogicGrid(
   // One family per entry, each returning "none" when it has nothing to say, so
   // adding a rule family is one line here rather than another branch inside an
   // already-long function.
+  // `shapeProblem` is about the board's GAPS and givens and stays first, so
+  // those are still named as such; `fusedProblem` then settles what a merged
+  // cell is before anything below reads the colouring square by square.
   const checks = [
     shapeProblem,
+    fusedProblem,
     squareProblem,
     runProblem,
     connectivityProblem,
+    regionSizeProblem,
     areaProblem,
     symbolProblem,
     letterProblem,

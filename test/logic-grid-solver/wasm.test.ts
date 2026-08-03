@@ -1,13 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { PORTFOLIO } from "../../src/pages/logic-grid-solver/wasmBridge";
+import {
+  PORTFOLIO,
+  toPuzzle,
+} from "../../src/pages/logic-grid-solver/wasmBridge";
 import { verifyLogicGrid } from "../../src/pages/logic-grid-solver/verify";
 import { instantiateFromDisk } from "../../src/util/wasmModule";
 import type { LogicGridTest } from "../../src/util/types";
 import {
+  areaTwoBoard,
   deepSearchBoard,
   impossibleBoard,
+  mergedCellBoard,
   runFiveBoard,
   solvableBoard,
   undercluedBoard,
@@ -73,38 +78,23 @@ interface WasmModule {
   verify(puzzle: unknown, cells: number[]): boolean;
 }
 
-function toPuzzle(config: LogicGridTest) {
-  const cells: number[] = [];
-  for (let y = 0; y < config.gridHeight; y++) {
-    for (let x = 0; x < config.gridWidth; x++) cells.push(config.cells[x]![y]!);
-  }
-  return {
-    gridWidth: config.gridWidth,
-    gridHeight: config.gridHeight,
-    cells,
-    rules: config.rules,
-    clues: config.symbols.map(symbol => ({
-      x: symbol.x,
-      y: symbol.y,
-      type: symbol.type,
-      value:
-        symbol.type === 1
-          ? (String(symbol.value).codePointAt(0) ?? 65) - 65
-          : Number(symbol.value),
-    })),
-  };
-}
-
 const flat = (values: ArrayLike<number>) =>
   Array.from({ length: values.length }, (_, i) => values[i]!);
 
 /**
  * Not a `.slow.test.ts`, unlike the other solvers' wasm sweeps, and not behind
- * `IOI_SKIP_SLOW`: measured at **579 ms** for all 36 boards through all four
- * arms, because 31 of the captured boards never branch at all. It runs in the
- * fast lane so `bun run test:fast` covers it too. If a future capture drags
- * this into the tens of seconds, rename it back and give it a CI shard — the
- * opt-out gate is for suites that genuinely cost something.
+ * `IOI_SKIP_SLOW`, so `bun run test:fast` covers it too.
+ *
+ * That choice was made when this measured **579 ms for 36 boards**, most of the
+ * captured corpus ago. Measured again 2026-08-03: **40.7 s for 164 boards**
+ * through all four arms — the board count quadrupled and the cost went up
+ * about seventyfold, because the boards captured since are the ones that
+ * actually branch and several now spend the whole 2 s per-arm budget.
+ *
+ * So this is past the "tens of seconds" mark the note here used to give as the
+ * point to think again, and the decision is live rather than settled. Renaming
+ * it back is not free: `bun-test` fans out one shard per `.slow.test.ts` plus
+ * one for the fast remainder, so it would mean a sixth shard in CI.
  */
 
 const captured = readdirSync(RESOURCE_DIR).filter(name =>
@@ -118,6 +108,8 @@ const CASES: Case[] = [
   ["underclued", undercluedBoard],
   ["impossible", impossibleBoard],
   ["run-five", runFiveBoard],
+  ["area-two", areaTwoBoard],
+  ["merged-cells", mergedCellBoard],
   ["deep-search", deepSearchBoard],
   ...captured.map(
     (name): Case => [

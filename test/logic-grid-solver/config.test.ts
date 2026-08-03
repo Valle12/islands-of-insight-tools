@@ -155,6 +155,49 @@ describe("validateConfig (logic grid)", () => {
       { ...validConfig, symbols: [{ x: 2, y: 1, type: 0, value: 1 }] },
       "Column 3, row 2 is unplayable and cannot carry a symbol.",
     ],
+    ["a non-array shapes", { ...validConfig, shapes: 3 }, "shapes must be an array."],
+    [
+      "a merged cell of one square",
+      { ...validConfig, shapes: [[0]] },
+      "Every merged cell must be an array of at least two squares.",
+    ],
+    [
+      "a merged cell square off the board",
+      { ...validConfig, shapes: [[0, 6]] },
+      "Merged cell squares must be integers between 0 and 5.",
+    ],
+    [
+      "a merged cell on a gap",
+      { ...validConfig, shapes: [[4, 5]] },
+      "Column 3, row 2 is unplayable and cannot be part of a merged cell.",
+    ],
+    [
+      "a square in two merged cells",
+      { ...validConfig, shapes: [[0, 1], [1, 4]] },
+      "Column 2, row 1 belongs to more than one merged cell.",
+    ],
+    [
+      "a square listed twice in one merged cell",
+      { ...validConfig, shapes: [[0, 0]] },
+      "Column 1, row 1 belongs to more than one merged cell.",
+    ],
+    [
+      "a disconnected merged cell",
+      { ...validConfig, shapes: [[0, 4]] },
+      "Every merged cell must be one connected shape.",
+    ],
+    [
+      "two symbols on one merged cell",
+      {
+        ...validConfig,
+        symbols: [
+          { x: 0, y: 0, type: 0, value: 2 },
+          { x: 1, y: 0, type: 1, value: "B" },
+        ],
+        shapes: [[0, 1]],
+      },
+      "A merged cell carries more than one symbol.",
+    ],
   ];
 
   test.each(rejections)("rejects %s", (_name, input, error) => {
@@ -162,6 +205,30 @@ describe("validateConfig (logic grid)", () => {
     expect(result.ok).toBeFalse();
     if (result.ok) return;
     expect(result.error).toBe(error);
+  });
+
+  test("accepts merged cells and keeps them", () => {
+    const result = validateConfig({ ...clone(), shapes: [[0, 1]] });
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.config.shapes).toEqual([[0, 1]]);
+  });
+
+  /**
+   * Absent, not `[]`. Every captured fixture predates the key, and the sweep
+   * below asserts they all still round-trip byte-identically — so an empty list
+   * has to normalise back to nothing rather than appear in the download.
+   */
+  test("omits the shapes key when a board has none", () => {
+    const result = validateConfig(clone());
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect("shapes" in result.config).toBeFalse();
+
+    const empty = validateConfig({ ...clone(), shapes: [] });
+    expect(empty.ok).toBeTrue();
+    if (!empty.ok) return;
+    expect("shapes" in empty.config).toBeFalse();
   });
 });
 

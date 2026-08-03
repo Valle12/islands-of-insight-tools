@@ -16,12 +16,11 @@
 
 #include <charconv>
 #include <cstdint>
-#include <string_view>
-#include <system_error>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 namespace {
 
@@ -38,6 +37,9 @@ struct CliOptions {
   uint32_t seed = 0;
   int width = 0;
   int height = 0;
+  /// Roughly what percentage of a generated board's squares to fuse into
+  /// merged cells. 0 leaves the main rng stream untouched.
+  int shapes = 0;
   int rules = -1;
   bool quiet = false;
   bool brute = false;
@@ -82,7 +84,8 @@ void printUsage() {
                "                  [--seed N] [--brute] [--quiet] [--json]\n"
                "       logic_grid --generate <path> [--seed N] "
                "[--kind clued|underclued]\n"
-               "                  [--width N] [--height N] [--rules MASK]\n";
+               "                  [--width N] [--height N] [--rules MASK]\n"
+               "                  [--shapes PERCENT]\n";
 }
 
 /**
@@ -139,6 +142,8 @@ bool assignValue(CliOptions &opts, const std::string_view flag,
     return readFlag(flag, value, opts.height);
   else if (flag == "--rules")
     return readFlag(flag, value, opts.rules);
+  else if (flag == "--shapes")
+    return readFlag(flag, value, opts.shapes);
   else {
     std::cerr << "Unknown argument: " << flag << "\n";
     return false;
@@ -309,7 +314,8 @@ int main(const int argc, char **argv) {
                                     .width = opts.width,
                                     .height = opts.height,
                                     .rules = opts.rules,
-                                    .kind = opts.kind};
+                                    .kind = opts.kind,
+                                    .shapes = opts.shapes};
     return generate::run(genOpts);
   }
 

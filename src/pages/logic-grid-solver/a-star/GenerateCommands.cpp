@@ -26,28 +26,61 @@ inline constexpr int kStepsPerRestart = 20000;
 /// what gets a local search off a plateau.
 inline constexpr int kNoisePercent = 8;
 
+/// Keeps the merged-cell draws off the main stream. Any constant does; what
+/// matters is that `--shapes 0` touches the main rng not at all, so every seed
+/// still regenerates the board it always did.
+inline constexpr uint32_t kShapeSalt = 0x5EA'11EDU;
+
 /// The rules that constrain a colouring. `Underclued` is not one of them: it
 /// changes what the answer is, never which colourings are legal.
+///
+/// The ORDER is load-bearing in a way the list itself is not: `emptyBoard` draws
+/// once per entry from the same rng that then feeds the local search, so
+/// appending here shifts every board this generator produces for a given seed.
+/// Nothing on disk depends on that — the captured fixtures are captures — but a
+/// fuzz baseline has to be retaken.
 constexpr auto kColorRules = std::to_array<Rule>(
     {Rule::NoDark2x2, Rule::NoLight2x2, Rule::ConnectDark, Rule::ConnectLight,
      Rule::NoLight1x2, Rule::NoDark1x2, Rule::NoLight1x3, Rule::NoDark1x3,
      Rule::NoLight1x4, Rule::NoDark1x4, Rule::NoCheckerboard, Rule::NoLight1x5,
-     Rule::NoDark1x5, Rule::OneSymbolDark, Rule::OneSymbolLight});
+     Rule::NoDark1x5, Rule::OneSymbolDark, Rule::OneSymbolLight,
+     Rule::AreaTwoDark, Rule::AreaTwoLight});
 
-int piecesBeyondOne(const Model &model, const Colors &colors,
-                    const uint8_t color, const Rule rule) {
-  if (!model.hasRule(rule))
-    return 0;
+Bits heldBy(const Model &model, const Colors &colors, const uint8_t color) {
   Bits held;
   for (int i = model.playable.nextSet(0); i >= 0;
        i = model.playable.nextSet(i + 1)) {
     if (colors[slot(i)] == color)
       held.set(i);
   }
+  return held;
+}
+
+int piecesBeyondOne(const Model &model, const Colors &colors,
+                    const uint8_t color, const Rule rule) {
+  if (!model.hasRule(rule))
+    return 0;
+  const Bits held = heldBy(model, colors, color);
   const int seed = held.nextSet(0);
   if (seed < 0)
     return 0;
   return held.without(component(seed, held)).count();
+}
+
+/// Cells of `color` standing alone.
+///
+/// The clause table already scores a region that is too BIG, since every one of
+/// those contains a forbidden tromino. A region of ONE is not a shape, so
+/// without this the local search reaches `cost == 0` with singletons still on
+/// the board, `verify::check` throws the result out, and every attempt fails.
+int lonelyCells(const Model &model, const Colors &colors, const uint8_t color,
+                const Rule rule) {
+  if (!model.hasRule(rule))
+    return 0;
+  const Bits held = heldBy(model, colors, color);
+  const Bits touching = held.shiftUp() | held.shiftDown() | held.shiftLeft() |
+                        held.shiftRight();
+  return held.without(touching).count();
 }
 
 bool clauseHolds(const Clause &clause, const Colors &colors) {
@@ -61,11 +94,14 @@ bool clauseHolds(const Clause &clause, const Colors &colors) {
 /// How far this colouring is from legal. Zero means it is a solution of the
 /// clue-free board, which is what the generator is looking for.
 int cost(const Model &model, const Colors &colors) {
+  using enum Rule;
   int bad = 0;
   for (const Clause &clause : model.clauses)
     bad += clauseHolds(clause, colors) ? 1 : 0;
-  bad += piecesBeyondOne(model, colors, kDark, Rule::ConnectDark);
-  bad += piecesBeyondOne(model, colors, kLight, Rule::ConnectLight);
+  bad += piecesBeyondOne(model, colors, kDark, ConnectDark);
+  bad += piecesBeyondOne(model, colors, kLight, ConnectLight);
+  bad += lonelyCells(model, colors, kDark, AreaTwoDark);
+  bad += lonelyCells(model, colors, kLight, AreaTwoLight);
   return bad;
 }
 
@@ -248,6 +284,80 @@ void deriveClues(const Model &model, const Colors &colors, SeededRng &rng,
   }
 }
 
+/// The squares a shape may grow into: on its border, unclaimed, unclued, and
+/// already carrying the colour the shape holds. Draws nothing — the caller
+/// picks from what this returns, which is what keeps the rng stream in
+/// `fuseCells` independent of how the candidates are gathered.
+std::vector<int> growthOptions(const Model &model, const Colors &colors,
+                               const Bits &claimed, const Bits &clued,
+                               const std::vector<int> &shape,
+                               const uint8_t color) {
+  Bits mask;
+  for (const int square : shape)
+    mask.set(square);
+  const Bits room = (mask.border() & model.playable).without(claimed);
+  std::vector<int> options;
+  for (int i = room.nextSet(0); i >= 0; i = room.nextSet(i + 1)) {
+    if (colors[slot(i)] == color && !clued.test(i))
+      options.push_back(i);
+  }
+  return options;
+}
+
+/**
+ * Fuses same-coloured neighbours into merged cells, AFTER the clues have been
+ * read off the colouring.
+ *
+ * Doing it last is what makes it safe rather than merely convenient. The local
+ * search never sees a merged cell, so `cost`, `repairClause` and `walk` are
+ * untouched; and fusing a connected set that already holds ONE colour cannot
+ * invalidate the solution, because the colouring, every region and every area
+ * count come out exactly as they were. All that changes is which squares have
+ * to move together — so the board this writes is still solvable by construction
+ * and the `solution` key still verifies.
+ *
+ * Two things it must respect: a merged cell carries at most one clue, and it is
+ * one connected polyomino. Growing only into unclued, same-coloured, not-yet-
+ * claimed neighbours gives both.
+ */
+void fuseCells(const Model &model, const Colors &colors, SeededRng &rng,
+               const int percent, Puzzle &puzzle) {
+  Bits clued;
+  for (const Clue &clue : puzzle.clues)
+    clued.set(clue.index);
+
+  const int budget = model.playableCount * percent / 100;
+  Bits claimed;
+  int fused = 0;
+  for (int seed = model.playable.nextSet(0); seed >= 0 && fused < budget;
+       seed = model.playable.nextSet(seed + 1)) {
+    if (claimed.test(seed) || rng.uniform(0, 99) >= percent)
+      continue;
+
+    std::vector shape{seed};
+    claimed.set(seed);
+    // Grown one square at a time from the cell's own border, so what comes out
+    // is connected however far it runs.
+    const int want = rng.uniform(2, 4);
+    while (static_cast<int>(shape.size()) < want) {
+      const std::vector<int> options = growthOptions(
+          model, colors, claimed, clued, shape, colors[slot(seed)]);
+      if (options.empty())
+        break;
+      const int next =
+          options[slot(rng.uniform(0, static_cast<int>(options.size()) - 1))];
+      claimed.set(next);
+      shape.push_back(next);
+    }
+
+    if (shape.size() < 2) {
+      continue;
+    }
+    fused += static_cast<int>(shape.size());
+    puzzle.shapes.push_back(std::move(shape));
+  }
+}
+
 } // namespace
 
 int run(const Options &options) {
@@ -262,6 +372,12 @@ int run(const Options &options) {
       continue;
 
     deriveClues(bare, colors, rng, sparse, puzzle);
+    // Off its own stream, and only when asked, so every seed that produced a
+    // board before this existed still produces exactly that board.
+    if (options.shapes > 0) {
+      SeededRng shapeRng(options.seed ^ kShapeSalt);
+      fuseCells(bare, colors, shapeRng, options.shapes, puzzle);
+    }
     if (sparse)
       puzzle.ruleMask |= rules::bit(Rule::Underclued);
     if (structureProblem(puzzle) != Problem::None)
