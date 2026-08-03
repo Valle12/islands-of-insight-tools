@@ -8,6 +8,8 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace lg::fixtureio {
 namespace {
@@ -78,6 +80,29 @@ void readClues(const nlohmann::json &document, Puzzle &puzzle,
   }
 }
 
+/**
+ * The merged cells, which the app stores as FLAT `y * gridWidth + x` indices —
+ * row-major, unlike the `cells` and `solution` grids in this same file, which
+ * are column-major. That is the download format, and matching it is the point;
+ * "fixing" the inconsistency here would silently transpose every merged board.
+ */
+void readShapes(const nlohmann::json &document, Puzzle &puzzle,
+                const std::string &path) {
+  if (!document.contains("shapes"))
+    return;
+  for (const auto &entry : document.at("shapes")) {
+    std::vector<int> shape;
+    for (const auto &member : entry) {
+      const auto flat = member.get<int>();
+      if (flat < 0 || flat >= puzzle.width * puzzle.height)
+        throw FixtureError("A merged cell claims a square outside the board in " +
+                           path);
+      shape.push_back(cellIndex(flat % puzzle.width, flat / puzzle.width));
+    }
+    puzzle.shapes.push_back(std::move(shape));
+  }
+}
+
 void readSolution(const nlohmann::json &document, Fixture &fixture,
                   const std::string &path) {
   if (!document.contains("solution"))
@@ -126,6 +151,17 @@ nlohmann::json cluesToJson(const Puzzle &puzzle) {
   return symbols;
 }
 
+nlohmann::json shapesToJson(const Puzzle &puzzle) {
+  auto shapes = nlohmann::json::array();
+  for (const std::vector<int> &shape : puzzle.shapes) {
+    auto members = nlohmann::json::array();
+    for (const int index : shape)
+      members.push_back(rowOf(index) * puzzle.width + columnOf(index));
+    shapes.push_back(members);
+  }
+  return shapes;
+}
+
 } // namespace
 
 Fixture load(const std::string &path) {
@@ -140,6 +176,7 @@ Fixture load(const std::string &path) {
   readCells(document, puzzle, path);
   readRules(document, puzzle, path);
   readClues(document, puzzle, path);
+  readShapes(document, puzzle, path);
   readSolution(document, fixture, path);
   return fixture;
 }
@@ -158,6 +195,10 @@ void save(const std::string &path, const Fixture &fixture) {
   document["rules"] = ruleList;
   document["cells"] = columnMajor(puzzle, puzzle.givens);
   document["symbols"] = cluesToJson(puzzle);
+  // Written only when there is something to write: a plain board's file must
+  // stay byte-identical to what the page downloads, and the page omits the key.
+  if (!puzzle.shapes.empty())
+    document["shapes"] = shapesToJson(puzzle);
   if (fixture.hasSolution)
     document["solution"] = columnMajor(puzzle, fixture.solution);
 

@@ -6,9 +6,12 @@ import type {
   LogicGridTool,
   Position,
 } from "../../util/types";
+import { markGroupJoins } from "../../util/gridOutline";
 import { DARK, isPlayable, LIGHT, UNKNOWN, UNPLAYABLE } from "./cell";
 import { dressCell } from "./cellView";
 import type { LogicGridSolverEditor } from "./logicGridSolver";
+import { createOutlineLayer, drawShapeOutlines } from "./outlineLayer";
+import { NO_SHAPE, ShapeLayer } from "./shapes";
 import { symbolKindAt } from "./symbols";
 
 /**
@@ -18,7 +21,15 @@ import { symbolKindAt } from "./symbols";
 type Stroke =
   | { kind: "color"; value: number }
   | { kind: "clue"; clue: LogicGridClue | null }
-  | { kind: "erase" };
+  | { kind: "erase" }
+  /**
+   * Fuses squares into one merged cell. `target` is fixed at pointerdown —
+   * starting inside an existing cell EXTENDS it, starting on a plain square
+   * begins a new one — and `origin` is the square the pointer went down on,
+   * which is the piece that keeps the id if the cell ever splits mid-drag.
+   */
+  | { kind: "merge"; target: number; origin: number }
+  | { kind: "split" };
 
 const DIGIT_PATTERN = /^\d$/;
 const LETTER_KEY_PATTERN = /^[a-zA-Z]$/;
@@ -42,6 +53,12 @@ export class Board {
   /** The clue layer, indexed like `cells`. Independent of the colour. */
   private clues: (LogicGridClue | null)[][] = [];
   /**
+   * The merged-cell layer: which squares are fused into one cell. A third layer
+   * beside the two above rather than a value inside either, because it says how
+   * the other two are GROUPED rather than what any one square holds.
+   */
+  private shapes: ShapeLayer;
+  /**
    * The rendered cell buttons, indexed like `cells`. Painting rewrites the one
    * button it touched rather than re-running `renderGrid`; on a 32x32 board
    * that is the difference between one attribute write and rebuilding 1024
@@ -59,6 +76,14 @@ export class Board {
   /** Aborts every listener this board registered — see `dispose`. */
   private readonly listeners = new AbortController();
   private readonly grid = document.getElementById("grid") as HTMLDivElement;
+  /** Where every merged cell is drawn — see `outlineLayer.ts`. */
+  private outlines: SVGSVGElement | null = null;
+  /**
+   * Retraces the outlines when the squares change size. They are traced in
+   * PIXELS, at the size actually rendered, so the mobile breakpoint moving a
+   * square from 42px to 34px would otherwise leave every tile behind.
+   */
+  private readonly resize = new ResizeObserver(() => this.drawOutlines());
 
   constructor(
     solver: LogicGridSolverEditor,
@@ -74,6 +99,7 @@ export class Board {
     this.selectedTool = selectedTool;
     this.selectedSymbol = selectedSymbol;
     this.symbolValue = symbolValue;
+    this.shapes = new ShapeLayer(gridWidth, gridHeight);
     this.resetBoardData();
     this.addListeners();
   }
@@ -85,6 +111,7 @@ export class Board {
    */
   dispose() {
     this.listeners.abort();
+    this.resize.disconnect();
   }
 
   setSelectedTool(tool: LogicGridTool) {
@@ -99,7 +126,7 @@ export class Board {
     this.symbolValue = value;
   }
 
-  /** Clears both layers. */
+  /** Clears all three layers. */
   resetBoardData() {
     this.cells = Array.from({ length: this.gridWidth }, () =>
       Array.from({ length: this.gridHeight }, () => UNKNOWN),
@@ -107,11 +134,17 @@ export class Board {
     this.clues = Array.from({ length: this.gridWidth }, () =>
       Array.from({ length: this.gridHeight }, () => null),
     );
+    this.shapes = new ShapeLayer(this.gridWidth, this.gridHeight);
     this.digitCell = null;
   }
 
   getCells() {
     return this.cells;
+  }
+
+  /** The merged cells as the config stores them, undefined when there are none. */
+  getShapes() {
+    return this.shapes.toConfig();
   }
 
   /** The clue layer, sparse and in reading order, as the config stores it. */
@@ -132,6 +165,9 @@ export class Board {
     // One fragment, one insertion: appending cell by cell to a live #grid
     // makes the browser lay out the whole grid on every one of them.
     const fragment = document.createDocumentFragment();
+    // First, so every square paints over it.
+    this.outlines = createOutlineLayer();
+    fragment.appendChild(this.outlines);
     this.cellElements = Array.from(
       { length: this.gridWidth },
       (): HTMLButtonElement[] => [],
@@ -151,6 +187,26 @@ export class Board {
     }
 
     this.grid.replaceChildren(fragment);
+    this.drawOutlines();
+    this.resize.observe(this.grid);
+  }
+
+  /**
+   * Redraws every merged cell's outline. Called whenever membership changes,
+   * whenever one is painted, and when the squares change size — the outline is
+   * traced in pixels, so it has to be retraced at the size actually rendered.
+   */
+  private drawOutlines() {
+    if (!this.outlines) return;
+    drawShapeOutlines(this.outlines, {
+      shapes: this.shapes.toConfig() ?? [],
+      gridWidth: this.gridWidth,
+      gridHeight: this.gridHeight,
+      colorOf: square => this.cells[square % this.gridWidth]?.[
+        Math.floor(square / this.gridWidth)
+      ] ?? UNKNOWN,
+      host: this.grid,
+    });
   }
 
   /**
@@ -159,14 +215,20 @@ export class Board {
    */
   loadConfig(config: LogicGridTest) {
     this.resetBoardData();
+    // Before the clues: which squares are fused decides where a clue is stored.
+    this.shapes.load(config.shapes);
     for (let x = 0; x < this.gridWidth; x++) {
       for (let y = 0; y < this.gridHeight; y++) {
         this.cells[x]![y] = config.cells[x]![y]!;
       }
     }
     for (const symbol of config.symbols) {
-      const column = this.clues[symbol.x];
-      if (column) column[symbol.y] = { type: symbol.type, value: symbol.value };
+      // Moved to its cell's anchor. The validator accepts a clue on any square
+      // of a merged cell — lenient in — while the editor keeps exactly one
+      // place it can be, so what comes back out is canonical.
+      const { x, y } = this.anchor({ x: symbol.x, y: symbol.y });
+      const column = this.clues[x];
+      if (column) column[y] = { type: symbol.type, value: symbol.value };
     }
   }
 
@@ -176,6 +238,16 @@ export class Board {
     if (!element) return;
     const color = this.cells[x]?.[y] ?? UNKNOWN;
     dressCell(element, color, this.clues[x]?.[y] ?? null, x, y);
+    markGroupJoins(element, x, y, (nx, ny) => this.sharesCell(x, y, nx, ny));
+  }
+
+  /** Whether two squares belong to the same merged cell. */
+  private sharesCell(x: number, y: number, nx: number, ny: number): boolean {
+    if (nx < 0 || nx >= this.gridWidth || ny < 0 || ny >= this.gridHeight) {
+      return false;
+    }
+    const id = this.shapes.idAt(this.shapes.flat({ x, y }));
+    return id !== NO_SHAPE && this.shapes.idAt(this.shapes.flat({ x: nx, y: ny })) === id;
   }
 
   private addListeners() {
@@ -209,7 +281,14 @@ export class Board {
     // system gesture arrives as pointercancel instead, and a board that kept
     // the stroke would carry on painting on the next move.
     const endStroke = () => {
+      const stroke = this.stroke;
       this.stroke = null;
+      // A merge stroke settles its cell here rather than per square — see
+      // `mergeSquare`. A cancelled stroke settles too: the squares it already
+      // moved are moved, and leaving them in a half-built cell would be worse.
+      if (stroke?.kind === "merge") {
+        this.finishMerge(stroke.target, stroke.origin);
+      }
     };
     document.addEventListener("pointerup", endStroke, { signal });
     document.addEventListener("pointercancel", endStroke, { signal });
@@ -250,7 +329,7 @@ export class Board {
     const position = this.extractCellPosition(event.target);
     if (!position) return;
 
-    const stroke = this.strokeFor(event.button === 2);
+    const stroke = this.strokeFor(event.button === 2, position);
     if (!stroke) return;
 
     this.stroke = this.toggled(stroke, position);
@@ -266,7 +345,7 @@ export class Board {
    * selected — the default — that is left-dark, right-light with nothing
    * clicked, which is how the boards are drawn.
    */
-  private strokeFor(secondary: boolean): Stroke | null {
+  private strokeFor(secondary: boolean, position: Position): Stroke | null {
     switch (this.selectedTool) {
       case "dark":
         return { kind: "color", value: secondary ? LIGHT : DARK };
@@ -281,10 +360,33 @@ export class Board {
       case "symbol":
         // The right button lifts the clue and leaves the colour alone.
         return secondary ? { kind: "clue", clue: null } : this.clueStroke();
+      case "merge":
+        // The right button takes squares back OUT of whatever cell they are in,
+        // one square at a time — right-dragging the middle of a 3x3 cell leaves
+        // a donut and a plain square in the hole.
+        return secondary ? { kind: "split" } : this.mergeStroke(position);
       default:
         // Command tools paint nothing.
         return null;
     }
+  }
+
+  /**
+   * A merge stroke, with its target cell fixed here at pointerdown: the cell
+   * under the first square when there is one, a brand-new cell when that square
+   * was plain. Every square the drag then touches joins that cell and leaves
+   * whatever cell it was in — so dragging a column out of one cell and into
+   * another moves exactly those squares between them.
+   */
+  private mergeStroke(position: Position): Stroke | null {
+    if (!isPlayable(this.colorAt(position))) return null;
+    const origin = this.shapes.flat(position);
+    const held = this.shapes.idAt(origin);
+    return {
+      kind: "merge",
+      target: held === NO_SHAPE ? this.shapes.create() : held,
+      origin,
+    };
   }
 
   private clueStroke(): Stroke | null {
@@ -310,35 +412,189 @@ export class Board {
         : stroke;
     }
     if (stroke.kind === "clue" && stroke.clue) {
-      return sameClue(this.clueAt(position), stroke.clue)
+      return sameClue(this.clueAt(this.anchor(position)), stroke.clue)
         ? { kind: "clue", clue: null }
         : stroke;
     }
     return stroke;
   }
 
+  /** Where a cell's clue lives — the square itself unless the cell is merged. */
+  private anchor(position: Position): Position {
+    return this.shapes.position(
+      this.shapes.anchorOf(this.shapes.flat(position)),
+    );
+  }
+
   /**
-   * Writes one stroke onto one cell. Takes the stroke rather than reading the
+   * Writes one stroke onto one CELL. Takes the stroke rather than reading the
    * one in progress, so the keyboard path can apply a single-cell stroke
    * without touching the drag state.
+   *
+   * A merged cell takes one colour for all of its squares and carries its clue
+   * at its anchor, so every branch below works on the whole cell rather than on
+   * the square the pointer happens to be over.
    */
   private applyStroke(stroke: Stroke, position: Position) {
+    if (stroke.kind === "merge") {
+      this.mergeSquare(stroke.target, position);
+      return;
+    }
+    if (stroke.kind === "split") {
+      this.splitSquare(position);
+      return;
+    }
+
+    const squares = this.shapes.cellSquares(this.shapes.flat(position));
+    const anchor = this.anchor(position);
+
     if (stroke.kind === "erase") {
-      this.writeCell(position, UNKNOWN, null);
+      for (const square of squares) {
+        this.writeCell(this.shapes.position(square), UNKNOWN, null);
+      }
       return;
     }
 
     if (stroke.kind === "color") {
-      // A gap in the board is not a cell the puzzle clues, so painting one
-      // drops whatever clue was there.
-      const clue = stroke.value === UNPLAYABLE ? null : this.clueAt(position);
-      this.writeCell(position, stroke.value, clue);
+      this.paintCell(stroke.value, squares, anchor);
       return;
     }
 
     // A clue cannot be placed on a gap; lifting one always may.
     if (stroke.clue && !isPlayable(this.colorAt(position))) return;
-    this.writeCell(position, this.colorAt(position), stroke.clue);
+    this.writeCell(anchor, this.colorAt(anchor), stroke.clue);
+  }
+
+  /** One colour across every square of a cell, with its clue kept at the anchor. */
+  private paintCell(value: number, squares: number[], anchor: Position) {
+    // A gap in the board is not a cell the puzzle clues, so painting one drops
+    // whatever clue was there — and it is not part of a merged cell either, so
+    // painting a merged cell away dissolves it back into loose squares.
+    const clue = value === UNPLAYABLE ? null : this.clueAt(anchor);
+    const dissolving = value === UNPLAYABLE && squares.length > 1;
+    if (dissolving) this.shapes.dissolve(this.shapes.idAt(squares[0]!));
+
+    for (const square of squares) {
+      const at = this.shapes.position(square);
+      const keeps = at.x === anchor.x && at.y === anchor.y;
+      this.writeCell(at, value, keeps ? clue : null);
+    }
+    // Only after the writes: the seams these squares no longer share depend on
+    // membership the loop above was still changing.
+    if (dissolving) this.redress(squares);
+  }
+
+  /**
+   * Moves one square into the stroke's target cell, out of whatever cell it was
+   * in. Whatever the donor is left holding splits into its connected pieces.
+   */
+  private mergeSquare(target: number, position: Position) {
+    // A gap is not a cell, so it cannot be part of one.
+    if (!isPlayable(this.colorAt(position))) return;
+    const square = this.shapes.flat(position);
+    const from = this.shapes.idAt(square);
+    if (from === target) return;
+
+    const touched = new Set(this.shapes.cellSquares(square));
+    for (const one of this.shapes.squaresOf(target)) touched.add(one);
+
+    this.shapes.claim(target, square);
+    // The donor settles at once — that is the donut: right- or left-dragging
+    // through the middle of a cell really does leave the rest in pieces. The
+    // TARGET is left alone until the pointer is up, because mid-drag it is
+    // allowed to be a single square (the one the stroke began on) or briefly in
+    // two pieces (a fast drag skips squares between two pointermoves), and
+    // settling it then would dissolve the cell out from under its own stroke.
+    this.shapes.normalize(from);
+    // Only once the target really holds two squares. A single click claims one
+    // square into a cell that `finishMerge` then dissolves again, so clearing
+    // here would cost that square its colour and its clue and merge nothing.
+    // The first real growth step still clears both, because `touched` already
+    // carries the target's existing members.
+    if (this.shapes.squaresOf(target).length > 1) this.clearSquares(touched);
+  }
+
+  /** Settles the cell a merge stroke was growing, once the pointer is up. */
+  private finishMerge(target: number, origin: number) {
+    const grown = this.shapes.squaresOf(target);
+    if (grown.length === 0) return;
+    this.shapes.normalize(target, origin);
+    this.redress(grown);
+    this.solver.hideSolution();
+  }
+
+  /**
+   * The keyboard's merge gesture: joins this square to the cell beside it — the
+   * one to its left, or the one above when there is nothing to the left.
+   *
+   * A keystroke carries no drag, so it takes a fixed neighbour rather than
+   * asking for a direction: the square to the LEFT, or the one ABOVE when there
+   * is nothing to the left. Walking a shape and pressing Enter on each square
+   * builds any polyomino a pointer could, which is what keeps this tool from
+   * being pointer-only — and Backspace takes one back out again.
+   */
+  private mergeWithNeighbour(position: Position) {
+    if (!isPlayable(this.colorAt(position))) return;
+    const candidates = [
+      { x: position.x - 1, y: position.y },
+      { x: position.x, y: position.y - 1 },
+    ];
+    const before = candidates.find(
+      one => one.x >= 0 && one.y >= 0 && isPlayable(this.colorAt(one)),
+    );
+    if (!before) return;
+
+    const origin = this.shapes.flat(before);
+    const held = this.shapes.idAt(origin);
+    const target = held === NO_SHAPE ? this.shapes.create() : held;
+    if (held === NO_SHAPE) this.mergeSquare(target, before);
+    this.mergeSquare(target, position);
+    this.finishMerge(target, origin);
+  }
+
+  /** Takes one square back out of its cell, leaving it plain. */
+  private splitSquare(position: Position) {
+    const square = this.shapes.flat(position);
+    const from = this.shapes.idAt(square);
+    if (from === NO_SHAPE) return;
+
+    const touched = new Set(this.shapes.squaresOf(from));
+    this.shapes.release(square);
+    this.shapes.normalize(from);
+    this.clearSquares(touched);
+  }
+
+  /**
+   * Everything a merge or a split touched goes back to uncoloured and unclued.
+   *
+   * A merged cell holds ONE colour and at most one clue, and the squares coming
+   * together may disagree about both — picking a winner would be a rule nobody
+   * could predict from looking at the board. So restructuring clears, and the
+   * cell is painted again afterwards.
+   */
+  private clearSquares(squares: Iterable<number>) {
+    const affected = [...squares];
+    for (const square of affected) {
+      this.writeCell(this.shapes.position(square), UNKNOWN, null);
+    }
+    this.redress(affected);
+    // Explicitly: `writeCell` only drops the answer when a VALUE changed, and a
+    // restructuring that cleared nothing still changed what the board is.
+    this.solver.hideSolution();
+  }
+
+  /**
+   * Redraws squares after their membership changed. A second pass rather than
+   * part of the loop above: which sides a square joins depends on its
+   * neighbours' membership, which that loop was still moving around.
+   */
+  private redress(squares: Iterable<number>) {
+    for (const square of squares) {
+      const { x, y } = this.shapes.position(square);
+      this.dressCellAt(x, y);
+    }
+    // Membership moved, so every outline is retraced rather than patched.
+    this.drawOutlines();
   }
 
   private colorAt(position: Position): number {
@@ -365,9 +621,15 @@ export class Board {
     const existing = clueColumn[position.y] ?? null;
     if (column[position.y] === color && sameClue(existing, clue)) return;
 
+    const wasColor = column[position.y];
     column[position.y] = color;
     clueColumn[position.y] = clue;
     this.dressCellAt(position.x, position.y);
+    // The outline carries a merged cell's fill, so a colour change has to reach
+    // it as well as the square.
+    if (wasColor !== color && this.shapes.idAt(this.shapes.flat(position)) !== NO_SHAPE) {
+      this.drawOutlines();
+    }
     this.solver.hideSolution();
   }
 
@@ -385,7 +647,13 @@ export class Board {
     // keystroke has no drag to carry. Without the preventDefault, Space also
     // scrolls the page and the button's synthesised click follows.
     if (event.key === "Enter" || event.key === " ") {
-      const stroke = this.strokeFor(false);
+      if (this.selectedTool === "merge") {
+        event.preventDefault();
+        this.digitCell = null;
+        this.mergeWithNeighbour(position);
+        return;
+      }
+      const stroke = this.strokeFor(false, position);
       if (!stroke) return;
       event.preventDefault();
       this.digitCell = null;
@@ -396,6 +664,13 @@ export class Board {
     if (event.key === "Backspace" || event.key === "Delete") {
       event.preventDefault();
       this.digitCell = null;
+      // The merge tool's secondary action, which the pointer gets on the right
+      // button. Without it a keyboard user could build a merged cell and never
+      // take a square back out of one.
+      if (this.selectedTool === "merge") {
+        this.splitSquare(position);
+        return;
+      }
       this.writeCell(position, this.colorAt(position), null);
       return;
     }

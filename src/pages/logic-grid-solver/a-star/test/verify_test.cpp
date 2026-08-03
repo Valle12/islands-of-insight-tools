@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -66,6 +67,44 @@ TEST(Verify, AFiveRunNeedsFiveCells) {
   EXPECT_EQ(judge({"....."}, {"DDDDL"}, {Rule::NoDark1x5}), Violation::None);
   EXPECT_EQ(judge({"....."}, {"LLLLL"}, {Rule::NoDark1x5}), Violation::None);
   EXPECT_EQ(judge({"....."}, {"LLLLL"}, {Rule::NoLight1x5}), Violation::Run);
+}
+
+/// The two halves of "exactly two" fail differently and the solver catches them
+/// with different machinery — too big compiles into forbidden trominoes, too
+/// small is a propagator — so both are pinned here, where neither exists.
+TEST(Verify, CatchesARegionBiggerThanItsArea) {
+  EXPECT_EQ(judge({"...", "..."}, {"DDL", "LLL"}, {Rule::AreaTwoDark}),
+            Violation::None);
+  EXPECT_EQ(judge({"...", "..."}, {"DDD", "LLL"}, {Rule::AreaTwoDark}),
+            Violation::RegionSize);
+  // The bent one, which no run rule would have caught.
+  EXPECT_EQ(judge({"...", "..."}, {"DDL", "DLL"}, {Rule::AreaTwoDark}),
+            Violation::RegionSize);
+}
+
+TEST(Verify, CatchesARegionSmallerThanItsArea) {
+  EXPECT_EQ(judge({"...", "..."}, {"DLD", "LLL"}, {Rule::AreaTwoDark}),
+            Violation::RegionSize);
+}
+
+/// All zero of an empty colour's regions are the right size, the same way an
+/// empty colour is vacuously connected.
+TEST(Verify, AnEmptyColourHasNoAreasToGetWrong) {
+  EXPECT_EQ(judge({"..", ".."}, {"DD", "DD"}, {Rule::AreaTwoLight}),
+            Violation::None);
+}
+
+TEST(Verify, TheTwoAreaRulesAreSeparateSwitches) {
+  // One answer, judged twice: dark is a domino and light is a region of four.
+  EXPECT_EQ(judge({"...", "..."}, {"DDL", "LLL"}, {Rule::AreaTwoDark}),
+            Violation::None);
+  EXPECT_EQ(judge({"...", "..."}, {"DDL", "LLL"}, {Rule::AreaTwoLight}),
+            Violation::RegionSize);
+}
+
+TEST(Verify, AGapSeparatesTwoAreasRatherThanJoiningThem) {
+  EXPECT_EQ(judge({"..#..", "....."}, {"DD#DD", "LLLLL"}, {Rule::AreaTwoDark}),
+            Violation::None);
 }
 
 /// "Exactly one" is two failures, and the empty half is the easy one to miss:
@@ -157,6 +196,70 @@ TEST(Verify, EveryViolationHasAMessage) {
   EXPECT_STREQ(verify::describe(Violation::None), "");
   EXPECT_STRNE(verify::describe(Violation::AreaSize), "");
   EXPECT_STRNE(verify::describe(Violation::LetterShared), "");
+  EXPECT_STRNE(verify::describe(Violation::RegionSize), "");
+  EXPECT_STRNE(verify::describe(Violation::CellSplit), "");
+}
+
+/// The same, for a board carrying one merged cell the picture cannot draw.
+Violation judgeMerged(const std::vector<std::string> &picture,
+                      const std::vector<std::pair<int, int>> &squares,
+                      const std::vector<std::string> &painted,
+                      const std::vector<Rule> &active) {
+  Puzzle puzzle = test::board(picture, test::ruleSet(active));
+  test::withShape(puzzle, squares);
+  return verify::check(buildModel(puzzle), test::colors(painted));
+}
+
+TEST(Verify, RefusesAMergedCellInTwoColours) {
+  EXPECT_EQ(judgeMerged({"..", ".."}, {{0, 0}, {1, 0}}, {"DL", "LL"}, {}),
+            Violation::CellSplit);
+  EXPECT_EQ(judgeMerged({"..", ".."}, {{0, 0}, {1, 0}}, {"DD", "LL"}, {}),
+            Violation::None);
+}
+
+TEST(Verify, ArrangementRulesCountSquaresRatherThanCells) {
+  // A merged dark 1x2 IS a dark 1x2 — the run rules scan the square grid, and
+  // fusing two squares does not hide the run they make. Same for a 2x2 that a
+  // merged cell happens to be part of.
+  EXPECT_EQ(judgeMerged({"..", ".."}, {{0, 0}, {1, 0}}, {"DD", "LL"},
+                        {Rule::NoDark1x2}),
+            Violation::Run);
+  EXPECT_EQ(judgeMerged({"..", ".."}, {{0, 0}, {1, 0}}, {"DD", "DD"},
+                        {Rule::NoDark2x2}),
+            Violation::Square);
+}
+
+TEST(Verify, AnAreaRuleCountsAMergedCellAsItsSquares) {
+  // A merged domino is a legal region of two on its own...
+  EXPECT_EQ(judgeMerged({"..", ".."}, {{0, 0}, {1, 0}}, {"DD", "LL"},
+                        {Rule::AreaTwoDark}),
+            Violation::None);
+  // ...and a merged 1x3 is a region of three, which that rule forbids.
+  EXPECT_EQ(judgeMerged({"...", "..."}, {{0, 0}, {1, 0}, {2, 0}},
+                        {"DDD", "LLL"}, {Rule::AreaTwoDark}),
+            Violation::RegionSize);
+}
+
+TEST(Verify, AnAreaClueCountsTheSquaresOfTheCellsInItsRegion) {
+  // The clue sits on one square of a 1x3 bar and names three, because the bar
+  // contributes all three of its squares to the region it is in.
+  EXPECT_EQ(judgeMerged({"3..", "..."}, {{0, 0}, {1, 0}, {2, 0}},
+                        {"DDD", "LLL"}, {}),
+            Violation::None);
+  EXPECT_EQ(judgeMerged({"2..", "..."}, {{0, 0}, {1, 0}, {2, 0}},
+                        {"DDD", "LLL"}, {}),
+            Violation::AreaSize);
+}
+
+TEST(Verify, AMergedCellIsAdjacentToWhateverAnyOfItsSquaresTouches) {
+  // The merged cell is the left column; its lower square at (0,1) touches the
+  // plain dark square at (1,1), so all the dark is one region and "connect all
+  // dark" holds. A plain board with the same colouring would come out the same,
+  // which is the point: fusing changes the VARIABLES, not the geometry the
+  // rules read.
+  EXPECT_EQ(judgeMerged({"..", ".."}, {{0, 0}, {0, 1}}, {"DL", "DD"},
+                        {Rule::ConnectDark}),
+            Violation::None);
 }
 
 } // namespace

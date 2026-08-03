@@ -29,6 +29,15 @@ struct Options {
   /// "clued" for a board with plenty of clues, "underclued" for a sparse one
   /// with the underclued rule switched on.
   std::string kind = "clued";
+  /**
+   * Roughly what percentage of the board's squares to fuse into merged cells,
+   * 0 for none.
+   *
+   * Off by default, and drawn from its OWN rng, so every seed that ever
+   * produced a board still produces the same one — the main stream feeds a
+   * local search whose every draw would otherwise shift.
+   */
+  int shapes = 0;
 };
 
 /// 0 when a puzzle was written, 1 when no attempt produced one. Nothing is

@@ -18,8 +18,9 @@
 // is the thing being trusted, and it must never be reachable from the page.
 namespace lg::reference {
 
-/// The most undecided cells this will take on. 2^24 verifications is already
-/// tens of seconds; past that it refuses rather than hanging a test.
+/// The most undecided CELLS this will take on — merged ones counting once,
+/// since all their squares take one colour. 2^24 verifications is already tens
+/// of seconds; past that it refuses rather than hanging a test.
 inline constexpr int kMaxFreeCells = 24;
 
 struct Answer {

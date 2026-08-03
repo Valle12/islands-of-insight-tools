@@ -53,6 +53,28 @@ Violation shapeProblem(const Model &model, const Colors &colors) {
   return Violation::None;
 }
 
+/**
+ * Every square of a merged cell holds one colour.
+ *
+ * Nothing the SEARCH produces can break this — `Domains::exclude` fans out over
+ * the cell, so its squares are decided together — but this oracle also gates
+ * colourings that never went through a domain: a fixture's own `solution` key,
+ * the page's `verify` export taking an arbitrary array from JS, and brute
+ * force. So this is the one place that says out loud what a merged cell IS,
+ * and it is what lets every check below go on speaking about squares.
+ */
+Violation fusedProblem(const Model &model, const Colors &colors) {
+  for (const Bits &shape : model.shapes) {
+    const int first = shape.nextSet(0);
+    const uint8_t color = colors[slot(first)];
+    for (int i = shape.nextSet(first + 1); i >= 0; i = shape.nextSet(i + 1)) {
+      if (colors[slot(i)] != color)
+        return Violation::CellSplit;
+    }
+  }
+  return Violation::None;
+}
+
 bool hasSquare(const Model &model, const Colors &colors, const uint8_t color) {
   for (int y = 0; y + 1 < model.height(); y++) {
     for (int x = 0; x + 1 < model.width(); x++) {
@@ -168,6 +190,53 @@ Violation connectivityProblem(const Model &model, const Bits &dark,
   return None;
 }
 
+struct AreaRule {
+  Rule rule = Rule::AreaTwoDark;
+  uint8_t color = kDark;
+  int area = 2;
+};
+
+/**
+ * Every region of `held` holds exactly `area` cells.
+ *
+ * Walked region by region for the same reason the symbol count is: this is a
+ * property of a REGION and nothing points at the one that broke, so both halves
+ * — too big and too small — are only visible from the region's own side. An
+ * empty colour passes vacuously, all zero of its regions being the right size,
+ * which is what lets an all-dark board be legal while the light rule is on.
+ */
+bool everyRegionIs(const Bits &held, const int area) {
+  Bits seen;
+  for (int i = held.nextSet(0); i >= 0; i = held.nextSet(i + 1)) {
+    if (seen.test(i))
+      continue;
+    const Bits region = component(i, held);
+    seen = seen | region;
+    if (region.count() != area)
+      return false;
+  }
+  return true;
+}
+
+Violation regionSizeProblem(const Model &model, const Bits &dark,
+                            const Bits &light) {
+  // Listed, like `kRunRules` above and `AREA_RULES` in verify.ts. The oracle
+  // does not ask `rules::globalArea`, for the same reason it does not read the
+  // compiled clause list: it is meant to agree with the search by arriving
+  // separately, never by sharing its tables.
+  using enum Rule;
+  constexpr auto kAreaRules = std::to_array<AreaRule>({
+      {.rule = AreaTwoDark, .color = kDark, .area = 2},
+      {.rule = AreaTwoLight, .color = kLight, .area = 2},
+  });
+  const bool wrong = std::ranges::any_of(
+      kAreaRules, [&model, &dark, &light](const AreaRule &row) {
+        return model.hasRule(row.rule) &&
+               !everyRegionIs(row.color == kDark ? dark : light, row.area);
+      });
+  return wrong ? Violation::RegionSize : Violation::None;
+}
+
 Violation areaProblem(const Model &model, const Colors &colors,
                       const Bits &dark, const Bits &light) {
   const bool wrong = std::ranges::any_of(
@@ -273,6 +342,10 @@ const char *describe(const Violation violation) {
     return "An area that must carry one symbol carries none";
   case AreaWithManySymbols:
     return "An area that must carry one symbol carries several";
+  case RegionSize:
+    return "A region does not have the area its colour's rule requires";
+  case CellSplit:
+    return "A merged cell came back in two colours";
   }
   return "Unknown violation";
 }
@@ -280,6 +353,12 @@ const char *describe(const Violation violation) {
 Violation check(const Model &model, const Colors &colors) {
   using enum Violation;
   if (const Violation problem = shapeProblem(model, colors); problem != None)
+    return problem;
+  // Before anything below, which all read the colouring one SQUARE at a time
+  // and are only entitled to do so once a merged cell is known to hold one
+  // colour. (`shapeProblem` here means the board's GAPS, not a merged cell —
+  // it runs first so a gap or a repainted given is still named as such.)
+  if (const Violation problem = fusedProblem(model, colors); problem != None)
     return problem;
   if (const Violation problem = squareProblem(model, colors); problem != None)
     return problem;
@@ -295,6 +374,9 @@ Violation check(const Model &model, const Colors &colors) {
   const Bits dark = maskOf(model, colors, kDark);
   const Bits light = maskOf(model, colors, kLight);
   if (const Violation problem = connectivityProblem(model, dark, light);
+      problem != None)
+    return problem;
+  if (const Violation problem = regionSizeProblem(model, dark, light);
       problem != None)
     return problem;
   if (const Violation problem = areaProblem(model, colors, dark, light);

@@ -64,7 +64,9 @@ test.describe("Logic Grid Solver tools", () => {
   /** A row per kind of tool: what clears the board, what colours it, what clues it. */
   test("groups the tools into rows by what they do", async ({ page }) => {
     await expect(page.locator("#command-row .tool-button")).toHaveCount(2);
-    await expect(page.locator("#color-row .tool-button")).toHaveCount(3);
+    // Four: the three colours plus merge, which also changes what the board is
+    // rather than doing something to it once.
+    await expect(page.locator("#color-row .tool-button")).toHaveCount(4);
     await expect(page.locator("#symbol-row .symbol-chip")).toHaveCount(2);
   });
 
@@ -261,6 +263,58 @@ test.describe("Logic Grid Solver tools", () => {
       "aria-pressed",
       "false",
     );
+  });
+
+  /**
+   * Merged cells, through a real drag — the one thing the unit tests cannot
+   * check, since happy-dom has no layout and the gesture is hit-tested by
+   * coordinate.
+   */
+  test("dragging the merge tool fuses squares into one cell", async ({
+    page,
+  }) => {
+    await tool(page, "merge").click();
+    await expect(page.locator("#tool-status")).toHaveText(
+      "Selected tool: Merge cells · Right-click: Split cells",
+    );
+
+    await dragRow(page, 0, 0, 2);
+    // The seams between the three squares are gone and the outer sides stay.
+    await expect(cellAt(page, 0, 0)).toHaveClass(/cell-join-right/);
+    await expect(cellAt(page, 1, 0)).toHaveClass(/cell-join-left/);
+    await expect(cellAt(page, 1, 0)).toHaveClass(/cell-join-right/);
+    await expect(cellAt(page, 2, 0)).not.toHaveClass(/cell-join-right/);
+
+    // One click anywhere in it colours the whole cell.
+    await tool(page, "dark").click();
+    await cellAt(page, 2, 0).click();
+    for (const x of [0, 1, 2]) {
+      await expect(cellAt(page, x, 0)).toHaveAttribute("data-color", "dark");
+    }
+    await expect(cellAt(page, 3, 0)).toHaveAttribute("data-color", "unknown");
+
+    // The seam between two squares of one cell is part of that cell, so
+    // clicking it paints — it is bridged by a pseudo-element that hit-tests as
+    // its own square rather than being a dead strip the pointer falls through.
+    await tool(page, "erase").click();
+    await cellAt(page, 0, 0).click();
+    await expect(cellAt(page, 0, 0)).toHaveAttribute("data-color", "unknown");
+    await tool(page, "dark").click();
+    const left = (await cellAt(page, 0, 0).boundingBox())!;
+    const right = (await cellAt(page, 1, 0).boundingBox())!;
+    await page.mouse.click(
+      (left.x + left.width + right.x) / 2,
+      left.y + left.height / 2,
+    );
+    for (const x of [0, 1, 2]) {
+      await expect(cellAt(page, x, 0)).toHaveAttribute("data-color", "dark");
+    }
+
+    // Right-dragging takes squares back out, and restructuring clears them.
+    await tool(page, "merge").click();
+    await dragRow(page, 0, 1, 1, "right");
+    await expect(cellAt(page, 0, 0)).not.toHaveClass(/cell-join-right/);
+    await expect(cellAt(page, 0, 0)).toHaveAttribute("data-color", "unknown");
   });
 
   test("reset asks first, then clears the board and the rules", async ({

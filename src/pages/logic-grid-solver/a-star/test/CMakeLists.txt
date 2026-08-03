@@ -1,4 +1,5 @@
 add_executable(logic_grid_tests
+    puzzle_test.cpp
     rules_test.cpp
     verify_test.cpp
     propagate_test.cpp

@@ -95,16 +95,33 @@ private:
   void buildOrder() {
     Bits seen;
     std::queue<int> queue;
-    for (const Clue &clue : model_.puzzle.clues) {
-      if (seen.test(clue.index))
-        continue;
-      seen.set(clue.index);
-      queue.push(clue.index);
-    }
+    // A merged cell enters the frontier whole — every square of it marked and
+    // queued together, so a 1x5 bar is ONE hop from a clue rather than five,
+    // which is what "outwards from the clues" means in the puzzle's own
+    // topology. Only its representative reaches the order: the order is a list
+    // of choices, and a merged cell is one choice.
+    const auto discover = [&](const int index) {
+      if (seen.test(index))
+        return;
+      if (model_.shapeAt[slot(index)] < 0) {
+        seen.set(index);
+        queue.push(index);
+        return;
+      }
+      const Bits mask = model_.cellMask(index);
+      for (int i = mask.nextSet(0); i >= 0; i = mask.nextSet(i + 1)) {
+        seen.set(i);
+        queue.push(i);
+      }
+    };
+
+    for (const Clue &clue : model_.puzzle.clues)
+      discover(clue.index);
     while (!queue.empty()) {
       const int cell = queue.front();
       queue.pop();
-      order_.push_back(cell);
+      if (model_.representatives.test(cell))
+        order_.push_back(cell);
       const int x = columnOf(cell);
       const int y = rowOf(cell);
       for (const auto &[dx, dy] : kSteps) {
@@ -112,15 +129,12 @@ private:
         const int ny = y + dy;
         if (nx < 0 || nx >= kStride || ny < 0 || ny >= kMaxSide)
           continue;
-        const int next = cellIndex(nx, ny);
-        if (!model_.playable.test(next) || seen.test(next))
-          continue;
-        seen.set(next);
-        queue.push(next);
+        if (const int next = cellIndex(nx, ny); model_.playable.test(next))
+          discover(next);
       }
     }
-    for (int i = model_.playable.nextSet(0); i >= 0;
-         i = model_.playable.nextSet(i + 1)) {
+    for (int i = model_.representatives.nextSet(0); i >= 0;
+         i = model_.representatives.nextSet(i + 1)) {
       if (!seen.test(i))
         order_.push_back(i);
     }
@@ -236,7 +250,8 @@ private:
    */
   bool descend() {
     std::vector<Frame> stack;
-    stack.reserve(static_cast<size_t>(model_.playableCount) + 1);
+    // One frame per guessed CELL, which is the real depth bound.
+    stack.reserve(static_cast<size_t>(model_.cellCount) + 1);
     bool fresh = true;
 
     for (;;) {

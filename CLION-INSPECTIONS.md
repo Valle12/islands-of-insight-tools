@@ -342,13 +342,20 @@ Note the JSON shape: a measure's value for a PR is in `periods[0].value`, NOT
   removable, but every one declares symbols the header genuinely uses and
   no project header guarantees them — removing would be include-what-you-
   use-incorrect. Leave them.
-- `<cstddef>` in the logic-grid `Rules.cpp` and `Search.cpp`: reported as
-  possibly unused because `<array>`/`<vector>` drag it in, but both name
-  `size_t` (`Rules.cpp` as `template <std::size_t N>`). Same rule as
-  `NodeKey.h` below — `misc-include-cleaner` agrees and does not flag them.
-  `Profile.cpp` was in this list until its `Frontier::closed` became a
-  `std::byte`; it now uses the header unambiguously and is no longer
-  reported.
+- `<cstddef>` in the logic-grid `Rules.cpp`, `Search.cpp`, `Types.h` and
+  `test/reference_test.cpp`: reported as possibly unused because
+  `<array>`/`<vector>` drag it in, but every one names `size_t`
+  (`Rules.cpp` as `template <std::size_t N>`, `Types.h` in `slot()`). Same
+  rule as `NodeKey.h` below — `misc-include-cleaner` agrees and does not
+  flag them. `Profile.cpp` was in this list until its `Frontier::closed`
+  became a `std::byte`; it now uses the header unambiguously and is no
+  longer reported.
+- `<system_error>` in the logic-grid `main.cpp`: flagged, but `readNumber`
+  compares against `std::errc{}`, whose header this is. Note that
+  `misc-include-cleaner` is NO help here — under the MSVC STL it also
+  reports `<charconv>` and `<string_view>` in the same file, both of which
+  it plainly uses (`std::from_chars`, `std::string_view`), so its verdict on
+  that TU carries no information either way.
 - **`static_cast<size_t>(hash)` in the logic-grid `Profile.cpp`'s
   `FrontierHash::hashOf`** — reported as a redundant cast, and it is
   redundant on the native build alone. `hash` is a `uint64_t` because FNV-1a

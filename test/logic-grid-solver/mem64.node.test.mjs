@@ -88,6 +88,10 @@ test(
             ? (String(symbol.value).codePointAt(0) ?? 65) - 65
             : Number(symbol.value),
       })),
+      // A merged cell: the two squares of the top-left corner as ONE cell, so
+      // the 64-bit build is exercised on the `shapes` key too. Flat row-major,
+      // like `cells` above and unlike the config's column-major grid.
+      shapes: [[0, 1]],
     };
 
     const result = module.solve(puzzle, { engine: "cascade", maxMs: 60_000 });
@@ -102,5 +106,8 @@ test(
     // Checked through the module's own oracle rather than by comparing against
     // a pinned board: this puzzle has many solutions, so any legal one will do.
     assert.equal(module.verify(puzzle, answer), true);
+    // ...and the merged cell really did act as one: both its squares came back
+    // the same colour, which `verify` above is also entitled to refuse.
+    assert.equal(answer[0], answer[1]);
   },
 );

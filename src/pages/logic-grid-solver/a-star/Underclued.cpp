@@ -1,3 +1,4 @@
+#include "Bitboard.h"
 #include "Budget.h"
 #include "Domains.h"
 #include "Probe.h"
@@ -72,8 +73,10 @@ std::vector<int> candidatesFrom(const Model &model, const Colors &known,
                                 const std::vector<Colors> &pool,
                                 Colors &agreed) {
   std::vector<int> candidates;
-  for (int i = model.playable.nextSet(0); i >= 0;
-       i = model.playable.nextSet(i + 1)) {
+  // One candidate per CELL: a refutation is the most expensive thing this
+  // solver does, and every square of a merged cell would run the identical one.
+  for (int i = model.representatives.nextSet(0); i >= 0;
+       i = model.representatives.nextSet(i + 1)) {
     if (known[slot(i)] != kUnknown)
       continue;
     const uint8_t first = pool.front()[slot(i)];
@@ -213,7 +216,12 @@ bool refuteCandidates(const Refuting &work, SearchStats &stats) {
     }
     if (!attempt.exhausted)
       return false;
-    work.known[slot(cell)] = want;
+    // Every square of the cell, not just the representative: this is the answer
+    // the page draws, and a merged cell reported half painted would be drawn
+    // half painted. One assumption is still enough — `assign` fans out.
+    const Bits mask = work.model.cellMask(cell);
+    for (int i = mask.nextSet(0); i >= 0; i = mask.nextSet(i + 1))
+      work.known[slot(i)] = want;
     proven.emplace_back(cell, want);
   }
   return true;

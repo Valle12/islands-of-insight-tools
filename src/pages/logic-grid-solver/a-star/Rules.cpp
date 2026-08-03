@@ -59,12 +59,72 @@ int shortestRun(const RuleMask mask, const uint8_t color) {
   return 0;
 }
 
+/**
+ * The shortest run of `color` that is forbidden once IMPLICATIONS are folded in.
+ *
+ * An area rule forbids a run one longer than its number, since a line of N+1
+ * cells is one region of N+1. So the straight shapes an area rule rules out come
+ * out of `addRuns` rather than being laid out a second time beside the bent
+ * ones — and a duplicate clause would not merely be dead weight, it would make
+ * `GenerateCommands::cost()` score one broken straight as two.
+ *
+ * Kept OUT of `shortestRun` deliberately: that ladder means "the family of run
+ * rules", and it has two mirrors — `kRunRules` in Verify.cpp and `RUN_RULES` in
+ * verify.ts — which have to keep meaning the same thing. This is a derived fact,
+ * like the checkerboard lemma below, and derived facts live on this side.
+ */
+int impliedRun(const RuleMask mask, const uint8_t color) {
+  const int direct = shortestRun(mask, color);
+  const int area = globalArea(mask, color);
+  if (area == 0)
+    return direct;
+  return direct == 0 ? area + 1 : std::min(direct, area + 1);
+}
+
 void addRuns(const RuleMask mask, const uint8_t color, Patterns &into) {
-  const int length = shortestRun(mask, color);
+  const int length = impliedRun(mask, color);
   if (length == 0)
     return;
   into.emplace_back(runPattern(length, color, 1, 0));
   into.emplace_back(runPattern(length, color, 0, 1));
+}
+
+/// The four bent trominoes: a 2x2 box with one corner left out, once per corner.
+std::array<Pattern, 4> bentPatterns(const uint8_t color) {
+  const auto box = std::to_array<PatternCell>({
+      {.dx = 0, .dy = 0, .color = color},
+      {.dx = 1, .dy = 0, .color = color},
+      {.dx = 0, .dy = 1, .color = color},
+      {.dx = 1, .dy = 1, .color = color},
+  });
+  std::array<Pattern, 4> out{};
+  for (int omit = 0; omit < 4; omit++) {
+    auto &[cells, count] = out[slot(omit)];
+    for (int i = 0; i < 4; i++) {
+      if (i == omit)
+        continue;
+      cells[slot(count)] = box[slot(i)];
+      count++;
+    }
+  }
+  return out;
+}
+
+/// The half of an area rule this table can carry: no region BIGGER than the
+/// number. A connected set of three or more cells always contains a connected
+/// three, so for an area of two, forbidding every tromino says exactly that.
+/// Another area would need its own set of shapes here — the straight one is
+/// `addRuns`'s either way, so what is left is every bent (N+1)-omino.
+void addAreaShapes(const RuleMask mask, const uint8_t color, Patterns &into) {
+  if (globalArea(mask, color) != 2)
+    return;
+  // The straight pair came from `addRuns`. The bent four go the same way when
+  // pairs of this colour are forbidden outright, since every one contains a
+  // pair — and then nothing of this colour can be coloured at all.
+  if (impliedRun(mask, color) == 2)
+    return;
+  for (const Pattern &pattern : bentPatterns(color))
+    into.emplace_back(pattern);
 }
 
 Pattern squarePattern(const uint8_t color) {
@@ -107,10 +167,19 @@ const char *name(const Rule rule) {
       "one-symbol-dark",
       "one-symbol-light",
       "underclued",
+      "area-two-dark",
+      "area-two-light",
   });
   static_assert(kNames.size() == kRuleCount,
                 "every rule needs its id, in index order");
   return kNames[slot(std::to_underlying(rule))];
+}
+
+int globalArea(const RuleMask mask, const uint8_t color) {
+  using enum Rule;
+  if (has(mask, color == kDark ? AreaTwoDark : AreaTwoLight))
+    return 2;
+  return 0;
 }
 
 Patterns patternsFor(const RuleMask mask) {
@@ -123,6 +192,9 @@ Patterns patternsFor(const RuleMask mask) {
 
   addRuns(mask, kDark, patterns);
   addRuns(mask, kLight, patterns);
+
+  addAreaShapes(mask, kDark, patterns);
+  addAreaShapes(mask, kLight, patterns);
 
   // The checkerboard lemma, which is why BOTH connect rules together imply the
   // checkerboard patterns even when the board never asked for them. Suppose a

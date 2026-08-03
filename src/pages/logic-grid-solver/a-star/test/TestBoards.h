@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace lg::test {
@@ -70,6 +71,20 @@ inline void withClue(Puzzle &puzzle, const int x, const int y,
                      const int value) {
   puzzle.clues.push_back(
       {.index = cellIndex(x, y), .kind = kClueArea, .value = value});
+}
+
+/**
+ * Fuses squares into one merged cell. A second call rather than a glyph: the
+ * picture's alphabet is entirely spoken for, and a shape needs to say which
+ * squares go together rather than just that a square is in one.
+ */
+inline void withShape(Puzzle &puzzle,
+                      const std::vector<std::pair<int, int>> &squares) {
+  std::vector<int> shape;
+  shape.reserve(squares.size());
+  for (const auto &[x, y] : squares)
+    shape.push_back(cellIndex(x, y));
+  puzzle.shapes.push_back(std::move(shape));
 }
 
 /// Paints a cell that already carries a clue — the picture cannot say both.

@@ -140,12 +140,135 @@ function symbolsError(
 }
 
 /**
+ * Returns the first problem with one merged cell, or null.
+ *
+ * `claimed` accumulates across the whole list, so it also catches the same
+ * square appearing twice inside a single shape.
+ */
+function shapeError(
+  shape: unknown,
+  size: { gridWidth: number; gridHeight: number },
+  cells: number[][],
+  claimed: Set<number>,
+): string | null {
+  const { gridWidth, gridHeight } = size;
+  const limit = gridWidth * gridHeight;
+  if (!Array.isArray(shape) || shape.length < 2) {
+    // A cell of one square IS a plain cell, so the other spelling is refused
+    // rather than accepted and normalised away.
+    return "Every merged cell must be an array of at least two squares.";
+  }
+  for (const square of shape) {
+    if (!intInRange(square, 0, limit - 1)) {
+      return `Merged cell squares must be integers between 0 and ${limit - 1}.`;
+    }
+    const x = (square as number) % gridWidth;
+    const y = Math.floor((square as number) / gridWidth);
+    if (cells[x]![y] === UNPLAYABLE) {
+      return `Column ${x + 1}, row ${y + 1} is unplayable and cannot be part of a merged cell.`;
+    }
+    if (claimed.has(square as number)) {
+      return `Column ${x + 1}, row ${y + 1} belongs to more than one merged cell.`;
+    }
+    claimed.add(square as number);
+  }
+
+  // Connectivity first, then agreement — the same order the solver's own
+  // `structureProblem` uses, so the two name the same fault on the same file.
+  const squares = shape as number[];
+  const broken = connectedError(squares, gridWidth);
+  if (broken !== null) return broken;
+
+  // Every square of a merged cell holds ONE colour, so a file that paints them
+  // differently describes a cell that cannot exist. The editor cannot produce
+  // one — restructuring clears — but an imported file can, and the solver
+  // refuses it, so accepting it here would only turn a clear message into a
+  // failure inside wasm.
+  const given = colorAt(cells, squares[0]!, gridWidth);
+  const split = squares.find(
+    square => colorAt(cells, square, gridWidth) !== given,
+  );
+  if (split === undefined) return null;
+  const x = split % gridWidth;
+  const y = Math.floor(split / gridWidth);
+  return `Column ${x + 1}, row ${y + 1} is a different colour from the rest of its merged cell.`;
+}
+
+/** The colour on a square, by its flat index. */
+function colorAt(cells: number[][], square: number, gridWidth: number): number {
+  return cells[square % gridWidth]![Math.floor(square / gridWidth)]!;
+}
+
+/**
+ * A merged cell has to be one connected polyomino, which the editor guarantees
+ * by splitting whatever a stroke leaves behind into its components. A file
+ * saying otherwise describes a cell that cannot be drawn.
+ */
+function connectedError(shape: number[], gridWidth: number): string | null {
+  const members = new Set(shape);
+  const seen = new Set<number>([shape[0]!]);
+  const queue = [shape[0]!];
+  while (queue.length > 0) {
+    const square = queue.pop()!;
+    const x = square % gridWidth;
+    const y = Math.floor(square / gridWidth);
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as const) {
+      const nx = x + dx;
+      if (nx < 0 || nx >= gridWidth) continue;
+      const next = (y + dy) * gridWidth + nx;
+      if (!members.has(next) || seen.has(next)) continue;
+      seen.add(next);
+      queue.push(next);
+    }
+  }
+  return seen.size === members.size
+    ? null
+    : "Every merged cell must be one connected shape.";
+}
+
+/** Returns the first problem with the merged-cell layer, or null. */
+function shapesError(
+  shapes: unknown,
+  size: { gridWidth: number; gridHeight: number },
+  cells: number[][],
+  symbols: LogicGridSymbol[],
+): string | null {
+  if (!Array.isArray(shapes)) {
+    return "shapes must be an array.";
+  }
+  const claimed = new Set<number>();
+  for (const shape of shapes) {
+    const problem = shapeError(shape, size, cells, claimed);
+    if (problem !== null) return problem;
+
+    // A merged cell is ONE cell, so it carries at most one clue however many
+    // squares it spans.
+    const clued = symbols.filter(symbol =>
+      (shape as number[]).includes(symbol.y * size.gridWidth + symbol.x),
+    );
+    if (clued.length > 1) {
+      return "A merged cell carries more than one symbol.";
+    }
+  }
+  return null;
+}
+
+/**
  * Validates an unknown parsed JSON value against the logic grid config
  * (download/fixture) format. Returns the typed config on success, or a
  * human-readable error explaining the first problem found.
  *
  * The result is rebuilt from the validated fields, so unknown keys are dropped
  * and the rule list comes back sorted whatever order the file listed it in.
+ *
+ * `shapes` is the one OPTIONAL key, and an empty one normalises back to absent:
+ * every captured fixture predates it, and `config.test.ts` asserts they all
+ * round-trip byte-identically.
  */
 export function validateConfig(data: unknown): ConfigParseResult {
   const size = readGridSize(data, MAX_GRID_SIDE);
@@ -176,5 +299,25 @@ export function validateConfig(data: unknown): ConfigParseResult {
     value: symbol.value,
   }));
 
-  return { ok: true, config: { gridWidth, gridHeight, rules, cells, symbols } };
+  const config: LogicGridTest = {
+    gridWidth,
+    gridHeight,
+    rules,
+    cells,
+    symbols,
+  };
+
+  if (raw.shapes !== undefined) {
+    const shapesProblem = shapesError(
+      raw.shapes,
+      { gridWidth, gridHeight },
+      cells,
+      symbols,
+    );
+    if (shapesProblem !== null) return { ok: false, error: shapesProblem };
+    const shapes = (raw.shapes as number[][]).map(shape => [...shape]);
+    if (shapes.length > 0) config.shapes = shapes;
+  }
+
+  return { ok: true, config };
 }

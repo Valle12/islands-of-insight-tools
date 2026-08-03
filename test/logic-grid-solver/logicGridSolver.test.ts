@@ -14,7 +14,10 @@ import {
   UNPLAYABLE,
 } from "../../src/pages/logic-grid-solver/cell";
 import { LogicGridSolverEditor } from "../../src/pages/logic-grid-solver/logicGridSolver";
-import { RULES } from "../../src/pages/logic-grid-solver/rules";
+import {
+  RULE_DISPLAY_ORDER,
+  RULES,
+} from "../../src/pages/logic-grid-solver/rules";
 import { SYMBOL_KINDS } from "../../src/pages/logic-grid-solver/symbols";
 import type { LogicGridTest } from "../../src/util/types";
 
@@ -43,6 +46,7 @@ const MARKUP = `
         <button class="tool-button icon-tool" data-tool="dark" type="button">Dark</button>
         <button class="tool-button icon-tool" data-tool="light" type="button">Light</button>
         <button class="tool-button icon-tool" data-tool="unplayable" type="button">Unplayable</button>
+        <button class="tool-button icon-tool" data-tool="merge" type="button">Merge cells</button>
       </div>
       <div id="symbol-row" class="tool-row"></div>
     </div>
@@ -100,6 +104,19 @@ describe("LogicGridSolverEditor", () => {
     ...document.querySelectorAll<HTMLButtonElement>("#rule-row .rule-chip"),
   ];
 
+  /**
+   * One rule chip, by its stable id.
+   *
+   * The row is drawn in `RULE_DISPLAY_ORDER`, so a chip's position is neither
+   * the index a config stores nor anything a test should lean on — and a case
+   * that says which rule it is about keeps saying it when the row is
+   * rearranged.
+   */
+  const ruleChip = (id: string) =>
+    document.querySelector<HTMLButtonElement>(
+      `#rule-row .rule-chip[data-rule="${id}"]`,
+    )!;
+
   /** The value field belonging to clue kind `index`. */
   const valueField = (index: number) =>
     document.querySelector<HTMLInputElement>(
@@ -115,6 +132,12 @@ describe("LogicGridSolverEditor", () => {
       new MouseEvent("pointerdown", { bubbles: true, button }),
     );
     document.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+  }
+
+  function typeKey(x: number, y: number, key: string) {
+    cellAt(x, y).dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, key }),
+    );
   }
 
   function setSize(width: string, height: string) {
@@ -180,8 +203,22 @@ describe("LogicGridSolverEditor", () => {
       expect(symbolChips()).toHaveLength(SYMBOL_KINDS.length);
       expect(ruleChips()).toHaveLength(RULES.length);
       expect(symbolChips()[0]!.dataset.symbol).toBe(SYMBOL_KINDS[0]!.id);
-      expect(ruleChips()[0]!.dataset.rule).toBe(RULES[0]!.id);
-      expect(ruleChips()[0]!.textContent).toBe(RULES[0]!.label);
+      expect(ruleChip(RULES[0]!.id).textContent).toBe(RULES[0]!.label);
+    });
+
+    /**
+     * The row is a reading order and the catalogue is the file format. This is
+     * what says the page draws the first and still stores the second: a chip's
+     * position is `RULE_DISPLAY_ORDER`'s, and `data-rule-index` — which is what
+     * the click handler reads — is the catalogue's.
+     */
+    test("draws the rules in row order, carrying their stored index", () => {
+      expect(ruleChips().map(chip => chip.dataset.rule)).toEqual(
+        RULE_DISPLAY_ORDER.map(index => RULES[index]!.id),
+      );
+      expect(ruleChips().map(chip => Number(chip.dataset.ruleIndex))).toEqual([
+        ...RULE_DISPLAY_ORDER,
+      ]);
     });
 
     /** Every kind carries its own field, so none of them has to be named. */
@@ -210,6 +247,7 @@ describe("LogicGridSolverEditor", () => {
       ["light", "Selected tool: Light · Right-click: Dark"],
       ["unplayable", "Selected tool: Unplayable · Right-click: Erase"],
       ["erase", "Selected tool: Eraser · Right-click: Erase"],
+      ["merge", "Selected tool: Merge cells · Right-click: Split cells"],
     ])("%s names both buttons", (tool, status) => {
       toolButton(tool).click();
       expect(toolButton(tool).classList.contains("selected")).toBeTrue();
@@ -302,21 +340,21 @@ describe("LogicGridSolverEditor", () => {
 
   describe("Rules", () => {
     test("a chip toggles its rule on and off", () => {
-      const chip = ruleChips()[2]!;
-      chip.click();
-      expect(ruleChips()[2]!.classList.contains("selected")).toBeTrue();
-      expect(ruleChips()[2]!.getAttribute("aria-pressed")).toBe("true");
-      ruleChips()[2]!.click();
-      expect(ruleChips()[2]!.classList.contains("selected")).toBeFalse();
-      expect(ruleChips()[2]!.getAttribute("aria-pressed")).toBe("false");
+      ruleChip("no-dark-1x2").click();
+      expect(ruleChip("no-dark-1x2").classList.contains("selected")).toBeTrue();
+      expect(ruleChip("no-dark-1x2").getAttribute("aria-pressed")).toBe("true");
+      ruleChip("no-dark-1x2").click();
+      expect(ruleChip("no-dark-1x2").classList.contains("selected")).toBeFalse();
+      expect(ruleChip("no-dark-1x2").getAttribute("aria-pressed")).toBe("false");
     });
 
     /** A different size is a different puzzle, and it brings its own rules. */
     test("rules go with a resize, along with the board", () => {
-      ruleChips()[3]!.click();
+      ruleChip("no-light-1x2").click();
       setSize("4", "4");
-      expect(ruleChips()[3]!.classList.contains("selected")).toBeFalse();
-      expect(ruleChips()[3]!.getAttribute("aria-pressed")).toBe("false");
+      const chip = ruleChip("no-light-1x2");
+      expect(chip.classList.contains("selected")).toBeFalse();
+      expect(chip.getAttribute("aria-pressed")).toBe("false");
     });
   });
 
@@ -341,14 +379,16 @@ describe("LogicGridSolverEditor", () => {
       setSize("3", "3");
       toolButton("light").click();
       press(0, 0);
-      ruleChips()[1]!.click();
+      ruleChip("no-light-2x2").click();
 
       toolButton("reset").click();
       byId("reset-confirm").click();
 
       expect(document.querySelectorAll("#grid .grid-cell")).toHaveLength(36);
       expect(cellAt(0, 0).dataset.color).toBe("unknown");
-      expect(ruleChips()[1]!.classList.contains("selected")).toBeFalse();
+      expect(
+        ruleChip("no-light-2x2").classList.contains("selected"),
+      ).toBeFalse();
       expect(toolButton("dark").classList.contains("selected")).toBeTrue();
       expect((byId("reset-dialog") as HTMLDialogElement).open).toBeFalse();
     });
@@ -415,10 +455,11 @@ describe("LogicGridSolverEditor", () => {
 
       expect(byId("solution-view").classList.contains("hidden")).toBeFalse();
       expect(byId("editor-section").classList.contains("hidden")).toBeTrue();
-      expect(byId("solution-grid").children).toHaveLength(4);
-      expect(
-        (byId("solution-grid").children[0] as HTMLElement).dataset.color,
-      ).toBe("dark");
+      // By selector, not by child index: the merged cells' outline layer is the
+      // grid's first child, and only the squares are `.grid-cell`.
+      const solved = byId("solution-grid").querySelectorAll(".grid-cell");
+      expect(solved).toHaveLength(4);
+      expect((solved[0] as HTMLElement).dataset.color).toBe("dark");
       expect((byId("solve-puzzle") as HTMLButtonElement).disabled).toBeFalse();
     });
 
@@ -452,7 +493,7 @@ describe("LogicGridSolverEditor", () => {
     test("refuses an answer that does not satisfy the rules", async () => {
       // A 2x2 all-dark board with "no dark 2x2" switched on: the stub says
       // solved, `verify.ts` says otherwise, and the page believes `verify.ts`.
-      ruleChips()[0]!.click();
+      ruleChip("no-dark-2x2").click();
       byId("solve-puzzle").click();
       await flush();
 
@@ -473,7 +514,7 @@ describe("LogicGridSolverEditor", () => {
     test("toggling a rule drops it too", async () => {
       byId("solve-puzzle").click();
       await flush();
-      ruleChips()[0]!.click();
+      ruleChip("no-dark-2x2").click();
 
       expect(byId("solution-view").classList.contains("hidden")).toBeTrue();
     });
@@ -501,8 +542,8 @@ describe("LogicGridSolverEditor", () => {
       symbolChips()[1]!.click();
       setValue(1, "E");
       press(0, 1);
-      ruleChips()[10]!.click();
-      ruleChips()[0]!.click();
+      ruleChip("no-checkerboard").click();
+      ruleChip("no-dark-2x2").click();
 
       byId("download-config").click();
 
@@ -517,6 +558,22 @@ describe("LogicGridSolverEditor", () => {
         ],
         symbols: [{ x: 0, y: 1, type: 1, value: "E" }],
       });
+      // Not written at all on a board with no merged cells — the 139 captured
+      // fixtures predate the key and have to keep round-tripping unchanged.
+      expect("shapes" in JSON.parse(await blobs[0]!.text())).toBeFalse();
+    });
+
+    test("writes the merged cells when a board has any", async () => {
+      setSize("3", "1");
+      toolButton("merge").click();
+      // Keyboard rather than a drag: happy-dom has no layout, so pointermove
+      // hit-testing needs a stubbed elementFromPoint that this mount does not
+      // set up. Enter joins each square to the one before it.
+      typeKey(1, 0, "Enter");
+      typeKey(2, 0, "Enter");
+
+      byId("download-config").click();
+      expect(JSON.parse(await blobs[0]!.text()).shapes).toEqual([[0, 1, 2]]);
     });
 
     test("round-trips a downloaded puzzle back into the editor", async () => {
@@ -525,7 +582,7 @@ describe("LogicGridSolverEditor", () => {
       symbolChips()[0]!.click();
       setValue(0, "3");
       press(2, 1);
-      ruleChips()[4]!.click();
+      ruleChip("no-dark-1x3").click();
 
       byId("download-config").click();
       const downloaded = await blobs[0]!.text();
@@ -540,7 +597,22 @@ describe("LogicGridSolverEditor", () => {
       expect(document.querySelectorAll("#grid .grid-cell")).toHaveLength(6);
       expect(cellAt(1, 0).dataset.color).toBe("dark");
       expect(cellAt(2, 1).textContent).toBe("3");
-      expect(ruleChips()[4]!.classList.contains("selected")).toBeTrue();
+      expect(ruleChip("no-dark-1x3").classList.contains("selected")).toBeTrue();
+    });
+
+    /**
+     * The row/catalogue split, end to end. This chip is drawn beside the connect
+     * rules, roughly two thirds along the row, and the file it writes says 16 —
+     * which is what keeps every puzzle saved before it existed meaning the same
+     * thing.
+     */
+    test("writes a rule's stored index, not its position in the row", async () => {
+      ruleChip("area-two-dark").click();
+
+      byId("download-config").click();
+
+      const written = JSON.parse(await blobs[0]!.text()) as LogicGridTest;
+      expect(written.rules).toEqual([16]);
     });
   });
 
@@ -564,7 +636,7 @@ describe("LogicGridSolverEditor", () => {
       expect((byId("grid-width") as HTMLInputElement).value).toBe("2");
       expect(cellAt(0, 0).dataset.color).toBe("dark");
       expect(cellAt(1, 0).textContent).toBe("2");
-      expect(ruleChips()[11]!.classList.contains("selected")).toBeTrue();
+      expect(ruleChip("connect-dark").classList.contains("selected")).toBeTrue();
       expect(byId("warning-banner").classList.contains("hidden")).toBeTrue();
     });
 

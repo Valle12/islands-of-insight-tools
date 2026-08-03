@@ -36,6 +36,22 @@ struct Puzzle {
   Colors givens{};
   Clues clues;
   rules::RuleMask ruleMask = 0;
+  /**
+   * The merged cells: each one the squares it fuses, in the order they were
+   * entered. Empty on a plain board, and the config's `shapes` key is then
+   * omitted entirely.
+   *
+   * A merged cell is the game's irregular tile — any connected polyomino. It
+   * takes ONE colour for all of its squares and carries at most one clue, but
+   * it still contributes its full SQUARE count to an area number and is
+   * adjacent to everything any of its squares touches.
+   *
+   * Indices rather than a `Bits` here, deliberately: this is the boundary
+   * object, so the entry order has to survive `fixtureio::save`, and "two
+   * shapes claim the same square" has to stay REJECTABLE rather than be
+   * silently absorbed by a set union.
+   */
+  std::vector<std::vector<int>> shapes;
 
   [[nodiscard]] uint8_t at(const int x, const int y) const {
     return givens[slot(cellIndex(x, y))];
@@ -98,6 +114,37 @@ struct Model {
   /// Index into `letters` for each cell, or -1.
   std::vector<int> letterAt;
 
+  /**
+   * The merged cells as masks, in `puzzle.shapes` order, and which one each
+   * square belongs to (-1 where the square is its own cell).
+   *
+   * The whole shape layer lives on the VARIABLE side and nowhere else: `Bits`
+   * and `Colors` stay square-granular, and `Domains::exclude` fans out over
+   * `cellMask` so that every square of a merged cell holds an identical domain
+   * at every point of the search. Everything downstream reads those square sets
+   * unchanged and comes out right because of it — `flood`/`component` can never
+   * split a merged cell across two regions, `border`/`grown` give "adjacent to
+   * whatever any of its squares touches", and `count` counts squares, which is
+   * what an area number wants.
+   *
+   * `shapeAt` is a `std::array` rather than a `std::vector` like the tables
+   * above it because it is read inside `Domains::exclude`, the hottest function
+   * in the solver: inline in the Model it is one load rather than two. It is
+   * filled by `buildShapes`, which runs FIRST in `buildModel` — value
+   * initialisation would leave it reading as "every square is in shape 0".
+   */
+  std::vector<Bits> shapes;
+  std::array<int16_t, kMaxCells> shapeAt{};
+  /**
+   * One square per CELL: every plain playable square, plus the lowest-indexed
+   * square of each merged cell. This is the variable set anything ENUMERATING
+   * choices has to walk — the search's guess order, the look-ahead's candidate
+   * list, the underclued mode's refutation list, brute force's free set.
+   */
+  Bits representatives;
+  int cellCount = 0;
+  bool hasShapes = false;
+
   [[nodiscard]] int width() const { return puzzle.width; }
   [[nodiscard]] int height() const { return puzzle.height; }
   [[nodiscard]] bool hasRule(const rules::Rule rule) const {
@@ -105,6 +152,15 @@ struct Model {
   }
   /// The area clue's value for a cell carrying one, 0 otherwise.
   [[nodiscard]] int areaValueAt(int index) const;
+
+  /// Every square this square's CELL occupies — just itself for a plain
+  /// square, the whole polyomino for a merged one.
+  [[nodiscard]] Bits cellMask(int index) const;
+  /// The square that stands for this square's cell.
+  [[nodiscard]] int representativeOf(int index) const;
+  /// How many squares this square's cell occupies, which is what it counts for
+  /// towards an area number.
+  [[nodiscard]] int cellSize(int index) const;
 };
 
 /// Why a puzzle cannot be read or cannot possibly be solved.
@@ -118,7 +174,15 @@ enum class Problem : uint8_t {
   ClueDuplicated,
   AreaValue,
   LetterValue,
+  ShapeOffBoard,
+  ShapeOnGap,
+  ShapeOverlaps,
+  ShapeTooSmall,
+  ShapeSplit,
+  ShapeCluesDisagree,
+  ShapeGivensDisagree,
   AreaExceedsRegion,
+  AreaSmallerThanCell,
   LetterSplitByGaps,
   TooManyLettersForConnected,
 };

@@ -100,6 +100,32 @@ TEST(Profile, DeclinesWhatItCannotExpress) {
   EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::NoDark2x2}));
   EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::NoDark1x3}));
   EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::NoCheckerboard}));
+  // An area RULE needs the same state an area clue would — the frontier carries
+  // each open class's colour and letter, never its size. Declining is a
+  // correctness requirement here rather than a tidiness one: `runProfileForced`
+  // sets `proven` with no oracle gate on its forced set, so a sweep blind to a
+  // rule would enumerate a superset of the solutions and then claim the cells
+  // they disagree about were proved to go either way.
+  EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::AreaTwoDark}));
+  EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::AreaTwoLight}));
+}
+
+/**
+ * A merged cell, for the same reason again — and asserted here rather than left
+ * to `reference_test`'s `applicable` guard silently skipping those cases.
+ *
+ * The sweep carries one class slot per COLUMN and joins only leftwards and
+ * upwards, so nothing in its state can say "this square takes the colour a
+ * square two rows back already took". A sweep blind to that would enumerate
+ * colourings that split a cell in half.
+ */
+TEST(Profile, DeclinesMergedCells) {
+  const Puzzle plain = test::board({"a..", "...", "..a"});
+  ASSERT_TRUE(profile::applicable(buildModel(plain)));
+
+  Puzzle merged = plain;
+  test::withShape(merged, {{0, 1}, {1, 1}});
+  EXPECT_FALSE(profile::applicable(buildModel(merged)));
 }
 
 /// A declined board comes back as "nothing to say", never as a negative.

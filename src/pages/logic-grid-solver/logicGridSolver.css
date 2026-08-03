@@ -18,6 +18,14 @@
     color-mix(in srgb, var(--md-sys-color-outline) 42%, transparent) 0 4px,
     transparent 4px 9px
   );
+  /* The space between two squares of the grid. Named because the merged-cell
+     bridges have to span exactly it — a gap and a bridge that disagree leave a
+     hairline through the middle of a cell. */
+  --logic-seam: 6px;
+  /* Side of one grid square. A custom property because `shapeOutline.ts` has to
+     trace a merged cell at the size it is actually drawn, and that changes with
+     the viewport — see the media query at the bottom. */
+  --logic-cell: 42px;
 }
 
 body {
@@ -107,18 +115,66 @@ h2 {
 
 #grid {
   display: grid;
-  gap: 6px;
+  position: relative;
+  gap: var(--logic-seam);
   user-select: none;
   touch-action: none;
+}
+
+/* The merged cells' outlines, one path each, behind the squares — see
+   `shapeOutline.ts` for why they are not drawn by the squares themselves. It
+   sits first in the grid so the squares paint over it, and it takes no pointer
+   events so the squares keep every click. */
+#grid .shape-outline,
+#solution-grid .shape-outline {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+/* The fill and the rim come from here rather than from the drawing code, so a
+   merged cell and a plain one cannot drift apart: these are the same values the
+   `data-color` rules below put on a square. */
+.shape-outline path {
+  stroke-width: 1;
+  fill: none;
+  stroke: var(--cell-rim);
+}
+
+.shape-outline path[data-color="unknown"] {
+  --cell-rim: color-mix(
+    in srgb,
+    var(--md-sys-color-on-surface) 32%,
+    var(--md-sys-color-surface-container)
+  );
+}
+
+.shape-outline path[data-color="dark"] {
+  fill: var(--logic-dark);
+  --cell-rim: var(--logic-rim);
+}
+
+.shape-outline path[data-color="light"] {
+  fill: var(--logic-light);
+  --cell-rim: var(--logic-rim);
 }
 
 .grid-cell {
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
+  position: relative;
+  width: var(--logic-cell);
+  height: var(--logic-cell);
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 60%, white);
+  /* Held in a custom property, not written straight onto `border-color`, so a
+     merged cell's bridges can draw the SAME rim across the gap while the sides
+     they span go transparent. Each `data-color` below overrides this rather
+     than `border-color` itself. */
+  --cell-rim: color-mix(in srgb, var(--md-sys-color-outline) 60%, white);
+
+  border: 1px solid var(--cell-rim);
   border-radius: 8px;
   font-family: inherit;
   /**
@@ -141,9 +197,59 @@ h2 {
   transform: translateY(-1px);
 }
 
-/* An uncoloured cell is the one the player still has to work out, so it reads
-   as absence: no fill, dashed outline. A clue sitting on one is the game's own
-   colourless clue. */
+/* ---------------------------------------------------------------- merged --
+ *
+ * A merged cell is several grid squares acting as ONE cell. Its fill and its
+ * outline are drawn by a single SVG path per shape (`shapeOutline.ts`), so the
+ * squares themselves paint NOTHING — they keep only the clue text, the focus
+ * ring and the clicking.
+ *
+ * That is not a stylistic choice. Drawing the tile out of the squares' own
+ * borders plus a pseudo-element bridging each gap means the edge is several
+ * independently painted boxes, and Blink snaps each of them to the device pixel
+ * grid on its own — so at most zoom levels the rim steps sideways wherever two
+ * of them meet. One path is one rasterisation, and cannot crease.
+ */
+/* One square of a merged cell must not lift on its own — that would tear the
+   tile away from the outline drawn behind it. */
+#grid .grid-cell.cell-join-top:hover,
+#grid .grid-cell.cell-join-right:hover,
+#grid .grid-cell.cell-join-bottom:hover,
+#grid .grid-cell.cell-join-left:hover {
+  transform: none;
+}
+
+/* The seams are still real gaps in the grid, and a click in one has to reach
+   the cell it is inside. These cover them and paint nothing: a pseudo-element
+   hit-tests as its originating element, so the whole tile is clickable rather
+   than only the squares. Each seam is covered once, by the square left of or
+   above it, and the corner between four squares by the top-left of them. */
+.grid-cell.cell-join-right::before,
+.grid-cell.cell-join-bottom::after {
+  content: "";
+  position: absolute;
+  background: transparent;
+  border: 0;
+}
+
+.grid-cell.cell-join-right::before {
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  width: var(--logic-seam);
+}
+
+.grid-cell.cell-join-bottom::after {
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: var(--logic-seam);
+}
+
+.grid-cell.cell-join-right.cell-join-corner::before {
+  bottom: calc(-1px - var(--logic-seam));
+}
+
 /**
  * Longer labels, stepped down so they still sit inside a 42px cell.
  *
@@ -167,23 +273,32 @@ h2 {
 .grid-cell[data-color="unknown"] {
   background: transparent;
   border-style: dashed;
-  border-color: color-mix(
+  /* Opaque, rather than mixed with `transparent` as it used to be. A merged
+     cell draws its rim across several overlapping boxes — the bridge covers the
+     mitred corner where each square's rim meets its own transparent joined side
+     — and a translucent rim composites with itself there into a visible darker
+     tick. Mixed against the well behind the grid gives the same colour a
+     translucent one was showing anyway. */
+  --cell-rim: color-mix(
     in srgb,
     var(--md-sys-color-on-surface) 32%,
-    transparent
+    var(--md-sys-color-surface-container)
   );
+
   color: var(--md-sys-color-on-surface);
 }
 
 .grid-cell[data-color="dark"] {
   background: var(--logic-dark);
-  border-color: var(--logic-rim);
+  --cell-rim: var(--logic-rim);
+
   color: var(--logic-ink-on-dark);
 }
 
 .grid-cell[data-color="light"] {
   background: var(--logic-light);
-  border-color: var(--logic-rim);
+  --cell-rim: var(--logic-rim);
+
   color: var(--logic-ink-on-light);
 }
 
@@ -192,7 +307,19 @@ h2 {
 .grid-cell[data-color="unplayable"] {
   background: var(--logic-gap);
   border-style: dotted;
-  border-color: var(--md-sys-color-outline);
+  --cell-rim: var(--md-sys-color-outline);
+}
+
+/* AFTER the colours above, and that placement is the whole point: those rules
+   have the same specificity as this one, so a merged square would otherwise go
+   on painting its own rounded fill and its corners would bite into the tile at
+   every square boundary. A merged cell is drawn once, by its path. */
+.grid-cell.cell-join-top,
+.grid-cell.cell-join-right,
+.grid-cell.cell-join-bottom,
+.grid-cell.cell-join-left {
+  background: transparent;
+  border-color: transparent;
 }
 
 #tool-status {
@@ -494,7 +621,7 @@ h2 {
 
 #solution-grid {
   display: grid;
-  gap: 6px;
+  gap: var(--logic-seam);
   user-select: none;
 }
 
@@ -530,9 +657,11 @@ h2 {
     padding: 14px;
   }
 
+  :root {
+    --logic-cell: 34px;
+  }
+
   .grid-cell {
-    width: 34px;
-    height: 34px;
     font-size: 21px;
   }
 

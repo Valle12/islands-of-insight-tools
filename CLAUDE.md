@@ -60,7 +60,11 @@ bun run fuzz:lg          # logic-grid campaign into test-results/lg-fuzz. Boards
                          #  boards with no rules, which is the only way to
                          #  hammer `profile` — the cascade reaches it just on
                          #  the boards it applies to, so a default campaign
-                         #  barely touches it.
+                         #  barely touches it. `--shapes PERCENT` fuses squares
+                         #  into merged cells, off a SEPARATE rng and after the
+                         #  clues are derived — so `--shapes 0` (the default)
+                         #  regenerates every seed's old board byte for byte and
+                         #  no baseline has to be retaken.
 bun run bench:mt         # match-three bench; the TS engine in-process by default,
                          #  the native CLI with --exe. That default exe path is
                          #  the CLion release dir, so --exe is required unless
@@ -269,11 +273,26 @@ different puzzle under the same name.
 **The rule list was REGROUPED once, and that is the only time it may happen.**
 It now reads: forbidden arrangements 0–10 (dark before light in every pair),
 then `connect-dark`/`connect-light` 11–12, `one-symbol-dark`/`one-symbol-light`
-13–14, and `underclued` last at 15 because it alone changes what the answer is.
-That reorder was safe only because nothing was live and the captured fixtures
-were the only saved configs — all 69 were rewritten in the same change and
-checked to produce a byte-identical answer afterwards. Once a player has a
-downloaded config it can never happen again: appending is the only safe edit.
+13–14, `underclued` at 15 because it alone changes what the answer is, and
+`area-two-dark`/`area-two-light` appended at 16–17. That reorder was safe only
+because nothing was live and the captured fixtures were the only saved configs —
+all 69 were rewritten in the same change and checked to produce a byte-identical
+answer afterwards. Once a player has a downloaded config it can never happen
+again: appending is the only safe edit.
+
+**The row is therefore drawn in a different order from the one it is stored in.**
+The area rules had to be appended after `underclued` and belong beside the
+connect rules, so every entry carries a `group` (`arrangement`, `region`,
+`symbol`, `answer`) and `RULE_DISPLAY_ORDER` is the bands concatenated —
+stably, so a rule appended to a band lands at the end of it and no second list
+has to be kept in sync. A `group` is required by the type, which is what stops a
+rule going missing from the row; `catalog.test.ts` pins the resulting order and
+that it is a permutation of every index. **Only `buildRuleRow` reads it.**
+`toggleRule` reads the chip's `data-rule-index` and `refreshRuleRow` queries by
+`data-rule` id, so both were already position-independent — as are the e2e
+suites, which address chips by id and carry no aria snapshot of `#rule-row`.
+A test that indexes chips by DOM position is the thing this breaks, and there is
+no reason to write one.
 
 **Indices are copied in four places, and one of them cannot be avoided.**
 `catalog.test.ts` and `rules_test.cpp` pin every index on both sides — that is
@@ -283,8 +302,12 @@ from `RULES` rather than restating it. The unavoidable one is
 import TypeScript, so its board carries literal indices; the regroup moved
 `connect-dark` from 2 to 11 and silently turned that board into "no runs of two
 of either colour", and that test failing is what caught it. Anything meaning "a
-family of rules" must still LIST its members — `shortestRun` in `Rules.cpp`,
-`kRunRules` in `Verify.cpp`, `RUN_RULES` in `verify.ts`.
+family of rules" must still LIST its members — the run rules as `shortestRun` in
+`Rules.cpp`, `kRunRules` in `Verify.cpp` and `RUN_RULES` in `verify.ts`, and the
+area rules as `globalArea`, `kAreaRules` and `AREA_RULES` in the same three
+files. A DERIVED fact goes beside the family rather than into it: `impliedRun`
+is what knows an area of two forbids a run of three, deliberately kept out of
+`shortestRun` so that ladder keeps meaning what its two oracle mirrors mean.
 
 **A clue kind is a split control, and its value field lives INSIDE the row.**
 Each kind renders as chip + divider + its own `<input class="symbol-value">`,
@@ -322,6 +345,72 @@ Painting `UNPLAYABLE` drops the cell's clue (a gap is not clued, and the
 validator refuses a file that says otherwise); the eraser clears both layers;
 colouring a clued cell keeps its clue.
 
+**A cell is not always one grid square.** The game's harder boards fuse several
+squares into one irregular **cell** — a 1x3 bar, an L, even a glyph shaped like
+a digital "2". `shapes.ts` is that third layer (`ShapeLayer`, flat
+`y * gridWidth + x` indices, ids internal and never saved), and the rest of the
+page treats a merged cell as one thing: one colour across every square, at most
+one clue, and every colour or clue stroke fanned out over `cellSquares`.
+
+- **The gestures are per SQUARE, and the stroke's target is fixed at
+  pointerdown.** Left-drag grows the cell under the first square (a new one when
+  that square was plain); every square the drag touches joins it and *leaves*
+  whatever cell it was in. Right-drag takes each square it touches back out.
+  Enter joins the focused square to the neighbour before it in reading order, so
+  the tool is not pointer-only. The chip sits in `#color-row` beside the gap
+  tool rather than in `#command-row`: like that one it changes what the board
+  IS, rather than doing something to it once.
+- **The donor settles immediately, the target only at pointerup.** Pulling
+  squares out really does leave the rest in pieces — right-dragging the middle of
+  a 3x3 gives a donut and a loose square — so `normalize` splits it into
+  4-connected components and dissolves any piece down to one square. The target
+  is left alone until the stroke ends because mid-drag it is *allowed* to be a
+  single square or briefly in two pieces (a fast drag skips squares between two
+  pointermoves), and settling it then dissolves the cell out from under its own
+  stroke. That was the first bug this feature had.
+- **Restructuring clears.** Every square a merge or split touched goes back to
+  uncoloured and unclued: the squares coming together may disagree about both,
+  and picking a winner would be a rule nobody could predict from the board.
+- A clue is stored and drawn at the cell's **anchor** — the member nearest its
+  bounding-box centre. The validator accepts a clue on any member (lenient in),
+  and `loadConfig` moves it to the anchor (canonical out).
+
+**A merged cell is drawn as ONE SVG path, not out of its squares' borders.**
+`shapeOutline.ts` traces the cell's footprint — the squares, the gap between
+each pair of shape-mates, and the little square between four of them only where
+all four belong to the cell — and emits one path with arcs on the convex
+corners and square concave ones. `outlineLayer.ts` puts those paths in an
+`<svg>` behind the squares, shared by the editor and the solution view; the
+squares of a merged cell then paint NOTHING and keep only the clue text and the
+clicking.
+
+That is not a stylistic choice, and reverting it to CSS will bring the bug back:
+
+- **Several boxes cannot draw one straight edge.** Borders on each square plus a
+  pseudo-element bridging each gap means the edge is several independently
+  painted boxes, and Blink snaps each to the device pixel grid on its own — so
+  at most zoom levels the rim steps sideways wherever two of them meet. Measured
+  across 100/110/125/150/175/200/250/300/400/500%: only a few ratios come out
+  clean. `contain`, `isolation`, `opacity`, 2D and 3D transforms, dropping the
+  bridge's `z-index` and reshaping the bridge were all measured and none help,
+  because none makes it one painted object. One path is one rasterisation, and
+  measures straight at every one of those ratios.
+- **The path is pulled half a stroke INSIDE the footprint.** An SVG stroke
+  straddles its path while a CSS border sits inside the box, so without that a
+  merged cell's rim would sit half a pixel proud of a plain cell's and blur
+  across two device pixels at 100%.
+- **The rule that stops the squares painting has to come AFTER the `data-color`
+  rules.** They have the same specificity, so ordered the other way a merged
+  square goes on painting its own rounded fill and its corners bite into the
+  tile at every square boundary.
+- **The geometry is read from `--logic-cell` at draw time, and retraced by a
+  `ResizeObserver`.** The outline is in pixels, and the mobile breakpoint moves
+  a square from 42px to 34px.
+- **The seams are still real gaps, so the bridges survive as INVISIBLE hit
+  targets.** A pseudo-element hit-tests as its originating element, which is
+  what makes the whole tile clickable rather than only its squares; they paint
+  nothing at all.
+
 ### The logic grid solver
 
 `src/pages/logic-grid-solver/a-star/` (the directory name is the repo's
@@ -341,6 +430,59 @@ That is a different computation, not a different search, and it is why the
 result carries `proven`: a partial deduction that says it is partial is worth
 showing, and one that pretends to be the whole answer is not.
 
+**A merged cell is ONE variable spanning several squares, and the whole of that
+lives in `Domains::exclude`.** `Bits` and `Colors` stay square-granular, and the
+only place a domain shrinks fans out over the cell's mask — which makes
+**every square of a merged cell hold an identical domain at every point of the
+search**. Everything downstream then reads those square sets unchanged and comes
+out right *because* of it: `flood`/`component` can never split a cell across two
+regions, `grown`/`border` give "adjacent to whatever any of its squares
+touches", and `count` counts squares, which is what an area number wants. The
+rule for touching this: **anything that READS a `Bits`/`Colors` needs no change;
+anything that WRITES a domain, ENUMERATES variables, or BUILDS a clause does.**
+
+Five things follow, and each is load-bearing:
+
+- **The arrangement rules count SQUARES, not cells.** A merged dark 1x2 *is* a
+  dark 1x2. `Rules.cpp` is untouched by any of this, and `hasSquare` /
+  `longestRun` / `hasCheckerboard` in both oracles are correct unmodified — that
+  is the decision made executable. The one wrinkle is at clause construction: a
+  pattern instance may now name the same cell twice. Two of its squares wanting
+  the same colour **collapse to one literal** (left in, the second copy reads as
+  a second free cell and the clause can never fire as a unit — sound but deaf),
+  and wanting *both* colours **drops the instance**, like one running off the
+  board.
+- **A clause can now hold ONE literal, and nothing used to look at those.**
+  Clauses are only rescanned off the queue of newly decided squares, and at the
+  root that queue holds the givens. A plain board cannot produce a unit clause;
+  a merged 1x3 bar under "no dark 1x3" compiles to exactly one — "this cell is
+  not dark" — so `applyGivens` sweeps the clause list once at the root. Without
+  that the sharpest thing about merged cells silently does nothing.
+- **`Domains::exclude` must not short-circuit on the first failure.** Bailing
+  early leaves one square with nothing it can be while its mates are still
+  undecided, i.e. the invariant broken in the window where the failure is still
+  unwinding through callers that go on reading squares.
+- **`Verify` gains `fusedProblem`, and it earns its keep outside the search.**
+  Nothing the search produces can split a cell — but `verify::check` also gates a
+  fixture's own `solution` key, the page's `verify` export taking an arbitrary
+  array from JS, and brute force. It is the one place that says out loud what a
+  merged cell is, and what entitles every check after it to read squares.
+- **`Profile::applicable` declines any board with a merged cell**, first, ahead
+  of everything else. The frontier carries one class slot per COLUMN joined only
+  leftwards and upwards, so nothing in it can say "this square takes the colour a
+  square two rows back already took" — and `runProfileForced` sets `proven` with
+  no oracle gate, so a sweep blind to the fusion would enumerate a superset and
+  then claim the cells they disagree about were proved free.
+
+Everything that enumerates *choices* moved to one entry per cell — `Model::
+representatives` — because a probe is two full propagations and a refutation is a
+whole search: `Probe::probeToFixpoint`, `Search::buildOrder` (which also pulls a
+merged cell into the frontier whole, so a 1x5 bar is one hop from a clue rather
+than five), `Underclued::candidatesFrom`, and `Reference::enumerate`, whose
+`kMaxFreeCells` now counts cells. `Underclued` additionally had to write the
+whole `cellMask`, not just the representative — that answer is what the page
+draws, and a merged cell reported half painted would be drawn half painted.
+
 The engine's load-bearing pieces:
 
 - **`Verify.cpp` and `verify.ts` share nothing with the search.** Both re-scan
@@ -353,23 +495,54 @@ The engine's load-bearing pieces:
   propagator that removes a colouring which WAS one — in normal mode that is
   just a different valid answer, and underclued it is a confidently wrong one.
   `reference_test.cpp` compares whole solution sets and exact forced sets
-  against brute force over a shape × rule-set sweep. Do not delete it, and do
-  not let it stop covering a propagator you added.
+  against brute force over a board × rule-set sweep. Do not delete it, and do
+  not let it stop covering a propagator you added. (Its local `Shape` struct was
+  renamed `Board` when merged cells arrived — a shape is now a merged cell.) It
+  enumerates one bit per CELL, which makes it depend on
+  `representatives`/`cellMask`, so `CellEnumerationMatchesSquareEnumeration`
+  buys that independence back: sweep every colouring of the SQUARES on a small
+  merged board, keep what the oracle accepts, and the survivors must be exactly
+  what `enumerate` produced. That is what makes `fusedProblem` and `cellMask`
+  mutually load-bearing.
 - **The pattern table is the extensibility claim, and it has been cashed in.**
   Rules 0–10 compile into one list of forbidden arrangements in `Rules.cpp`, and
-  one propagator drives all of them. The 1x5 pair (rules 12/13)
+  one propagator drives all of them. The 1x5 pair (rules 8/9)
   was added afterwards and cost one row in `shortestRun`, one enum entry, one
   row in each of the two `Verify` oracles, and no new code anywhere — which is
   what the claim was. The only thing to watch is `kMaxPatternCells`: it sizes
   `Clause`, so a pattern longer than every existing one has to raise it (a
-  `static_assert` in `fromCells` catches the omission at compile time). Two
+  `static_assert` in `fromCells` catches the omission at compile time). Three
   things happen there beyond translation: a shorter run rule **subsumes** the longer
   ones for its colour (generating both only adds instances that can never fire),
-  and both connect rules being on **implies** the checkerboard patterns — a
+  both connect rules being on **implies** the checkerboard patterns — a
   Jordan-curve argument, spelled out in the source, that holds with holes in the
-  board. The table may only ever hold *containment* rules: instances touching a
-  gap are dropped, which is right for "this arrangement never occurs" and wrong
-  for anything else.
+  board — and an area rule contributes its **trominoes**, below. The table may
+  only ever hold *containment* rules: instances touching a gap are dropped, which
+  is right for "this arrangement never occurs" and wrong for anything else.
+- **"Regions have area 2" (rules 16/17) is HALF a pattern rule, and that is the
+  second time the claim above was cashed in.** "No region bigger than two" is a
+  forbidden arrangement after all: a connected set of three or more cells always
+  contains a connected THREE, and the connected trominoes are exactly the two
+  straight ones plus the four bent ones. So that half compiles into the table and
+  costs no solver code at all — it rides unit propagation, the occurrence lists,
+  the DFS and `GenerateCommands::cost()`. The straight pair is left to `addRuns`
+  via `impliedRun`, because a duplicate clause would make one broken straight
+  score **two** in that cost function and bias the generator's local search.
+  "No region SMALLER than two" is the half the table cannot hold, and it shows
+  why the containment restriction is real: "this cell dark and all four
+  neighbours light" is only forbidden where all four neighbours exist, and an
+  instance running off the board or across a gap is DROPPED rather than
+  shortened — which is exactly where the rule bites. It is `regionAreaTwo` in
+  `Propagate.cpp` instead, two bitboard sweeps: four shifts find every cell with
+  nothing beside it that could ever join it, and a walk over the cells already
+  holding the colour forces a partner when only one candidate is left. That
+  propagator is **not** an optimisation — `oracleRejections` is asserted zero in
+  three suites, so a rule the propagators cannot finish enforcing fails tests
+  rather than merely running slowly. Nothing else needed changing:
+  `mergeLimits` and `regionsConsistent` are subsumed (every merge the rule
+  forbids witnesses a tromino clause), `cardinality` has no exact target to use
+  because zero cells of a colour is legal, and `Reference.cpp` cost zero lines
+  because it takes its legality entirely from `Verify`.
 - **"One symbol per area" (rules 13/14) is two deductions, and the game names
   them.** *Exactly one means less than two* is a refutation — a finished piece
   already holding two clues can never be legal, and a cell that would weld two
@@ -574,15 +747,15 @@ Unlike before, **the page keeps a real model** (`maxValues` / `values` / `button
 
 `test/resources/phasic-dial-solver/`, `test/resources/match-three-solver/` and `test/resources/logic-grid-solver/` are discovered by directory listing rather than a hard-coded list, so dropping a captured fixture in makes it run with no code change.
 
-**`test/resources/logic-grid-solver/` holds boards captured from the game and NOTHING else** — 111 of them (`logicGridTest.json`, then `logicGridTest1..110.json`), 3×3 to 21×15. No two are the same puzzle: checked pairwise under all eight square symmetries, both exactly and by cell distance, with zero pairs inside 12%. `logicGridTest68` is a fully painted board, which is a real capture and the one that exercises handing a FINISHED grid back for checking. Anything a test invents lives in `test/logic-grid-solver/boards.ts` — a picture parser plus the named boards (solvable, underclued, impossible, the 1x5 runs, the deep search, and one using every part of the download format), imported by the unit suites **and** the e2e ones so a board cannot drift between them. The split is the point: a sweep over the corpus measures the solver against real puzzles, and a made-up board in that directory would quietly pad the number. `wasm.test.ts` runs its hand-built boards *before* the captured ones for the same reason — so the sweep still means something if the directory is ever empty.
+**`test/resources/logic-grid-solver/` holds boards captured from the game and NOTHING else** — 157 of them (`logicGridTest.json`, then `logicGridTest1..156.json`), 3×3 to 21×15. No two are the same puzzle: every pair checked under all eight square symmetries, exactly, over the whole corpus; the first 111 were additionally compared by cell distance with zero pairs inside 12%. That exact check is the one worth re-running when boards land, and it is worth running at all because a captured board's `cells` is usually all-unknown — what identifies these puzzles is the gaps, the clues and the rule set, so two same-sized boards with the same rules and no clues really are the same puzzle. `logicGridTest111..138` were captured for the area rules and 18 of them carry `area-two-dark`; nothing yet carries `area-two-light`. `logicGridTest139..156` were captured for the merged cells, and **6 of them carry `shapes`** — up to 30 merged cells on an 11×8 and 25 on a 15×15. `logicGridTest68` is a fully painted board, which is a real capture and the one that exercises handing a FINISHED grid back for checking. Anything a test invents lives in `test/logic-grid-solver/boards.ts` — a picture parser plus the named boards (solvable, underclued, impossible, the 1x5 runs, the deep search, one carrying merged cells, and one using every part of the download format), imported by the unit suites **and** the e2e ones so a board cannot drift between them. The split is the point: a sweep over the corpus measures the solver against real puzzles, and a made-up board in that directory would quietly pad the number. `wasm.test.ts` runs its hand-built boards *before* the captured ones for the same reason — so the sweep still means something if the directory is ever empty.
 
-**The two sweeps over the corpus ask different questions, and their budgets follow from that.** `wasm.test.ts` checks AGREEMENT — the shipped module never errors, its oracle never rejects its own propagators, any complete answer passes `verify.ts`, no two arms disagree about solvability — and races all four arms, so it keeps a short 2 s per-arm budget and lets the slow boards report `unsolved` (which is already left out of the vote). The C++ `fixtures_test.cpp` is where **"the corpus still answers"** is asserted, one engine per board at 90 s (`logicGridTest67` needs ~38 s of that; everything else is milliseconds). Do not move that claim into the TS sweep: four arms × the slowest board is four times the cost for the same fact. Do keep a deep board in the TS sweep — `deepSearchBoard` — because the stack overflow below was wasm-only and the native lane could never have caught it.
+**The two sweeps over the corpus ask different questions, and their budgets follow from that.** `wasm.test.ts` checks AGREEMENT — the shipped module never errors, its oracle never rejects its own propagators, any complete answer passes `verify.ts`, no two arms disagree about solvability — and races all four arms, so it keeps a short 2 s per-arm budget and lets the slow boards report `unsolved` (which is already left out of the vote). The C++ `fixtures_test.cpp` is where **"the corpus still answers"** is asserted, one engine per board at 90 s (`logicGridTest67` needs 26–38 s of that depending on the machine; everything else is milliseconds). Do not move that claim into the TS sweep: four arms × the slowest board is four times the cost for the same fact. Do keep a deep board in the TS sweep — `deepSearchBoard` — because the stack overflow below was wasm-only and the native lane could never have caught it.
 
-**All 111 answer**: 55 of 55 plain boards solved and verified, and **56 of 56 underclued boards `deduced` AND `proven`** — that mode is no longer covered only by `reference_test.cpp` and `fuzz:lg`. 48 never branch at all (`cascade:deduce`), 27 come out of the profile sweep, 33 out of the underclued refutation loop, 3 out of the DFS. Total search across the corpus is 38.8 s, of which 37 s is `logicGridTest67` alone; only two other boards pass 200 ms. `fixtures_test.cpp` asserts every board answers, with **no exception list**: a captured board that does not come out is either a mis-entry or a hole in the engine, and both deserve a red test rather than an entry on a list.
+**All 157 answer** (25.3 s for the whole sweep). Of the 139 that predate merged cells: 83 of 83 plain boards solved and verified, and **56 of 56 underclued boards `deduced` AND `proven`** — that mode is no longer covered only by `reference_test.cpp` and `fuzz:lg`. 74 never branch at all (`cascade:deduce`), 27 come out of the profile sweep, 33 out of the underclued refutation loop, 5 out of the DFS. Total search across the corpus measures 27.2 s, of which 25.6 s is `logicGridTest67` alone; only two other boards pass 200 ms. (Board 67 was 37 s when first measured and is the one number here that moves with the machine — everything else is milliseconds, so the total is really just that board.) `fixtures_test.cpp` asserts every board answers, with **no exception list**: a captured board that does not come out is either a mis-entry or a hole in the engine, and both deserve a red test rather than an entry on a list.
 
 **`logicGridTest67` is where the profile sweep came from, and it is also a lesson about extrapolating.** It is 15×15, four letter pairs, no rules, and the DFS does not touch it in ten million nodes. I concluded from small analogues that it was *impossible* — 5×4 refuted in 86 nodes, 6×5 in 4 390, 7×6 in 1 357 188, nothing larger refuted at all — and that was **wrong**. Those boards are unsolvable for lack of ROOM, not for topology: the interleaving argument needs every terminal on the outer face, and this board's `(5,13)` is interior, so the regions nest instead of crossing. The answer is four nested spiral arms, sizes 127/62/28/8, and the sweep finds it in 38 s natively, 45 s in the browser. `Profile.InterleavedPairsWithNoRoomAreImpossible` pins the 3×3 where the obstruction is real, next to the note that the same shape with room is fine — the two cases look identical and are not.
 
-Sweeps over the corpus assert what holds whatever a board turns out to be — the module never errors, its oracle never rejects its own propagators' work, any complete answer verifies — rather than that a board comes out solved. A generated fixture may also carry an optional `solution` key, which `FixtureIo` reads back and the C++ sweep uses to check that no cell reported *forced* disagrees with a known solution; the page's validator drops the key, so such a file still loads into the editor. Captured fixtures do not carry it, and `config.test.ts` asserts a byte-identical round-trip through `validateConfig`. The other fixture families are enumerated explicitly: the C++ suites run rollingBlocksTest 1–48 and shiftingMosaicTest 1–43, and `test/rolling-blocks-solver/aStar.slow.test.ts` runs the same full 1–48 range through wasm on the cascade engine (120 s per-test timeout, 90 s solve budget). Real captured rolling-blocks boards top out at 13×15 / 8 blocks / dimension-6 blocks / 83 must-touch — the 64×64 caps and fuzz sizes are stress headroom, not game reality.
+Sweeps over the corpus assert what holds whatever a board turns out to be — the module never errors, its oracle never rejects its own propagators' work, any complete answer verifies — rather than that a board comes out solved. A generated fixture may also carry an optional `solution` key, which `FixtureIo` reads back and the C++ sweep uses to check that no cell reported *forced* disagrees with a known solution; the page's validator drops the key, so such a file still loads into the editor. Captured fixtures do not carry it, and `config.test.ts` asserts a byte-identical round-trip through `validateConfig`. **`shapes` is the format's other optional key** — an array per merged cell of flat `y * gridWidth + x` indices, row-major, unlike `cells` and `solution` in the same file. It is **omitted entirely rather than written as `[]`** on a board with none, in the page's writer and in `fixtureio::save` alike, because all 139 captured fixtures predate it and that round-trip is exact. `wasmBridge.ts` now **exports `toPuzzle`** for the same class of reason `PORTFOLIO` is exported: `wasm.test.ts` kept its own copy of the payload, so the whole-corpus sweep went green while never once sending the new key — the merged board in it is what caught that, and only because the page's own checker refused the answer. The other fixture families are enumerated explicitly: the C++ suites run rollingBlocksTest 1–48 and shiftingMosaicTest 1–43, and `test/rolling-blocks-solver/aStar.slow.test.ts` runs the same full 1–48 range through wasm on the cascade engine (120 s per-test timeout, 90 s solve budget). Real captured rolling-blocks boards top out at 13×15 / 8 blocks / dimension-6 blocks / 83 must-touch — the 64×64 caps and fuzz sizes are stress headroom, not game reality.
 
 `test/resources/match-three-solver/` holds 52 boards captured from the game (`matchThreeTest.json`, then `matchThreeTest1..51.json`), swept by directory listing — `config.test.ts` (format), `engine.test.ts` (legal game state), `engine.solve.slow.test.ts` (TypeScript engine), `wasm.slow.test.ts` (C++ engine) and the C++ `fixtures_test.cpp`. They span 2×2 to 13×23, 1 to 20 moves, with and without blockades, and between them use every symbol.
 
@@ -698,15 +871,22 @@ Two traps, both measured:
 
 - **Call it with no `uri`.** Passing an explicit `uri` came back with a mangled `file://wsl.localhost/...` path and an empty array — indistinguishable from a clean file. The argless call lists every known file and reports `linesInFile` for the ones actually loaded, which is how you tell "clean" from "not analyzed".
 - An empty result for a file the IDE never opened is meaningless.
-- **The result lags the file by about one call, in both directions.** On a
-  freshly focused file the FIRST call can come back `[]` and the second
-  return real findings — measured on `SearchProver.cpp`, where one empty
-  result would have read as a clean pass. After an edit the reverse
-  happens: the finding you just fixed is re-reported once, against stale
-  ranges, before the file settles. So **query twice**, and treat a finding
-  that survived a fix which plainly addressed it as stale until a second
-  call confirms it. Three consecutive empties is the practical bar for
-  calling a `.cpp` clean.
+- **The result lags the file, in both directions, by more calls than you
+  expect.** On a freshly focused file the FIRST call can come back `[]` and
+  the second return real findings — measured on `SearchProver.cpp`, where
+  one empty result would have read as a clean pass. After an edit the
+  reverse happens: the finding you just fixed keeps being re-reported
+  against stale ranges before the file settles. **Three consecutive
+  empties is the bar for calling a `.cpp` clean.**
+  **A stale finding can survive three calls, and a STABLE range is not
+  evidence it is real.** Measured 2026-08-03 on `test/puzzle_test.cpp`: a
+  `std::to_underlying` finding was re-reported three times after the fix,
+  its range shifting once and then holding steady for two calls, before
+  going clean on the fourth with no further edit. Ranges settling looks
+  exactly like a genuine finding and is not one. So never conclude from
+  the tool alone — **go read the file and count the occurrences of what
+  it is complaining about**. One already-correct cast in the whole file is
+  what settled that case; the tool caught up afterwards.
 
 **A header is not independently analysed.** Sonar's C++ analysis runs over
 translation units, so `getDiagnostics` on a focused `.h` reports nothing

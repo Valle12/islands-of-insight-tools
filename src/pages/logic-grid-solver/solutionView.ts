@@ -1,6 +1,8 @@
+import { markGroupJoins } from "../../util/gridOutline";
 import type { LogicGridClue, LogicGridTest } from "../../util/types";
 import { UNKNOWN } from "./cell";
 import { dressCell } from "./cellView";
+import { createOutlineLayer, drawShapeOutlines } from "./outlineLayer";
 
 export interface SolutionViewData {
   readonly config: LogicGridTest;
@@ -65,9 +67,26 @@ export class SolutionView {
         value: symbol.value,
       });
 
+    // Which merged cell each square is in, so the answer is drawn with the same
+    // tiles the editor showed. A square with no entry is its own cell.
+    const cellOf = new Map<number, number>();
+    (config.shapes ?? []).forEach((shape, id) => {
+      for (const square of shape) cellOf.set(square, id);
+    });
+    const sameCell = (x: number, y: number, nx: number, ny: number) => {
+      if (nx < 0 || nx >= config.gridWidth || ny < 0 || ny >= config.gridHeight)
+        return false;
+      const id = cellOf.get(y * config.gridWidth + x);
+      return id !== undefined && cellOf.get(ny * config.gridWidth + nx) === id;
+    };
+
     // One fragment, one insertion: appending cell by cell to a live grid makes
     // the browser lay the whole thing out on every one of them.
     const fragment = document.createDocumentFragment();
+    // First, so every square paints over it — the merged cells are drawn as one
+    // path each, exactly as the editor draws them.
+    const outlines = createOutlineLayer();
+    fragment.appendChild(outlines);
     for (let y = 0; y < config.gridHeight; y++) {
       for (let x = 0; x < config.gridWidth; x++) {
         const cell = document.createElement("div");
@@ -78,14 +97,26 @@ export class SolutionView {
         if (color !== UNKNOWN && config.cells[x]![y] === UNKNOWN)
           cell.dataset.deduced = "true";
         dressCell(cell, color, clues.get(`${x},${y}`) ?? null, x, y);
+        markGroupJoins(cell, x, y, (nx, ny) => sameCell(x, y, nx, ny));
         fragment.appendChild(cell);
       }
     }
     this.grid.replaceChildren(fragment);
+    drawShapeOutlines(outlines, {
+      shapes: config.shapes ?? [],
+      gridWidth: config.gridWidth,
+      gridHeight: config.gridHeight,
+      colorOf: square => cells[square] ?? UNKNOWN,
+      host: this.grid,
+    });
 
+    // "squares" once the board has merged cells, because that is what these
+    // two numbers count — the solver measures the board in squares throughout,
+    // and a 20-cell board made of 25 squares would otherwise report "25 cells".
+    const unit = config.shapes?.length ? "squares" : "cells";
     this.count.textContent = data.underclued
-      ? `${data.decided} of ${data.playable} cells deduced`
-      : `${data.playable} cells`;
+      ? `${data.decided} of ${data.playable} ${unit} deduced`
+      : `${data.playable} ${unit}`;
     this.note.textContent = noteFor(data);
   }
 }

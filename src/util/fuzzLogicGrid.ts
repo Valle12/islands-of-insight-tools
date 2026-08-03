@@ -74,6 +74,12 @@ function parseArgs(argv: string[]) {
     engine: "",
     /** Passed to `--generate`; `0` asks for boards with no rules at all. */
     rules: -1,
+    /**
+     * Roughly what percentage of each board's squares to fuse into merged
+     * cells. 0 — the default — leaves the generator's rng untouched, so a
+     * campaign without it reproduces exactly the boards it always did.
+     */
+    shapes: 0,
   };
   /**
    * A flag's value as a number, or a hard stop.
@@ -98,6 +104,7 @@ function parseArgs(argv: string[]) {
     "--kind": next => (opts.kind = next()),
     "--engine": next => (opts.engine = next()),
     "--rules": next => (opts.rules = number("--rules", next())),
+    "--shapes": next => (opts.shapes = number("--shapes", next())),
     "--width": next => (opts.width = number("--width", next())),
     "--height": next => (opts.height = number("--height", next())),
     "--exe": next => {
@@ -128,6 +135,7 @@ async function generate(opts: Options, path: string, seed: number) {
   if (opts.width > 0) args.push("--width", String(opts.width));
   if (opts.height > 0) args.push("--height", String(opts.height));
   if (opts.rules >= 0) args.push("--rules", String(opts.rules));
+  if (opts.shapes > 0) args.push("--shapes", String(opts.shapes));
   const { exitCode } = await runCli(opts.exe, args, 120_000);
   return exitCode === 0;
 }
