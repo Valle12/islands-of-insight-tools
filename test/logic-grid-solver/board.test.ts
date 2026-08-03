@@ -729,8 +729,9 @@ describe("Board (logic grid)", () => {
 
     /**
      * Colouring cannot be pointer-only on this page, and nor should merging be.
-     * A keystroke has no drag, so it joins the focused square to the neighbour
-     * before it in reading order — walk the shape and press Enter on each.
+     * A keystroke has no drag, so it joins the focused square to a fixed
+     * neighbour: the one to its LEFT, or the one ABOVE when it is in column 0.
+     * Walk the shape and press Enter on each square.
      */
     test("Enter joins a square to the cell before it", () => {
       const board = makeBoard(4, 3, "merge");
@@ -750,6 +751,55 @@ describe("Board (logic grid)", () => {
       const board = makeBoard(4, 3, "merge");
       type(0, 0, "Enter");
       expect(board.getShapes()).toBeUndefined();
+    });
+
+    /**
+     * A click that merges nothing must cost nothing. The stroke claims the
+     * square into a cell of one, and the pointerup dissolves it again — so if
+     * the clear ran on the way in, a stray click would quietly wipe a painted,
+     * clued square and leave no merged cell behind to show for it.
+     */
+    test("a click that merges nothing leaves the square alone", () => {
+      const board = makeBoard(4, 3, "dark");
+      press(0, 0, LEFT);
+      release();
+      board.setSelectedTool("symbol");
+      board.setSymbolValue(4);
+      press(0, 0, LEFT);
+      release();
+      expect(board.getSymbols()).toEqual([{ x: 0, y: 0, type: 0, value: 4 }]);
+
+      board.setSelectedTool("merge");
+      press(0, 0, LEFT);
+      release();
+      expect(board.getShapes()).toBeUndefined();
+      expect(board.getCells()[0]![0]).toBe(DARK);
+      expect(board.getSymbols()).toEqual([{ x: 0, y: 0, type: 0, value: 4 }]);
+    });
+
+    /**
+     * The merge tool's secondary action, which the pointer gets on the right
+     * button. Without it a keyboard user could build a merged cell and never
+     * take a square back out of one.
+     */
+    test("Backspace takes a square back out of its cell", () => {
+      const board = makeBoard(4, 3, "merge");
+      type(1, 0, "Enter");
+      type(2, 0, "Enter");
+      expect(board.getShapes()).toEqual([[0, 1, 2]]);
+
+      type(2, 0, "Backspace");
+      expect(board.getShapes()).toEqual([[0, 1]]);
+    });
+
+    test("Backspace still lifts a clue when merging is not selected", () => {
+      const board = makeBoard(4, 3, "symbol");
+      board.setSymbolValue(2);
+      press(1, 1, LEFT);
+      release();
+      expect(board.getSymbols()).toHaveLength(1);
+      type(1, 1, "Backspace");
+      expect(board.getSymbols()).toEqual([]);
     });
 
     test("loading a config restores its merged cells", () => {

@@ -166,8 +166,9 @@ export const areaTwoBoard = (): LogicGridTest =>
  * and the whole bar is forced light before anything is guessed — the rules
  * count squares, and fusing them does not hide the run they make. The L spans a
  * 2x2 diagonal, which is the pattern instance the compiler drops rather than
- * collapses. And the area clue counts five squares across two merged cells plus
- * a plain one, which is the "still counts for every square it is made of" half.
+ * collapses. It carries no clues: what it is for is the two halves of clause
+ * construction through the real wasm, and an area number counting a merged
+ * cell's squares is pinned by `verify.test.ts` and by the C++ brute-force sweep.
  */
 export const mergedCellBoard = (): LogicGridTest => {
   const config = board(["...", "...", "..."], ["no-dark-1x3"]);

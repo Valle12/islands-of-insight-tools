@@ -193,6 +193,9 @@ TEST(Shapes, AClauseReachesAMergedCellThroughOneSquareOnly) {
     EXPECT_LE(mentions, 1);
   }
   EXPECT_GT(clausesOver(model, cellIndex(1, 1)), 0);
+  // And nothing under the second square: a duplicate entry there would satisfy
+  // the loop above while breaking the occurrence contract it describes.
+  EXPECT_EQ(clausesOver(model, cellIndex(1, 2)), 0);
 }
 
 TEST(Shapes, APlainBoardKnowsItHasNone) {

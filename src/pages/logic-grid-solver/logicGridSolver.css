@@ -173,6 +173,7 @@ h2 {
      they span go transparent. Each `data-color` below overrides this rather
      than `border-color` itself. */
   --cell-rim: color-mix(in srgb, var(--md-sys-color-outline) 60%, white);
+
   border: 1px solid var(--cell-rim);
   border-radius: 8px;
   font-family: inherit;
@@ -283,18 +284,21 @@ h2 {
     var(--md-sys-color-on-surface) 32%,
     var(--md-sys-color-surface-container)
   );
+
   color: var(--md-sys-color-on-surface);
 }
 
 .grid-cell[data-color="dark"] {
   background: var(--logic-dark);
   --cell-rim: var(--logic-rim);
+
   color: var(--logic-ink-on-dark);
 }
 
 .grid-cell[data-color="light"] {
   background: var(--logic-light);
   --cell-rim: var(--logic-rim);
+
   color: var(--logic-ink-on-light);
 }
 

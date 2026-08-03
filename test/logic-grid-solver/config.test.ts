@@ -173,8 +173,8 @@ describe("validateConfig (logic grid)", () => {
     ],
     [
       "a square in two merged cells",
-      { ...validConfig, shapes: [[0, 1], [1, 4]] },
-      "Column 2, row 1 belongs to more than one merged cell.",
+      { ...validConfig, shapes: [[3, 4], [4, 3]] },
+      "Column 2, row 2 belongs to more than one merged cell.",
     ],
     [
       "a square listed twice in one merged cell",
@@ -187,14 +187,19 @@ describe("validateConfig (logic grid)", () => {
       "Every merged cell must be one connected shape.",
     ],
     [
+      "a merged cell painted in two colours",
+      { ...validConfig, shapes: [[0, 3]] },
+      "Column 1, row 2 is a different colour from the rest of its merged cell.",
+    ],
+    [
       "two symbols on one merged cell",
       {
         ...validConfig,
         symbols: [
-          { x: 0, y: 0, type: 0, value: 2 },
-          { x: 1, y: 0, type: 1, value: "B" },
+          { x: 0, y: 1, type: 0, value: 2 },
+          { x: 1, y: 1, type: 1, value: "B" },
         ],
-        shapes: [[0, 1]],
+        shapes: [[3, 4]],
       },
       "A merged cell carries more than one symbol.",
     ],
@@ -208,10 +213,12 @@ describe("validateConfig (logic grid)", () => {
   });
 
   test("accepts merged cells and keeps them", () => {
-    const result = validateConfig({ ...clone(), shapes: [[0, 1]] });
+    // Squares 3 and 4 are the two uncoloured ones in row 2: a merged cell has
+    // to agree about its colour, which is what the rejection below pins.
+    const result = validateConfig({ ...clone(), shapes: [[3, 4]] });
     expect(result.ok).toBeTrue();
     if (!result.ok) return;
-    expect(result.config.shapes).toEqual([[0, 1]]);
+    expect(result.config.shapes).toEqual([[3, 4]]);
   });
 
   /**

@@ -172,7 +172,31 @@ function shapeError(
     }
     claimed.add(square as number);
   }
-  return connectedError(shape as number[], gridWidth);
+
+  // Connectivity first, then agreement — the same order the solver's own
+  // `structureProblem` uses, so the two name the same fault on the same file.
+  const squares = shape as number[];
+  const broken = connectedError(squares, gridWidth);
+  if (broken !== null) return broken;
+
+  // Every square of a merged cell holds ONE colour, so a file that paints them
+  // differently describes a cell that cannot exist. The editor cannot produce
+  // one — restructuring clears — but an imported file can, and the solver
+  // refuses it, so accepting it here would only turn a clear message into a
+  // failure inside wasm.
+  const given = colorAt(cells, squares[0]!, gridWidth);
+  const split = squares.find(
+    square => colorAt(cells, square, gridWidth) !== given,
+  );
+  if (split === undefined) return null;
+  const x = split % gridWidth;
+  const y = Math.floor(split / gridWidth);
+  return `Column ${x + 1}, row ${y + 1} is a different colour from the rest of its merged cell.`;
+}
+
+/** The colour on a square, by its flat index. */
+function colorAt(cells: number[][], square: number, gridWidth: number): number {
+  return cells[square % gridWidth]![Math.floor(square / gridWidth)]!;
 }
 
 /**

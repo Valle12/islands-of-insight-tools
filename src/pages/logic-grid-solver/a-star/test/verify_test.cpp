@@ -252,10 +252,11 @@ TEST(Verify, AnAreaClueCountsTheSquaresOfTheCellsInItsRegion) {
 }
 
 TEST(Verify, AMergedCellIsAdjacentToWhateverAnyOfItsSquaresTouches) {
-  // The bent cell's foot at (1,1) welds the two dark cells into one region, so
-  // "connect all dark" holds — a plain board with the same colouring would have
-  // the same shape, which is the point: fusing changes the VARIABLES, not the
-  // geometry the rules read.
+  // The merged cell is the left column; its lower square at (0,1) touches the
+  // plain dark square at (1,1), so all the dark is one region and "connect all
+  // dark" holds. A plain board with the same colouring would come out the same,
+  // which is the point: fusing changes the VARIABLES, not the geometry the
+  // rules read.
   EXPECT_EQ(judgeMerged({"..", ".."}, {{0, 0}, {0, 1}}, {"DL", "DD"},
                         {Rule::ConnectDark}),
             Violation::None);

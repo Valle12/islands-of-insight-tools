@@ -506,7 +506,12 @@ export class Board {
     // two pieces (a fast drag skips squares between two pointermoves), and
     // settling it then would dissolve the cell out from under its own stroke.
     this.shapes.normalize(from);
-    this.clearSquares(touched);
+    // Only once the target really holds two squares. A single click claims one
+    // square into a cell that `finishMerge` then dissolves again, so clearing
+    // here would cost that square its colour and its clue and merge nothing.
+    // The first real growth step still clears both, because `touched` already
+    // carries the target's existing members.
+    if (this.shapes.squaresOf(target).length > 1) this.clearSquares(touched);
   }
 
   /** Settles the cell a merge stroke was growing, once the pointer is up. */
@@ -522,10 +527,11 @@ export class Board {
    * The keyboard's merge gesture: joins this square to the cell beside it — the
    * one to its left, or the one above when there is nothing to the left.
    *
-   * A keystroke carries no drag, so it takes the neighbour that comes before it
-   * in reading order rather than asking for a direction. Walking a shape with
-   * the arrow keys and pressing Enter on each square builds any polyomino a
-   * pointer could, which is what keeps this tool from being pointer-only.
+   * A keystroke carries no drag, so it takes a fixed neighbour rather than
+   * asking for a direction: the square to the LEFT, or the one ABOVE when there
+   * is nothing to the left. Walking a shape and pressing Enter on each square
+   * builds any polyomino a pointer could, which is what keeps this tool from
+   * being pointer-only — and Backspace takes one back out again.
    */
   private mergeWithNeighbour(position: Position) {
     if (!isPlayable(this.colorAt(position))) return;
@@ -658,6 +664,13 @@ export class Board {
     if (event.key === "Backspace" || event.key === "Delete") {
       event.preventDefault();
       this.digitCell = null;
+      // The merge tool's secondary action, which the pointer gets on the right
+      // button. Without it a keyboard user could build a merged cell and never
+      // take a square back out of one.
+      if (this.selectedTool === "merge") {
+        this.splitSquare(position);
+        return;
+      }
       this.writeCell(position, this.colorAt(position), null);
       return;
     }
