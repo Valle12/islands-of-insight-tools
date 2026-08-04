@@ -50,8 +50,13 @@ namespace lg::profile {
  *     propagation already finishes in milliseconds, so the sweep would buy
  *     nothing and cost state. The connectivity rules ARE handled.
  *
- * `Verify` still gates whatever comes back, so a gate that is wrong in the
- * permissive direction cannot ship a bad answer — only a slow one.
+ * A gate that is wrong in the PERMISSIVE direction is a correctness bug, not a
+ * slow path, so it is written as a whitelist. `Verify` gates the witness
+ * `runProfile` returns — but `runProfileForced` sets `proven` on a forced set
+ * with no oracle behind it at all, and a sweep blind to part of the puzzle
+ * enumerates a superset of the solutions and then reports the cells they
+ * disagree about as proved to go either way. Nothing downstream could catch
+ * that, which is why anything unrecognised declines here by default.
  */
 bool applicable(const Model &model);
 

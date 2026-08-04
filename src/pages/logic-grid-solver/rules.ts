@@ -74,6 +74,17 @@ export const RULES: readonly LogicGridRule[] = [
   // statements are true at once, which is the whole point of `group`.
   { id: "area-two-dark", label: "Dark regions have area 2", group: "region" },
   { id: "area-two-light", label: "Light regions have area 2", group: "region" },
+  // The same rule at a different size, which is why they say the size in their
+  // id rather than storing it beside a single "regions have area N" entry.
+  // Both sizes on for one colour is not a contradiction — it is satisfied
+  // exactly when that colour has no cells at all, every one of its zero regions
+  // being both sizes at once.
+  { id: "area-four-dark", label: "Dark regions have area 4", group: "region" },
+  {
+    id: "area-four-light",
+    label: "Light regions have area 4",
+    group: "region",
+  },
 ];
 
 /** How many rules a puzzle can draw from — every known one. */

@@ -25,6 +25,15 @@ export interface OutlineRequest {
   readonly gridHeight: number;
   /** The colour a square holds, for the fill. */
   readonly colorOf: (square: number) => number;
+  /**
+   * Whether the solver worked this square out, when the answer view is asking.
+   *
+   * A merged cell has to carry that mark on its OUTLINE rather than on each of
+   * its squares: the squares' own ring is drawn per square and cuts the tile
+   * into the pieces it is made of, which is the one thing the whole outline
+   * exists to stop. Absent in the editor, which marks nothing.
+   */
+  readonly deducedAt?: (square: number) => boolean;
   /** The element the geometry is read from. */
   readonly host: HTMLElement;
 }
@@ -59,7 +68,7 @@ export function drawShapeOutlines(
   svg: SVGSVGElement,
   request: OutlineRequest,
 ): void {
-  const { shapes, gridWidth, gridHeight, colorOf, host } = request;
+  const { shapes, gridWidth, gridHeight, colorOf, deducedAt, host } = request;
   if (shapes.length === 0) {
     svg.replaceChildren();
     return;
@@ -82,6 +91,7 @@ export function drawShapeOutlines(
     // rim are in the stylesheet with the squares', so a merged cell and a plain
     // one cannot drift apart.
     path.dataset.color = colorId(colorOf(shape[0] ?? 0) ?? UNKNOWN);
+    if (deducedAt?.(shape[0] ?? 0)) path.dataset.deduced = "true";
     fragment.appendChild(path);
   }
   svg.replaceChildren(fragment);

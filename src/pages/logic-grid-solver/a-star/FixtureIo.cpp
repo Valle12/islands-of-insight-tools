@@ -74,9 +74,15 @@ void readClues(const nlohmann::json &document, Puzzle &puzzle,
     const int value = kind == kClueLetter
                           ? letterFrom(entry.at("value"), path)
                           : entry.at("value").get<int>();
+    // Optional, like `shapes` and for the same reason — every fixture written
+    // before darts existed carries no such key. Absent it reads as -1, which
+    // `structureProblem` refuses for a kind that needs one.
+    const int direction =
+        entry.contains("direction") ? entry.at("direction").get<int>() : -1;
     puzzle.clues.push_back({.index = cellIndex(x, y),
                             .kind = static_cast<uint8_t>(kind),
-                            .value = value});
+                            .value = value,
+                            .direction = direction});
   }
 }
 
@@ -137,7 +143,7 @@ nlohmann::json columnMajor(const Puzzle &puzzle, const Colors &colors) {
 
 nlohmann::json cluesToJson(const Puzzle &puzzle) {
   auto symbols = nlohmann::json::array();
-  for (const auto &[index, kind, value] : puzzle.clues) {
+  for (const auto &[index, kind, value, direction] : puzzle.clues) {
     nlohmann::json entry;
     entry["x"] = columnOf(index);
     entry["y"] = rowOf(index);
@@ -146,6 +152,10 @@ nlohmann::json cluesToJson(const Puzzle &puzzle) {
       entry["value"] = std::string(1, static_cast<char>('A' + value));
     else
       entry["value"] = value;
+    // Written only where there is one, so a board with no darts round-trips
+    // byte-identically to what the page downloads — the rule `shapes` follows.
+    if (kind == kClueDart)
+      entry["direction"] = direction;
     symbols.push_back(entry);
   }
   return symbols;

@@ -84,6 +84,18 @@ export type LogicGridClue = {
   /** Index into `SYMBOL_KINDS`, which is append-only. */
   type: number;
   value: LogicGridSymbolValue;
+  /**
+   * Which way a DIRECTED clue points: 0 up, 1 right, 2 down, 3 left. That is
+   * the repo's canonical order — the same one `DIRECTION_MAP` decodes in the
+   * rolling-blocks and shifting-mosaic bridges, and the one `nearestVertex`
+   * returns for four sides, which is what lets the arrow be dragged round.
+   *
+   * OPTIONAL, and omitted entirely rather than written as `0` for a kind that
+   * carries none: every captured fixture predates this key and must keep
+   * round-tripping byte-identically through `validateConfig`, exactly as
+   * `shapes` below does.
+   */
+  direction?: number;
 };
 
 /** A clue as the config stores it: sparse, so an unclued board carries none. */

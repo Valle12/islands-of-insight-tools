@@ -99,9 +99,17 @@ bool readClues(const val &puzzleVal, Puzzle &puzzle, const char *&error) {
       error = "A clue names an unknown kind";
       return false;
     }
-    puzzle.clues.push_back({.index = cellIndex(x, y),
-                            .kind = static_cast<uint8_t>(kind),
-                            .value = entry["value"].as<int>()});
+    // Read unconditionally. The bridge sends -1 for a clue that carries none,
+    // so a DIRECTED kind arriving without one is refused by name in
+    // `clueValueProblem` rather than silently pointing up.
+    const val direction = entry["direction"];
+    puzzle.clues.push_back(
+        {.index = cellIndex(x, y),
+         .kind = static_cast<uint8_t>(kind),
+         .value = entry["value"].as<int>(),
+         .direction = direction.isUndefined() || direction.isNull()
+                          ? -1
+                          : direction.as<int>()});
   }
   return true;
 }

@@ -58,9 +58,14 @@ enum class Rule : uint8_t {
   // past `Underclued` here while `rules.ts` draws them beside the connect rules.
   AreaTwoDark = 16,
   AreaTwoLight = 17,
+  // The same rule at a different size. Both sizes on for one colour is NOT a
+  // contradiction: every one of a colour's zero regions is both sizes at once,
+  // so the pair is satisfied exactly when that colour is absent.
+  AreaFourDark = 18,
+  AreaFourLight = 19,
 };
 
-inline constexpr int kRuleCount = 18;
+inline constexpr int kRuleCount = 20;
 
 /// The active rules as a bit per index.
 using RuleMask = uint32_t;
@@ -77,14 +82,36 @@ constexpr bool has(const RuleMask mask, const Rule rule) {
 /// and by the named contradiction diagnostics — never stored anywhere.
 const char *name(Rule rule);
 
-/// The area EVERY region of `color` must have, or 0 when region size is
-/// unconstrained — the global form of an area number, which names one region.
-///
-/// The members are listed rather than derived, the same discipline `shortestRun`
-/// follows: a family that computes itself quietly stops covering the next rule
-/// appended to the catalogue. An "area 3" rule would be one more row here, one
-/// more set of forbidden shapes, and nothing else.
-int globalArea(RuleMask mask, uint8_t color);
+/// One area rule: the colour it constrains and the area it holds EVERY region
+/// of that colour to — the global form of an area number, which names one
+/// region only.
+struct AreaRule {
+  Rule rule = Rule::AreaTwoDark;
+  uint8_t color = kDark;
+  int area = 2;
+};
+
+/// The whole family, LISTED rather than derived — the same discipline
+/// `shortestRun` follows, because a family that computes itself quietly stops
+/// covering the next rule appended to the catalogue. An "area 3" rule would be
+/// one more row here and nothing else.
+inline constexpr auto kAreaFamily = std::to_array<AreaRule>({
+    {.rule = Rule::AreaTwoDark, .color = kDark, .area = 2},
+    {.rule = Rule::AreaTwoLight, .color = kLight, .area = 2},
+    {.rule = Rule::AreaFourDark, .color = kDark, .area = 4},
+    {.rule = Rule::AreaFourLight, .color = kLight, .area = 4},
+});
+
+/**
+ * The SMALLEST area any active rule holds `color` to, or 0 when none does.
+ *
+ * For `impliedRun` only, and the name says so because the min is sound there
+ * and nowhere else: the rules are conjunctive, so the shortest forbidden run
+ * wins and subsumes the rest. Anywhere that wants "the size a region has to be"
+ * must walk `kAreaFamily` instead — with both sizes on for one colour the
+ * answer is that the colour is absent, which no single number can say.
+ */
+int smallestGlobalArea(RuleMask mask, uint8_t color);
 
 /// One cell of a forbidden pattern: an offset from the pattern's anchor, and
 /// the colour that cell must hold for the pattern to be present.

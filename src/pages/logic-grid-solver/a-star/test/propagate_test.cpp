@@ -93,6 +93,123 @@ TEST(Propagate, AFinishedAreaOfTwoIsOutlined) {
   EXPECT_EQ(deduce(puzzle), Rows({"DDL", "LLL"}));
 }
 
+/// The same propagator at a different size. Four is the case with NO forbidden
+/// shapes behind it — 61 pentominoes was the wrong trade — so both halves of
+/// "exactly four" are this one function's work.
+TEST(Propagate, AnAreaOfFourFillsItsOnlyRoom) {
+  const Puzzle puzzle =
+      test::board({"D...", "####"}, test::ruleSet({Rule::AreaFourDark}));
+  EXPECT_EQ(deduce(puzzle), Rows({"DDDD", "####"}));
+}
+
+TEST(Propagate, ARegionWithNoRoomToReachFourIsRefused) {
+  const Puzzle puzzle =
+      test::board({"D..#", "####"}, test::ruleSet({Rule::AreaFourDark}));
+  EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
+}
+
+/// The "too big" half, which for four exists only here.
+TEST(Propagate, ARegionAlreadyBiggerThanFourIsRefused) {
+  const Puzzle puzzle =
+      test::board({"DDDDD", "#####"}, test::ruleSet({Rule::AreaFourDark}));
+  EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
+}
+
+/// A finished region of four is outlined, so nothing may join it.
+TEST(Propagate, AFinishedAreaOfFourIsOutlined) {
+  const Puzzle puzzle =
+      test::board({"DDDD.", "#####"}, test::ruleSet({Rule::AreaFourDark}));
+  EXPECT_EQ(deduce(puzzle), Rows({"DDDDL", "#####"}));
+}
+
+/**
+ * Both sizes on one colour is not a contradiction — it is satisfied exactly
+ * where that colour is absent — and propagation reaches that as soon as there
+ * is anywhere for it to bite. A space two wide can never hold a region of four,
+ * so nothing in it may be dark; and a dark cell already in one is refused,
+ * because the pair rule fills the space and the four rule then finds no room.
+ */
+TEST(Propagate, BothAreaSizesOnOneColourEmptyTheSpaceTheyShare) {
+  const rules::RuleMask both =
+      test::ruleSet({Rule::AreaTwoDark, Rule::AreaFourDark});
+  EXPECT_EQ(deduce(test::board({"..#"}, both)), Rows({"LL#"}));
+  EXPECT_EQ(deduce(test::board({"D.#"}, both)), Rows({"CONFLICT"}));
+}
+
+// --- Darts ----------------------------------------------------------------
+
+/// Zero: the whole line takes the dart's own colour. Half of what the game
+/// calls dart minimax, and the half that needs no counting at all.
+TEST(Propagate, ADartOfZeroPaintsItsLine) {
+  Puzzle puzzle = test::board({"....."});
+  test::withGiven(puzzle, 0, 0, kDark);
+  test::withDart(puzzle, 0, 0, 0, kDirRight);
+  EXPECT_EQ(deduce(puzzle), Rows({"DDDDD"}));
+}
+
+/// The other half: a line exactly as long as the number is entirely the other
+/// colour. The gap is stepped over, so the line is three squares and not two.
+TEST(Propagate, AFullDartLinePaintsTheOtherColour) {
+  Puzzle puzzle = test::board({"..#.."});
+  test::withGiven(puzzle, 0, 0, kDark);
+  test::withDart(puzzle, 0, 0, 3, kDirRight);
+  EXPECT_EQ(deduce(puzzle), Rows({"DL#LL"}));
+}
+
+/// Neither extreme, so nothing is forced — and saying so matters, because a
+/// propagator that painted here would be painting cells that are free.
+TEST(Propagate, ADartInBetweenForcesNothing) {
+  Puzzle puzzle = test::board({"....."});
+  test::withGiven(puzzle, 0, 0, kDark);
+  test::withDart(puzzle, 0, 0, 2, kDirRight);
+  EXPECT_EQ(deduce(puzzle), Rows({"D...."}));
+}
+
+/// Its own colour is still open, so it does not yet say which colour it counts.
+/// Only one assumption fits a line of two: light would need four of them.
+TEST(Propagate, ADartThatOnlyOneColourFitsSettlesItsOwnCell) {
+  Puzzle puzzle = test::board({"...", "###"});
+  test::withDart(puzzle, 0, 0, 2, kDirRight);
+  test::withGiven(puzzle, 1, 0, kLight);
+  test::withGiven(puzzle, 2, 0, kLight);
+  EXPECT_EQ(deduce(puzzle), Rows({"DLL", "###"}));
+}
+
+TEST(Propagate, ADartNoColourFitsIsRefused) {
+  Puzzle puzzle = test::board({"...", "###"});
+  test::withDart(puzzle, 0, 0, 1, kDirRight);
+  test::withGiven(puzzle, 1, 0, kLight);
+  test::withGiven(puzzle, 2, 0, kLight);
+  EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
+}
+
+/**
+ * A merged cell on the line is taken or left WHOLE, which is what makes the
+ * game's "forced multitiles" fall out of the counting rather than needing a
+ * look-ahead: three of the line's four squares are one cell, so asking for
+ * three of the other colour can only mean that cell and not the loose square.
+ */
+TEST(Propagate, ADartForcesAMergedCellOnItsLine) {
+  Puzzle puzzle = test::board({"....."});
+  test::withGiven(puzzle, 0, 0, kDark);
+  test::withDart(puzzle, 0, 0, 3, kDirRight);
+  test::withShape(puzzle, {{1, 0}, {2, 0}, {3, 0}});
+  EXPECT_EQ(deduce(puzzle), Rows({"DLLLD"}));
+}
+
+/// The dart's own cell is off its own line, so a merged dart cannot refute
+/// itself by counting its own squares as the colour it is looking for.
+TEST(Propagate, AMergedDartDoesNotCountItself) {
+  Puzzle puzzle = test::board({"....."});
+  // Both squares of the cell, since a merged cell has to agree with itself.
+  test::withGiven(puzzle, 0, 0, kDark);
+  test::withGiven(puzzle, 1, 0, kDark);
+  test::withShape(puzzle, {{0, 0}, {1, 0}});
+  // Three squares left on the line past its own cell, and all must be light.
+  test::withDart(puzzle, 0, 0, 3, kDirRight);
+  EXPECT_EQ(deduce(puzzle), Rows({"DDLLL"}));
+}
+
 // --- Merged cells ---------------------------------------------------------
 
 TEST(Domains, DecidingOneSquareOfAMergedCellDecidesThemAll) {

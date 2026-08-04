@@ -10,7 +10,16 @@
 namespace lg {
 namespace {
 
-/// Folds one cell's clue into the region it belongs to.
+/**
+ * Folds one cell's clue into the region it belongs to.
+ *
+ * EVERY kind bumps the clue count — that is what "one symbol per area" counts,
+ * and a dart is a symbol like any other. Only what a kind says about its region
+ * is kind-specific, and a dart says nothing: it talks about a line across the
+ * board rather than about the region it happens to sit in. So it falls through
+ * with the count and nothing else, and must never reach `areaValue`, which
+ * would read its number as a size the region has to have.
+ */
 void absorbClue(Regions &regions, const Model &model, const int id,
                 const int cell) {
   const int clueId = model.clueAt[slot(cell)];
@@ -22,6 +31,8 @@ void absorbClue(Regions &regions, const Model &model, const int id,
     regions.letters[slot(id)] |= uint32_t{1} << clue.value;
     return;
   }
+  if (clue.kind != kClueArea)
+    return;
   if (int &value = regions.areaValue[slot(id)]; value == 0)
     value = clue.value;
   else if (value != clue.value)

@@ -22,18 +22,28 @@ import {
 } from "./solver";
 import { SolutionView } from "./solutionView";
 import { UNDERCLUED } from "./verify";
+import { dressClue } from "./cellView";
 import {
-  MIN_AREA_VALUE,
+  DEFAULT_DIRECTION,
+  DIRECTION_ICON,
+  DIRECTIONS,
+  directionIndex,
   normalizeSymbolInput,
   parseSymbolValue,
   SYMBOL_KINDS,
   symbolKindAt,
+  symbolValueMax,
   type LogicGridSymbolKind,
 } from "./symbols";
 
 /** What each clue kind's value field starts out holding. */
 function defaultValues(): string[] {
   return SYMBOL_KINDS.map(kind => (kind.valueKind === "number" ? "1" : "A"));
+}
+
+/** Which way each directed kind starts out pointing. */
+function defaultDirections(): number[] {
+  return SYMBOL_KINDS.map(() => DEFAULT_DIRECTION);
 }
 
 export class LogicGridSolverEditor {
@@ -109,6 +119,13 @@ export class LogicGridSolverEditor {
    * chips does not throw away the number you were part way through typing.
    */
   private symbolValues = defaultValues();
+  /**
+   * Which way each directed kind points, kept per kind for the same reason the
+   * values are. Carried by the TOOL rather than set on the tile afterwards, so
+   * a row of darts can be placed the same way a row of anything else is — the
+   * arrow on a placed dart can still be dragged round to change it.
+   */
+  private symbolDirections = defaultDirections();
   private board: Board;
 
   constructor() {
@@ -135,12 +152,13 @@ export class LogicGridSolverEditor {
       this.selectedTool,
       this.selectedSymbol,
       this.currentSymbolValue(),
+      this.currentSymbolDirection(),
     );
   }
 
-  /** An area can never name more cells than the board has. */
-  private maxArea() {
-    return this.gridWidth * this.gridHeight;
+  /** The board a clue's value is measured against. */
+  private gridSize() {
+    return { gridWidth: this.gridWidth, gridHeight: this.gridHeight };
   }
 
   /** What clue kind `index` would stamp, or null while its field is unusable. */
@@ -148,12 +166,23 @@ export class LogicGridSolverEditor {
     const kind = symbolKindAt(index);
     if (!kind) return null;
     const raw = this.symbolValues[index] ?? "";
-    return parseSymbolValue(kind, raw, this.maxArea());
+    return parseSymbolValue(kind, raw, this.gridSize());
+  }
+
+  /** Which way clue kind `index` points, or null when it points nowhere. */
+  private directionOf(index: number): number | null {
+    if (!symbolKindAt(index)?.directed) return null;
+    return this.symbolDirections[index] ?? DEFAULT_DIRECTION;
   }
 
   /** The value the symbol tool stamps, or null while its field is unusable. */
   private currentSymbolValue(): LogicGridSymbolValue | null {
     return this.valueOf(this.selectedSymbol);
+  }
+
+  /** The direction the symbol tool stamps, or null for an undirected kind. */
+  private currentSymbolDirection(): number | null {
+    return this.directionOf(this.selectedSymbol);
   }
 
   /**
@@ -179,6 +208,16 @@ export class LogicGridSolverEditor {
     // Both rows are built by JS from their append-only lists, so their clicks
     // are delegated to the rows rather than bound per chip.
     this.symbolRow.addEventListener("click", event => {
+      // The arrows sit INSIDE a kind's control, so they are asked about first:
+      // one of them is a direction change, not a change of kind.
+      const arrow = this.arrowFrom(event.target);
+      if (arrow) {
+        this.selectDirection(
+          Number(arrow.dataset.symbolIndex),
+          directionIndex(arrow.dataset.direction),
+        );
+        return;
+      }
       const chip = this.chipFrom(event.target);
       if (!chip) return;
       const index = Number(chip.dataset.symbolIndex);
@@ -231,6 +270,11 @@ export class LogicGridSolverEditor {
     return target.closest(".tool-button");
   }
 
+  private arrowFrom(target: EventTarget | null): HTMLElement | null {
+    if (!(target instanceof HTMLElement)) return null;
+    return target.closest(".direction-toggle");
+  }
+
   /** Paint tools select; `reset` is a command, not a tool. */
   private handleToolClick(tool: LogicGridTool) {
     if (tool === "reset") {
@@ -249,7 +293,24 @@ export class LogicGridSolverEditor {
     this.board.setSelectedTool("symbol");
     this.board.setSelectedSymbol(index);
     this.board.setSymbolValue(this.currentSymbolValue());
+    this.board.setSymbolDirection(this.currentSymbolDirection());
     this.renderTools();
+  }
+
+  /**
+   * Aiming a clue is a declaration of intent to place it, exactly as typing its
+   * value is — so an arrow beside an unselected chip selects that chip too,
+   * rather than quietly re-aiming a clue that is not armed.
+   */
+  private selectDirection(index: number, direction: number) {
+    if (!Number.isInteger(index) || direction < 0) return;
+    this.symbolDirections[index] = direction;
+    if (this.selectedTool !== "symbol" || this.selectedSymbol !== index) {
+      this.selectSymbol(index);
+      return;
+    }
+    this.board.setSymbolDirection(this.currentSymbolDirection());
+    this.refreshSymbolRow();
   }
 
   /**
@@ -310,6 +371,7 @@ export class LogicGridSolverEditor {
     this.selectedSymbol = 0;
     this.activeRules.clear();
     this.symbolValues = defaultValues();
+    this.symbolDirections = defaultDirections();
     this.replaceBoard();
   }
 
@@ -369,28 +431,68 @@ export class LogicGridSolverEditor {
   }
 
   /**
-   * One clue kind as a split control: the chip that selects it, a hairline
-   * divider, and the value it will stamp.
+   * The four arrows a directed kind is aimed with, as one segmented end to its
+   * control.
    *
-   * The value belongs beside its own chip rather than in one shared field
+   * Inline rather than behind a menu: there are only four, one click has to be
+   * enough to change aim, and which way the clue points is worth seeing without
+   * opening anything. They deliberately do NOT carry `.symbol-chip` — that
+   * class means "the clue kinds", and the tests count it.
+   */
+  private directionToggles(kind: LogicGridSymbolKind, index: number) {
+    // Each toggle carries `data-direction` on itself, which is the same hook
+    // the stylesheet turns a tile's arrow with — so one glyph faces four ways
+    // here exactly as it does on the board.
+    const buttons = DIRECTIONS.map(
+      direction => `
+        <button class="direction-toggle" type="button"
+          data-symbol-index="${index}" data-direction="${direction.id}"
+          title="${direction.label}"
+          aria-label="${kind.label} pointing ${direction.label.toLowerCase()}"
+          aria-pressed="false"
+        ><md-icon class="cell-arrow">${DIRECTION_ICON}</md-icon></button>
+      `,
+    ).join("");
+    return `
+      <span class="symbol-divider" aria-hidden="true"></span>
+      <div class="symbol-directions" role="group"
+        aria-label="${kind.label} direction"
+      >${buttons}</div>
+    `;
+  }
+
+  /**
+   * One clue kind as a split control: the chip that selects it, a hairline
+   * divider, the value it will stamp, and — for a directed kind — a second
+   * divider and the arrows it will stamp.
+   *
+   * Everything belongs beside its own chip rather than in one shared field
    * below the row — a single field has to keep saying which clue it is for,
-   * and every kind added makes that worse. Both current kinds carry a value;
-   * a kind that carried none would render the chip alone.
+   * and every kind added makes that worse. All three current kinds carry a
+   * value; a kind that carried none would render the chip alone.
    */
   private symbolTool(kind: LogicGridSymbolKind, index: number) {
     const numeric = kind.valueKind === "number";
+    const max = symbolValueMax(kind, this.gridSize());
     const limits = numeric
-      ? `type="number" min="${MIN_AREA_VALUE}" max="${this.maxArea()}"`
+      ? `type="number" min="${kind.minValue}" max="${max}"`
       : 'type="text" maxlength="1"';
+    // The field is sized to the longest value its own kind could hold, rather
+    // than every kind paying for the widest: an area on a 32x32 board runs to
+    // four digits, a letter is one character, and a dart can never outgrow the
+    // board's longest line. Without that the four arrows below made the dart's
+    // control much wider than it had any need to be.
+    const chars = numeric ? String(max).length : 1;
     return `
       <div class="symbol-tool" data-symbol="${kind.id}">
         <button class="tool-button symbol-chip" type="button"
           data-symbol-index="${index}" data-symbol="${kind.id}"
           title="${kind.label}" aria-label="${kind.label}"
-        ><span class="symbol-sample">${kind.sample}</span></button>
+        ><span class="symbol-sample"></span></button>
         <span class="symbol-divider" aria-hidden="true"></span>
         <input class="symbol-value" data-symbol-index="${index}" ${limits}
-          aria-label="${kind.label} value" />
+          style="--value-chars: ${chars}" aria-label="${kind.label} value" />
+        ${kind.directed ? this.directionToggles(kind, index) : ""}
       </div>
     `;
   }
@@ -405,6 +507,23 @@ export class LogicGridSolverEditor {
     this.symbolRow.innerHTML = SYMBOL_KINDS.map((kind, index) =>
       this.symbolTool(kind, index),
     ).join("");
+
+    // The sample is filled AFTERWARDS rather than written into the markup
+    // above, because a directed kind's chip is a miniature of the tile and
+    // `dressClue` is what draws one. A chip that spelled its own arrow out
+    // would be a second drawing of the same thing, free to drift from it.
+    //
+    // Always shown pointing RIGHT, whatever is currently armed: the chip says
+    // which KIND of clue this is, and the four arrows beside it are what say
+    // where the next one will point.
+    SYMBOL_KINDS.forEach((kind, index) => {
+      const sample = this.symbolRow.querySelector<HTMLElement>(
+        `.symbol-tool[data-symbol="${kind.id}"] .symbol-sample`,
+      );
+      if (!sample) return;
+      const aim = kind.directed ? DEFAULT_DIRECTION : undefined;
+      dressClue(sample, kind.sample, aim);
+    });
   }
 
   /**
@@ -433,6 +552,13 @@ export class LogicGridSolverEditor {
       } else {
         field.removeAttribute("aria-invalid");
       }
+
+      const aimed = this.directionOf(index);
+      tool.querySelectorAll<HTMLElement>(".direction-toggle").forEach(arrow => {
+        const on = directionIndex(arrow.dataset.direction) === aimed;
+        arrow.classList.toggle("selected", on);
+        arrow.setAttribute("aria-pressed", String(on));
+      });
     });
   }
 

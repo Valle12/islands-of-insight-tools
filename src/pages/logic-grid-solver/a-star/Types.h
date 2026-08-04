@@ -62,13 +62,39 @@ constexpr uint8_t opposite(const uint8_t color) {
 
 /// The clue kinds, mirroring SYMBOL_KINDS in symbols.ts. That list is
 /// append-only, so these indices are permanent.
+///
+/// Every place that branches on one of these does so THREE ways. A two-way
+/// `if area else letter` reads a dart as a letter, and `buildClueTables` would
+/// then index a 26-entry array with a dart's number.
 inline constexpr uint8_t kClueArea = 0;
 inline constexpr uint8_t kClueLetter = 1;
-inline constexpr int kClueKindCount = 2;
+inline constexpr uint8_t kClueDart = 2;
+inline constexpr int kClueKindCount = 3;
 
 /// Letters arrive as 0..25 rather than as characters: the search never needs
 /// the glyph, and the two boundaries that do convert once.
 inline constexpr int kLetterCount = 26;
+
+/// The four directions a clue can point, mirroring DIRECTIONS in symbols.ts —
+/// clockwise from up, which is the order the whole repo reads directions in.
+/// Stored by index in the config, so these are permanent too.
+inline constexpr uint8_t kDirUp = 0;
+inline constexpr uint8_t kDirRight = 1;
+inline constexpr uint8_t kDirDown = 2;
+inline constexpr uint8_t kDirLeft = 3;
+inline constexpr int kDirectionCount = 4;
+
+/// The (dx, dy) a direction names, in the same order.
+inline constexpr auto kDirectionSteps =
+    std::to_array({std::pair{0, -1}, std::pair{1, 0}, std::pair{0, 1},
+                   std::pair{-1, 0}});
+
+/// Whether `direction` names one of the four. `structureProblem` is what
+/// REPORTS a clue that fails this; the two places that walk a line ask so they
+/// cannot subscript the table with a number a puzzle skipping validation held.
+constexpr bool isDirection(const int direction) {
+  return direction >= 0 && direction < kDirectionCount;
+}
 
 /// The cell index of (x, y) in the strided space.
 constexpr int cellIndex(const int x, const int y) { return y * kStride + x; }
@@ -84,11 +110,17 @@ constexpr std::size_t slot(const int index) {
 }
 
 /// A clue as the solver holds it: where it sits, what kind it is, and its
-/// value — an area size, or a letter as 0..25.
+/// value — an area size, a letter as 0..25, or a dart's count.
+///
+/// `direction` is APPENDED rather than slotted in beside `kind`, so the three
+/// places that destructure a `Clue` positionally keep the names they had.
+/// Meaningful only for a directed kind; a clue that points nowhere leaves it at
+/// its default and nothing reads it.
 struct Clue {
   int index = 0;
   uint8_t kind = kClueArea;
   int value = 0;
+  int direction = kDirUp;
 };
 
 using Clues = std::vector<Clue>;

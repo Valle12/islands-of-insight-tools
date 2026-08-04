@@ -338,6 +338,68 @@ describe("LogicGridSolverEditor", () => {
     });
   });
 
+  /**
+   * The dart is the first kind whose control carries more than a value, so its
+   * aim is picked in the row and stamped with the number — otherwise every dart
+   * would have to be placed and then turned.
+   */
+  describe("Dart direction", () => {
+    const DART = 2;
+    const arrows = () => [
+      ...symbolTool(DART).querySelectorAll<HTMLButtonElement>(
+        ".direction-toggle",
+      ),
+    ];
+    const aimed = () =>
+      arrows().findIndex(one => one.classList.contains("selected"));
+
+    test("only a directed kind is given arrows", () => {
+      expect(arrows()).toHaveLength(4);
+      expect(symbolTool(0).querySelector(".direction-toggle")).toBeNull();
+    });
+
+    /**
+     * `.symbol-chip` means "the clue kinds", and both the unit sweep above and
+     * the e2e suite count it. Four more of them per directed kind would make
+     * that number meaningless.
+     */
+    test("an arrow is not a clue chip", () => {
+      expect(symbolChips()).toHaveLength(SYMBOL_KINDS.length);
+    });
+
+    test("starts aimed right, with exactly one arrow on", () => {
+      expect(aimed()).toBe(1);
+      expect(arrows()[1]!.getAttribute("aria-pressed")).toBe("true");
+      expect(arrows()[0]!.getAttribute("aria-pressed")).toBe("false");
+    });
+
+    /** Aiming is a declaration of intent to place, exactly as typing is. */
+    test("clicking an arrow selects the dart and stamps that way", () => {
+      arrows()[2]!.click();
+      expect(symbolTool(DART).classList.contains("selected")).toBeTrue();
+      expect(aimed()).toBe(2);
+      setValue(DART, "1");
+      press(1, 1);
+      expect(cellAt(1, 1).dataset.direction).toBe("down");
+    });
+
+    test("the aim survives switching kinds and coming back", () => {
+      arrows()[3]!.click();
+      symbolChips()[0]!.click();
+      expect(aimed()).toBe(3);
+      symbolChips()[DART]!.click();
+      expect(aimed()).toBe(3);
+    });
+
+    /** A dart's line is the longest one on the board, not the board's area. */
+    test("bounds the dart field by the longest line, and allows zero", () => {
+      expect(valueField(DART).getAttribute("min")).toBe("0");
+      expect(valueField(DART).getAttribute("max")).toBe("5");
+      setSize("3", "2");
+      expect(valueField(DART).getAttribute("max")).toBe("2");
+    });
+  });
+
   describe("Rules", () => {
     test("a chip toggles its rule on and off", () => {
       ruleChip("no-dark-1x2").click();

@@ -144,61 +144,6 @@ bool propagateConnectivity(const Model &model, Domains &domains) {
   return true;
 }
 
-// ----------------------------------------------------------- region area --
-
-/**
- * The half of an area rule the pattern table cannot carry: no region SMALLER
- * than the number. The other half — no region bigger — compiles into forbidden
- * trominoes and needs no code at all; see `Rules.cpp`.
- *
- * "This cell dark and all four of its neighbours light" would be a forbidden
- * arrangement too, except that an instance running off the board or across a gap
- * is dropped rather than shortened, and those are exactly the cells where it has
- * something to say. So it is done here instead, in two sweeps, both written for
- * an area of two:
- *
- * - a cell that MAY hold the colour with nothing beside it that could ever join
- *   it would be a region of one, so it cannot hold the colour. Four shifts find
- *   every such cell at once, with no flood fill. Where the cell already holds
- *   the colour the exclusion fails, and that is the refutation;
- * - a cell that DOES hold the colour has exactly one same-coloured neighbour, so
- *   when one candidate is left it is forced. A cell already paired finds its own
- *   partner here and the assignment is a no-op, which is why a finished region
- *   needs no special case.
- */
-bool regionAreaTwo(Domains &domains, const uint8_t color) {
-  const Bits possible = domains.possible(color);
-  // `shiftDown` moves the SET down, so a cell lands in it when the cell ABOVE
-  // it may take the colour. Reading each shift as "the neighbour that way" is
-  // backwards; the union is the same set either way.
-  if (const Bits touching = possible.shiftUp() | possible.shiftDown() |
-                            possible.shiftLeft() | possible.shiftRight();
-      !excludeAll(domains, possible.without(touching), color))
-    return false;
-
-  const Bits definite = domains.definite(color);
-  for (int i = definite.nextSet(0); i >= 0; i = definite.nextSet(i + 1)) {
-    // Re-read rather than reusing `possible`: the sweep above took cells out of
-    // it, and excluding one cell can orphan the next.
-    const Bits ways = oneCell(i).border() & domains.possible(color);
-    if (ways.none())
-      return false;
-    if (ways.count() == 1 && !domains.assign(ways.nextSet(0), color))
-      return false;
-  }
-  return true;
-}
-
-bool propagateRegionAreas(const Model &model, Domains &domains) {
-  constexpr auto kAreaTwo = std::to_array<std::pair<Rule, uint8_t>>(
-      {{Rule::AreaTwoDark, kDark}, {Rule::AreaTwoLight, kLight}});
-  for (const auto &[rule, color] : kAreaTwo) {
-    if (model.hasRule(rule) && !regionAreaTwo(domains, color))
-      return false;
-  }
-  return true;
-}
-
 // ------------------------------------------------------------ area clues --
 
 /// The region is finished, so nothing may join it.
@@ -275,6 +220,189 @@ bool propagateAreas(const Model &model, Domains &domains) {
     const bool ok = color == kUnknown
                         ? areaColorChoice(domains, clue)
                         : areaKnownColor(model, domains, clue, color);
+    if (!ok)
+      return false;
+  }
+  return true;
+}
+
+// ----------------------------------------------------------- region area --
+
+/**
+ * "Every region of `color` has exactly `area` cells", enforced whole.
+ *
+ * An area CLUE names one region and knows where it is; this names all of them
+ * and nothing points at any, so it is the same reasoning walked region by
+ * region — which is why the body below is `areaKnownColor` applied to each
+ * piece of the colour rather than to one clue's.
+ *
+ * Half of an area-TWO rule also compiles into forbidden trominoes, and this
+ * still runs beside them: the clauses are cheaper per firing, and duplicating
+ * a deduction costs nothing but a little time. Area FOUR has no clauses at all
+ * — the same argument there asks for 61 pentominoes — so for that size this is
+ * the whole of the rule. Either way it is not an optimisation: with a complete
+ * colouring `possible` and `definite` agree, so an oversized region hits `size
+ * > area` and an undersized one hits `room < area`, which is what keeps
+ * `oracleRejections` at zero.
+ */
+bool regionArea(const Model &model, Domains &domains, const uint8_t color,
+                const int area) {
+  // A cell that MAY hold the colour with nothing beside it that could ever
+  // join it is a region of one. Four shifts find every such cell at once, so
+  // the common case never reaches a flood fill below. Sound for any area of
+  // two or more, which is every area rule there is.
+  const Bits possible = domains.possible(color);
+  if (const Bits touching = possible.shiftUp() | possible.shiftDown() |
+                            possible.shiftLeft() | possible.shiftRight();
+      !excludeAll(domains, possible.without(touching), color))
+    return false;
+
+  Bits seen;
+  const Bits definite = domains.definite(color);
+  for (int i = definite.nextSet(0); i >= 0; i = definite.nextSet(i + 1)) {
+    if (seen.test(i))
+      continue;
+    const Bits region = component(i, definite);
+    seen = seen | region;
+    if (region.count() > area)
+      return false;
+
+    // Re-read `possible` per region rather than hoisting it: excluding a cell
+    // for one region can orphan a cell the next one was counting on.
+    const Bits closure = component(i, domains.possible(color));
+    const int room = closure.count();
+    if (room < area)
+      return false;
+    if (region.count() == area) {
+      if (!outline(domains, region, color))
+        return false;
+      continue;
+    }
+    if (room == area) {
+      if (!assignAll(domains, closure, color))
+        return false;
+      continue;
+    }
+    // Short of the number with one way to grow: that way must be taken. One
+    // CELL, not one square — a region whose only way out is a merged cell
+    // spanning three border squares is no less forced for that.
+    const Bits frontier = region.border() & domains.possible(color);
+    if (const int only = soleCell(model, frontier);
+        only >= 0 && !domains.assign(only, color))
+      return false;
+  }
+
+  // Anything that may still hold the colour but could never gather `area` of
+  // it. Subsumes the shift sweep above for larger areas, and catches the cells
+  // no definite region reaches.
+  //
+  // `open` is snapshotted, so a piece excluded below stays in it — which is why
+  // every piece is marked visited whatever happens to it, rather than only the
+  // ones that survive. Reading a stale `open` can only make a piece look BIGGER
+  // than it still is, so it under-deduces and never over-deduces, and the
+  // fixpoint picks up whatever this pass left.
+  Bits visited;
+  const Bits open = domains.possible(color);
+  for (int i = open.nextSet(0); i >= 0; i = open.nextSet(i + 1)) {
+    if (visited.test(i))
+      continue;
+    const Bits piece = component(i, open);
+    visited = visited | piece;
+    if (piece.count() < area && !excludeAll(domains, piece, color))
+      return false;
+  }
+  return true;
+}
+
+bool propagateRegionAreas(const Model &model, Domains &domains) {
+  // Walked as a family, so BOTH sizes on for one colour run both — which is
+  // right: the only colourings that survive are the ones with none of that
+  // colour at all, and a single "the area is N" number could not say that.
+  for (const auto &[rule, color, area] : rules::kAreaFamily) {
+    if (model.hasRule(rule) && !regionArea(model, domains, color, area))
+      return false;
+  }
+  return true;
+}
+
+// ------------------------------------------------------------------ darts --
+
+/**
+ * A dart counts the squares of the other colour along its own line, and once
+ * its own colour is settled that is an exact cardinality constraint: `value` of
+ * the line's squares hold `other` and the rest hold the dart's colour.
+ *
+ * Walked one CELL at a time rather than one square at a time, which costs the
+ * same and says more. A merged cell puts `w` squares on the line at once, so
+ * it is excluded as soon as `w` would overshoot and forced as soon as leaving
+ * it out would undershoot — the game's "forced multitiles", falling out of the
+ * counting rather than needing a look-ahead to find. At `w == 1` this is the
+ * ordinary "the line is exactly full / exactly empty" pair.
+ */
+bool dartCardinality(const Model &model, Domains &domains, const Dart &dart,
+                     const uint8_t color) {
+  const uint8_t other = opposite(color);
+  const int held = (domains.definite(other) & dart.ray).count();
+  const int room = (domains.possible(other) & dart.ray).count();
+  if (held > dart.value || room < dart.value)
+    return false;
+
+  // Walked by the ray's own squares, taking each cell the FIRST time one of its
+  // squares turns up. Intersecting with `representatives` instead would drop a
+  // merged cell whose lowest-indexed square happens to lie off the line — which
+  // is most of them, since the line is one row or column wide.
+  //
+  // `held` and `room` are not refreshed as cells are decided below. Staleness
+  // can only weaken these two tests, never fire one wrongly, and `propagate`
+  // re-runs this to a fixpoint, so anything missed is picked up next round.
+  Bits seen;
+  const Bits open = domains.undecided() & dart.ray;
+  for (int i = open.nextSet(0); i >= 0; i = open.nextSet(i + 1)) {
+    if (seen.test(i))
+      continue;
+    const Bits mask = model.cellMask(i);
+    seen = seen | mask;
+    const int weight = (mask & dart.ray).count();
+    // Taking this cell overshoots the count; leaving it out undershoots it.
+    // Both at once is a contradiction, and it reports itself: the exclusion
+    // leaves the cell holding one colour and the assignment then asks for the
+    // other, which empties the domain.
+    if (held + weight > dart.value && !domains.exclude(i, other))
+      return false;
+    if (room - weight < dart.value && !domains.assign(i, other))
+      return false;
+  }
+  return true;
+}
+
+/**
+ * The dart's own colour is still open, so it does not yet say which colour it
+ * counts. Either assumption that cannot be satisfied at all is ruled out.
+ *
+ * Same shape and same discipline as `areaColorChoice`: a conclusion drawn under
+ * "suppose this cell is dark" may refute that supposition and nothing else.
+ */
+bool dartColorChoice(Domains &domains, const Dart &dart) {
+  const auto fits = [&domains, &dart](const uint8_t color) {
+    const uint8_t other = opposite(color);
+    return (domains.definite(other) & dart.ray).count() <= dart.value &&
+           (domains.possible(other) & dart.ray).count() >= dart.value;
+  };
+  const bool darkFits = fits(kDark);
+  const bool lightFits = fits(kLight);
+  if (!darkFits && !lightFits)
+    return false;
+  if (darkFits == lightFits)
+    return true;
+  return domains.assign(dart.index, darkFits ? kDark : kLight);
+}
+
+bool propagateDarts(const Model &model, Domains &domains) {
+  for (const Dart &dart : model.darts) {
+    const uint8_t color = domains.colorOf(dart.index);
+    const bool ok = color == kUnknown
+                        ? dartColorChoice(domains, dart)
+                        : dartCardinality(model, domains, dart, color);
     if (!ok)
       return false;
   }
@@ -541,6 +669,12 @@ bool regionsConsistent(const Regions &regions) {
  * This is the "near-miss" family of hand techniques — separating different
  * areas, not overloading one, keeping different letters apart — as a single
  * rule over the labelled pieces.
+ *
+ * A global area RULE is one more source of that same number, and cheaply worth
+ * having: `regionArea` walks whole components, so it cannot see that colouring
+ * one particular cell is what would weld two legal pieces into an illegal one.
+ * The smallest active area is the binding bound, since the rules are
+ * conjunctive.
  */
 bool mergeLimits(const Model &model, Domains &domains, const Regions &regions,
                  const uint8_t color) {
@@ -548,6 +682,8 @@ bool mergeLimits(const Model &model, Domains &domains, const Regions &regions,
   // two clued pieces of this colour into one is a cell that cannot take it.
   const bool oneSymbol = model.hasRule(
       color == kDark ? Rule::OneSymbolDark : Rule::OneSymbolLight);
+  const int ruleArea =
+      rules::smallestGlobalArea(model.puzzle.ruleMask, color);
   // One candidate per CELL: every square of a merged one would give the same
   // answer, and excluding any of them excludes all of them anyway.
   const Bits candidates = domains.undecided() & model.representatives;
@@ -558,7 +694,10 @@ bool mergeLimits(const Model &model, Domains &domains, const Regions &regions,
        cell = candidates.nextSet(cell + 1)) {
     const auto [total, minArea, letters, clues] =
         mergeAround(model, regions, cell, scratch);
-    const bool tooBig = minArea > 0 && total > minArea;
+    const int limit = minArea > 0 && (ruleArea == 0 || minArea < ruleArea)
+                          ? minArea
+                          : ruleArea;
+    const bool tooBig = limit > 0 && total > limit;
     const bool twoLetters = std::popcount(letters) > 1;
     if (const bool twoSymbols = oneSymbol && clues > 1;
         (tooBig || twoLetters || twoSymbols) && !domains.exclude(cell, color))
@@ -583,6 +722,15 @@ bool propagateMerges(const Model &model, Domains &domains) {
 
 // ----------------------------------------------------------------- driver --
 
+/// Whether any area rule at all is on. Asked as a family, so an area rule
+/// appended to the catalogue cannot go unpropagated because this line was not
+/// updated with it.
+bool hasAreaRule(const Model &model) {
+  return std::ranges::any_of(rules::kAreaFamily, [&model](const auto &row) {
+    return model.hasRule(row.rule);
+  });
+}
+
 bool propagateGlobal(const Model &model, Domains &domains) {
   using enum Rule;
   if ((model.hasRule(ConnectDark) || model.hasRule(ConnectLight)) &&
@@ -590,18 +738,27 @@ bool propagateGlobal(const Model &model, Domains &domains) {
     return false;
   // Outside the `clued` guard below on purpose: a board can carry this rule and
   // no clues at all, and then nothing else here would run.
-  if ((model.hasRule(AreaTwoDark) || model.hasRule(AreaTwoLight)) &&
-      !propagateRegionAreas(model, domains))
+  if (hasAreaRule(model) && !propagateRegionAreas(model, domains))
     return false;
   if (!model.areaClues.empty() && !propagateAreas(model, domains))
+    return false;
+  if (!model.darts.empty() && !propagateDarts(model, domains))
     return false;
   if (!model.letters.empty() && !propagateLetters(domains, model))
     return false;
   if ((model.hasRule(OneSymbolDark) || model.hasRule(OneSymbolLight)) &&
       !propagateSymbolCounts(model, domains))
     return false;
-  const bool clued = !model.areaClues.empty() || !model.letters.empty();
-  return !clued || propagateMerges(model, domains);
+  // Exactly what `propagateMerges` can say something about: how big a region
+  // may be, from a clue OR from a rule, and how many clues or letters it may
+  // hold. A dart is a symbol for "one symbol per area" — which is why the rule
+  // is asked about rather than the clue list, since a board can carry the rule
+  // with nothing but darts on it — but it says nothing about a region's size,
+  // so a dart-only board with none of these must not pay for the pass.
+  const bool merges = !model.areaClues.empty() || !model.letters.empty() ||
+                      model.hasRule(OneSymbolDark) ||
+                      model.hasRule(OneSymbolLight) || hasAreaRule(model);
+  return !merges || propagateMerges(model, domains);
 }
 
 } // namespace

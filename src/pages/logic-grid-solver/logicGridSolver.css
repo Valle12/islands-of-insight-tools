@@ -167,6 +167,18 @@ h2 {
   position: relative;
   width: var(--logic-cell);
   height: var(--logic-cell);
+  /**
+   * Explicit, because the merged cells' outline is traced from `--logic-cell`
+   * plus `--logic-seam` and so depends on a square being EXACTLY that tall.
+   *
+   * The editor's squares are `<button>`s, which the UA stylesheet already makes
+   * border-box; the answer's are `<div>`s, which are not. That one pixel of
+   * border on each side put every row 1.14px further down than the outline
+   * expected, and by the fourth row a merged cell sat visibly higher than the
+   * plain squares beside it. Two elements claiming the same class have to mean
+   * the same box.
+   */
+  box-sizing: border-box;
   padding: 0;
   /* Held in a custom property, not written straight onto `border-color`, so a
      merged cell's bridges can draw the SAME rim across the gap while the sides
@@ -195,6 +207,21 @@ h2 {
 
 #grid .grid-cell:hover {
   transform: translateY(-1px);
+}
+
+/**
+ * Spelled out rather than left to the browser's own focus ring.
+ *
+ * `outline-style: auto` is drawn around the element's PAINT bounds, and those
+ * include a child's ink overflow — so on a dart, whose arrow is a 36px glyph
+ * deliberately trimmed to a 24px box (see `.cell-arrow`), the ring bulged nine
+ * pixels out of the square to wrap the overflow. An outline with a real style
+ * follows the border box, and the negative offset keeps it inside the cell so
+ * it can never reach across the seam to a neighbour.
+ */
+.grid-cell:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
 }
 
 /* ---------------------------------------------------------------- merged --
@@ -269,6 +296,180 @@ h2 {
   font-size: 12px;
   letter-spacing: -0.5px;
 }
+
+/* ----------------------------------------------------------- directed --
+ *
+ * A dart shows a number and an arrow, and the arrow's SEAT is a quarter turn
+ * clockwise of the way it points: pointing up seats it right of the number,
+ * right seats it below, down seats it left, left seats it above. `cellView.ts`
+ * writes the number first and the arrow second, so one flex direction per
+ * `data-direction` says all four.
+ *
+ * Keyed on the ATTRIBUTE rather than on `.grid-cell`, because three places draw
+ * a clue this way: the board, the answer's read-only grid, and the miniature on
+ * the clue kind's own chip.
+ */
+/* No `gap` here on purpose. A digit's own box is a little wider and taller than
+   the digit — the arrow's box is trimmed to its ink but text's cannot be — so a
+   NEGATIVE gap looks like the way to take that side bearing back. It is not:
+   `gap` rejects negative lengths outright and the browser drops the whole
+   declaration, so the -1px this rule carried for a while never applied and the
+   sizes below were measured against the 0 it silently fell back to. Pulling the
+   two halves together needs a negative margin on one of them instead. */
+[data-direction] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/**
+ * The two seats that lay the pair out ACROSS the tile share the leftover width
+ * out rather than pooling it at the edges: the number and the arrow move apart
+ * towards their own sides, and the space between them matches the space
+ * outside them.
+ *
+ * Distributed rather than written as a gap, because how much there is to give
+ * depends on how long the number is — a one-digit dart has eleven pixels spare
+ * where a two-digit one has five, and any fixed gap suiting the first would
+ * push the second out of the tile. The seats that STACK the pair keep the
+ * centred default, where the tile's height is the scarce thing and the two look
+ * right close together.
+ */
+[data-direction="up"],
+[data-direction="down"] {
+  justify-content: space-evenly;
+}
+
+[data-direction="up"] {
+  flex-direction: row;
+}
+
+[data-direction="right"] {
+  flex-direction: column;
+}
+
+[data-direction="down"] {
+  flex-direction: row-reverse;
+}
+
+[data-direction="left"] {
+  flex-direction: column-reverse;
+}
+
+/**
+ * The tile holds two things now, so the number is smaller than the buckets
+ * above — those size a single label alone and would push the pair out of a 42px
+ * square. Not much smaller, though: what makes the pair read as one clue is the
+ * two being of a size, and a number dwarfed by its own arrow looks like a
+ * mistake rather than a clue.
+ *
+ * The binding constraint is the STACKED seats, where the number sits above the
+ * arrow: `font-size + arrow-thickness` has to stay inside the square.
+ */
+.grid-cell[data-direction] {
+  font-size: 20px;
+}
+
+/* A longer number takes room the arrow was using when the two sit side by
+   side, so both step down together. */
+.grid-cell[data-direction][data-label-length="2"] {
+  font-size: 17px;
+}
+
+.grid-cell[data-direction][data-label-length="2"] .cell-arrow {
+  --arrow-size: 21px;
+}
+
+.grid-cell[data-direction][data-label-length="3"],
+.grid-cell[data-direction][data-label-length="4"] {
+  font-size: 13px;
+}
+
+.grid-cell[data-direction][data-label-length="3"] .cell-arrow,
+.grid-cell[data-direction][data-label-length="4"] .cell-arrow {
+  --arrow-size: 18px;
+}
+
+.cell-value {
+  line-height: 1;
+}
+
+/**
+ * ONE arrow glyph, turned into place.
+ *
+ * Material Symbols ships `arrow_right_alt` pointing right only, and the four
+ * `arrow_upward`-style alternatives are a different, stubbier arrow that reads
+ * badly at the size a tile can spare. A `transform` costs no layout — the box
+ * stays the icon's own square whichever way the glyph faces — so the seat above
+ * and the rotation here are independent.
+ */
+/**
+ * `md-icon` is a SQUARE box of its font size, and `arrow_right_alt` does not
+ * fill it in either axis: measured against the loaded font, the glyph's ink is
+ * **0.67** of the font size across and **0.505** down, centred, so a 28px icon
+ * draws an arrow 19px long with 4.6px of nothing at each end.
+ *
+ * Sized by the box, that dead space is what pushes the number out to the edge
+ * of the tile while the arrow appears to have room to spare — the two are
+ * centred as boxes, and the boxes are not what anyone can see.
+ *
+ * So `--arrow-size` is the length of the ARROW, and the two ratios below turn
+ * it back into a font size and a box. Every context sets that one number, and
+ * what it sets is what shows up.
+ */
+.cell-arrow {
+  --arrow-size: 24px;
+  --arrow-thickness: calc(var(--arrow-size) * 0.505 / 0.67);
+  --md-icon-size: calc(var(--arrow-size) / 0.67);
+
+  /* Trimmed to the ink in both axes, with the rest of the glyph's own box
+     allowed to hang outside it. */
+  width: var(--arrow-size);
+  height: var(--arrow-thickness);
+  overflow: visible;
+  /* The glyph's advance is wider than the box it is now in, so it has to be
+     centred explicitly rather than left to start at the box's edge. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  /* The seat is a quarter turn clockwise of the aim, so each rotation here is
+     the seat's own direction turned back by that quarter. */
+  rotate: 0deg;
+}
+
+/**
+ * The two QUARTER-turned seats pull their slot in to what is drawn in it.
+ *
+ * `rotate` is a paint-time transform: it transposes what appears on screen and
+ * changes no layout at all. So an arrow standing on end still reserved a slot
+ * as wide as the arrow is LONG — eight pixels of nothing beside it, which is
+ * what pushed the number out to the edge of the tile while the arrow looked
+ * like it had room to spare.
+ *
+ * The box itself must keep its shape, or the rotation would produce the wrong
+ * one; it is the MARGINS that trade the two axes, so the slot ends up the size
+ * of the turned arrow while the glyph goes on being drawn from an untouched
+ * box. The half-turned seats need none of this — 180 degrees is its own shape.
+ */
+[data-direction="up"] > .cell-arrow,
+[data-direction="down"] > .cell-arrow {
+  margin-inline: calc((var(--arrow-thickness) - var(--arrow-size)) / 2);
+  margin-block: calc((var(--arrow-size) - var(--arrow-thickness)) / 2);
+}
+
+[data-direction="up"] > .cell-arrow {
+  rotate: -90deg;
+}
+
+[data-direction="down"] > .cell-arrow {
+  rotate: 90deg;
+}
+
+[data-direction="left"] > .cell-arrow {
+  rotate: 180deg;
+}
+
 
 .grid-cell[data-color="unknown"] {
   background: transparent;
@@ -394,6 +595,23 @@ h2 {
   line-height: 1;
 }
 
+/* A directed kind's chip draws a MINIATURE of the tile it stamps — number with
+   the arrow seated under it — rather than a glyph standing in for one, so the
+   chip and the board cannot come to look like two different clues. Smaller
+   than a real tile, since it shares a 40px chip with nothing to spare. */
+.symbol-sample[data-direction] {
+  font-size: 14px;
+}
+
+.symbol-sample[data-direction] .cell-arrow {
+  --arrow-size: 18px;
+}
+
+/* The picker's own arrows are the same glyph, turned by the same rules. */
+.direction-toggle .cell-arrow {
+  --arrow-size: 22px;
+}
+
 /* One control per clue kind, in the shape of a Material split button: the chip
    that selects it, a hairline divider, and the value it will stamp. The value
    sits beside its own chip rather than in one shared field below the row —
@@ -454,7 +672,11 @@ h2 {
 }
 
 .symbol-value {
-  width: 46px;
+  /* Sized to the longest value its OWN kind could hold — four digits for an
+     area on a 32x32, one character for a letter, and a dart's line at most —
+     rather than every kind paying for the widest. `symbolTool` sets the count;
+     the floor keeps a one-character field still comfortably clickable. */
+  width: max(28px, calc(16px + var(--value-chars, 4) * 8px));
   padding: 0 4px;
   border: none;
   background: transparent;
@@ -487,7 +709,7 @@ h2 {
   border-color: var(--md-sys-color-error);
 }
 
-/* 46px only fits the digits once the spinners are gone. */
+/* The widths above only fit their digits once the spinners are gone. */
 .symbol-value[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
@@ -498,6 +720,56 @@ h2 {
   -webkit-appearance: none;
   appearance: none;
   margin: 0;
+}
+
+/* The value field is no longer always the end of the pill — a DIRECTED kind
+   seats four arrows after it. Whichever element is last has to carry the
+   rounded end, for the reason spelled out on `.symbol-value` above. */
+.symbol-tool > .symbol-value:not(:last-child) {
+  border-radius: 0;
+}
+
+/* The four arrows a directed clue is aimed with: a segmented end to the split
+   control, inline rather than behind a menu because there are only four of
+   them and which way a clue points is worth seeing without opening anything. */
+.symbol-directions {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 0 var(--tool-inner-radius) var(--tool-inner-radius) 0;
+  overflow: hidden;
+}
+
+.direction-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  cursor: pointer;
+}
+
+.symbol-tool.selected .direction-toggle {
+  color: color-mix(
+    in srgb,
+    var(--md-sys-color-on-primary-container) 65%,
+    transparent
+  );
+}
+
+/* Exactly one is on at a time, so the aimed one has to read as chosen against
+   its three neighbours rather than merely against the row. */
+.direction-toggle.selected,
+.symbol-tool.selected .direction-toggle.selected {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+}
+
+.direction-toggle:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
 }
 
 /* The two puzzle colours, shown as themselves. They sit inside the chip rather
@@ -621,6 +893,12 @@ h2 {
 
 #solution-grid {
   display: grid;
+  /* Like `#grid` above, and for the same reason: the merged cells' outline
+     layer is absolutely positioned, so without a positioned ancestor here it
+     anchors to the page instead and every merged cell is drawn in the top-left
+     corner while its squares — which paint nothing themselves — leave holes in
+     the answer. */
+  position: relative;
   gap: var(--logic-seam);
   user-select: none;
 }
@@ -630,11 +908,31 @@ h2 {
   cursor: default;
 }
 
+/* The arrow is a handle in the EDITOR only. The answer's grid has none of the
+   board's listeners on it, so offering to grab one there would be a lie. */
+#solution-grid .cell-arrow {
+  cursor: default;
+}
+
 /* A cell the solver worked out, as opposed to one that was already on the
    board when Solve was pressed. On an underclued board that difference is the
    whole answer, so it is worth showing. */
 #solution-grid .grid-cell[data-deduced="true"] {
   box-shadow: 0 0 0 2px var(--md-sys-color-primary);
+}
+
+/* The same mark for a MERGED cell, carried by its one outline rather than by
+   each of its squares — a per-square ring draws exactly the seams the outline
+   exists to hide. Thicker than the plain rim, since a stroke cannot sit outside
+   the shape the way the squares' box-shadow does. */
+#solution-grid .shape-outline path[data-deduced="true"] {
+  stroke: var(--md-sys-color-primary);
+  stroke-width: 3;
+  /* A MITRED join runs out to `stroke-miterlimit` times half the width — four
+     by default, so six pixels here — and an L-shaped cell in the corner of the
+     board then pokes out of the grid. Rounding bounds the spill at half the
+     stroke, which is the same 1.5px the convex arcs already have. */
+  stroke-linejoin: round;
 }
 
 #solution-note {
@@ -675,5 +973,45 @@ h2 {
 
   .grid-cell[data-label-length="4"] {
     font-size: 10px;
+  }
+
+  /* A directed clue fits two things in the square, so it steps down with it. */
+  .grid-cell[data-direction] {
+    font-size: 12px;
+  }
+
+  .grid-cell[data-direction][data-label-length="2"] {
+    font-size: 11px;
+  }
+
+  .grid-cell[data-direction][data-label-length="3"],
+  .grid-cell[data-direction][data-label-length="4"] {
+    font-size: 9px;
+  }
+
+  .grid-cell[data-direction] {
+    font-size: 16px;
+  }
+
+  .grid-cell[data-direction][data-label-length="2"] {
+    font-size: 14px;
+  }
+
+  .grid-cell[data-direction][data-label-length="3"],
+  .grid-cell[data-direction][data-label-length="4"] {
+    font-size: 11px;
+  }
+
+  .grid-cell .cell-arrow {
+    --arrow-size: 20px;
+  }
+
+  .grid-cell[data-direction][data-label-length="2"] .cell-arrow {
+    --arrow-size: 18px;
+  }
+
+  .grid-cell[data-direction][data-label-length="3"] .cell-arrow,
+  .grid-cell[data-direction][data-label-length="4"] .cell-arrow {
+    --arrow-size: 15px;
   }
 }

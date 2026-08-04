@@ -203,6 +203,47 @@ describe("validateConfig (logic grid)", () => {
       },
       "A merged cell carries more than one symbol.",
     ],
+    [
+      "a dart with no direction",
+      { ...validConfig, symbols: [{ x: 0, y: 0, type: 2, value: 1 }] },
+      "Dart directions must be integers between 0 and 3.",
+    ],
+    [
+      "a dart aimed nowhere it could point",
+      {
+        ...validConfig,
+        symbols: [{ x: 0, y: 0, type: 2, value: 1, direction: 4 }],
+      },
+      "Dart directions must be integers between 0 and 3.",
+    ],
+    [
+      "a dart longer than the board's longest line",
+      {
+        ...validConfig,
+        symbols: [{ x: 0, y: 0, type: 2, value: 3, direction: 1 }],
+      },
+      "Dart values must be integers between 0 and 2.",
+    ],
+    [
+      "a direction on a clue that points nowhere",
+      {
+        ...validConfig,
+        symbols: [{ x: 0, y: 0, type: 0, value: 1, direction: 1 }],
+      },
+      "Only a directed symbol carries a direction, and Area number is not one.",
+    ],
+    [
+      // Where an undirected clue sits inside a merged cell is decoration and
+      // the editor re-homes it on load; a dart's square is where its line
+      // starts, so moving it would load a different puzzle.
+      "a dart off its merged cell's anchor",
+      {
+        ...validConfig,
+        symbols: [{ x: 1, y: 1, type: 2, value: 1, direction: 1 }],
+        shapes: [[3, 4]],
+      },
+      "A directed symbol on a merged cell must sit on column 1, row 2.",
+    ],
   ];
 
   test.each(rejections)("rejects %s", (_name, input, error) => {
@@ -219,6 +260,30 @@ describe("validateConfig (logic grid)", () => {
     expect(result.ok).toBeTrue();
     if (!result.ok) return;
     expect(result.config.shapes).toEqual([[3, 4]]);
+  });
+
+  test("accepts a dart and keeps the way it points", () => {
+    const result = validateConfig({
+      ...clone(),
+      symbols: [{ x: 0, y: 0, type: 2, value: 2, direction: 3 }],
+    });
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.config.symbols).toEqual([
+      { x: 0, y: 0, type: 2, value: 2, direction: 3 },
+    ]);
+  });
+
+  /**
+   * The same rule the shapes key follows, and for the same reason: an
+   * undirected clue that came back carrying `direction: 0` would break the
+   * byte-identical round trip every captured board is held to below.
+   */
+  test("omits the direction key on a clue that points nowhere", () => {
+    const result = validateConfig(clone());
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.config.symbols.every(one => !("direction" in one))).toBeTrue();
   });
 
   /**

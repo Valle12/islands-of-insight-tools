@@ -40,6 +40,9 @@ struct CliOptions {
   /// Roughly what percentage of a generated board's squares to fuse into
   /// merged cells. 0 leaves the main rng stream untouched.
   int shapes = 0;
+  /// Roughly how often a generated region carries a dart instead of nothing.
+  /// 0 draws no random number for one, so every old seed reproduces.
+  int darts = 0;
   int rules = -1;
   bool quiet = false;
   bool brute = false;
@@ -85,7 +88,7 @@ void printUsage() {
                "       logic_grid --generate <path> [--seed N] "
                "[--kind clued|underclued]\n"
                "                  [--width N] [--height N] [--rules MASK]\n"
-               "                  [--shapes PERCENT]\n";
+               "                  [--shapes PERCENT] [--darts PERCENT]\n";
 }
 
 /**
@@ -144,6 +147,8 @@ bool assignValue(CliOptions &opts, const std::string_view flag,
     return readFlag(flag, value, opts.rules);
   else if (flag == "--shapes")
     return readFlag(flag, value, opts.shapes);
+  else if (flag == "--darts")
+    return readFlag(flag, value, opts.darts);
   else {
     std::cerr << "Unknown argument: " << flag << "\n";
     return false;
@@ -315,7 +320,8 @@ int main(const int argc, char **argv) {
                                     .height = opts.height,
                                     .rules = opts.rules,
                                     .kind = opts.kind,
-                                    .shapes = opts.shapes};
+                                    .shapes = opts.shapes,
+                                    .darts = opts.darts};
     return generate::run(genOpts);
   }
 

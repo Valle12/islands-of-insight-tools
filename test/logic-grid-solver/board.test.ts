@@ -412,9 +412,20 @@ describe("Board (logic grid)", () => {
 
   describe("Typing on a cell", () => {
     test("a digit stamps an area number", () => {
-      const board = makeBoard(2, 2, "dark", 0, 1);
+      const board = makeBoard(4, 4, "dark", 0, 1);
       type(0, 0, "7");
       expect(board.getSymbols()).toEqual([{ x: 0, y: 0, type: 0, value: 7 }]);
+    });
+
+    /**
+     * The ceiling applies to the FIRST digit too, not only to a grown one: a
+     * 2x2 board's area tops out at 4, so a single keystroke can already
+     * overshoot and there is no earlier value to fall back to.
+     */
+    test("a first digit above the board's area is refused", () => {
+      const board = makeBoard(2, 2, "dark", 0, 1);
+      type(0, 0, "7");
+      expect(board.getSymbols()).toEqual([]);
     });
 
     /** Areas run past nine, so consecutive digits on one cell accumulate. */
@@ -497,6 +508,167 @@ describe("Board (logic grid)", () => {
       release();
       type(0, 0, "5");
       expect(board.getSymbols()).toEqual([]);
+    });
+  });
+
+  /**
+   * The dart is the first clue that carries more than a value, and the first
+   * whose square matters: it counts along a line from where it sits. So it is
+   * placed with both halves at once, and the arrow drawn on it is a handle the
+   * pointer can swing round afterwards.
+   */
+  describe("Darts", () => {
+    const DART = 2;
+    const UP = 0;
+    const RIGHT_WAY = 1;
+    const DOWN = 2;
+    const LEFT_WAY = 3;
+
+    /** A board with one dart already on `(1, 1)`, aimed right. */
+    function withDart(value = 2, direction = RIGHT_WAY) {
+      const board = makeBoard(4, 3, "symbol", DART, value);
+      board.setSymbolDirection(direction);
+      press(1, 1, LEFT);
+      release();
+      return board;
+    }
+
+    test("stamps the value and the direction together", () => {
+      const board = withDart(2, DOWN);
+      expect(board.getSymbols()).toEqual([
+        { x: 1, y: 1, type: DART, value: 2, direction: DOWN },
+      ]);
+      expect(cellAt(1, 1).getAttribute("aria-label")).toBe(
+        "Column 2, Row 2, Unknown, Dart 2 pointing down",
+      );
+    });
+
+    /**
+     * Two children rather than one text node, and the arrow's SEAT is a quarter
+     * turn clockwise of the way it points — which the stylesheet does off
+     * `data-direction`, so what is pinned here is that the attribute and the
+     * two elements are there for it to work with.
+     */
+    test("draws the number and a real arrow element", () => {
+      withDart(3, LEFT_WAY);
+      const cell = cellAt(1, 1);
+      expect(cell.dataset.direction).toBe("left");
+      expect(cell.querySelector(".cell-value")?.textContent).toBe("3");
+      expect(cell.querySelector(".cell-arrow")?.textContent).toBe(
+        "arrow_right_alt",
+      );
+      // The number is written first, so one flex direction says all four seats.
+      expect(cell.firstElementChild?.className).toBe("cell-value");
+    });
+
+    test("lifting a dart takes its arrow with it", () => {
+      const board = withDart();
+      board.setSelectedTool("symbol");
+      press(1, 1, RIGHT);
+      release();
+      expect(board.getSymbols()).toEqual([]);
+      expect(cellAt(1, 1).dataset.direction).toBeUndefined();
+      expect(cellAt(1, 1).querySelector(".cell-arrow")).toBeNull();
+    });
+
+    /**
+     * The re-click rule compares the WHOLE clue. Stamping a dart that differs
+     * only in where it points has to re-aim the one already there rather than
+     * read as "the same clue again" and lift it.
+     */
+    /**
+     * The re-click rule for a DIRECTED clue turns instead of lifting: the same
+     * clue apart from where it points is a request to point it somewhere else.
+     * Four clicks take it all the way round, so placing a row of darts and then
+     * aiming them is a sequence of plain clicks.
+     */
+    test("clicking a placed dart turns it clockwise", () => {
+      const board = withDart(2, RIGHT_WAY);
+      const aim = () => board.getSymbols()[0]!.direction;
+
+      press(1, 1, LEFT);
+      release();
+      expect(aim()).toBe(DOWN);
+
+      press(1, 1, LEFT);
+      release();
+      expect(aim()).toBe(LEFT_WAY);
+
+      press(1, 1, LEFT);
+      release();
+      expect(aim()).toBe(UP);
+
+      press(1, 1, LEFT);
+      release();
+      // All the way round and back to where it started, rather than stopping
+      // at the last direction or lifting the clue.
+      expect(aim()).toBe(RIGHT_WAY);
+    });
+
+    /** Turning is only for the clue that is already there; a different value
+     *  is a different clue and overwrites, aimed the way the tool is. */
+    test("a different value overwrites rather than turning", () => {
+      const board = withDart(2, RIGHT_WAY);
+      board.setSymbolValue(5);
+      press(1, 1, LEFT);
+      release();
+      expect(board.getSymbols()).toEqual([
+        { x: 1, y: 1, type: DART, value: 5, direction: RIGHT_WAY },
+      ]);
+    });
+
+    /** Lifting is the right button's job alone, since the left one now turns. */
+    test("only the right button lifts a dart", () => {
+      const board = withDart(1, UP);
+      press(1, 1, RIGHT);
+      release();
+      expect(board.getSymbols()).toEqual([]);
+    });
+
+    test("an arrow key aims a focused dart", () => {
+      const board = withDart(1, RIGHT_WAY);
+      type(1, 1, "ArrowDown");
+      expect(board.getSymbols()[0]!.direction).toBe(DOWN);
+      type(1, 1, "ArrowLeft");
+      expect(board.getSymbols()[0]!.direction).toBe(LEFT_WAY);
+    });
+
+    /** Everywhere else the arrows go on scrolling, as they always did. */
+    test("an arrow key on a cell with no dart does nothing", () => {
+      const board = makeBoard(4, 3, "symbol", 0, 4);
+      press(0, 0, LEFT);
+      release();
+      type(0, 0, "ArrowUp");
+      expect(board.getSymbols()).toEqual([{ x: 0, y: 0, type: 0, value: 4 }]);
+    });
+
+    /** Zero is a real dart, unlike an area of zero — see `nextNumberValue`. */
+    test("typing keeps the dart's own bounds and its aim", () => {
+      const board = withDart(2, DOWN);
+      type(1, 1, "0");
+      expect(board.getSymbols()).toEqual([
+        { x: 1, y: 1, type: DART, value: 0, direction: DOWN },
+      ]);
+    });
+
+    test("round-trips the direction through a config", () => {
+      const board = makeBoard(3, 3);
+      board.loadConfig({
+        gridWidth: 3,
+        gridHeight: 3,
+        rules: [],
+        cells: [
+          [UNKNOWN, UNKNOWN, UNKNOWN],
+          [UNKNOWN, UNKNOWN, UNKNOWN],
+          [UNKNOWN, UNKNOWN, UNKNOWN],
+        ],
+        symbols: [{ x: 2, y: 0, type: DART, value: 1, direction: UP }],
+      });
+      board.renderGrid();
+      expect(board.getSymbols()).toEqual([
+        { x: 2, y: 0, type: DART, value: 1, direction: UP },
+      ]);
+      expect(cellAt(2, 0).dataset.direction).toBe("up");
     });
   });
 
@@ -656,6 +828,50 @@ describe("Board (logic grid)", () => {
       expect(board.getSymbols()).toEqual([{ x: 1, y: 0, type: 0, value: 3 }]);
       expect(cellAt(1, 0).textContent).toBe("3");
       expect(cellAt(2, 0).textContent).toBe("");
+    });
+
+    /**
+     * The keyboard has to agree with the pointer above. Typing on a non-anchor
+     * square used to read no clue there and stamp a SECOND one beside the
+     * anchor's — two clues on one cell, which the model does not allow and
+     * which a directed clue cannot round-trip at all, `config.ts` refusing a
+     * dart anywhere but the anchor.
+     *
+     * Two digits rather than one, so the second also has to find the first's
+     * number at the anchor rather than start again beside it.
+     */
+    test("typing on any square of a merged cell clues its anchor", () => {
+      const board = makeBoard(4, 3, "merge");
+      mergeAcross([
+        [0, 0],
+        [1, 0],
+        [2, 0],
+      ]);
+
+      board.setSelectedTool("symbol");
+      type(2, 0, "1");
+      type(2, 0, "2");
+      expect(board.getSymbols()).toEqual([{ x: 1, y: 0, type: 0, value: 12 }]);
+      expect(cellAt(1, 0).textContent).toBe("12");
+    });
+
+    test("Backspace on any square of a merged cell lifts its clue", () => {
+      const board = makeBoard(4, 3, "merge");
+      mergeAcross([
+        [0, 0],
+        [1, 0],
+        [2, 0],
+      ]);
+
+      board.setSelectedTool("symbol");
+      board.setSymbolValue(3);
+      press(0, 0, LEFT);
+      release();
+      expect(board.getSymbols()).toHaveLength(1);
+
+      // From the far end, which is not where the clue is stored.
+      type(2, 0, "Backspace");
+      expect(board.getSymbols()).toEqual([]);
     });
 
     /**

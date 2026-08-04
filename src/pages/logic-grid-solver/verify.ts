@@ -1,6 +1,7 @@
 import type { LogicGridTest } from "../../util/types";
 import { DARK, LIGHT, UNKNOWN, UNPLAYABLE } from "./cell";
 import { RULES } from "./rules";
+import { directionAt, SYMBOL_KINDS } from "./symbols";
 
 /**
  * The rules, checked here rather than taken on trust.
@@ -32,7 +33,8 @@ export type LogicGridViolation =
   | "letter-shared"
   | "area-without-symbol"
   | "area-with-many-symbols"
-  | "cell-split";
+  | "cell-split"
+  | "dart";
 
 /**
  * A rule's position in the append-only catalogue, by its stable id.
@@ -88,7 +90,26 @@ const RUN_RULES: readonly { index: number; color: number; length: number }[] = [
 const AREA_RULES: readonly { index: number; color: number; area: number }[] = [
   { index: ruleIndex("area-two-dark"), color: DARK, area: 2 },
   { index: ruleIndex("area-two-light"), color: LIGHT, area: 2 },
+  { index: ruleIndex("area-four-dark"), color: DARK, area: 4 },
+  { index: ruleIndex("area-four-light"), color: LIGHT, area: 4 },
 ];
+
+/**
+ * A clue kind's position in its own append-only catalogue, by its stable id —
+ * the same trick `ruleIndex` plays, and for the same reason. A clue family
+ * matched by a bare `type !== 0` silently checks the wrong kind the moment the
+ * catalogue grows, and this file is the last thing between a bad answer and the
+ * board.
+ */
+function symbolIndex(id: string): number {
+  const index = SYMBOL_KINDS.findIndex(kind => kind.id === id);
+  if (index < 0) throw new Error(`verify.ts refers to an unknown symbol: ${id}`);
+  return index;
+}
+
+const AREA_SYMBOL = symbolIndex("area");
+const LETTER_SYMBOL = symbolIndex("letter");
+const DART_SYMBOL = symbolIndex("dart");
 
 /** The editor's column-major grid as the flat row-major one answers use. */
 export function toFlat(config: LogicGridTest): number[] {
@@ -266,9 +287,48 @@ function areaProblem(
   cells: number[],
 ): LogicGridViolation {
   for (const symbol of config.symbols) {
-    if (symbol.type !== 0) continue;
+    if (symbol.type !== AREA_SYMBOL) continue;
     const index = symbol.y * config.gridWidth + symbol.x;
     if (region(config, cells, index).size !== symbol.value) return "area";
+  }
+  return "none";
+}
+
+/**
+ * Every dart counts the squares of the OTHER colour along its own line.
+ *
+ * The line runs from the dart's square to the edge of the board, and a gap in
+ * the board is stepped over rather than stopping it — a dart sees past a hole
+ * exactly as the eye does. Squares are counted one by one, so a merged cell
+ * lying along the line contributes every square of itself that the line
+ * crosses.
+ *
+ * Walked here rather than read off anything the solver built: this is the one
+ * place that says out loud where a dart's line runs, so a solver that built the
+ * line wrongly has something to disagree with. The dart's own cell needs no
+ * special case for the same reason it needs none in the search — every square
+ * of it holds the dart's own colour, so none of them is ever the other one.
+ */
+function dartProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  for (const symbol of config.symbols) {
+    if (symbol.type !== DART_SYMBOL) continue;
+    const step = directionAt(symbol.direction ?? -1);
+    if (!step) return "dart";
+
+    const own = at(config, cells, symbol.x, symbol.y);
+    const other = own === DARK ? LIGHT : DARK;
+    let count = 0;
+    for (
+      let x = symbol.x + step.dx, y = symbol.y + step.dy;
+      x >= 0 && x < config.gridWidth && y >= 0 && y < config.gridHeight;
+      x += step.dx, y += step.dy
+    ) {
+      if (at(config, cells, x, y) === other) count++;
+    }
+    if (count !== symbol.value) return "dart";
   }
   return "none";
 }
@@ -361,7 +421,7 @@ function letterProblem(
 ): LogicGridViolation {
   const groups = new Map<string, number[]>();
   for (const symbol of config.symbols) {
-    if (symbol.type !== 1) continue;
+    if (symbol.type !== LETTER_SYMBOL) continue;
     const index = symbol.y * config.gridWidth + symbol.x;
     const key = String(symbol.value);
     groups.set(key, [...(groups.get(key) ?? []), index]);
@@ -433,6 +493,7 @@ export function verifyLogicGrid(
     areaProblem,
     symbolProblem,
     letterProblem,
+    dartProblem,
   ];
   for (const check of checks) {
     const problem = check(config, cells);

@@ -62,9 +62,21 @@ bun run fuzz:lg          # logic-grid campaign into test-results/lg-fuzz. Boards
                          #  the boards it applies to, so a default campaign
                          #  barely touches it. `--shapes PERCENT` fuses squares
                          #  into merged cells, off a SEPARATE rng and after the
-                         #  clues are derived — so `--shapes 0` (the default)
-                         #  regenerates every seed's old board byte for byte and
-                         #  no baseline has to be retaken.
+                         #  clues are derived; `--darts PERCENT` gives a region
+                         #  that would carry no clue a dart instead, drawn from
+                         #  a roll APPENDED after the letter roll and skipped
+                         #  entirely at 0 — so neither flag at its default draws
+                         #  a random number, and both leave every seed's board
+                         #  where it was. What does NOT is the two area-four
+                         #  rules joining `kColorRules`: `emptyBoard` draws once
+                         #  per entry, so every generated board moved and any
+                         #  fuzz baseline is stale. `repairRegion` moved them
+                         #  again, drawing where `nudge` used to — and it is
+                         #  what makes an area-four mask generable at all:
+                         #  measured on an 8x8, `--rules 262144` went from 1
+                         #  board in 6 attempts at ~17 s each to 6 of 6 in
+                         #  431 ms. Nothing committed depends on either
+                         #  shift — `bench:lg` runs over CAPTURED boards.
 bun run bench:mt         # match-three bench; the TS engine in-process by default,
                          #  the native CLI with --exe. That default exe path is
                          #  the CLion release dir, so --exe is required unless
@@ -273,8 +285,9 @@ different puzzle under the same name.
 **The rule list was REGROUPED once, and that is the only time it may happen.**
 It now reads: forbidden arrangements 0–10 (dark before light in every pair),
 then `connect-dark`/`connect-light` 11–12, `one-symbol-dark`/`one-symbol-light`
-13–14, `underclued` at 15 because it alone changes what the answer is, and
-`area-two-dark`/`area-two-light` appended at 16–17. That reorder was safe only
+13–14, `underclued` at 15 because it alone changes what the answer is, then
+`area-two-dark`/`area-two-light` at 16–17 and `area-four-dark`/`area-four-light`
+at 18–19, both pairs appended. That reorder was safe only
 because nothing was live and the captured fixtures were the only saved configs —
 all 69 were rewritten in the same change and checked to produce a byte-identical
 answer afterwards. Once a player has a downloaded config it can never happen
@@ -304,10 +317,21 @@ import TypeScript, so its board carries literal indices; the regroup moved
 of either colour", and that test failing is what caught it. Anything meaning "a
 family of rules" must still LIST its members — the run rules as `shortestRun` in
 `Rules.cpp`, `kRunRules` in `Verify.cpp` and `RUN_RULES` in `verify.ts`, and the
-area rules as `globalArea`, `kAreaRules` and `AREA_RULES` in the same three
+area rules as `kAreaFamily`, `kAreaRules` and `AREA_RULES` in the same three
 files. A DERIVED fact goes beside the family rather than into it: `impliedRun`
 is what knows an area of two forbids a run of three, deliberately kept out of
 `shortestRun` so that ladder keeps meaning what its two oracle mirrors mean.
+
+**Two area rules on ONE colour is legal, and that is why the family is walked
+rather than reduced to a number.** "Every dark region has area 2" and "…has
+area 4" are satisfied together exactly where dark is absent — all zero of its
+regions are both sizes at once — so a single "the area is N" accessor cannot
+say what the pair means. `rules::smallestGlobalArea` therefore exists for
+`impliedRun` ALONE, where the min is sound because the rules are conjunctive
+and the shorter forbidden run subsumes the longer; its name says so, and
+`propagateRegionAreas`, `addAreaShapes` and both oracles iterate the family
+instead. A caller that reached for the min as "the size a region must be" would
+force two dark cells onto a board whose only answer has none.
 
 **A clue kind is a split control, and its value field lives INSIDE the row.**
 Each kind renders as chip + divider + its own `<input class="symbol-value">`,
@@ -317,6 +341,67 @@ added makes that worse. Typing in a field selects its kind, so a field can never
 be edited while a different chip is armed, and each field reports its **own**
 validity (`aria-invalid`) rather than the selected kind's.
 
+**A DIRECTED kind seats four more controls on the same pill.** `dart` (index 2)
+carries a number *and* one of four directions, so its control is chip, divider,
+field, divider, four `.direction-toggle` buttons — inline rather than behind a
+menu, because there are only four and one click has to be enough. Aiming one
+selects the kind, exactly as typing a value does. Three things about them:
+they must NOT carry `.symbol-chip`, which means "the clue kinds" and is counted
+by both `logicGridSolver.test.ts` and `e2e/.../tools.test.ts`; whichever
+element is LAST in the pill carries its rounded right-hand corners, so
+`.symbol-value` gives them up when a directed kind puts arrows after it; and
+the field is sized to the longest value its OWN kind can hold rather than every
+kind paying for the widest, or four arrows make the dart's control enormous.
+
+**One arrow glyph, turned four ways, drawn in three places.** `arrow_right_alt`
+is the only long arrow Material Symbols ships and it only points right, so
+`data-direction` both seats it (one `flex-direction`) and turns it (one
+`rotate`) — which is why those CSS rules key on the bare attribute rather than
+on `.grid-cell`. Two measured facts about that glyph are what the sizing rests
+on, and both were found by looking rather than guessing:
+
+- **`md-icon` is a SQUARE box of its font size, and the ink fills neither axis
+  of it** — measured against the loaded font, `arrow_right_alt` is `0.67` of the
+  font size across and `0.505` down, centred. So a 28px icon draws an arrow
+  19px long with 4.6px of nothing at each end, and it is that dead space, not
+  the arrow, that a tile stacking a number above one runs out of room for.
+  `--arrow-size` is therefore the length of the ARROW and the two ratios turn it
+  back into a font size and a box; every context sets that one number and what
+  it sets is what shows up.
+- **`rotate` transposes what is painted and changes no layout**, so the two
+  quarter-turned seats reserved a slot as wide as the arrow is long — which is
+  what pushed the number out to the edge of the tile while the arrow appeared to
+  have room to spare. The box has to keep its shape or the rotation produces the
+  wrong one, so it is the MARGINS that trade the two axes. Swapping `width` and
+  `height` instead looks like the same fix and is not: it rotates to a visual
+  box the layout then does not match either.
+
+A longer number turns `--arrow-size` down, because on the up/down seats the
+number and the arrow sit side by side and share the tile's width; those two
+seats also spread the pair with `justify-content: space-evenly` rather than a
+fixed gap, since how much there is to share depends on how long the number is.
+
+**Trimming that box is what makes the browser's own focus ring wrong**, so
+`.grid-cell` spells its focus ring out. `outline-style: auto` is drawn around an
+element's PAINT bounds, and those include a child's ink overflow — the arrow's
+glyph box is 36px inside a 24px element box, so the default ring bulged nine
+pixels out of the square to wrap it. An outline with a real style follows the
+border box. Anywhere a glyph is deliberately larger than the box holding it,
+that ring has to be spelled out too. The four `arrow_upward`-style glyphs were tried first and are
+a stubbier arrow that reads badly at the size a tile can spare. The three
+places are the board, the answer's read-only grid, and the clue kind's own
+chip, which draws a MINIATURE of the tile through the same `dressClue` — a chip
+that spelled its own arrow out would be free to drift from what it stamps.
+
+**Per-kind bounds live on the kind, not on the page.** `LogicGridSymbolKind`
+gained `minValue` and `directed`, and `symbolValueMax(kind, size)` takes the
+board's two dimensions rather than its area: an area number is bounded by the
+board's AREA, a dart by its longest LINE (`max(w, h) - 1`). Zero is a real dart
+and not a real area, which is why `MIN_AREA_VALUE` stopped being the one floor
+and why `nextNumberValue` in `board.ts` no longer refuses a leading zero
+outright. The error strings are still built from `${kind.label}` and the
+bounds, so a new kind gets its message for nothing.
+
 That is why both rows are **built once and refreshed in place**:
 `buildSymbolRow` / `buildRuleRow` write `innerHTML` and run only from `render()`
 (board replacement), while `refreshSymbolRow` / `refreshRuleRow` toggle classes
@@ -325,7 +410,7 @@ the field being typed into, and `refreshSymbolRow` additionally skips writing
 `input.value` when it already matches — assigning it moves the caret to the end.
 The same discipline is what keeps a rule chip focused after a keyboard toggle.
 
-Three things in `board.ts` are load-bearing:
+Four things in `board.ts` are load-bearing:
 
 - **The right mouse button is a real input here.** The selected chip drives the
   left button; the right one paints the *other* colour for `dark`/`light` and
@@ -338,12 +423,52 @@ Three things in `board.ts` are load-bearing:
   drag across a half-painted row alternate between painting and erasing.
 - **Digits accumulate per cell.** An area number runs past nine, so consecutive
   digits typed on one focused cell grow the number; painting, or moving to
-  another cell, ends the run. A leading zero is ignored rather than clamped, and
-  a number that would outgrow the board leaves the last good value standing.
+  another cell, ends the run. A leading zero is ignored where the kind's floor
+  is 1 rather than clamped, and a number the kind cannot use leaves the last
+  good value standing.
+- **A DIRECTED clue TURNS where any other would be lifted.** `turnsInstead`
+  reads "the same clue apart from where it points" as a request to point it
+  somewhere else, so clicking a placed dart takes it one step clockwise and four
+  clicks bring it back — while a different VALUE still overwrites, and lifting
+  becomes the right button's job alone. Arrow keys aim a focused dart
+  absolutely; everywhere else they still scroll, which is what they always did.
+  **Dragging the arrow was tried first and removed**: the arrow is a small
+  target inside a cell that also paints, so a miss placed a clue instead of
+  turning one, and there was no way to tell the two gestures apart before the
+  drag had already done the wrong thing.
 
 Painting `UNPLAYABLE` drops the cell's clue (a gap is not clued, and the
 validator refuses a file that says otherwise); the eraser clears both layers;
 colouring a clued cell keeps its clue.
+
+**A clue's `direction` is the config's third optional key**, and it follows
+`shapes`' rule exactly: written only where there is one, in the page's writer,
+in `fixtureio::save` and in `validateConfig`'s rebuild, because every fixture
+predating darts has to keep round-tripping byte-identically. It crosses the wasm
+boundary as **-1 when absent** rather than being omitted, so a kind that needs
+one is refused by name instead of quietly pointing up.
+
+**Two things put the answer's merged cells in the wrong place, and both are
+easy to undo.** `#solution-grid` needs `position: relative` as much as `#grid`
+does — the outline layer is absolutely positioned, and without a positioned
+ancestor it anchors to the page, drawing every merged cell in the top-left
+corner while its squares (which paint nothing themselves) leave holes in the
+answer. And `.grid-cell` needs an explicit `box-sizing: border-box`, because the
+outline is traced from `--logic-cell` plus `--logic-seam` and so assumes a
+square is EXACTLY that tall: the editor's squares are `<button>`s, which the UA
+stylesheet already makes border-box, while the answer's are `<div>`s, which are
+not — one pixel of border per side put every row 1.14px below where the outline
+expected it, and by the fourth row a merged cell sat visibly higher than the
+plain squares beside it. Two elements sharing a class have to mean the same box.
+`e2e/.../solve.test.ts` measures both, which is the only way to catch either.
+
+**Where a DIRECTED clue sits inside a merged cell is not decoration.** An area
+number's square is, and `loadConfig` freely re-homes it to the cell's anchor; a
+dart's square is where its line starts, so re-homing one would load a different
+puzzle. The editor still stores every clue at the anchor, and `config.ts`
+**rejects** a directed clue anywhere else — only a hand-edited file can reach
+that. `anchorSquare` was lifted out of `ShapeLayer` so the validator and the
+editor cannot disagree about where the anchor is.
 
 **A cell is not always one grid square.** The game's harder boards fuse several
 squares into one irregular **cell** — a 1x3 bar, an L, even a glyph shaped like
@@ -532,17 +657,30 @@ The engine's load-bearing pieces:
   why the containment restriction is real: "this cell dark and all four
   neighbours light" is only forbidden where all four neighbours exist, and an
   instance running off the board or across a gap is DROPPED rather than
-  shortened — which is exactly where the rule bites. It is `regionAreaTwo` in
-  `Propagate.cpp` instead, two bitboard sweeps: four shifts find every cell with
-  nothing beside it that could ever join it, and a walk over the cells already
-  holding the colour forces a partner when only one candidate is left. That
-  propagator is **not** an optimisation — `oracleRejections` is asserted zero in
-  three suites, so a rule the propagators cannot finish enforcing fails tests
-  rather than merely running slowly. Nothing else needed changing:
-  `mergeLimits` and `regionsConsistent` are subsumed (every merge the rule
-  forbids witnesses a tromino clause), `cardinality` has no exact target to use
-  because zero cells of a colour is legal, and `Reference.cpp` cost zero lines
-  because it takes its legality entirely from `Verify`.
+  shortened — which is exactly where the rule bites. It is `regionArea` in
+  `Propagate.cpp` instead: a cheap four-shift sweep for cells with nothing
+  beside them that could ever join them, then a walk over the components of the
+  colour applying `areaKnownColor`'s reasoning to each — too big, no room to
+  reach the number, exactly full, exactly one way to grow. That propagator is
+  **not** an optimisation — `oracleRejections` is asserted zero in three suites,
+  so a rule the propagators cannot finish enforcing fails tests rather than
+  merely running slowly. `cardinality` has no exact target to use because zero
+  cells of a colour is legal, and `Reference.cpp` cost zero lines because it
+  takes its legality entirely from `Verify`.
+- **"Regions have area 4" (rules 18/19) is where that trade STOPS paying, and
+  the asymmetry is deliberate.** The same argument at four asks for every
+  connected FIVE — the 61 non-straight fixed pentominoes, the straight one being
+  `addRuns`'s as ever — which is roughly 15 000 clause instances per colour on
+  the largest board against the trominoes' 1 200, every one of them rescanned
+  whenever a square it names is decided, in the hot path of every probe. So
+  `addAreaShapes` still fires only at two, and four is `regionArea`'s alone,
+  which enforces both halves at any size for the cost of one component walk.
+  `impliedRun` is unchanged and still free: an area of four forbids a run of
+  five, and `kMaxPatternCells` was already 5 for the 1x5 rules. What the walk
+  cannot see, and the pentominoes would have, is that colouring one particular
+  cell welds two legal pieces into an illegal one — a pentomino minus its centre
+  can be disconnected. That is bought back by seeding `mergeLimits` and
+  `regionsConsistent` from `smallestGlobalArea`, which is three lines.
 - **"One symbol per area" (rules 13/14) is two deductions, and the game names
   them.** *Exactly one means less than two* is a refutation — a finished piece
   already holding two clues can never be legal, and a cell that would weld two
@@ -554,6 +692,40 @@ The engine's load-bearing pieces:
   clauses and **area reach** falls out too. Neither of those has its own code and
   neither should: they are this rule met by propagation, the same way the rest of
   the technique list is.
+- **The dart (clue kind 2) is the first clue whose POSITION matters, and the
+  first added since the model was written.** It counts the squares of the
+  opposite colour along a straight line from its own square to the edge of the
+  board, stepping over gaps rather than stopping at them, and counting a merged
+  cell once per square the line crosses. Four things about it:
+  - **Every `if kind == area … else letter` had to become three-way**, and each
+    of those was a real bug waiting: `clueValueProblem` would have validated a
+    dart's number as a letter, `buildClueTables` would have put it in a letter
+    group and indexed a 26-entry array with it, and `Regions::absorbClue` would
+    have read its number as its region's required size. A dart *is* counted as a
+    symbol for "one symbol per area", which needs no change and is right.
+  - **The line EXCLUDES the dart's own cell**, and that is a correctness
+    requirement rather than a tightening. Every square of that cell holds the
+    dart's own colour, so none of them can be the colour it counts; left in, the
+    "the line is exactly full" branch would assign the other colour to one of
+    them, `Domains::exclude` would fan that over the whole cell, and the dart
+    would refute itself. Out, `ray.count()` is also exactly the largest number
+    the dart could legally carry, which is what `DartExceedsLine` reports.
+  - **`dartCardinality` walks CELLS, not squares** — taking each cell the first
+    time one of its squares turns up on the line, never by intersecting with
+    `representatives`, which would drop every merged cell whose lowest-indexed
+    square lies off the line. That is what makes the game's *forced multitiles*
+    fall out of the counting: a cell putting three squares on the line is
+    excluded as soon as three would overshoot. Its `held`/`room` are computed
+    once and go stale as cells are decided, which can only weaken the two tests;
+    `propagate` re-runs to a fixpoint, so nothing is lost.
+  - **The rest of the technique list needs no code.** *Dart minimax* is the
+    zero and full ends of that same counting. *Dart pattern maximums* — a dart's
+    count interacting with the run and domino rules — is `Probe`: colour one
+    cell, let the clauses and the count meet, and the contradiction appears.
+    *Overloading darts*, two same-direction darts on one line fixing the count
+    between them, is the one that would need its own pairwise propagator, and it
+    is deliberately absent until a captured board asks for it; `reference_test`
+    already carries a `twoDarts` board so it cannot land unchecked.
 - **An aborted look-ahead proves nothing.** `ProbeResult` is tri-state for that
   reason. Reading a budget-expired probe as a refutation is the standard way
   this kind of solver goes quietly unsound, and the underclued mode rests
@@ -576,12 +748,19 @@ The engine's load-bearing pieces:
     An id one past the end read as letter 0 (`A`) in the prototype and quietly
     corrupted the tags; in C++ that is a buffer overrun rather than a wrong
     answer.
-  - **It declines rather than guesses.** Area clues would need each region's
-    size in the state, and the pattern rules each need their own extra state, so
-    `applicable()` refuses both — and refusing costs nothing, since those boards
-    are exactly the ones propagation already finishes in milliseconds. Running
-    out of room sets `stoppedOnMemory` and claims NOTHING, because an empty
-    sweep must never read as "no solution".
+  - **`applicable()` is a WHITELIST on both axes, and that is not tidiness.**
+    It takes letter clues, `connect-dark`, `connect-light` and `Underclued`, and
+    refuses everything else — every other clue kind, every other rule. Written
+    as a denylist it was wrong the moment the catalogue grew: a dart-only board
+    named no area clue and no listed rule, so it was ACCEPTED, `planOf` reads
+    letters only and skipped the dart, and `runProfileForced` then set `proven`
+    on a forced set with no oracle behind it — a superset of the solutions,
+    reported as proof. Nothing downstream could have caught that (`Verify` gates
+    `runProfile`'s witness, not the forced set), which is why anything
+    unrecognised has to decline by default and cost a re-measurement at worst.
+    Refusing costs nothing anyway: those boards are exactly the ones propagation
+    finishes in milliseconds. Running out of room sets `stoppedOnMemory` and
+    claims NOTHING, because an empty sweep must never read as "no solution".
   - **It answers the UNDERCLUED mode too, and that is where it pays most.**
     `runProfileForced` reads the forced set straight off one backward pass —
     mark the states that can still reach an accepting end, and a cell is forced
@@ -747,15 +926,15 @@ Unlike before, **the page keeps a real model** (`maxValues` / `values` / `button
 
 `test/resources/phasic-dial-solver/`, `test/resources/match-three-solver/` and `test/resources/logic-grid-solver/` are discovered by directory listing rather than a hard-coded list, so dropping a captured fixture in makes it run with no code change.
 
-**`test/resources/logic-grid-solver/` holds boards captured from the game and NOTHING else** — 157 of them (`logicGridTest.json`, then `logicGridTest1..156.json`), 3×3 to 21×15. No two are the same puzzle: every pair checked under all eight square symmetries, exactly, over the whole corpus; the first 111 were additionally compared by cell distance with zero pairs inside 12%. That exact check is the one worth re-running when boards land, and it is worth running at all because a captured board's `cells` is usually all-unknown — what identifies these puzzles is the gaps, the clues and the rule set, so two same-sized boards with the same rules and no clues really are the same puzzle. `logicGridTest111..138` were captured for the area rules and 18 of them carry `area-two-dark`; nothing yet carries `area-two-light`. `logicGridTest139..156` were captured for the merged cells, and **6 of them carry `shapes`** — up to 30 merged cells on an 11×8 and 25 on a 15×15. `logicGridTest68` is a fully painted board, which is a real capture and the one that exercises handing a FINISHED grid back for checking. Anything a test invents lives in `test/logic-grid-solver/boards.ts` — a picture parser plus the named boards (solvable, underclued, impossible, the 1x5 runs, the deep search, one carrying merged cells, and one using every part of the download format), imported by the unit suites **and** the e2e ones so a board cannot drift between them. The split is the point: a sweep over the corpus measures the solver against real puzzles, and a made-up board in that directory would quietly pad the number. `wasm.test.ts` runs its hand-built boards *before* the captured ones for the same reason — so the sweep still means something if the directory is ever empty.
+**`test/resources/logic-grid-solver/` holds boards captured from the game and NOTHING else** — 167 of them (`logicGridTest.json`, then `logicGridTest1..166.json`), 3×3 to 21×15. No two are the same puzzle: every pair checked under all eight square symmetries, exactly, over the whole corpus; the first 111 were additionally compared by cell distance with zero pairs inside 12%. That exact check is the one worth re-running when boards land, and it is worth running at all because a captured board's `cells` is usually all-unknown — what identifies these puzzles is the gaps, the clues and the rule set, so two same-sized boards with the same rules and no clues really are the same puzzle. `logicGridTest111..138` were captured for the area rules and 18 of them carry `area-two-dark`; nothing yet carries `area-two-light`. `logicGridTest139..156` were captured for the merged cells, and **6 of them carry `shapes`** — up to 30 merged cells on an 11×8 and 25 on a 15×15. `logicGridTest157..166` were captured for the darts: 81 of them across ten boards, 14 merged cells between two of them, and one board carrying `area-four-dark`. `logicGridTest68` is a fully painted board, which is a real capture and the one that exercises handing a FINISHED grid back for checking. Anything a test invents lives in `test/logic-grid-solver/boards.ts` — a picture parser plus the named boards (solvable, underclued, impossible, the 1x5 runs, both area sizes, two carrying darts, the deep search, one carrying merged cells, and one using every part of the download format), imported by the unit suites **and** the e2e ones so a board cannot drift between them. The split is the point: a sweep over the corpus measures the solver against real puzzles, and a made-up board in that directory would quietly pad the number. `wasm.test.ts` runs its hand-built boards *before* the captured ones for the same reason — so the sweep still means something if the directory is ever empty.
 
 **The two sweeps over the corpus ask different questions, and their budgets follow from that.** `wasm.test.ts` checks AGREEMENT — the shipped module never errors, its oracle never rejects its own propagators, any complete answer passes `verify.ts`, no two arms disagree about solvability — and races all four arms, so it keeps a short 2 s per-arm budget and lets the slow boards report `unsolved` (which is already left out of the vote). The C++ `fixtures_test.cpp` is where **"the corpus still answers"** is asserted, one engine per board at 90 s (`logicGridTest67` needs 26–38 s of that depending on the machine; everything else is milliseconds). Do not move that claim into the TS sweep: four arms × the slowest board is four times the cost for the same fact. Do keep a deep board in the TS sweep — `deepSearchBoard` — because the stack overflow below was wasm-only and the native lane could never have caught it.
 
-**All 157 answer** (25.3 s for the whole sweep). Of the 139 that predate merged cells: 83 of 83 plain boards solved and verified, and **56 of 56 underclued boards `deduced` AND `proven`** — that mode is no longer covered only by `reference_test.cpp` and `fuzz:lg`. 74 never branch at all (`cascade:deduce`), 27 come out of the profile sweep, 33 out of the underclued refutation loop, 5 out of the DFS. Total search across the corpus measures 27.2 s, of which 25.6 s is `logicGridTest67` alone; only two other boards pass 200 ms. (Board 67 was 37 s when first measured and is the one number here that moves with the machine — everything else is milliseconds, so the total is really just that board.) `fixtures_test.cpp` asserts every board answers, with **no exception list**: a captured board that does not come out is either a mis-entry or a hole in the engine, and both deserve a red test rather than an entry on a list.
+**All 167 answer**: 111 of 111 plain boards solved and verified, and **56 of 56 underclued boards `deduced` AND `proven`** — that mode is no longer covered only by `reference_test.cpp` and `fuzz:lg`. 93 never branch at all (`cascade:deduce`), 27 come out of the profile sweep, 33 out of the underclued refutation loop, 14 out of the DFS. Total search across the corpus measures 30.4 s, of which 28.8 s is `logicGridTest67` alone; only two other boards pass 200 ms (`logicGridTest96` at 1.2 s and `logicGridTest79` at 219 ms). (Board 67 was 37 s when first measured and is the one number here that moves with the machine — everything else is milliseconds, so the total is really just that board.) `fixtures_test.cpp` asserts every board answers, with **no exception list**: a captured board that does not come out is either a mis-entry or a hole in the engine, and both deserve a red test rather than an entry on a list.
 
 **`logicGridTest67` is where the profile sweep came from, and it is also a lesson about extrapolating.** It is 15×15, four letter pairs, no rules, and the DFS does not touch it in ten million nodes. I concluded from small analogues that it was *impossible* — 5×4 refuted in 86 nodes, 6×5 in 4 390, 7×6 in 1 357 188, nothing larger refuted at all — and that was **wrong**. Those boards are unsolvable for lack of ROOM, not for topology: the interleaving argument needs every terminal on the outer face, and this board's `(5,13)` is interior, so the regions nest instead of crossing. The answer is four nested spiral arms, sizes 127/62/28/8, and the sweep finds it in 38 s natively, 45 s in the browser. `Profile.InterleavedPairsWithNoRoomAreImpossible` pins the 3×3 where the obstruction is real, next to the note that the same shape with room is fine — the two cases look identical and are not.
 
-Sweeps over the corpus assert what holds whatever a board turns out to be — the module never errors, its oracle never rejects its own propagators' work, any complete answer verifies — rather than that a board comes out solved. A generated fixture may also carry an optional `solution` key, which `FixtureIo` reads back and the C++ sweep uses to check that no cell reported *forced* disagrees with a known solution; the page's validator drops the key, so such a file still loads into the editor. Captured fixtures do not carry it, and `config.test.ts` asserts a byte-identical round-trip through `validateConfig`. **`shapes` is the format's other optional key** — an array per merged cell of flat `y * gridWidth + x` indices, row-major, unlike `cells` and `solution` in the same file. It is **omitted entirely rather than written as `[]`** on a board with none, in the page's writer and in `fixtureio::save` alike, because all 139 captured fixtures predate it and that round-trip is exact. `wasmBridge.ts` now **exports `toPuzzle`** for the same class of reason `PORTFOLIO` is exported: `wasm.test.ts` kept its own copy of the payload, so the whole-corpus sweep went green while never once sending the new key — the merged board in it is what caught that, and only because the page's own checker refused the answer. The other fixture families are enumerated explicitly: the C++ suites run rollingBlocksTest 1–48 and shiftingMosaicTest 1–43, and `test/rolling-blocks-solver/aStar.slow.test.ts` runs the same full 1–48 range through wasm on the cascade engine (120 s per-test timeout, 90 s solve budget). Real captured rolling-blocks boards top out at 13×15 / 8 blocks / dimension-6 blocks / 83 must-touch — the 64×64 caps and fuzz sizes are stress headroom, not game reality.
+Sweeps over the corpus assert what holds whatever a board turns out to be — the module never errors, its oracle never rejects its own propagators' work, any complete answer verifies — rather than that a board comes out solved. A generated fixture may also carry an optional `solution` key, which `FixtureIo` reads back and the C++ sweep uses to check that no cell reported *forced* disagrees with a known solution; the page's validator drops the key, so such a file still loads into the editor. Captured fixtures do not carry it, and `config.test.ts` asserts a byte-identical round-trip through `validateConfig`. **`shapes` is the format's other optional key** — an array per merged cell of flat `y * gridWidth + x` indices, row-major, unlike `cells` and `solution` in the same file. It is **omitted entirely rather than written as `[]`** on a board with none, in the page's writer and in `fixtureio::save` alike, because all 139 captured fixtures predate it and that round-trip is exact. `wasmBridge.ts` now **exports `toPuzzle`** for the same class of reason `PORTFOLIO` is exported: `wasm.test.ts` kept its own copy of the payload, so the whole-corpus sweep went green while never once sending the new key — the merged board in it is what caught that, and only because the page's own checker refused the answer. The same applies to a clue's `direction`, which is why `dart` and `dart-over-merged` are in that suite's hand-built cases: every captured board predates the key, so the corpus alone would never send one. The other fixture families are enumerated explicitly: the C++ suites run rollingBlocksTest 1–48 and shiftingMosaicTest 1–43, and `test/rolling-blocks-solver/aStar.slow.test.ts` runs the same full 1–48 range through wasm on the cascade engine (120 s per-test timeout, 90 s solve budget). Real captured rolling-blocks boards top out at 13×15 / 8 blocks / dimension-6 blocks / 83 must-touch — the 64×64 caps and fuzz sizes are stress headroom, not game reality.
 
 `test/resources/match-three-solver/` holds 52 boards captured from the game (`matchThreeTest.json`, then `matchThreeTest1..51.json`), swept by directory listing — `config.test.ts` (format), `engine.test.ts` (legal game state), `engine.solve.slow.test.ts` (TypeScript engine), `wasm.slow.test.ts` (C++ engine) and the C++ `fixtures_test.cpp`. They span 2×2 to 13×23, 1 to 20 moves, with and without blockades, and between them use every symbol.
 

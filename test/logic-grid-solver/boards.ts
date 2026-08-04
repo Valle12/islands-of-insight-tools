@@ -5,6 +5,7 @@ import {
   UNPLAYABLE,
 } from "../../src/pages/logic-grid-solver/cell";
 import { RULES } from "../../src/pages/logic-grid-solver/rules";
+import { SYMBOL_KINDS } from "../../src/pages/logic-grid-solver/symbols";
 import type { LogicGridTest } from "../../src/util/types";
 
 /**
@@ -26,6 +27,17 @@ const ruleIndex = (id: string) => {
   if (index < 0) throw new Error(`boards.ts asks for an unknown rule: ${id}`);
   return index;
 };
+
+/** Same discipline for the clue catalogue, which is append-only too. */
+const symbolIndex = (id: string) => {
+  const index = SYMBOL_KINDS.findIndex(kind => kind.id === id);
+  if (index < 0) throw new Error(`boards.ts asks for an unknown symbol: ${id}`);
+  return index;
+};
+
+const AREA_SYMBOL = symbolIndex("area");
+const LETTER_SYMBOL = symbolIndex("letter");
+const DART_SYMBOL = symbolIndex("dart");
 
 /**
  * A puzzle from a picture, one string per row:
@@ -52,9 +64,9 @@ export function board(rows: string[], ruleIds: string[] = []): LogicGridTest {
       else if (glyph === "D") cells[x]![y] = DARK;
       else if (glyph === "L") cells[x]![y] = LIGHT;
       else if (glyph >= "1" && glyph <= "9")
-        symbols.push({ x, y, type: 0, value: Number(glyph) });
+        symbols.push({ x, y, type: AREA_SYMBOL, value: Number(glyph) });
       else if (glyph >= "a" && glyph <= "z")
-        symbols.push({ x, y, type: 1, value: glyph.toUpperCase() });
+        symbols.push({ x, y, type: LETTER_SYMBOL, value: glyph.toUpperCase() });
     }
   }
   return {
@@ -89,6 +101,25 @@ export function withShape(
 ): LogicGridTest {
   const shape = squares.map(([x, y]) => y * config.gridWidth + x);
   config.shapes = [...(config.shapes ?? []), shape];
+  return config;
+}
+
+/**
+ * Puts a dart on a cell. A second call rather than a glyph, like `withShape`
+ * and for the same reason: the picture's alphabet is spoken for, and a dart
+ * carries two things rather than one. Mirrors `withDart` in `TestBoards.h`.
+ *
+ * `direction` is an index into `DIRECTIONS` — 0 up, 1 right, 2 down, 3 left.
+ */
+export function withDart(
+  config: LogicGridTest,
+  x: number,
+  y: number,
+  value: number,
+  direction: number,
+): LogicGridTest {
+  config.symbols.push({ x, y, type: DART_SYMBOL, value, direction });
+  config.symbols.sort((a, b) => a.y - b.y || a.x - b.x);
   return config;
 }
 
@@ -156,6 +187,57 @@ export const runFiveBoard = (): LogicGridTest =>
  */
 export const areaTwoBoard = (): LogicGridTest =>
   board(["....", "...."], ["area-two-dark", "area-two-light"]);
+
+/**
+ * The same for the area-FOUR pair, which enforce both halves in a propagator
+ * rather than half in the pattern table — so a board carrying them exercises a
+ * different mechanism from `areaTwoBoard` despite reading the same.
+ *
+ * Eight cells, satisfied by two 2x2 blocks or by two rows of four.
+ */
+export const areaFourBoard = (): LogicGridTest =>
+  board(["....", "...."], ["area-four-dark", "area-four-light"]);
+
+/**
+ * Two darts, both of which fill in immediately and between them settle the
+ * whole board — which is the technique the game calls dart minimax: a dart
+ * holding 0, or holding as many squares as its line has, leaves no choice.
+ *
+ * The top dart also looks straight THROUGH the gap: its line is three squares
+ * long, not two, and the gap is neither counted nor a wall. There are no rules
+ * at all, so the darts are the only thing deciding anything.
+ */
+export const dartBoard = (): LogicGridTest => {
+  const config = board(["..#..", "....."]);
+  withGiven(config, 0, 0, DARK);
+  withGiven(config, 0, 1, DARK);
+  // Nothing light to the right, past the gap: the rest of the row is dark.
+  withDart(config, 0, 0, 0, 1);
+  // Every square to the right is light, which is the other extreme.
+  withDart(config, 0, 1, 4, 1);
+  return config;
+};
+
+/**
+ * A dart whose line crosses a merged 1x3 bar, with a value only the per-SQUARE
+ * reading can satisfy.
+ *
+ * The line holds four squares, three of which are one cell. Asking for three of
+ * the other colour forces that cell light and the last square dark — while a
+ * dart that counted CELLS could never reach three at all. So this board is a
+ * solution exactly under the rule the engine claims to implement.
+ */
+export const dartOverMergedBoard = (): LogicGridTest => {
+  const config = board(["....."]);
+  withGiven(config, 0, 0, DARK);
+  withDart(config, 0, 0, 3, 1);
+  withShape(config, [
+    [1, 0],
+    [2, 0],
+    [3, 0],
+  ]);
+  return config;
+};
 
 /**
  * A board with merged cells: a 1x3 bar across the top row and an L below it,
