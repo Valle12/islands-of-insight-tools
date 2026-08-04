@@ -160,8 +160,10 @@ test.describe("Logic Grid Solver solving", () => {
     await expect(paths).toHaveCount(2);
 
     const grid = (await page.locator("#solution-grid").boundingBox())!;
-    for (let i = 0; i < 2; i++) {
-      const box = (await paths.nth(i).boundingBox())!;
+    const boxes = await Promise.all(
+      [0, 1].map(async i => (await paths.nth(i).boundingBox())!),
+    );
+    for (const box of boxes) {
       expect(box.x).toBeGreaterThanOrEqual(grid.x - 2);
       expect(box.y).toBeGreaterThanOrEqual(grid.y - 2);
       expect(box.x + box.width).toBeLessThanOrEqual(grid.x + grid.width + 2);
@@ -170,7 +172,9 @@ test.describe("Logic Grid Solver solving", () => {
 
     // The 1x3 bar across the top row: its outline has to sit on the same line
     // as that row's plain squares, give or take the half stroke it is inset by.
-    const bar = (await paths.first().boundingBox())!;
+    // Taken as the higher of the two rather than as the first, because the
+    // order `outlineLayer` emits its paths in is not a contract.
+    const bar = boxes[0]!.y <= boxes[1]!.y ? boxes[0]! : boxes[1]!;
     const square = (await solutionCell(page, 0, 0).boundingBox())!;
     expect(Math.abs(bar.y - square.y)).toBeLessThanOrEqual(1);
   });

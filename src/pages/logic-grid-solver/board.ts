@@ -776,7 +776,8 @@ export class Board {
         this.splitSquare(position);
         return;
       }
-      this.writeCell(position, this.colorAt(position), null);
+      const lift = this.anchor(position);
+      this.writeCell(lift, this.colorAt(lift), null);
       return;
     }
 
@@ -792,10 +793,16 @@ export class Board {
       return;
     }
 
-    const clue = this.nextClue(position, event.key);
+    // A clue belongs to the CELL, so typing on any square of a merged one
+    // edits the clue at its anchor — the same square `applyStroke` writes. On
+    // a non-anchor square the raw position reads no existing clue and would
+    // then stamp a second one beside it, which a directed clue cannot even
+    // survive: `config.ts` refuses a dart anywhere but the anchor.
+    const anchor = this.anchor(position);
+    const clue = this.nextClue(anchor, event.key);
     if (!clue) return;
     event.preventDefault();
-    this.writeCell(position, this.colorAt(position), clue);
+    this.writeCell(anchor, this.colorAt(anchor), clue);
   }
 
   /**
@@ -835,9 +842,12 @@ export class Board {
    * a fresh number. A number the kind cannot use is refused rather than
    * truncated, so a slip leaves the last good value standing.
    *
-   * The bounds come from the KIND. Zero is not an area, so a leading zero is
-   * ignored there — but zero is a real dart, and refusing it would leave one of
-   * the two cases that fill in immediately impossible to type.
+   * The bounds come from the KIND, and BOTH ends are checked on the first
+   * digit as well as on a grown one — on a small board a single keystroke can
+   * already overshoot, since a 1x1 board's area tops out at 1 and its dart at
+   * 0. Zero is not an area, so a leading zero is ignored there — but zero is a
+   * real dart, and refusing it would leave one of the two cases that fill in
+   * immediately impossible to type.
    */
   private nextNumberValue(
     position: Position,
@@ -857,7 +867,7 @@ export class Board {
       gridHeight: this.gridHeight,
     });
     if (!continuing || current === null) {
-      return digit < kind.minValue ? null : digit;
+      return digit < kind.minValue || digit > max ? null : digit;
     }
 
     const grown = current * 10 + digit;

@@ -309,15 +309,17 @@ h2 {
  * a clue this way: the board, the answer's read-only grid, and the miniature on
  * the clue kind's own chip.
  */
+/* No `gap` here on purpose. A digit's own box is a little wider and taller than
+   the digit — the arrow's box is trimmed to its ink but text's cannot be — so a
+   NEGATIVE gap looks like the way to take that side bearing back. It is not:
+   `gap` rejects negative lengths outright and the browser drops the whole
+   declaration, so the -1px this rule carried for a while never applied and the
+   sizes below were measured against the 0 it silently fell back to. Pulling the
+   two halves together needs a negative margin on one of them instead. */
 [data-direction] {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* NEGATIVE, because a digit's own box is a little wider and taller than the
-     digit: the arrow's box is trimmed to its ink but text's cannot be, so this
-     takes back the side bearing rather than leaving a hole between the two
-     halves of one clue. */
-  gap: -1px;
 }
 
 /**
@@ -329,14 +331,13 @@ h2 {
  * Distributed rather than written as a gap, because how much there is to give
  * depends on how long the number is — a one-digit dart has eleven pixels spare
  * where a two-digit one has five, and any fixed gap suiting the first would
- * push the second out of the tile. The seats that STACK the pair keep the tight
- * `gap` above, where the tile's height is the scarce thing and the two look
+ * push the second out of the tile. The seats that STACK the pair keep the
+ * centred default, where the tile's height is the scarce thing and the two look
  * right close together.
  */
 [data-direction="up"],
 [data-direction="down"] {
   justify-content: space-evenly;
-  gap: 0;
 }
 
 [data-direction="up"] {
@@ -363,7 +364,7 @@ h2 {
  * mistake rather than a clue.
  *
  * The binding constraint is the STACKED seats, where the number sits above the
- * arrow: `font-size + arrow-thickness - gap` has to stay inside the square.
+ * arrow: `font-size + arrow-thickness` has to stay inside the square.
  */
 .grid-cell[data-direction] {
   font-size: 20px;

@@ -100,6 +100,46 @@ int regionsOffSize(const Model &model, const Colors &colors) {
   return bad;
 }
 
+/**
+ * One flip-candidate set per region that is off the size its rule wants: the
+ * region itself, which flipping shrinks, and the ring around it, which
+ * flipping grows it into.
+ *
+ * This is the gradient `regionsOffSize` measures, turned into a move list. The
+ * area rules of FOUR contribute no clauses at all — the pattern table stops at
+ * two, see `addAreaShapes` — so without it `walk` finds nothing in `broken` and
+ * falls back on `nudge`, which flips a uniformly random cell. Measured on an
+ * 8x8 before it existed: `AreaFourDark` alone produced 1 board in 6 attempts at
+ * ~17 s each and both area-four rules together 0 in 12, where the
+ * clause-covered `AreaTwoDark` managed 6 of 6 at 50 ms apiece.
+ *
+ * Kept as one entry PER REGION rather than as a single pooled set so `walk` can
+ * repair one at a time, exactly as it does with one randomly chosen broken
+ * clause. Scoring the pool instead costs a `cost()` per cell of every bad
+ * region at every step, which on a board with many of them is most of the
+ * board: measured on the both-area-two mask, where the 8x8 is usually
+ * infeasible and the walk runs its whole restart budget out, pooling took the
+ * give-up path from 123 s to 308 s for the same answer.
+ */
+std::vector<Bits> offSizeRegions(const Model &model, const Colors &colors) {
+  std::vector<Bits> regions;
+  for (const auto &[rule, color, area] : rules::kAreaFamily) {
+    if (!model.hasRule(rule))
+      continue;
+    const Bits held = heldBy(model, colors, color);
+    Bits seen;
+    for (int i = held.nextSet(0); i >= 0; i = held.nextSet(i + 1)) {
+      if (seen.test(i))
+        continue;
+      const Bits region = component(i, held);
+      seen = seen | region;
+      if (region.count() != area)
+        regions.push_back((region | region.border()) & model.playable);
+    }
+  }
+  return regions;
+}
+
 bool clauseHolds(const Clause &clause, const Colors &colors) {
   for (int i = 0; i < clause.count; i++) {
     if (colors[slot(clause.cells[slot(i)])] != clause.colors[slot(i)])
@@ -149,8 +189,37 @@ void repairClause(const Model &model, const Clause &clause, SeededRng &rng,
   colors[slot(bestCell)] = opposite(colors[slot(bestCell)]);
 }
 
-/// With no broken arrangement left, only connectivity can be wrong; nudging a
-/// random cell is enough to keep the walk moving.
+/// Flips whichever of one off-size region's candidates leaves the board least
+/// broken. The same shape as `repairClause`, noise included, but over a set
+/// from `offSizeRegions` rather than over one forbidden arrangement.
+void repairRegion(const Model &model, const Bits &candidates, SeededRng &rng,
+                  Colors &colors) {
+  std::vector<int> cells;
+  for (int i = candidates.nextSet(0); i >= 0; i = candidates.nextSet(i + 1))
+    cells.push_back(i);
+  if (cells.empty())
+    return;
+
+  int bestCell = cells.front();
+  int bestCost = -1;
+  for (const int cell : cells) {
+    const uint8_t was = colors[slot(cell)];
+    colors[slot(cell)] = opposite(was);
+    const int after = cost(model, colors);
+    colors[slot(cell)] = was;
+    if (bestCost < 0 || after < bestCost) {
+      bestCost = after;
+      bestCell = cell;
+    }
+  }
+  if (rng.uniform(0, 99) < kNoisePercent)
+    bestCell = cells[slot(rng.uniform(0, static_cast<int>(cells.size()) - 1))];
+  colors[slot(bestCell)] = opposite(colors[slot(bestCell)]);
+}
+
+/// With no broken arrangement left and every region already the size its rule
+/// wants, only connectivity can still be wrong; nudging a random cell is
+/// enough to keep the walk moving.
 void nudge(const Model &model, SeededRng &rng, Colors &colors) {
   const int count = model.playableCount;
   if (count == 0)
@@ -178,7 +247,16 @@ bool walk(const Model &model, SeededRng &rng, Colors &colors) {
       id++;
     }
     if (broken.empty()) {
-      nudge(model, rng, colors);
+      // Cost is still nonzero, so what is left is a region rule — and the area
+      // rules of four are never in `broken` at all, having no clauses. One
+      // region at a time, the same way a broken clause is picked below.
+      const std::vector<Bits> offSize = offSizeRegions(model, colors);
+      if (offSize.empty()) {
+        nudge(model, rng, colors);
+        continue;
+      }
+      const int pick = rng.uniform(0, static_cast<int>(offSize.size()) - 1);
+      repairRegion(model, offSize[slot(pick)], rng, colors);
       continue;
     }
     const int chosen = broken[slot(rng.uniform(0, static_cast<int>(broken.size()) - 1))];

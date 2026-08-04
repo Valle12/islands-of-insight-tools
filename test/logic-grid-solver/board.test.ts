@@ -412,9 +412,20 @@ describe("Board (logic grid)", () => {
 
   describe("Typing on a cell", () => {
     test("a digit stamps an area number", () => {
-      const board = makeBoard(2, 2, "dark", 0, 1);
+      const board = makeBoard(4, 4, "dark", 0, 1);
       type(0, 0, "7");
       expect(board.getSymbols()).toEqual([{ x: 0, y: 0, type: 0, value: 7 }]);
+    });
+
+    /**
+     * The ceiling applies to the FIRST digit too, not only to a grown one: a
+     * 2x2 board's area tops out at 4, so a single keystroke can already
+     * overshoot and there is no earlier value to fall back to.
+     */
+    test("a first digit above the board's area is refused", () => {
+      const board = makeBoard(2, 2, "dark", 0, 1);
+      type(0, 0, "7");
+      expect(board.getSymbols()).toEqual([]);
     });
 
     /** Areas run past nine, so consecutive digits on one cell accumulate. */
@@ -817,6 +828,50 @@ describe("Board (logic grid)", () => {
       expect(board.getSymbols()).toEqual([{ x: 1, y: 0, type: 0, value: 3 }]);
       expect(cellAt(1, 0).textContent).toBe("3");
       expect(cellAt(2, 0).textContent).toBe("");
+    });
+
+    /**
+     * The keyboard has to agree with the pointer above. Typing on a non-anchor
+     * square used to read no clue there and stamp a SECOND one beside the
+     * anchor's — two clues on one cell, which the model does not allow and
+     * which a directed clue cannot round-trip at all, `config.ts` refusing a
+     * dart anywhere but the anchor.
+     *
+     * Two digits rather than one, so the second also has to find the first's
+     * number at the anchor rather than start again beside it.
+     */
+    test("typing on any square of a merged cell clues its anchor", () => {
+      const board = makeBoard(4, 3, "merge");
+      mergeAcross([
+        [0, 0],
+        [1, 0],
+        [2, 0],
+      ]);
+
+      board.setSelectedTool("symbol");
+      type(2, 0, "1");
+      type(2, 0, "2");
+      expect(board.getSymbols()).toEqual([{ x: 1, y: 0, type: 0, value: 12 }]);
+      expect(cellAt(1, 0).textContent).toBe("12");
+    });
+
+    test("Backspace on any square of a merged cell lifts its clue", () => {
+      const board = makeBoard(4, 3, "merge");
+      mergeAcross([
+        [0, 0],
+        [1, 0],
+        [2, 0],
+      ]);
+
+      board.setSelectedTool("symbol");
+      board.setSymbolValue(3);
+      press(0, 0, LEFT);
+      release();
+      expect(board.getSymbols()).toHaveLength(1);
+
+      // From the far end, which is not where the clue is stored.
+      type(2, 0, "Backspace");
+      expect(board.getSymbols()).toEqual([]);
     });
 
     /**
