@@ -3,14 +3,20 @@ import {
   readGridSize,
   type ConfigResult,
 } from "../../util/configValidation";
+import {
+  configVersion,
+  migrateConfig,
+  type ConfigMigration,
+} from "../../util/configVersion";
 import type { LogicGridSymbol, LogicGridTest } from "../../util/types";
 import { CELL_LIMIT, UNPLAYABLE } from "./cell";
 import { RULE_COUNT } from "./rules";
-import { anchorSquare } from "./shapes";
 import {
+  axisIndex,
   SYMBOL_KIND_COUNT,
   symbolDirectionError,
   symbolKindAt,
+  symbolSeatError,
   symbolValueError,
 } from "./symbols";
 
@@ -39,6 +45,24 @@ export const MAX_GRID_SIDE = 32;
  * button for the board where it is not.
  */
 export const SOLVE_BUDGET_MS = 120_000;
+
+/**
+ * How to read each older shape of this page's download format, newest step
+ * last — see `configVersion.ts` for the whole contract.
+ *
+ * Empty because the format has never had a breaking change: `shapes`,
+ * `direction` and `seat` all arrived as OPTIONAL keys, which every earlier file
+ * satisfies by not having them. The first change that cannot be expressed that
+ * way appends its step here, which is what takes `CONFIG_VERSION` to 2.
+ */
+const MIGRATIONS: readonly ConfigMigration[] = [];
+
+/**
+ * The format version this build writes, derived from the list above so the two
+ * cannot disagree. Every download carries it as its first key, and a file
+ * without one is version 1 — see `configVersion.ts`.
+ */
+export const CONFIG_VERSION = configVersion(MIGRATIONS);
 
 export type ConfigParseResult = ConfigResult<LogicGridTest>;
 
@@ -121,7 +145,25 @@ function symbolError(
     gridWidth,
     gridHeight,
   });
-  return valueProblem ?? symbolDirectionError(kind, raw.direction);
+  if (valueProblem !== null) return valueProblem;
+  const directionProblem = symbolDirectionError(kind, raw.direction);
+  if (directionProblem !== null) return directionProblem;
+  const seatProblem = symbolSeatError(kind, raw.seat);
+  if (seatProblem !== null) return seatProblem;
+
+  // A diagonal axis on an edge-midpoint seat has no reflection on the square
+  // grid — mirrors would land on square corners — so the combination is
+  // refused here exactly as the solver names it. Whether the seat's squares
+  // really belong to the clue's merged cell is `seatShapeError`'s question.
+  if (kind.aims === "axis") {
+    const diagonal =
+      raw.direction === axisIndex("diagonal-down") ||
+      raw.direction === axisIndex("diagonal-up");
+    if (diagonal && (raw.seat === 1 || raw.seat === 2)) {
+      return `A diagonal ${kind.label.toLowerCase()} symbol cannot sit on a grid-line seat.`;
+    }
+  }
+  return null;
 }
 
 /** Returns the first problem with the clue layer, or null when it is valid. */
@@ -257,7 +299,10 @@ function shapesError(
     if (problem !== null) return problem;
 
     // A merged cell is ONE cell, so it carries at most one clue however many
-    // squares it spans.
+    // squares it spans — and WHICH of its squares that clue sits on is the
+    // player's own choice, so there is nothing else to ask. A dart's square is
+    // where its ray starts and a symmetry symbol's is half of its seat, so
+    // every kind keeps the square the file names.
     const squares = shape as number[];
     const clued = symbols.filter(symbol =>
       squares.includes(symbol.y * size.gridWidth + symbol.x),
@@ -265,19 +310,45 @@ function shapesError(
     if (clued.length > 1) {
       return "A merged cell carries more than one symbol.";
     }
+  }
+  return null;
+}
 
-    // Where an undirected clue sits inside its cell is decoration, and the
-    // editor is free to re-home it on load. A DIRECTED one is different: the
-    // square it sits on is where its ray starts, so moving it would quietly
-    // load a different puzzle. Refuse instead — only a hand-edited file can
-    // reach this, since the editor never writes one anywhere else.
-    const directed = clued[0];
-    if (directed?.direction === undefined) continue;
-    const anchor = anchorSquare(squares, size.gridWidth);
-    if (directed.y * size.gridWidth + directed.x !== anchor) {
-      const x = anchor % size.gridWidth;
-      const y = Math.floor(anchor / size.gridWidth);
-      return `A directed symbol on a merged cell must sit on column ${x + 1}, row ${y + 1}.`;
+/**
+ * The half of a seat only the merged-cell layer can judge: its squares must
+ * really surround a point of the clue's own cell. A seam seat needs the
+ * square beyond it as a shape-mate; a corner seat needs at least THREE of its
+ * four surrounding squares in the cell — a 2x2 block's centre has four, and
+ * an L-tromino's natural middle is the corner it wraps, which has three.
+ */
+function seatShapeError(
+  symbols: LogicGridSymbol[],
+  shapes: number[][],
+  gridWidth: number,
+  gridHeight: number,
+): string | null {
+  for (const symbol of symbols) {
+    const seat = symbol.seat ?? 0;
+    if (symbolKindAt(symbol.type)?.aims !== "axis" || seat === 0) continue;
+    const cell = shapes.find(shape =>
+      shape.includes(symbol.y * gridWidth + symbol.x),
+    );
+    if (!cell) {
+      return `Column ${symbol.x + 1}, row ${symbol.y + 1} carries a seat but no merged cell to sit in.`;
+    }
+    // Bounds first: past the right edge the flat index would wrap to the next
+    // row and could falsely match a member there.
+    const owns = (x: number, y: number) =>
+      x < gridWidth && y < gridHeight && cell.includes(y * gridWidth + x);
+    const right = owns(symbol.x + 1, symbol.y);
+    const down = owns(symbol.x, symbol.y + 1);
+    const corner = owns(symbol.x + 1, symbol.y + 1);
+    const fits =
+      (seat === 1 && right) ||
+      (seat === 2 && down) ||
+      (seat === 3 && 1 + Number(right) + Number(down) + Number(corner) >= 3);
+    if (!fits) {
+      return `Column ${symbol.x + 1}, row ${symbol.y + 1} carries a seat its merged cell does not surround.`;
     }
   }
   return null;
@@ -296,10 +367,15 @@ function shapesError(
  * round-trip byte-identically.
  */
 export function validateConfig(data: unknown): ConfigParseResult {
-  const size = readGridSize(data, MAX_GRID_SIDE);
+  // First of all, and before a single structural check: a migration is exactly
+  // what makes an older file's shape make sense to the rules below.
+  const migrated = migrateConfig(data, MIGRATIONS);
+  if (!migrated.ok) return { ok: false, error: migrated.error };
+
+  const size = readGridSize(migrated.data, MAX_GRID_SIDE);
   if (!size.ok) return size;
   const { gridWidth, gridHeight } = size.config;
-  const raw = data as Record<string, unknown>;
+  const raw = migrated.data as Record<string, unknown>;
 
   const cellsProblem = cellsError(raw.cells, gridWidth, gridHeight);
   if (cellsProblem !== null) return { ok: false, error: cellsProblem };
@@ -317,18 +393,24 @@ export function validateConfig(data: unknown): ConfigParseResult {
   if (symbolsProblem !== null) return { ok: false, error: symbolsProblem };
 
   const rules = [...(raw.rules as number[])].sort((a, b) => a - b);
-  // `direction` is spread only when the clue has one, for the same reason
-  // `shapes` is omitted below: every captured fixture predates the key and has
-  // to keep round-tripping byte-identically.
+  // `value`, `direction` and `seat` are each spread only when the clue has
+  // one, for the same reason `shapes` is omitted below: every captured
+  // fixture predates the optional keys and has to keep round-tripping
+  // byte-identically. A seat of 0 normalises back to absent, like an empty
+  // `shapes` — it means the square's own centre, which is what absent means.
   const symbols = (raw.symbols as LogicGridSymbol[]).map(symbol => ({
     x: symbol.x,
     y: symbol.y,
     type: symbol.type,
-    value: symbol.value,
+    ...(symbol.value === undefined ? {} : { value: symbol.value }),
     ...(symbol.direction === undefined ? {} : { direction: symbol.direction }),
+    ...(symbol.seat ? { seat: symbol.seat } : {}),
   }));
 
+  // `version` FIRST, and always the current one — whatever the file said, what
+  // comes out of here is the shape this build stores.
   const config: LogicGridTest = {
+    version: CONFIG_VERSION,
     gridWidth,
     gridHeight,
     rules,
@@ -348,5 +430,19 @@ export function validateConfig(data: unknown): ConfigParseResult {
     if (shapes.length > 0) config.shapes = shapes;
   }
 
-  return { ok: true, config };
+  // After the shapes: a seat is judged against the merged cell it sits in,
+  // and a board with no shapes at all has nowhere for one.
+  const seatProblem = seatShapeError(
+    symbols,
+    config.shapes ?? [],
+    gridWidth,
+    gridHeight,
+  );
+  if (seatProblem !== null) return { ok: false, error: seatProblem };
+
+  // The number is reported only when the file really was older, so the page
+  // can say the copy on disk is out of date without claiming it of every load.
+  return migrated.from < CONFIG_VERSION
+    ? { ok: true, config, migratedFrom: migrated.from }
+    : { ok: true, config };
 }

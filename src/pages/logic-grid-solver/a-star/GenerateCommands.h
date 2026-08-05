@@ -47,6 +47,13 @@ struct Options {
    * dart and reproduces exactly the boards it always did.
    */
   int darts = 0;
+  /**
+   * The same again for a symmetry symbol, appended after the dart roll with
+   * the same zero-skip contract. Unlike a dart there is no value to derive:
+   * the axis is drawn, and the clue lands only where the region really does
+   * mirror across it — the check reads the colouring and draws nothing.
+   */
+  int lotus = 0;
 };
 
 /// 0 when a puzzle was written, 1 when no attempt produced one. Nothing is

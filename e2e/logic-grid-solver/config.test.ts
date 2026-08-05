@@ -120,6 +120,25 @@ test.describe("Logic Grid Solver config", () => {
     await expect(page.locator("#grid .grid-cell")).toHaveCount(36);
   });
 
+  /** The valueless kind's own refusal, through the real banner: a symmetry
+   * symbol never carries a value, and a file that says otherwise is naming a
+   * puzzle this page cannot mean. */
+  test("refuses a symmetry symbol carrying a value", async ({ page }) => {
+    await gotoIsolated(page, URL);
+    await upload(
+      page,
+      {
+        ...SAMPLE_CONFIG,
+        symbols: [{ x: 0, y: 0, type: 3, value: 1, direction: 0 }],
+      },
+      "bad.json",
+    );
+
+    await expect(page.locator("#warning-banner")).toHaveText(
+      "Invalid config: Symmetry symbols carry no value.",
+    );
+  });
+
   /** A gap is not a cell the puzzle clues, and the editor cannot produce one. */
   test("refuses a clue sitting on a gap", async ({ page }) => {
     await gotoIsolated(page, URL);
@@ -171,7 +190,12 @@ test.describe("Logic Grid Solver config", () => {
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toBe("logicGridTest.json");
 
-    const config = JSON.parse(readFileSync(await download.path(), "utf8"));
+    const raw = readFileSync(await download.path(), "utf8");
+    const config = JSON.parse(raw);
+    // The tag leads the file, so a reader knows which shape it is in before it
+    // has parsed anything that shape could have changed. Checked on the TEXT,
+    // since key order is the one thing a parsed object cannot show.
+    expect(raw).toMatch(/^\{\n {2}"version": 1,/);
     expect(config.gridWidth).toBe(6);
     expect(config.gridHeight).toBe(6);
     expect(config.cells[0][0]).toBe(1);

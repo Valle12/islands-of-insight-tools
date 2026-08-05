@@ -158,6 +158,64 @@ Pattern checkerPattern(const uint8_t color) {
   }));
 }
 
+/// A line of three alternating colours — `color`, the other, `color` again —
+/// laid along (stepX, stepY). The colour the rule's id names first is the one
+/// at both ENDS.
+Pattern triplePattern(const uint8_t color, const int stepX, const int stepY) {
+  const auto cell = [](const int dx, const int dy, const uint8_t held) {
+    return PatternCell{.dx = static_cast<int8_t>(dx),
+                       .dy = static_cast<int8_t>(dy),
+                       .color = held};
+  };
+  return fromCells(std::to_array({cell(0, 0, color),
+                                  cell(stepX, stepY, opposite(color)),
+                                  cell(stepX * 2, stepY * 2, color)}));
+}
+
+void addTriples(const RuleMask mask, const uint8_t color, Patterns &into) {
+  using enum Rule;
+  if (!has(mask, color == kDark ? NoDarkLightDark : NoLightDarkLight))
+    return;
+  into.emplace_back(triplePattern(color, 1, 0));
+  into.emplace_back(triplePattern(color, 0, 1));
+}
+
+/// The four rotations of the T-tetromino: a bar of three with a fourth cell on
+/// the middle's other side. Offsets stay non-negative like every pattern here,
+/// so each rotation is anchored at its own bounding box's top-left.
+std::array<Pattern, 4> teePatterns(const uint8_t color) {
+  const auto cell = [color](const int dx, const int dy) {
+    return PatternCell{.dx = static_cast<int8_t>(dx),
+                       .dy = static_cast<int8_t>(dy),
+                       .color = color};
+  };
+  return {
+      fromCells(std::to_array({cell(0, 0), cell(1, 0), cell(2, 0), cell(1, 1)})),
+      fromCells(std::to_array({cell(1, 0), cell(0, 1), cell(1, 1), cell(2, 1)})),
+      fromCells(std::to_array({cell(0, 0), cell(0, 1), cell(1, 1), cell(0, 2)})),
+      fromCells(std::to_array({cell(1, 0), cell(0, 1), cell(1, 1), cell(1, 2)})),
+  };
+}
+
+/**
+ * The T rules — subsumed when a run of three or shorter is already forbidden
+ * for the colour, because every T contains a straight three. Instances that
+ * cannot fire first would be worse than dead weight: `GenerateCommands::cost()`
+ * counts violated clauses, so one broken bar would score twice — the same bias
+ * the run and area dedup above guards against. `impliedRun` already folds an
+ * area of two in (it implies a run of three), so one comparison covers both
+ * subsumers. Nothing subsumes the triples: they name both colours.
+ */
+void addTees(const RuleMask mask, const uint8_t color, Patterns &into) {
+  using enum Rule;
+  if (!has(mask, color == kDark ? NoDarkT : NoLightT))
+    return;
+  if (const int run = impliedRun(mask, color); run != 0 && run <= 3)
+    return;
+  for (const Pattern &pattern : teePatterns(color))
+    into.emplace_back(pattern);
+}
+
 } // namespace
 
 const char *name(const Rule rule) {
@@ -183,6 +241,12 @@ const char *name(const Rule rule) {
       "area-two-light",
       "area-four-dark",
       "area-four-light",
+      "area-five-dark",
+      "area-five-light",
+      "no-dark-light-dark",
+      "no-light-dark-light",
+      "no-dark-t",
+      "no-light-t",
   });
   static_assert(kNames.size() == kRuleCount,
                 "every rule needs its id, in index order");
@@ -213,6 +277,12 @@ Patterns patternsFor(const RuleMask mask) {
 
   addAreaShapes(mask, kDark, patterns);
   addAreaShapes(mask, kLight, patterns);
+
+  addTriples(mask, kDark, patterns);
+  addTriples(mask, kLight, patterns);
+
+  addTees(mask, kDark, patterns);
+  addTees(mask, kLight, patterns);
 
   // The checkerboard lemma, which is why BOTH connect rules together imply the
   // checkerboard patterns even when the board never asked for them. Suppose a

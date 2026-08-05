@@ -36,7 +36,13 @@ TEST(Rules, IndicesMirrorTheCatalogue) {
   EXPECT_EQ(std::to_underlying(Rule::AreaTwoLight), 17);
   EXPECT_EQ(std::to_underlying(Rule::AreaFourDark), 18);
   EXPECT_EQ(std::to_underlying(Rule::AreaFourLight), 19);
-  EXPECT_EQ(rules::kRuleCount, 20);
+  EXPECT_EQ(std::to_underlying(Rule::AreaFiveDark), 20);
+  EXPECT_EQ(std::to_underlying(Rule::AreaFiveLight), 21);
+  EXPECT_EQ(std::to_underlying(Rule::NoDarkLightDark), 22);
+  EXPECT_EQ(std::to_underlying(Rule::NoLightDarkLight), 23);
+  EXPECT_EQ(std::to_underlying(Rule::NoDarkT), 24);
+  EXPECT_EQ(std::to_underlying(Rule::NoLightT), 25);
+  EXPECT_EQ(rules::kRuleCount, 26);
 }
 
 TEST(Rules, NamesAreTheIdsFromTheCatalogue) {
@@ -53,6 +59,12 @@ TEST(Rules, NamesAreTheIdsFromTheCatalogue) {
   EXPECT_STREQ(rules::name(Rule::AreaTwoLight), "area-two-light");
   EXPECT_STREQ(rules::name(Rule::AreaFourDark), "area-four-dark");
   EXPECT_STREQ(rules::name(Rule::AreaFourLight), "area-four-light");
+  EXPECT_STREQ(rules::name(Rule::AreaFiveDark), "area-five-dark");
+  EXPECT_STREQ(rules::name(Rule::AreaFiveLight), "area-five-light");
+  EXPECT_STREQ(rules::name(Rule::NoDarkLightDark), "no-dark-light-dark");
+  EXPECT_STREQ(rules::name(Rule::NoLightDarkLight), "no-light-dark-light");
+  EXPECT_STREQ(rules::name(Rule::NoDarkT), "no-dark-t");
+  EXPECT_STREQ(rules::name(Rule::NoLightT), "no-light-t");
 }
 
 TEST(Rules, GlobalAreaListsItsMembers) {
@@ -61,6 +73,7 @@ TEST(Rules, GlobalAreaListsItsMembers) {
   EXPECT_EQ(smallestGlobalArea(rules::bit(Rule::AreaTwoDark), kLight), 0);
   EXPECT_EQ(smallestGlobalArea(rules::bit(Rule::AreaTwoLight), kLight), 2);
   EXPECT_EQ(smallestGlobalArea(rules::bit(Rule::AreaFourDark), kDark), 4);
+  EXPECT_EQ(smallestGlobalArea(rules::bit(Rule::AreaFiveLight), kLight), 5);
   EXPECT_EQ(smallestGlobalArea(rules::bit(Rule::ConnectDark), kDark), 0);
 }
 
@@ -89,6 +102,22 @@ TEST(Patterns, AnAreaOfFourAddsNoShapesBeyondItsImpliedRun) {
   ASSERT_EQ(patterns.size(), 2U);
   EXPECT_EQ(patterns.front().count, 5);
   EXPECT_EQ(patterns.back().count, 5);
+}
+
+/**
+ * The first six-cell pattern, which is what forced `kMaxPatternCells` to 6.
+ * `runPattern` writes `cells[i]` with no assert of its own — only hand-listed
+ * `fromCells` patterns are guarded — so the last cell is checked by POSITION
+ * here: with the constant still at 5 this write lands out of bounds.
+ */
+TEST(Patterns, AnAreaOfFiveImpliesARunOfSix) {
+  const rules::Patterns patterns =
+      rules::patternsFor(rules::bit(Rule::AreaFiveDark));
+  ASSERT_EQ(patterns.size(), 2U);
+  EXPECT_EQ(patterns.front().count, 6);
+  EXPECT_EQ(patterns.back().count, 6);
+  EXPECT_EQ(patterns.front().cells[5].dx, 5);
+  EXPECT_EQ(patterns.back().cells[5].dy, 5);
 }
 
 /// Both sizes on one colour take the shorter implied run, and nothing else.
@@ -179,6 +208,66 @@ TEST(Patterns, AForbiddenPairSubsumesEveryTromino) {
       rules::bit(Rule::AreaTwoDark) | rules::bit(Rule::NoDark1x2));
   ASSERT_EQ(patterns.size(), 2U);
   EXPECT_EQ(patterns.front().count, 2);
+}
+
+TEST(Patterns, ATripleRuleIsOneMixedPatternPerDirection) {
+  const rules::Patterns patterns =
+      rules::patternsFor(rules::bit(Rule::NoDarkLightDark));
+  ASSERT_EQ(patterns.size(), 2U);
+  for (const auto &[cells, count] : patterns) {
+    EXPECT_EQ(count, 3);
+    EXPECT_EQ(cells[0].color, kDark);
+    EXPECT_EQ(cells[1].color, kLight);
+    EXPECT_EQ(cells[2].color, kDark);
+  }
+}
+
+TEST(Patterns, TheTwoTripleRulesAreMirrors) {
+  const rules::Patterns patterns =
+      rules::patternsFor(rules::bit(Rule::NoLightDarkLight));
+  ASSERT_EQ(patterns.size(), 2U);
+  EXPECT_EQ(patterns.front().cells[0].color, kLight);
+  EXPECT_EQ(patterns.front().cells[1].color, kDark);
+  EXPECT_EQ(patterns.front().cells[2].color, kLight);
+}
+
+TEST(Patterns, ATeeRuleIsFourRotations) {
+  const rules::Patterns patterns =
+      rules::patternsFor(rules::bit(Rule::NoDarkT));
+  ASSERT_EQ(patterns.size(), 4U);
+  for (const auto &[cells, count] : patterns)
+    EXPECT_EQ(count, 4);
+}
+
+TEST(Patterns, AShortRunRuleSubsumesTheTee) {
+  // Every T contains a straight three, so with dark threes already forbidden
+  // the T instances could never prune anything the run clauses do not — and a
+  // clause that duplicates another's work biases `GenerateCommands::cost()`,
+  // which counts violations.
+  const rules::Patterns patterns = rules::patternsFor(
+      rules::bit(Rule::NoDarkT) | rules::bit(Rule::NoDark1x3));
+  ASSERT_EQ(patterns.size(), 2U);
+  EXPECT_EQ(patterns.front().count, 3);
+}
+
+TEST(Patterns, AnAreaOfTwoSubsumesTheTee) {
+  // Via the implied run of three, which is the same argument one step removed.
+  const rules::Patterns patterns = rules::patternsFor(
+      rules::bit(Rule::NoDarkT) | rules::bit(Rule::AreaTwoDark));
+  EXPECT_EQ(patterns.size(), 6U);
+}
+
+TEST(Patterns, ALongerRunRuleDoesNotSubsumeTheTee) {
+  // A 1x4 rule says nothing about the T, whose longest straight is three.
+  const rules::Patterns patterns = rules::patternsFor(
+      rules::bit(Rule::NoDarkT) | rules::bit(Rule::NoDark1x4));
+  EXPECT_EQ(patterns.size(), 6U);
+}
+
+TEST(Patterns, ARunOfOneColourDoesNotSubsumeTheOtherTee) {
+  const rules::Patterns patterns = rules::patternsFor(
+      rules::bit(Rule::NoLightT) | rules::bit(Rule::NoDark1x3));
+  EXPECT_EQ(patterns.size(), 6U);
 }
 
 TEST(Patterns, TheTwoAreaRulesDoNotSubsumeEachOther) {

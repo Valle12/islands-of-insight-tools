@@ -1,11 +1,18 @@
 import type { LogicGridClue } from "../../util/types";
 import { colorLabel, colorId } from "./cell";
-import { DIRECTION_ICON, directionAt, symbolKindAt } from "./symbols";
+import {
+  AXIS_ICON,
+  axisAt,
+  DIRECTION_ICON,
+  directionAt,
+  symbolKindAt,
+  type LogicGridSymbolKind,
+} from "./symbols";
 
 /**
- * What a cell is called. Colours, clue kinds and directions are all fixed,
- * append-only lists, so naming one here is stable enough to assert on in an
- * aria snapshot.
+ * What a cell is called. Colours, clue kinds, directions and axes are all
+ * fixed, append-only lists, so naming one here is stable enough to assert on
+ * in an aria snapshot.
  */
 export function describeCell(
   x: number,
@@ -16,6 +23,11 @@ export function describeCell(
   const position = `Column ${x + 1}, Row ${y + 1}, ${colorLabel(cell)}`;
   const kind = clue ? symbolKindAt(clue.type) : undefined;
   if (!clue || !kind) return position;
+  if (kind.aims === "axis") {
+    const axis = axisAt(clue.direction ?? -1);
+    const along = axis ? ` along the ${axis.label.toLowerCase()} axis` : "";
+    return `${position}, ${kind.label}${along}`;
+  }
   const aim = clue.direction === undefined ? null : directionAt(clue.direction);
   const pointing = aim ? ` pointing ${aim.label.toLowerCase()}` : "";
   return `${position}, ${kind.label} ${clue.value}${pointing}`;
@@ -42,21 +54,32 @@ export function dressCell(
 
   const kind = clue ? symbolKindAt(clue.type) : undefined;
   if (clue && kind) {
-    const label = String(clue.value);
     element.dataset.symbol = kind.id;
-    element.dataset.symbolValue = label;
-    // How many characters the cell has to hold, so the stylesheet can size the
-    // text to it. CSS cannot measure a string, and an area number is only
-    // bounded by the board's own area — 1024 on the largest grid the editor
-    // accepts — so one fixed size would either look lost in the cell or spill
-    // out of it. Capped at the largest bucket the stylesheet defines.
-    element.dataset.labelLength = String(Math.min(label.length, 4));
-    dressClue(element, label, clue.direction);
+    if (kind.valueKind === "none") {
+      // A valueless clue writes no value attributes at all: an axis glyph is
+      // sized like an icon, never like text.
+      delete element.dataset.symbolValue;
+      delete element.dataset.labelLength;
+      dressClue(element, kind, "", clue.direction, clue.seat);
+    } else {
+      const label = String(clue.value);
+      element.dataset.symbolValue = label;
+      // How many characters the cell has to hold, so the stylesheet can size
+      // the text to it. CSS cannot measure a string, and an area number is
+      // only bounded by the board's own area — 1024 on the largest grid the
+      // editor accepts — so one fixed size would either look lost in the cell
+      // or spill out of it. Capped at the largest bucket the stylesheet
+      // defines.
+      element.dataset.labelLength = String(Math.min(label.length, 4));
+      dressClue(element, kind, label, clue.direction);
+    }
   } else {
     delete element.dataset.symbol;
     delete element.dataset.symbolValue;
     delete element.dataset.labelLength;
     delete element.dataset.direction;
+    delete element.dataset.axis;
+    delete element.dataset.seat;
     element.textContent = "";
   }
 
@@ -64,14 +87,18 @@ export function dressCell(
 }
 
 /**
- * The clue's own contents: a bare text node for an undirected one, and a
- * number beside an arrow for a directed one.
+ * The clue's own contents: a bare text node for an undirected one, a number
+ * beside an arrow for a compass-aimed one, and the rotated axis glyph alone
+ * for an axis-aimed one.
  *
  * The arrow's SEAT is a quarter turn clockwise of the way it points — pointing
  * up puts it right of the number, pointing right puts it below, and so on —
  * which the stylesheet does with one flex direction per `data-direction`. The
  * number is written first either way, so that ordering is all it takes, and
  * the same `data-direction` turns the single arrow glyph to face the right way.
+ * An axis-aimed clue is the same trick with nothing beside it: `data-axis`
+ * turns one glyph four ways, and `data-seat` slides it onto the cell's grid
+ * lines — half a square right for bit 0, down for bit 1.
  *
  * Exported because the clue-kind CHIP draws a miniature of the tile with it:
  * one function so the chip and what it stamps cannot come to look like two
@@ -79,10 +106,31 @@ export function dressCell(
  */
 export function dressClue(
   element: HTMLElement,
+  kind: LogicGridSymbolKind,
   label: string,
   direction: number | undefined,
+  seat = 0,
 ): void {
-  const aim = direction === undefined ? null : directionAt(direction);
+  if (kind.aims === "axis") {
+    const axis = axisAt(direction ?? -1);
+    delete element.dataset.direction;
+    element.dataset.axis = axis?.id ?? "horizontal";
+    if (seat > 0) element.dataset.seat = String(seat);
+    else delete element.dataset.seat;
+    // `md-icon`, like the arrow below and for the same reason.
+    const glyph = document.createElement("md-icon");
+    glyph.className = "cell-axis";
+    glyph.textContent = AXIS_ICON;
+    element.replaceChildren(glyph);
+    return;
+  }
+
+  delete element.dataset.axis;
+  delete element.dataset.seat;
+  const aim =
+    kind.aims === "compass" && direction !== undefined
+      ? directionAt(direction)
+      : null;
   if (!aim) {
     delete element.dataset.direction;
     element.textContent = label;

@@ -3,6 +3,7 @@ import { gotoIsolated, LOGIC_GRID_URL } from "../coi";
 import {
   dartBoard,
   impossibleBoard,
+  lotusOverMergedBoard,
   mergedCellBoard,
   solvableBoard,
   undercluedBoard,
@@ -180,6 +181,37 @@ test.describe("Logic Grid Solver solving", () => {
   });
 
   /**
+   * The same layer, on a board with NO merged cells: an `<svg>` carrying no
+   * width, height or viewBox falls back to the replaced element's default
+   * 300x150, and since it is absolutely positioned inside the grid that
+   * phantom box lands in the scrollable overflow of the shell around it. A
+   * small answer then came with a horizontal scrollbar over empty background
+   * and the height it reserves, while the editor's own shell — stretched wide
+   * by the tool rows above it — hid the same bug completely.
+   *
+   * Only a real browser lays this out, which is why the assertion is here and
+   * not in a unit test.
+   */
+  test("draws a small answer without a scrollbar over nothing", async ({
+    page,
+  }) => {
+    await upload(page, solvableBoard());
+    await page.getByRole("button", { name: "Solve Grid" }).click();
+    await expect(page.locator("#solution-view")).toBeVisible();
+
+    const shell = await page.locator("#solution-grid-shell").evaluate(el => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+      offsetHeight: (el as HTMLElement).offsetHeight,
+      clientHeight: el.clientHeight,
+    }));
+    expect(shell.scrollWidth).toBe(shell.clientWidth);
+    // The scrollbar's own height, had one been reserved: the shell's border is
+    // 1px a side, so anything past 2px is a gutter.
+    expect(shell.offsetHeight - shell.clientHeight).toBeLessThanOrEqual(2);
+  });
+
+  /**
    * Both darts on this board fill in immediately — one holds 0 and one holds a
    * whole line — so between them they settle every cell, and the top one looks
    * straight through the gap in its row.
@@ -223,5 +255,44 @@ test.describe("Logic Grid Solver solving", () => {
     await expect(solutionCell(page, 0, 0).locator(".cell-value")).toHaveText(
       "0",
     );
+  });
+
+  /**
+   * The symmetry symbol end to end: seated on the seam of its own 1x2 merged
+   * cell, its region must mirror across that grid line, which forces the whole
+   * board — the square beside its lower half dark, the bottom row light. An
+   * axis or seat lost at either boundary would settle a different board, and
+   * one lost on the way back would draw the glyph in the wrong place.
+   */
+  test("solves a board its symmetry symbol settles, and keeps its seat", async ({
+    page,
+  }) => {
+    await upload(page, lotusOverMergedBoard());
+    await page.getByRole("button", { name: "Solve Grid" }).click();
+
+    await expect(page.locator("#solution-view")).toBeVisible();
+    await expect(
+      page.locator('#solution-grid .grid-cell[data-color="unknown"]'),
+    ).toHaveCount(0);
+
+    // Mirroring across the seam forces (1,1) dark; the bottom row reflects
+    // off the board, so it can only be light.
+    await expect(solutionCell(page, 1, 1)).toHaveAttribute(
+      "data-color",
+      "dark",
+    );
+    for (const x of [0, 1]) {
+      await expect(solutionCell(page, x, 2)).toHaveAttribute(
+        "data-color",
+        "light",
+      );
+    }
+
+    // The answer keeps the glyph on its seam, turned the way it was placed.
+    await expect(solutionCell(page, 0, 0)).toHaveAttribute(
+      "data-axis",
+      "horizontal",
+    );
+    await expect(solutionCell(page, 0, 0)).toHaveAttribute("data-seat", "2");
   });
 });

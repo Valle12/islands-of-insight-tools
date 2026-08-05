@@ -20,64 +20,7 @@ import {
 } from "../../src/pages/logic-grid-solver/rules";
 import { SYMBOL_KINDS } from "../../src/pages/logic-grid-solver/symbols";
 import type { LogicGridTest } from "../../src/util/types";
-
-/**
- * The page's own markup, trimmed to the ids and hooks the editor reaches for.
- * It is mounted for real rather than stubbed through `getElementById` because
- * the editor also runs `querySelectorAll` over `#paint-tools` and delegates the
- * clicks on `#symbol-row` and `#rule-row` to the rows themselves.
- *
- * The tool buttons are split across the same rows the page uses, so a selector
- * that only ever found them in one of them fails here too.
- */
-const MARKUP = `
-  <div id="editor-section">
-    <div id="warning-banner" class="hidden"></div>
-    <input id="grid-width" />
-    <input id="grid-height" />
-    <div id="grid"></div>
-    <div id="tool-status"></div>
-    <div id="paint-tools">
-      <div id="command-row" class="tool-row">
-        <button class="tool-button icon-tool" data-tool="erase" type="button">Eraser</button>
-        <button class="tool-button icon-tool" data-tool="reset" type="button">Reset</button>
-      </div>
-      <div id="color-row" class="tool-row">
-        <button class="tool-button icon-tool" data-tool="dark" type="button">Dark</button>
-        <button class="tool-button icon-tool" data-tool="light" type="button">Light</button>
-        <button class="tool-button icon-tool" data-tool="unplayable" type="button">Unplayable</button>
-        <button class="tool-button icon-tool" data-tool="merge" type="button">Merge cells</button>
-      </div>
-      <div id="symbol-row" class="tool-row"></div>
-    </div>
-    <div id="rule-section">
-      <div id="rule-row"></div>
-    </div>
-    <md-filled-button id="solve-puzzle">Solve Grid</md-filled-button>
-    <md-icon-button id="upload-config"></md-icon-button>
-    <md-icon-button id="download-config"></md-icon-button>
-    <input id="config-file-input" type="file" />
-    <output id="solution-panel" class="hidden">
-      <span id="solution-status"></span>
-      <div id="solution-spinner" class="hidden">
-        <span id="solution-progress-text"></span>
-        <md-text-button id="solution-cancel">Cancel</md-text-button>
-      </div>
-      <div id="solution-message"></div>
-    </output>
-  </div>
-  <div id="solution-view" class="hidden">
-    <span id="solution-count"></span>
-    <div id="solution-grid"></div>
-    <div id="solution-note"></div>
-    <md-text-button id="solution-exit">Back to editor</md-text-button>
-  </div>
-  <md-dialog id="reset-dialog">
-    <md-text-button id="reset-cancel">Cancel</md-text-button>
-    <md-filled-button id="reset-confirm">Reset</md-filled-button>
-  </md-dialog>
-  <div id="drop-overlay" class="hidden"></div>
-`;
+import { MARKUP } from "./markup";
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
@@ -221,10 +164,12 @@ describe("LogicGridSolverEditor", () => {
       ]);
     });
 
-    /** Every kind carries its own field, so none of them has to be named. */
-    test("gives every clue kind its own value field", () => {
+    /** Every kind that CARRIES a value gets its own field, so none has to be
+     * named — and a valueless kind renders no field at all, which is why the
+     * two counts diverge now the symmetry symbol exists. */
+    test("gives every value-carrying clue kind its own value field", () => {
       expect(document.querySelectorAll("#symbol-row .symbol-value")).toHaveLength(
-        SYMBOL_KINDS.length,
+        SYMBOL_KINDS.filter(kind => kind.valueKind !== "none").length,
       );
       expect(valueField(0).type).toBe("number");
       expect(valueField(0).value).toBe("1");
@@ -611,6 +556,7 @@ describe("LogicGridSolverEditor", () => {
 
       expect(blobs).toHaveLength(1);
       expect(JSON.parse(await blobs[0]!.text())).toEqual({
+        version: 1,
         gridWidth: 2,
         gridHeight: 2,
         rules: [0, 10],
@@ -680,6 +626,7 @@ describe("LogicGridSolverEditor", () => {
 
   describe("Upload", () => {
     const config: LogicGridTest = {
+      version: 1,
       gridWidth: 2,
       gridHeight: 1,
       rules: [11],

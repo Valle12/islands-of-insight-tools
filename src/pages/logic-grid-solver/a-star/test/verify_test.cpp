@@ -123,6 +123,26 @@ TEST(Verify, CatchesAnAreaFourRegionOfTheWrongSize) {
             Violation::RegionSize);
 }
 
+/// The area-FIVE pair, appended after four and checked the same way. Six wide
+/// on purpose: five is the first size whose implied forbidden run — SIX cells
+/// — did not fit the pattern table as it stood.
+TEST(Verify, CatchesAnAreaFiveRegionOfTheWrongSize) {
+  EXPECT_EQ(
+      judge({"......", "......"}, {"DDDDDL", "LLLLLL"}, {Rule::AreaFiveDark}),
+      Violation::None);
+  // The straight six an area of five implies.
+  EXPECT_EQ(
+      judge({"......", "......"}, {"DDDDDD", "LLLLLL"}, {Rule::AreaFiveDark}),
+      Violation::RegionSize);
+  EXPECT_EQ(
+      judge({"......", "......"}, {"DDDDLL", "LLLLLL"}, {Rule::AreaFiveDark}),
+      Violation::RegionSize);
+  // The same colouring judged from the other side: light is one region of 7.
+  EXPECT_EQ(
+      judge({"......", "......"}, {"DDDDDL", "LLLLLL"}, {Rule::AreaFiveLight}),
+      Violation::RegionSize);
+}
+
 /// Not a contradiction: every one of a colour's ZERO regions is both sizes at
 /// once, so the pair is satisfied exactly when the colour is absent.
 TEST(Verify, BothSizesOnOneColourLeaveOnlyTheEmptyColouring) {
@@ -163,6 +183,60 @@ TEST(Verify, CatchesACheckerboard) {
             Violation::Checkerboard);
   EXPECT_EQ(judge({"..", ".."}, {"DD", "LL"}, {Rule::NoCheckerboard}),
             Violation::None);
+}
+
+TEST(Verify, CatchesAForbiddenTripleInEitherDirection) {
+  EXPECT_EQ(judge({"...", "..."}, {"DLD", "LLL"}, {Rule::NoDarkLightDark}),
+            Violation::Triple);
+  // Down the first column: D over L over D.
+  EXPECT_EQ(judge({"..", "..", ".."}, {"DL", "LL", "DL"},
+                  {Rule::NoDarkLightDark}),
+            Violation::Triple);
+  EXPECT_EQ(judge({"...", "..."}, {"DDL", "LLD"}, {Rule::NoDarkLightDark}),
+            Violation::None);
+}
+
+TEST(Verify, ATripleNamesTheColourAtItsEnds) {
+  // The same line, judged under each rule: L-D-L is the OTHER rule's shape.
+  EXPECT_EQ(judge({"...", "..."}, {"LDL", "DDD"}, {Rule::NoDarkLightDark}),
+            Violation::None);
+  EXPECT_EQ(judge({"...", "..."}, {"LDL", "DDD"}, {Rule::NoLightDarkLight}),
+            Violation::Triple);
+}
+
+/// Two darks a gap apart are not a triple: the middle must really be light.
+TEST(Verify, AGapNeverCompletesATriple) {
+  EXPECT_EQ(judge({".#.", "..."}, {"D#D", "LLL"}, {Rule::NoDarkLightDark}),
+            Violation::None);
+}
+
+TEST(Verify, CatchesATeeInEveryRotation) {
+  EXPECT_EQ(judge({"...", "..."}, {"DDD", "LDL"}, {Rule::NoDarkT}),
+            Violation::Tee);
+  EXPECT_EQ(judge({"...", "..."}, {"LDL", "DDD"}, {Rule::NoDarkT}),
+            Violation::Tee);
+  EXPECT_EQ(judge({"..", "..", ".."}, {"DL", "DD", "DL"}, {Rule::NoDarkT}),
+            Violation::Tee);
+  EXPECT_EQ(judge({"..", "..", ".."}, {"LD", "DD", "LD"}, {Rule::NoDarkT}),
+            Violation::Tee);
+}
+
+TEST(Verify, ABareLineIsNotATee) {
+  EXPECT_EQ(judge({"...", "..."}, {"DDD", "LLL"}, {Rule::NoDarkT}),
+            Violation::None);
+}
+
+TEST(Verify, APlusContainsATee) {
+  EXPECT_EQ(judge({"...", "...", "..."}, {"LDL", "DDD", "LDL"},
+                  {Rule::NoDarkT}),
+            Violation::Tee);
+}
+
+TEST(Verify, TheTwoTeeRulesAreSeparateSwitches) {
+  EXPECT_EQ(judge({"...", "..."}, {"DDD", "LDL"}, {Rule::NoLightT}),
+            Violation::None);
+  EXPECT_EQ(judge({"...", "..."}, {"LLL", "DLD"}, {Rule::NoLightT}),
+            Violation::Tee);
 }
 
 TEST(Verify, CatchesADisconnectedColour) {
@@ -226,6 +300,9 @@ TEST(Verify, EveryViolationHasAMessage) {
   EXPECT_STRNE(verify::describe(Violation::RegionSize), "");
   EXPECT_STRNE(verify::describe(Violation::CellSplit), "");
   EXPECT_STRNE(verify::describe(Violation::DartCount), "");
+  EXPECT_STRNE(verify::describe(Violation::Triple), "");
+  EXPECT_STRNE(verify::describe(Violation::Tee), "");
+  EXPECT_STRNE(verify::describe(Violation::LotusAsymmetric), "");
 }
 
 /// A dart on `(0, 0)` aimed along the top row, and a colouring to judge.
@@ -281,6 +358,94 @@ TEST(Verify, ADartCountsAMergedCellOncePerSquare) {
   EXPECT_EQ(verify::check(model, test::colors({"DLLLD"})), Violation::None);
   EXPECT_EQ(verify::check(model, test::colors({"DDDDL"})),
             Violation::DartCount);
+}
+
+/// A lotus on the centre of a 3x3, and a colouring to judge.
+Violation judgeLotus(const std::vector<std::string> &painted, const int axis) {
+  Puzzle puzzle = test::board({"...", "...", "..."});
+  test::withLotus(puzzle, 1, 1, axis);
+  return verify::check(buildModel(puzzle), test::colors(painted));
+}
+
+TEST(Verify, ALotusRegionMustMirrorAcrossItsAxis) {
+  EXPECT_EQ(judgeLotus({"LDL", "DDD", "LDL"}, kAxisHorizontal),
+            Violation::None);
+  // One extra dark corner joins the region and reflects onto a light cell.
+  EXPECT_EQ(judgeLotus({"LDL", "DDD", "LDD"}, kAxisHorizontal),
+            Violation::LotusAsymmetric);
+}
+
+/// The "\" axis through the centre transposes the board.
+TEST(Verify, ADiagonalLotusMirrorsItsRegion) {
+  EXPECT_EQ(judgeLotus({"LDL", "DDL", "LLD"}, kAxisDiagonalDown),
+            Violation::None);
+  EXPECT_EQ(judgeLotus({"LDL", "DDD", "LLL"}, kAxisDiagonalDown),
+            Violation::LotusAsymmetric);
+}
+
+/// Only the region HOLDING the lotus is held to the mirror: the far dark pair
+/// reflects clean off the board and is nobody's business.
+TEST(Verify, OnlyTheRegionHoldingTheLotusIsMirrored) {
+  Puzzle puzzle = test::board({"....."});
+  test::withLotus(puzzle, 1, 0, kAxisVertical);
+  EXPECT_EQ(verify::check(buildModel(puzzle), test::colors({"LDLDD"})),
+            Violation::None);
+}
+
+TEST(Verify, ALotusRegionMayNotReflectOffTheBoard) {
+  Puzzle puzzle = test::board({"..."});
+  test::withLotus(puzzle, 0, 0, kAxisVertical);
+  // The region's second square reflects past the board's left edge.
+  EXPECT_EQ(verify::check(buildModel(puzzle), test::colors({"DDL"})),
+            Violation::LotusAsymmetric);
+  EXPECT_EQ(verify::check(buildModel(puzzle), test::colors({"DLL"})),
+            Violation::None);
+}
+
+TEST(Verify, ALotusRegionMayNotReflectOntoAGap) {
+  Puzzle puzzle = test::board({"..#"});
+  test::withLotus(puzzle, 1, 0, kAxisVertical);
+  EXPECT_EQ(verify::check(buildModel(puzzle), test::colors({"DD#"})),
+            Violation::LotusAsymmetric);
+}
+
+/// A seat on the seam of a 1x2 cell: the axis is the grid line between its two
+/// squares, so rows swap in pairs and the third row reflects off the board.
+TEST(Verify, ASeamSeatMirrorsAcrossTheGridLine) {
+  Puzzle puzzle = test::board({"..", "..", ".."});
+  test::withShape(puzzle, {{0, 0}, {0, 1}});
+  test::withLotus(puzzle, 0, 0, kAxisHorizontal, 2);
+  const Model model = buildModel(puzzle);
+  EXPECT_EQ(verify::check(model, test::colors({"DD", "DD", "LL"})),
+            Violation::None);
+  EXPECT_EQ(verify::check(model, test::colors({"DD", "DD", "DL"})),
+            Violation::LotusAsymmetric);
+}
+
+/// A corner seat on a 2x2 cell carries the diagonals: the block's centre is a
+/// corner point, and the "\" through it transposes the board.
+TEST(Verify, ACornerSeatCarriesTheDiagonals) {
+  Puzzle puzzle = test::board({"...", "...", "..."});
+  test::withShape(puzzle, {{0, 0}, {1, 0}, {0, 1}, {1, 1}});
+  test::withLotus(puzzle, 0, 0, kAxisDiagonalDown, 3);
+  const Model model = buildModel(puzzle);
+  EXPECT_EQ(verify::check(model, test::colors({"DDD", "DDL", "DLL"})),
+            Violation::None);
+  EXPECT_EQ(verify::check(model, test::colors({"DDD", "DDL", "LLL"})),
+            Violation::LotusAsymmetric);
+}
+
+/// Two lotuses in one region each hold it to their OWN axis.
+TEST(Verify, TwoLotusesEachHoldTheRegionToTheirOwnAxis) {
+  Puzzle puzzle = test::board({"...", "...", "..."});
+  test::withLotus(puzzle, 1, 1, kAxisHorizontal);
+  test::withLotus(puzzle, 1, 0, kAxisVertical);
+  const Model model = buildModel(puzzle);
+  EXPECT_EQ(verify::check(model, test::colors({"LDL", "DDD", "LDL"})),
+            Violation::None);
+  // Still symmetric for the horizontal lotus; the vertical one is broken.
+  EXPECT_EQ(verify::check(model, test::colors({"LDL", "DDL", "LDL"})),
+            Violation::LotusAsymmetric);
 }
 
 /// The same, for a board carrying one merged cell the picture cannot draw.

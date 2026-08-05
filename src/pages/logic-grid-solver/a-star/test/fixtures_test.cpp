@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -50,6 +51,110 @@ std::vector<std::string> allTestFiles() {
  */
 TEST(LogicGridCorpus, TheCorpusIsThere) {
   EXPECT_FALSE(allTestFiles().empty());
+}
+
+nlohmann::json readJson(const std::string &path) {
+  std::ifstream input(path);
+  return nlohmann::json::parse(input);
+}
+
+/**
+ * Every fixture is in the version this build reads, checked HERE rather than
+ * left to `load`.
+ *
+ * `load` throws `FixtureError` for an unreadable file and the sweep below
+ * turns that into a `GTEST_SKIP` — right for a missing corpus, and exactly
+ * wrong for a stale one, which would go quietly green while testing nothing.
+ * A version this build cannot read means the fixtures were not rewritten
+ * alongside the bump that raised it, and the whole point of the tag is that
+ * such a thing is noticed.
+ */
+TEST(LogicGridCorpus, EveryBoardIsTheCurrentFormatVersion) {
+  for (const std::string &name : allTestFiles()) {
+    const nlohmann::json document =
+        readJson(std::string(TEST_RESOURCES_DIR) + "/" + name);
+    // Absent means the first version — every board captured before the tag
+    // existed relies on that, so it is a legal answer and not a hole.
+    const int version = document.contains("version")
+                            ? document.at("version").get<int>()
+                            : 1;
+    EXPECT_EQ(version, fixtureio::kConfigVersion) << name;
+  }
+}
+
+/** A temporary file holding `document`, removed when the test ends. */
+class TempFixture {
+public:
+  explicit TempFixture(const nlohmann::json &document)
+      : path_((std::filesystem::temp_directory_path() / "lgVersionTest.json")
+                  .string()) {
+    std::ofstream output(path_);
+    output << document.dump(2);
+  }
+  TempFixture(const TempFixture &) = delete;
+  TempFixture &operator=(const TempFixture &) = delete;
+  TempFixture(TempFixture &&) = delete;
+  TempFixture &operator=(TempFixture &&) = delete;
+  ~TempFixture() { std::filesystem::remove(path_); }
+
+  [[nodiscard]] const std::string &path() const { return path_; }
+
+private:
+  std::string path_;
+};
+
+/** The smallest legal board, as a document to bend one key of at a time. */
+nlohmann::json oneCellDocument() {
+  return nlohmann::json{{"version", fixtureio::kConfigVersion},
+                        {"gridWidth", 1},
+                        {"gridHeight", 1},
+                        {"rules", nlohmann::json::array()},
+                        {"cells", {{0}}},
+                        {"symbols", nlohmann::json::array()}};
+}
+
+TEST(LogicGridFixtureIo, ReadsTheCurrentVersion) {
+  const TempFixture file(oneCellDocument());
+  EXPECT_NO_THROW({ (void)fixtureio::load(file.path()); });
+}
+
+/** The same default the page applies, and what every board captured before the
+ * tag existed depends on. */
+TEST(LogicGridFixtureIo, TreatsAMissingVersionAsTheFirst) {
+  nlohmann::json document = oneCellDocument();
+  document.erase("version");
+  const TempFixture file(document);
+  EXPECT_NO_THROW({ (void)fixtureio::load(file.path()); });
+}
+
+/**
+ * Refused rather than read as far as it parses. Migrating is the page's job —
+ * it is the only side that reads files a stranger wrote — so a version these
+ * tools do not know means this repo's own fixtures are out of step.
+ */
+TEST(LogicGridFixtureIo, RefusesAVersionItDoesNotKnow) {
+  nlohmann::json document = oneCellDocument();
+  document["version"] = fixtureio::kConfigVersion + 1;
+  const TempFixture file(document);
+  EXPECT_THROW((void)fixtureio::load(file.path()), fixtureio::FixtureError);
+}
+
+TEST(LogicGridFixtureIo, RefusesAVersionThatIsNotAnInteger) {
+  nlohmann::json document = oneCellDocument();
+  document["version"] = "1";
+  const TempFixture file(document);
+  EXPECT_THROW((void)fixtureio::load(file.path()), fixtureio::FixtureError);
+}
+
+/** The third writer of this format, alongside the page's own and
+ * `validateConfig`'s rebuild — all three have to stamp it. */
+TEST(LogicGridFixtureIo, WritesTheVersionItSaves) {
+  const TempFixture file(oneCellDocument());
+  const fixtureio::Fixture fixture = fixtureio::load(file.path());
+  fixtureio::save(file.path(), fixture);
+  const nlohmann::json written = readJson(file.path());
+  ASSERT_TRUE(written.contains("version"));
+  EXPECT_EQ(written.at("version").get<int>(), fixtureio::kConfigVersion);
 }
 
 class LogicGridFixtureTest : public testing::TestWithParam<std::string> {};

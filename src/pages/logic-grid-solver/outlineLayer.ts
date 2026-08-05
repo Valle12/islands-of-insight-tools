@@ -69,11 +69,16 @@ export function drawShapeOutlines(
   request: OutlineRequest,
 ): void {
   const { shapes, gridWidth, gridHeight, colorOf, deducedAt, host } = request;
-  if (shapes.length === 0) {
-    svg.replaceChildren();
-    return;
-  }
 
+  // Sized even when there is nothing to draw, and BEFORE the empty case bails.
+  // An `<svg>` with no width, height or viewBox falls back to the replaced
+  // element's default 300x150 — and this layer is absolutely positioned inside
+  // the grid, so that phantom box lands in the scrollable overflow of the shell
+  // around it. Measured on a 4x4 board with no merged cells at all: 186px of
+  // grid inside a 214px shell, reporting a 300px scroll width, which is a
+  // horizontal scrollbar over nothing plus the 16px of height it reserves. The
+  // editor hid it because its shell is stretched wide by the tool rows above;
+  // the answer's shell shrinks to its board, so every small board showed it.
   const geometry = geometryOf(host);
   const pitch = geometry.cell + geometry.gap;
   const width = gridWidth * pitch - geometry.gap;
@@ -81,6 +86,11 @@ export function drawShapeOutlines(
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.setAttribute("width", String(width));
   svg.setAttribute("height", String(height));
+
+  if (shapes.length === 0) {
+    svg.replaceChildren();
+    return;
+  }
 
   const fragment = document.createDocumentFragment();
   for (const shape of shapes) {

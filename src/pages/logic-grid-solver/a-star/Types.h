@@ -63,13 +63,17 @@ constexpr uint8_t opposite(const uint8_t color) {
 /// The clue kinds, mirroring SYMBOL_KINDS in symbols.ts. That list is
 /// append-only, so these indices are permanent.
 ///
-/// Every place that branches on one of these does so THREE ways. A two-way
-/// `if area else letter` reads a dart as a letter, and `buildClueTables` would
-/// then index a 26-entry array with a dart's number.
+/// Every place that branches on one of these lists a branch PER KIND, never a
+/// catch-all it does not name. A two-way `if area else letter` reads a dart as
+/// a letter, and `buildClueTables` would then index a 26-entry array with the
+/// dart's number; a trailing "else it is a dart" would validate a lotus's axis
+/// as a compass direction. A branch that is really "every remaining kind" has
+/// to say which kinds those are.
 inline constexpr uint8_t kClueArea = 0;
 inline constexpr uint8_t kClueLetter = 1;
 inline constexpr uint8_t kClueDart = 2;
-inline constexpr int kClueKindCount = 3;
+inline constexpr uint8_t kClueLotus = 3;
+inline constexpr int kClueKindCount = 4;
 
 /// Letters arrive as 0..25 rather than as characters: the search never needs
 /// the glyph, and the two boundaries that do convert once.
@@ -109,18 +113,86 @@ constexpr std::size_t slot(const int index) {
   return static_cast<std::size_t>(index);
 }
 
+/// The four AXES a lotus's symmetry can lie along, reusing the config's
+/// `direction` key: successive 45-degree clockwise turns from horizontal, so
+/// "diagonal down" is the stroke that falls to the right, `\`.
+inline constexpr uint8_t kAxisHorizontal = 0;
+inline constexpr uint8_t kAxisDiagonalDown = 1;
+inline constexpr uint8_t kAxisVertical = 2;
+inline constexpr uint8_t kAxisDiagonalUp = 3;
+inline constexpr int kAxisCount = 4;
+
+constexpr bool isAxis(const int axis) { return axis >= 0 && axis < kAxisCount; }
+
+/// Whether `axis` is one of the two diagonal strokes.
+constexpr bool isDiagonalAxis(const int axis) {
+  return axis == kAxisDiagonalDown || axis == kAxisDiagonalUp;
+}
+
+/**
+ * A lotus's SEAT: where inside its cell the axis point sits, as two
+ * half-square offsets — bit 0 half a square right of the home square's centre,
+ * bit 1 half a square down. 0 is the centre itself, the only seat a plain cell
+ * has; 1 and 2 are the midpoints of the edges to the right and below; 3 is the
+ * corner where four squares meet. The home square is therefore always the
+ * seat's top-left neighbour, which this encoding cannot spell any other way.
+ */
+inline constexpr int kSeatCount = 4;
+
+constexpr bool isSeat(const int seat) { return seat >= 0 && seat < kSeatCount; }
+
+/// The axis point in DOUBLED board coordinates, so a seat on a grid line is
+/// still an integer: a square's centre is (2x, 2y) and a seam is odd.
+constexpr int seatX2(const int index, const int seat) {
+  return 2 * columnOf(index) + (seat & 1);
+}
+constexpr int seatY2(const int index, const int seat) {
+  return 2 * rowOf(index) + (seat >> 1);
+}
+
+/// Whether the diagonal axes exist at this seat at all. They map square
+/// centres to square centres only where the doubled coordinates share a
+/// parity — a square's centre or a corner. On an edge midpoint they would map
+/// centres onto CORNERS, so that combination is refused rather than defined.
+constexpr bool diagonalSeatValid(const int seat) {
+  return seat == 0 || seat == 3;
+}
+
+/**
+ * Where the square (x, y) reflects to across `axis` through the doubled point
+ * (cx2, cy2). Pure geometry with no bounds attached: the caller decides what
+ * an off-board reflection means. This is the DEFINITION of what an axis does,
+ * shared at the same altitude as `kDirectionSteps` — while every table derived
+ * from it stays with its owner, so the oracle and the search cannot share a
+ * wrongly built one.
+ */
+constexpr std::pair<int, int> mirrorSquare(const int axis, const int cx2,
+                                           const int cy2, const int x,
+                                           const int y) {
+  if (axis == kAxisHorizontal)
+    return {x, cy2 - y};
+  if (axis == kAxisVertical)
+    return {cx2 - x, y};
+  if (axis == kAxisDiagonalDown)
+    return {y + (cx2 - cy2) / 2, x - (cx2 - cy2) / 2};
+  return {(cx2 + cy2) / 2 - y, (cx2 + cy2) / 2 - x};
+}
+
 /// A clue as the solver holds it: where it sits, what kind it is, and its
-/// value — an area size, a letter as 0..25, or a dart's count.
+/// value — an area size, a letter as 0..25, or a dart's count. A lotus carries
+/// no value at all: its `direction` is the AXIS its symmetry lies along, and
+/// `seat` is where inside its cell the axis point sits.
 ///
-/// `direction` is APPENDED rather than slotted in beside `kind`, so the three
-/// places that destructure a `Clue` positionally keep the names they had.
-/// Meaningful only for a directed kind; a clue that points nowhere leaves it at
-/// its default and nothing reads it.
+/// `direction` and `seat` are APPENDED rather than slotted in beside `kind`,
+/// so anything that destructures a `Clue` positionally keeps the names it had.
+/// Each is meaningful only for the kinds that read it; everywhere else it
+/// stays at its default and nothing looks at it.
 struct Clue {
   int index = 0;
   uint8_t kind = kClueArea;
   int value = 0;
   int direction = kDirUp;
+  int seat = 0;
 };
 
 using Clues = std::vector<Clue>;

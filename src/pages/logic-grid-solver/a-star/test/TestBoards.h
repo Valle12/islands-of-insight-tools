@@ -89,6 +89,21 @@ inline void withDart(Puzzle &puzzle, const int x, const int y, const int value,
 }
 
 /**
+ * Puts a lotus on a cell: a symmetry clue carrying an axis rather than a
+ * value. `axis` is `kAxisHorizontal`, `kAxisDiagonalDown`, `kAxisVertical` or
+ * `kAxisDiagonalUp`; `seat` shifts the axis point half a square right (bit 0)
+ * and down (bit 1), which is how one sits on a merged cell's grid lines.
+ */
+inline void withLotus(Puzzle &puzzle, const int x, const int y, const int axis,
+                      const int seat = 0) {
+  puzzle.clues.push_back({.index = cellIndex(x, y),
+                          .kind = kClueLotus,
+                          .value = 0,
+                          .direction = axis,
+                          .seat = seat});
+}
+
+/**
  * Fuses squares into one merged cell. A second call rather than a glyph: the
  * picture's alphabet is entirely spoken for, and a shape needs to say which
  * squares go together rather than just that a square is in one.

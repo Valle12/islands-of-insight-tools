@@ -28,44 +28,6 @@ const STEPS = [
   [0, -1],
 ] as const;
 
-/**
- * Where a merged cell's clue is stored and drawn: the member square nearest the
- * middle of its bounding box, tie-broken by reading order.
- *
- * A clue belongs to the CELL, so it has to land somewhere predictable inside it
- * rather than on whichever square the pointer happened to be over — and near
- * the middle is where a player reading the shape will look for it.
- *
- * Free of the layer so the validator can apply the same rule to a raw square
- * list. For a DIRECTED clue the square is not decoration — it is where the ray
- * starts — so the two have to agree exactly, or a file would load as a
- * different puzzle from the one it describes.
- */
-export function anchorSquare(
-  squares: readonly number[],
-  gridWidth: number,
-): number {
-  if (squares.length === 1) return squares[0]!;
-
-  const xs = squares.map(one => one % gridWidth);
-  const ys = squares.map(one => Math.floor(one / gridWidth));
-  const midX = (Math.min(...xs) + Math.max(...xs)) / 2;
-  const midY = (Math.min(...ys) + Math.max(...ys)) / 2;
-
-  let best = squares[0]!;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (const [index, one] of squares.entries()) {
-    const dx = xs[index]! - midX;
-    const dy = ys[index]! - midY;
-    const distance = dx * dx + dy * dy;
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      best = one;
-    }
-  }
-  return best;
-}
-
 export class ShapeLayer {
   private readonly width: number;
   private readonly height: number;
@@ -116,18 +78,6 @@ export class ShapeLayer {
   cellSquares(square: number): number[] {
     const id = this.idAt(square);
     return id === NO_SHAPE ? [square] : this.squaresOf(id);
-  }
-
-  /**
-   * Where a merged cell's clue is stored and drawn: the member square nearest
-   * the middle of its bounding box, tie-broken by reading order.
-   *
-   * A clue belongs to the CELL, so it has to land somewhere predictable inside
-   * it rather than on whichever square the pointer happened to be over — and
-   * near the middle is where a player reading the shape will look for it.
-   */
-  anchorOf(square: number): number {
-    return anchorSquare(this.cellSquares(square), this.width);
   }
 
   /**

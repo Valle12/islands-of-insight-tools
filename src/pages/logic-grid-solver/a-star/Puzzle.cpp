@@ -39,9 +39,12 @@ Problem cellValueProblem(const Puzzle &puzzle) {
 /**
  * What each kind's `value` — and, for a directed one, its `direction` — may be.
  *
- * Three ways, one per kind, and never a two-way `if area else letter`: read as
- * a letter, a dart's number would be validated against 0..25 and then indexed
- * into a 26-entry array by `buildClueTables`.
+ * One branch per kind, and never a two-way `if area else letter`: read as a
+ * letter, a dart's number would be validated against 0..25 and then indexed
+ * into a 26-entry array by `buildClueTables` — and read as a dart, a lotus
+ * would have its axis range-checked as a compass direction. The trailing block
+ * is the DART's, exact because every other kind returns above it and
+ * `cluesProblem` has already refused an unknown kind.
  */
 Problem clueValueProblem(const Clue &clue, const Puzzle &puzzle,
                          const int playableCount) {
@@ -50,6 +53,22 @@ Problem clueValueProblem(const Clue &clue, const Puzzle &puzzle,
     return clue.value >= 1 && clue.value <= playableCount ? None : AreaValue;
   if (clue.kind == kClueLetter)
     return clue.value >= 0 && clue.value < kLetterCount ? None : LetterValue;
+  if (clue.kind == kClueLotus) {
+    // A lotus carries no number: the axis and seat are the whole clue.
+    if (clue.value != 0)
+      return LotusValue;
+    if (!isAxis(clue.direction))
+      return LotusAxis;
+    if (!isSeat(clue.seat))
+      return LotusSeat;
+    // A diagonal axis through an edge-midpoint seat maps square centres onto
+    // square CORNERS — there is no reflection on the grid, so the combination
+    // is refused rather than defined. Whether the seat fits its merged cell is
+    // `lotusSeats`' question, asked once the shapes are validated.
+    return isDiagonalAxis(clue.direction) && !diagonalSeatValid(clue.seat)
+               ? LotusDiagonalSeat
+               : None;
+  }
 
   if (clue.direction < 0 || clue.direction >= kDirectionCount)
     return DartDirection;
@@ -75,6 +94,11 @@ Problem cluesProblem(const Puzzle &puzzle) {
     if (seen.test(clue.index))
       return ClueDuplicated;
     seen.set(clue.index);
+    // A seat on a kind that has none would look like part of the puzzle and
+    // change nothing, so it is refused outright — the same rule the TypeScript
+    // validator applies to a stray `direction`.
+    if (clue.kind != kClueLotus && clue.seat != 0)
+      return SeatOnWrongKind;
     if (const Problem problem = clueValueProblem(clue, puzzle, playableCount);
         problem != None)
       return problem;
@@ -131,6 +155,50 @@ Problem shapesProblem(const Puzzle &puzzle) {
       return problem;
   }
   return None;
+}
+
+/**
+ * Where a lotus's seat may sit: the centre of its own square, or — inside a
+ * merged cell — the midpoint of an edge between two of the cell's squares, or
+ * a corner at least THREE of whose four surrounding squares the cell owns.
+ * Three rather than four on purpose: a 2x2 block's centre has four, and an
+ * L-tromino's natural middle is the corner it wraps, which has three.
+ *
+ * Runs after `shapesProblem`, because a seat is validated against the merged
+ * cell holding it — which the clue-level checks cannot see.
+ */
+Problem lotusSeats(const Puzzle &puzzle) {
+  for (const Clue &clue : puzzle.clues) {
+    if (clue.kind != kClueLotus || clue.seat == 0)
+      continue;
+    const auto cell =
+        std::ranges::find_if(puzzle.shapes, [&clue](const auto &shape) {
+          return std::ranges::contains(shape, clue.index);
+        });
+    // Off a merged cell there is nothing between squares to sit on.
+    if (cell == puzzle.shapes.end())
+      return Problem::LotusSeat;
+    const int x = columnOf(clue.index);
+    const int y = rowOf(clue.index);
+    // Bounds first: at the board's edge `cellIndex(x + 1, y)` would wrap to
+    // the next row and could falsely match a shape member there.
+    const auto owns = [&cell, &puzzle](const int cx, const int cy) {
+      return cx < puzzle.width && cy < puzzle.height &&
+             std::ranges::contains(*cell, cellIndex(cx, cy));
+    };
+    if (clue.seat == 1 && !owns(x + 1, y))
+      return Problem::LotusSeat;
+    if (clue.seat == 2 && !owns(x, y + 1))
+      return Problem::LotusSeat;
+    if (clue.seat == 3) {
+      const int members = 1 + static_cast<int>(owns(x + 1, y)) +
+                          static_cast<int>(owns(x, y + 1)) +
+                          static_cast<int>(owns(x + 1, y + 1));
+      if (members < 3)
+        return Problem::LotusSeat;
+    }
+  }
+  return Problem::None;
 }
 
 /// Where this square's CELL already appears in the clause being built, or -1.
@@ -261,25 +329,29 @@ void buildClueTables(Model &model) {
   groupOf.fill(-1);
 
   int id = 0;
-  // Three ways, one per kind. `else` would put a dart in a letter group and
-  // subscript `groupOf` — twenty-six entries — with the dart's own number.
-  for (const auto &[index, kind, value, direction] : model.puzzle.clues) {
-    model.clueAt[slot(index)] = id;
-    if (kind == kClueArea) {
+  // One branch per kind, the LETTER branch last and only because every other
+  // kind is named above it: a bare `else` here once meant "letter or anything
+  // appended later", and a lotus falling into it would land in letter group A
+  // — `groupOf` subscripted with the lotus's zero value.
+  for (const Clue &clue : model.puzzle.clues) {
+    model.clueAt[slot(clue.index)] = id;
+    if (clue.kind == kClueArea) {
       model.areaClues.push_back(id);
-    } else if (kind == kClueDart) {
+    } else if (clue.kind == kClueDart) {
       model.dartClues.push_back(id);
+    } else if (clue.kind == kClueLotus) {
+      model.lotusClues.push_back(id);
     } else {
-      int &group = groupOf[slot(value)];
+      int &group = groupOf[slot(clue.value)];
       if (group < 0) {
         group = static_cast<int>(model.letters.size());
         model.letters.emplace_back();
-        model.letters.back().letter = value;
+        model.letters.back().letter = clue.value;
       }
       LetterGroup &target = model.letters[slot(group)];
-      target.cells.push_back(index);
-      target.mask.set(index);
-      model.letterAt[slot(index)] = group;
+      target.cells.push_back(clue.index);
+      target.mask.set(clue.index);
+      model.letterAt[slot(clue.index)] = group;
     }
     id++;
   }
@@ -318,6 +390,47 @@ void buildDarts(Model &model) {
   }
 }
 
+/// Where every square lands across this lotus's axis, or -1 where the
+/// reflection leaves the board — which `lotusMirrorsFit` then refuses for the
+/// lotus's own cell, and `propagateLotuses` reads as an opposing null.
+void fillMirror(const Model &model, Lotus &lotus) {
+  lotus.mirror.fill(-1);
+  for (int y = 0; y < model.height(); y++) {
+    for (int x = 0; x < model.width(); x++) {
+      const auto [mx, my] = mirrorSquare(lotus.axis, lotus.cx2, lotus.cy2, x, y);
+      if (mx >= 0 && mx < model.width() && my >= 0 && my < model.height())
+        lotus.mirror[slot(cellIndex(x, y))] =
+            static_cast<int16_t>(cellIndex(mx, my));
+    }
+  }
+}
+
+/**
+ * Each lotus's reflection map, worked out once: mirrors depend on the board
+ * and the seat, never on the colouring.
+ *
+ * The guard mirrors `buildDarts`': only a puzzle that skipped validation can
+ * carry an unreadable axis or seat, and such a clue is left out of `lotuses`
+ * while staying in `lotusClues` — so `verify::check` refuses every colouring
+ * and the board comes back unsolvable rather than quietly solved without it.
+ */
+void buildLotuses(Model &model) {
+  for (const int id : model.lotusClues) {
+    const Clue &clue = model.puzzle.clues[slot(id)];
+    if (!isAxis(clue.direction) || !isSeat(clue.seat) ||
+        (isDiagonalAxis(clue.direction) && !diagonalSeatValid(clue.seat)))
+      continue;
+    Lotus lotus;
+    lotus.clueId = id;
+    lotus.index = clue.index;
+    lotus.axis = clue.direction;
+    lotus.cx2 = seatX2(clue.index, clue.seat);
+    lotus.cy2 = seatY2(clue.index, clue.seat);
+    fillMirror(model, lotus);
+    model.lotuses.push_back(lotus);
+  }
+}
+
 /// A dart can never name more squares than its own line holds. The board-wide
 /// bound in `clueValueProblem` cannot see this one: the line is shortened by
 /// every gap on it and by the dart's own merged cell.
@@ -326,6 +439,21 @@ Problem dartFitsLine(const Model &model) {
     return dart.value > dart.ray.count();
   });
   return bad ? Problem::DartExceedsLine : Problem::None;
+}
+
+/// Every square of a lotus's own cell is in its region whatever the colours,
+/// so each must reflect onto a playable square — a mirror off the board or on
+/// a gap makes the board unsolvable before a single cell is coloured.
+Problem lotusMirrorsFit(const Model &model) {
+  for (const Lotus &lotus : model.lotuses) {
+    const Bits mask = model.cellMask(lotus.index);
+    for (int i = mask.nextSet(0); i >= 0; i = mask.nextSet(i + 1)) {
+      if (const int reflected = lotus.mirror[slot(i)];
+          reflected < 0 || !model.playable.test(reflected))
+        return Problem::LotusMirrorLeavesBoard;
+    }
+  }
+  return Problem::None;
 }
 
 /// An area clue can never name more cells than its own playable region holds.
@@ -401,6 +529,20 @@ const char *describe(const Problem problem) {
     return "A dart does not say which way it points";
   case DartExceedsLine:
     return "A dart's number is larger than the number of squares in its line";
+  case LotusValue:
+    return "A symmetry symbol carries no number";
+  case LotusAxis:
+    return "A symmetry symbol does not say which way its axis lies";
+  case LotusSeat:
+    return "A symmetry symbol's seat is not inside its own merged cell";
+  case LotusDiagonalSeat:
+    return "A diagonal symmetry on a grid-line seat has no reflection on the "
+           "square grid";
+  case SeatOnWrongKind:
+    return "Only a symmetry symbol carries a seat";
+  case LotusMirrorLeavesBoard:
+    return "A symmetry symbol's own cell reflects off the board or onto an "
+           "unplayable cell";
   case ShapeOffBoard:
     return "A merged cell claims a square outside the board";
   case ShapeOnGap:
@@ -437,7 +579,10 @@ Problem structureProblem(const Puzzle &puzzle) {
     return problem;
   if (const Problem problem = cluesProblem(puzzle); problem != None)
     return problem;
-  return shapesProblem(puzzle);
+  if (const Problem problem = shapesProblem(puzzle); problem != None)
+    return problem;
+  // After the shapes: a seat is validated against the merged cell it sits in.
+  return lotusSeats(puzzle);
 }
 
 int Model::areaValueAt(const int index) const {
@@ -476,6 +621,7 @@ Model buildModel(const Puzzle &puzzle) {
   // After the clue tables, which is where `dartClues` comes from, and after the
   // shapes, since a dart's line has its own cell taken out of it.
   buildDarts(model);
+  buildLotuses(model);
   return model;
 }
 
@@ -486,6 +632,8 @@ Problem contradiction(const Model &model) {
   if (const Problem problem = areaFitsCell(model); problem != None)
     return problem;
   if (const Problem problem = dartFitsLine(model); problem != None)
+    return problem;
+  if (const Problem problem = lotusMirrorsFit(model); problem != None)
     return problem;
   if (const Problem problem = lettersReachable(model); problem != None)
     return problem;

@@ -97,15 +97,19 @@ export function toPuzzle(config: LogicGridTest) {
       x: symbol.x,
       y: symbol.y,
       type: symbol.type,
+      // A letter crosses as 0..25; the valueless lotus as the 0 the module
+      // requires of it.
       value:
         symbolKindAt(symbol.type)?.valueKind === "letter"
-          ? letterIndex(symbol.value)
-          : Number(symbol.value),
+          ? letterIndex(symbol.value ?? "A")
+          : Number(symbol.value ?? 0),
       // Sent as -1 rather than omitted when a clue has none: the module reads
       // the key unconditionally and validates it against the kind, so a missing
       // direction on a kind that needs one has to arrive as a value it can
-      // refuse rather than as `undefined`.
+      // refuse rather than as `undefined`. A lotus's direction is its AXIS.
       direction: symbol.direction ?? -1,
+      // The lotus's half-square offsets; the centre for everything else.
+      seat: symbol.seat ?? 0,
     })),
     // Already flat row-major, the same layout `cells` crosses in, so this one
     // passes straight through. Omitted rather than sent empty, matching the

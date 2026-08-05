@@ -60,18 +60,7 @@ export class SolutionView {
     const { config, cells } = data;
     this.grid.style.gridTemplateColumns = `repeat(${config.gridWidth}, minmax(0, 1fr))`;
 
-    const clues = new Map<string, LogicGridClue>();
-    for (const symbol of config.symbols)
-      clues.set(`${symbol.x},${symbol.y}`, {
-        type: symbol.type,
-        value: symbol.value,
-        // The answer is drawn with the same clues the editor showed, arrows
-        // included: a dart with no direction here would come out as a bare
-        // number and read as a different puzzle from the one just solved.
-        ...(symbol.direction === undefined
-          ? {}
-          : { direction: symbol.direction }),
-      });
+    const clues = cluesByPosition(config);
 
     // Which merged cell each square is in, so the answer is drawn with the same
     // tiles the editor showed. A square with no entry is its own cell.
@@ -136,6 +125,27 @@ export class SolutionView {
       : `${data.playable} ${unit}`;
     this.note.textContent = noteFor(data);
   }
+}
+
+/**
+ * The clues by position, carrying exactly the optional keys the config does —
+ * arrows, axes and seats included. A dart with no direction here would come
+ * out as a bare number, and a seated lotus would slide back to its square's
+ * centre, either of which reads as a different puzzle from the one just
+ * solved.
+ */
+function cluesByPosition(config: LogicGridTest): Map<string, LogicGridClue> {
+  const clues = new Map<string, LogicGridClue>();
+  for (const symbol of config.symbols)
+    clues.set(`${symbol.x},${symbol.y}`, {
+      type: symbol.type,
+      ...(symbol.value === undefined ? {} : { value: symbol.value }),
+      ...(symbol.direction === undefined
+        ? {}
+        : { direction: symbol.direction }),
+      ...(symbol.seat === undefined ? {} : { seat: symbol.seat }),
+    });
+  return clues;
 }
 
 function noteFor(data: SolutionViewData): string {

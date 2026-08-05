@@ -1,7 +1,13 @@
 import type { LogicGridTest } from "../../util/types";
 import { DARK, LIGHT, UNKNOWN, UNPLAYABLE } from "./cell";
 import { RULES } from "./rules";
-import { directionAt, SYMBOL_KINDS } from "./symbols";
+import {
+  AXIS_COUNT,
+  axisIndex,
+  directionAt,
+  SEAT_COUNT,
+  SYMBOL_KINDS,
+} from "./symbols";
 
 /**
  * The rules, checked here rather than taken on trust.
@@ -26,6 +32,8 @@ export type LogicGridViolation =
   | "square"
   | "run"
   | "checkerboard"
+  | "triple"
+  | "tee"
   | "disconnected"
   | "area"
   | "region-size"
@@ -34,7 +42,8 @@ export type LogicGridViolation =
   | "area-without-symbol"
   | "area-with-many-symbols"
   | "cell-split"
-  | "dart";
+  | "dart"
+  | "symmetry";
 
 /**
  * A rule's position in the append-only catalogue, by its stable id.
@@ -56,6 +65,10 @@ const NO_LIGHT_2X2 = ruleIndex("no-light-2x2");
 const CONNECT_DARK = ruleIndex("connect-dark");
 const CONNECT_LIGHT = ruleIndex("connect-light");
 const NO_CHECKERBOARD = ruleIndex("no-checkerboard");
+const NO_DARK_LIGHT_DARK = ruleIndex("no-dark-light-dark");
+const NO_LIGHT_DARK_LIGHT = ruleIndex("no-light-dark-light");
+const NO_DARK_T = ruleIndex("no-dark-t");
+const NO_LIGHT_T = ruleIndex("no-light-t");
 const ONE_SYMBOL_DARK = ruleIndex("one-symbol-dark");
 const ONE_SYMBOL_LIGHT = ruleIndex("one-symbol-light");
 export const UNDERCLUED = ruleIndex("underclued");
@@ -92,6 +105,8 @@ const AREA_RULES: readonly { index: number; color: number; area: number }[] = [
   { index: ruleIndex("area-two-light"), color: LIGHT, area: 2 },
   { index: ruleIndex("area-four-dark"), color: DARK, area: 4 },
   { index: ruleIndex("area-four-light"), color: LIGHT, area: 4 },
+  { index: ruleIndex("area-five-dark"), color: DARK, area: 5 },
+  { index: ruleIndex("area-five-light"), color: LIGHT, area: 5 },
 ];
 
 /**
@@ -110,6 +125,14 @@ function symbolIndex(id: string): number {
 const AREA_SYMBOL = symbolIndex("area");
 const LETTER_SYMBOL = symbolIndex("letter");
 const DART_SYMBOL = symbolIndex("dart");
+const LOTUS_SYMBOL = symbolIndex("lotus");
+
+/** The two axes with no reflection on a grid-line seat. Resolved by id like
+ * every other index here, so a reorder fails loudly at import. */
+const DIAGONAL_DOWN = axisIndex("diagonal-down");
+const DIAGONAL_UP = axisIndex("diagonal-up");
+const HORIZONTAL_AXIS = axisIndex("horizontal");
+const VERTICAL_AXIS = axisIndex("vertical");
 
 /** The editor's column-major grid as the flat row-major one answers use. */
 export function toFlat(config: LogicGridTest): number[] {
@@ -235,6 +258,85 @@ function hasCheckerboard(config: LogicGridTest, cells: number[]) {
   return false;
 }
 
+/**
+ * A line of three alternating colours with `color` at both ends, in either
+ * direction. Both colours are named outright, so a gap can never take part in
+ * one: it equals neither.
+ */
+function hasTriple(config: LogicGridTest, cells: number[], color: number) {
+  const other = color === DARK ? LIGHT : DARK;
+  for (let y = 0; y < config.gridHeight; y++) {
+    for (let x = 0; x < config.gridWidth; x++) {
+      if (at(config, cells, x, y) !== color) continue;
+      if (
+        x + 2 < config.gridWidth &&
+        at(config, cells, x + 1, y) === other &&
+        at(config, cells, x + 2, y) === color
+      )
+        return true;
+      if (
+        y + 2 < config.gridHeight &&
+        at(config, cells, x, y + 1) === other &&
+        at(config, cells, x, y + 2) === color
+      )
+        return true;
+    }
+  }
+  return false;
+}
+
+function tripleProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  if (has(config, NO_DARK_LIGHT_DARK) && hasTriple(config, cells, DARK))
+    return "triple";
+  if (has(config, NO_LIGHT_DARK_LIGHT) && hasTriple(config, cells, LIGHT))
+    return "triple";
+  return "none";
+}
+
+/**
+ * A T of one colour: a straight three with a fourth cell on the middle's other
+ * side. Scanned from the CENTRE, which sees all four rotations as a bar plus a
+ * stem — and sees the T inside a plus, which contains one.
+ */
+function hasTee(config: LogicGridTest, cells: number[], color: number) {
+  const held = (x: number, y: number) =>
+    x >= 0 &&
+    x < config.gridWidth &&
+    y >= 0 &&
+    y < config.gridHeight &&
+    at(config, cells, x, y) === color;
+  for (let y = 0; y < config.gridHeight; y++) {
+    for (let x = 0; x < config.gridWidth; x++) {
+      if (!held(x, y)) continue;
+      if (
+        held(x - 1, y) &&
+        held(x + 1, y) &&
+        (held(x, y - 1) || held(x, y + 1))
+      )
+        return true;
+      if (
+        held(x, y - 1) &&
+        held(x, y + 1) &&
+        (held(x - 1, y) || held(x + 1, y))
+      )
+        return true;
+    }
+  }
+  return false;
+}
+
+function teeProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  if (has(config, NO_DARK_T) && hasTee(config, cells, DARK)) return "tee";
+  if (has(config, NO_LIGHT_T) && hasTee(config, cells, LIGHT)) return "tee";
+  return "none";
+}
+
 /** The cells of one colour orthogonally reachable from a starting index. */
 function region(config: LogicGridTest, cells: number[], start: number) {
   const color = cells[start];
@@ -329,6 +431,86 @@ function dartProblem(
       if (at(config, cells, x, y) === other) count++;
     }
     if (count !== symbol.value) return "dart";
+  }
+  return "none";
+}
+
+/** Where the square (x, y) reflects to across `axis` through the DOUBLED
+ * point (cx2, cy2) — doubled so a seat on a grid line stays an integer. */
+function mirrorOf(
+  axis: number,
+  cx2: number,
+  cy2: number,
+  x: number,
+  y: number,
+): [number, number] {
+  if (axis === HORIZONTAL_AXIS) return [x, cy2 - y];
+  if (axis === VERTICAL_AXIS) return [cx2 - x, y];
+  if (axis === DIAGONAL_DOWN)
+    return [y + (cx2 - cy2) / 2, x - (cx2 - cy2) / 2];
+  return [(cx2 + cy2) / 2 - y, (cx2 + cy2) / 2 - x];
+}
+
+/** Whether a lotus's geometry can be read at all: axis and seat in range, and
+ * no diagonal on a grid-line seat, whose reflection would land on corners. */
+function lotusReadable(axis: number, seat: number): boolean {
+  if (axis < 0 || axis >= AXIS_COUNT || seat < 0 || seat >= SEAT_COUNT)
+    return false;
+  const diagonal = axis === DIAGONAL_DOWN || axis === DIAGONAL_UP;
+  return !(diagonal && (seat === 1 || seat === 2));
+}
+
+/** Whether the region holding `start` maps to itself across the axis through
+ * the doubled point: every square's mirror on the board and the same colour. */
+function regionMirrors(
+  config: LogicGridTest,
+  cells: number[],
+  start: number,
+  axis: number,
+  cx2: number,
+  cy2: number,
+): boolean {
+  const color = cells[start];
+  for (const cell of region(config, cells, start)) {
+    const [mx, my] = mirrorOf(
+      axis,
+      cx2,
+      cy2,
+      cell % config.gridWidth,
+      Math.floor(cell / config.gridWidth),
+    );
+    if (mx < 0 || mx >= config.gridWidth) return false;
+    if (my < 0 || my >= config.gridHeight) return false;
+    if (at(config, cells, mx, my) !== color) return false;
+  }
+  return true;
+}
+
+/**
+ * Every symmetry symbol's region maps to itself across the symbol's axis: the
+ * mirror of each square of the connected same-colour region holding it must
+ * be on the board, playable, and the same colour — which by the region's
+ * maximality puts the mirror in the region too. The geometry is worked out
+ * from the clue alone, mirroring `lotusProblem` in `a-star/Verify.cpp`; this
+ * file shares nothing with the solver on purpose.
+ */
+function lotusProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  for (const symbol of config.symbols) {
+    if (symbol.type !== LOTUS_SYMBOL) continue;
+    const axis = symbol.direction ?? -1;
+    const seat = symbol.seat ?? 0;
+    // Unreadable geometry satisfies nothing. The validator names these
+    // faults properly, so only a board that skipped it can reach them.
+    if (!lotusReadable(axis, seat)) return "symmetry";
+
+    const start = symbol.y * config.gridWidth + symbol.x;
+    const cx2 = 2 * symbol.x + (seat & 1);
+    const cy2 = 2 * symbol.y + (seat >> 1);
+    if (!regionMirrors(config, cells, start, axis, cx2, cy2))
+      return "symmetry";
   }
   return "none";
 }
@@ -488,12 +670,15 @@ export function verifyLogicGrid(
     fusedProblem,
     squareProblem,
     runProblem,
+    tripleProblem,
+    teeProblem,
     connectivityProblem,
     regionSizeProblem,
     areaProblem,
     symbolProblem,
     letterProblem,
     dartProblem,
+    lotusProblem,
   ];
   for (const check of checks) {
     const problem = check(config, cells);

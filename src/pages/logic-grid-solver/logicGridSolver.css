@@ -470,6 +470,83 @@ h2 {
   rotate: 180deg;
 }
 
+/* ---------------------------------------------------------------- axes --
+ *
+ * A symmetry clue is ONE glyph turned four ways, the dart's trick again:
+ * `horizontal_align_center`, whose native stroke is a VERTICAL bar with an
+ * arrow either side pointing at it — mirroring onto a line. So the rotations
+ * run from vertical: a quarter turn lays the bar horizontal, and the
+ * diagonals are the 45-degree steps between. Keyed on the bare attribute like
+ * `[data-direction]`, because the same three places draw one: the board, the
+ * answer's read-only grid, and the miniature on the clue kind's own chip.
+ *
+ * Unlike the dart there is no number sharing the tile, so the glyph is simply
+ * centred and sized by `--axis-size` — the whole ICON box, since this glyph's
+ * ink fills it far better than the arrow's does. The rotated ink may overhang
+ * its box; the focus ring is already spelled out (see `.grid-cell`), so
+ * nothing bulges to wrap it.
+ */
+.cell-axis {
+  --axis-size: 30px;
+  --md-icon-size: var(--axis-size);
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  overflow: visible;
+}
+
+[data-axis] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+[data-axis="horizontal"] > .cell-axis {
+  rotate: 90deg;
+}
+
+[data-axis="diagonal-down"] > .cell-axis {
+  rotate: 135deg;
+}
+
+[data-axis="diagonal-up"] > .cell-axis {
+  rotate: 45deg;
+}
+
+/**
+ * A SEAT slides the glyph onto the cell's grid lines: half a square plus half
+ * a seam right for bit 0, down for bit 1. `translate` and `rotate` are
+ * independent transform properties and compose (translate first), so a seated
+ * diagonal needs nothing special. The glyph is painted ink with no hit target
+ * of its own — the squares and their invisible bridges keep the clicking —
+ * so only the picture moves.
+ */
+[data-seat="1"] > .cell-axis,
+[data-seat="3"] > .cell-axis {
+  --seat-x: calc((var(--logic-cell) + var(--logic-seam)) / 2);
+}
+
+[data-seat="2"] > .cell-axis,
+[data-seat="3"] > .cell-axis {
+  --seat-y: calc((var(--logic-cell) + var(--logic-seam)) / 2);
+}
+
+[data-seat] > .cell-axis {
+  translate: var(--seat-x, 0) var(--seat-y, 0);
+}
+
+/* The picker's own axes are the same glyph at the arrows' picker size, and
+   the chip miniature steps down the way the dart's does. */
+.direction-toggle .cell-axis {
+  --axis-size: 22px;
+}
+
+.symbol-sample .cell-axis,
+.symbol-sample[data-axis] .cell-axis {
+  --axis-size: 20px;
+}
 
 .grid-cell[data-color="unknown"] {
   background: transparent;
@@ -978,6 +1055,11 @@ h2 {
   /* A directed clue fits two things in the square, so it steps down with it. */
   .grid-cell[data-direction] {
     font-size: 12px;
+  }
+
+  /* The axis glyph follows the smaller square. */
+  .grid-cell .cell-axis {
+    --axis-size: 25px;
   }
 
   .grid-cell[data-direction][data-label-length="2"] {

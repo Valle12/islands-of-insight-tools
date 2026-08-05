@@ -6,9 +6,15 @@
 /**
  * What every page's `validateConfig` answers: the typed config, or the first
  * problem found in words the page can put straight into its warning banner.
+ *
+ * `migratedFrom` is set only when the file was written in an OLDER format
+ * version and had to be brought up to date on the way in — see
+ * `configVersion.ts`. The config is current either way; the number is there so
+ * the page can say the copy on disk is not, and offer to write a new one. A
+ * page whose format carries no version tag never sets it.
  */
 export type ConfigResult<T> =
-  | { ok: true; config: T }
+  | { ok: true; config: T; migratedFrom?: number }
   | { ok: false; error: string };
 
 /** Whether `value` is an integer within `[min, max]`. */

@@ -1,7 +1,16 @@
 import type { LogicGridSymbolValue } from "../../util/types";
 
-/** What kind of value a clue carries, and therefore how it is entered. */
-export type LogicGridValueKind = "number" | "letter";
+/** What kind of value a clue carries, and therefore how it is entered.
+ * `"none"` is the lotus: no value at all, and no field to type one into. */
+export type LogicGridValueKind = "number" | "letter" | "none";
+
+/**
+ * What a kind's `direction` key means, and therefore which picker it gets.
+ * `"none"` carries no key at all; `"compass"` is the dart's four ways to
+ * point; `"axis"` is the lotus's four ways a symmetry line can lie —
+ * 45-degree clockwise turns from horizontal, reusing the same key.
+ */
+export type LogicGridAims = "none" | "compass" | "axis";
 
 export interface LogicGridSymbolKind {
   /** Stable, lowercase, and never reused — it is what the tests read. */
@@ -14,11 +23,11 @@ export interface LogicGridSymbolKind {
   /** The smallest value the kind accepts. Ignored by a letter kind. */
   readonly minValue: number;
   /**
-   * Whether the clue also carries one of the four directions — which gives it a
-   * direction picker beside its value field, an arrow on the tile, and a
-   * `direction` key in the config.
+   * Whether — and how — the clue carries one of the four directions, which
+   * gives it a picker beside its chip, a glyph on the tile, and a `direction`
+   * key in the config.
    */
-  readonly directed: boolean;
+  readonly aims: LogicGridAims;
 }
 
 /** An area of zero cells is not a region, so the smallest area clue is 1. */
@@ -45,7 +54,7 @@ export const SYMBOL_KINDS: readonly LogicGridSymbolKind[] = [
     sample: "7",
     valueKind: "number",
     minValue: MIN_AREA_VALUE,
-    directed: false,
+    aims: "none",
   },
   {
     id: "letter",
@@ -53,7 +62,7 @@ export const SYMBOL_KINDS: readonly LogicGridSymbolKind[] = [
     sample: "A",
     valueKind: "letter",
     minValue: 0,
-    directed: false,
+    aims: "none",
   },
   {
     id: "dart",
@@ -65,7 +74,19 @@ export const SYMBOL_KINDS: readonly LogicGridSymbolKind[] = [
     // Zero is a real dart: it says every square that way holds the dart's own
     // colour, which is one of the two cases that fill in immediately.
     minValue: 0,
-    directed: true,
+    aims: "compass",
+  },
+  {
+    id: "lotus",
+    label: "Symmetry",
+    // Unused twice over: an axis-aimed chip is a miniature drawn by
+    // `dressClue`, and a valueless kind has no field to seed either.
+    sample: "H",
+    // The first kind with NO value: the axis and the seat are the whole clue,
+    // so its control is a chip and four axis toggles with no field between.
+    valueKind: "none",
+    minValue: 0,
+    aims: "axis",
   },
 ];
 
@@ -127,6 +148,68 @@ export function directionIndex(id: string | undefined): number {
   return DIRECTIONS.findIndex(direction => direction.id === id);
 }
 
+export interface LogicGridAxis {
+  /** Stable, lowercase, and never reused — it is what the tests read. */
+  readonly id: string;
+  /** Said in a cell's aria label and on the picker's buttons. */
+  readonly label: string;
+}
+
+/**
+ * The one glyph every axis is drawn with, TURNED into place by the stylesheet
+ * exactly as the dart's arrow is. Its native stroke is a VERTICAL bar with an
+ * arrow either side pointing at it — mirroring onto a line — so the stylesheet
+ * rotates from vertical: 90 degrees for the horizontal axis, 45-degree steps
+ * for the diagonals. A name outside the `icon_names` subset in common.css
+ * renders as its own text, so this one is listed there.
+ */
+export const AXIS_ICON = "horizontal_align_center";
+
+/**
+ * The four ways a lotus's symmetry line can lie, in a FIXED order — a config
+ * stores the INDEX in the `direction` key, so this list is the file format
+ * just as `DIRECTIONS` is. Successive 45-degree CLOCKWISE turns from
+ * horizontal, so the falling diagonal (`\`) comes before vertical.
+ */
+export const AXES: readonly LogicGridAxis[] = [
+  { id: "horizontal", label: "Horizontal" },
+  { id: "diagonal-down", label: "Falling diagonal" },
+  { id: "vertical", label: "Vertical" },
+  { id: "diagonal-up", label: "Rising diagonal" },
+];
+
+export const AXIS_COUNT = AXES.length;
+
+/** Horizontal — the axis the row's first toggle offers. */
+export const DEFAULT_AXIS = 0;
+
+export function axisAt(index: number): LogicGridAxis | undefined {
+  return AXES[index];
+}
+
+/** The position of an axis by its stable id, or -1. */
+export function axisIndex(id: string | undefined): number {
+  return AXES.findIndex(axis => axis.id === id);
+}
+
+/** Whether an axis index names one of the two diagonal strokes — the pair a
+ * grid-line seat cannot carry, since their reflection would land on square
+ * corners. Resolved through the catalogue like everything else here. */
+export function isDiagonalAxis(index: number | undefined): boolean {
+  return (
+    index === axisIndex("diagonal-down") || index === axisIndex("diagonal-up")
+  );
+}
+
+/**
+ * A lotus's SEAT: where inside its merged cell the axis point sits, as two
+ * half-square offsets from its home square's centre — bit 0 half a square
+ * right, bit 1 half a square down. 0 is the centre itself (and is OMITTED
+ * from the config, like a missing `direction`); 1 and 2 are the midpoints of
+ * the edges to the right and below; 3 is a corner where squares meet.
+ */
+export const SEAT_COUNT = 4;
+
 /** The board a value is measured against. */
 export interface LogicGridSize {
   gridWidth: number;
@@ -136,19 +219,22 @@ export interface LogicGridSize {
 /**
  * The largest value `kind` can usefully carry on a board of this size.
  *
- * An area number names cells in a region, so the board's area bounds it. A dart
- * counts along ONE straight line, so the longest ray bounds it instead — every
- * square of the longer side except the one the dart sits on.
+ * An area number names cells in a region, so the board's area bounds it. A
+ * dart counts along ONE straight line, so the longest ray bounds it instead —
+ * every square of the longer side except the one the dart sits on. A valueless
+ * kind has no number to bound, and 0 says so without a special case at every
+ * caller.
  *
- * The bound follows from the dart being a line clue rather than from its arrow,
- * and `directed` is only standing in for that because the two coincide today. A
- * directed clue that measured something else would need to say so itself.
+ * The line bound follows from the dart being a line clue rather than from its
+ * arrow, and `compass` is only standing in for that because the two coincide.
+ * A compass-aimed clue that measured something else would need to say so.
  */
 export function symbolValueMax(
   kind: LogicGridSymbolKind,
   size: LogicGridSize,
 ): number {
-  return kind.directed
+  if (kind.valueKind === "none") return 0;
+  return kind.aims === "compass"
     ? Math.max(size.gridWidth, size.gridHeight) - 1
     : size.gridWidth * size.gridHeight;
 }
@@ -166,6 +252,14 @@ export function symbolValueError(
   value: unknown,
   size: LogicGridSize,
 ): string | null {
+  if (kind.valueKind === "none") {
+    // Not merely ignored, for the same reason a stray direction is not: a
+    // value stored on a clue that never reads one would look like part of the
+    // puzzle and change nothing about it.
+    return value === undefined
+      ? null
+      : `${kind.label} symbols carry no value.`;
+  }
   if (kind.valueKind === "number") {
     const max = symbolValueMax(kind, size);
     const ok =
@@ -191,7 +285,7 @@ export function symbolDirectionError(
   kind: LogicGridSymbolKind,
   direction: unknown,
 ): string | null {
-  if (!kind.directed) {
+  if (kind.aims === "none") {
     return direction === undefined
       ? null
       : `Only a directed symbol carries a direction, and ${kind.label} is not one.`;
@@ -203,6 +297,30 @@ export function symbolDirectionError(
   return ok
     ? null
     : `${kind.label} directions must be integers between 0 and ${DIRECTION_COUNT - 1}.`;
+}
+
+/**
+ * Whether `seat` is one this clue could carry — the kind-level half. Whether
+ * the seat's squares really surround a point of the clue's own merged cell is
+ * the validator's question, asked once the shapes are known.
+ */
+export function symbolSeatError(
+  kind: LogicGridSymbolKind,
+  seat: unknown,
+): string | null {
+  if (kind.aims !== "axis") {
+    return seat === undefined
+      ? null
+      : `Only a symmetry symbol carries a seat, and ${kind.label} is not one.`;
+  }
+  if (seat === undefined) return null;
+  const ok =
+    Number.isInteger(seat) &&
+    (seat as number) >= 0 &&
+    (seat as number) < SEAT_COUNT;
+  return ok
+    ? null
+    : `${kind.label} seats must be integers between 0 and ${SEAT_COUNT - 1}.`;
 }
 
 /**
@@ -233,6 +351,8 @@ export function parseSymbolValue(
   raw: string,
   size: LogicGridSize,
 ): LogicGridSymbolValue | null {
+  // A valueless kind has no field, so nothing typed can ever be its value.
+  if (kind.valueKind === "none") return null;
   const trimmed = raw.trim();
   if (trimmed === "") return null;
 

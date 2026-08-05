@@ -291,12 +291,13 @@ Plan planOf(const Model &model) {
   // Letters only, and `applicable` above has already refused any board that
   // carries anything else — without which a clue this sweep cannot express
   // would be silently skipped here and the answer claimed as proved.
-  for (const auto &[index, kind, value, direction] : model.puzzle.clues) {
-    if (kind != kClueLetter)
+  for (const Clue &clue : model.puzzle.clues) {
+    if (clue.kind != kClueLetter)
       continue;
-    const int pos = plan.scan.posOf(index);
-    plan.letterAt[slot(pos)] = static_cast<uint8_t>(value);
-    plan.lastPos[slot(value)] = std::max(plan.lastPos[slot(value)], pos);
+    const int pos = plan.scan.posOf(clue.index);
+    plan.letterAt[slot(pos)] = static_cast<uint8_t>(clue.value);
+    plan.lastPos[slot(clue.value)] =
+        std::max(plan.lastPos[slot(clue.value)], pos);
   }
   return plan;
 }

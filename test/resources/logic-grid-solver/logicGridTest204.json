@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "gridWidth": 3,
+  "gridHeight": 2,
+  "rules": [],
+  "cells": [
+    [
+      0,
+      2
+    ],
+    [
+      0,
+      0
+    ],
+    [
+      0,
+      0
+    ]
+  ],
+  "symbols": [
+    {
+      "x": 0,
+      "y": 1,
+      "type": 0,
+      "value": 1
+    },
+    {
+      "x": 1,
+      "y": 1,
+      "type": 0,
+      "value": 3
+    },
+    {
+      "x": 2,
+      "y": 1,
+      "type": 0,
+      "value": 2
+    }
+  ]
+}

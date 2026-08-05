@@ -5,6 +5,7 @@
 #include "Types.h"
 
 #include <cstdint>
+#include <format>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -71,18 +72,31 @@ void readClues(const nlohmann::json &document, Puzzle &puzzle,
       throw FixtureError("A clue sits outside the board in " + path);
     if (kind < 0 || kind >= kClueKindCount)
       throw FixtureError("Unknown clue kind in " + path);
-    const int value = kind == kClueLetter
-                          ? letterFrom(entry.at("value"), path)
-                          : entry.at("value").get<int>();
+    // A lotus carries no number at all, and a file that gives it one is
+    // refused rather than the key being dropped — dropping it would load a
+    // different-looking puzzle under the same name.
+    int value = 0;
+    if (kind == kClueLetter)
+      value = letterFrom(entry.at("value"), path);
+    else if (kind == kClueLotus) {
+      if (entry.contains("value"))
+        throw FixtureError("A symmetry symbol carries no value in " + path);
+    } else {
+      value = entry.at("value").get<int>();
+    }
     // Optional, like `shapes` and for the same reason — every fixture written
     // before darts existed carries no such key. Absent it reads as -1, which
-    // `structureProblem` refuses for a kind that needs one.
+    // `structureProblem` refuses for a kind that needs one. The `seat` key is
+    // optional the same way, defaulting to the square's own centre, and a seat
+    // on a kind that has none is refused by name downstream.
     const int direction =
         entry.contains("direction") ? entry.at("direction").get<int>() : -1;
+    const int seat = entry.contains("seat") ? entry.at("seat").get<int>() : 0;
     puzzle.clues.push_back({.index = cellIndex(x, y),
                             .kind = static_cast<uint8_t>(kind),
                             .value = value,
-                            .direction = direction});
+                            .direction = direction,
+                            .seat = seat});
   }
 }
 
@@ -143,19 +157,24 @@ nlohmann::json columnMajor(const Puzzle &puzzle, const Colors &colors) {
 
 nlohmann::json cluesToJson(const Puzzle &puzzle) {
   auto symbols = nlohmann::json::array();
-  for (const auto &[index, kind, value, direction] : puzzle.clues) {
+  for (const auto &[index, kind, value, direction, seat] : puzzle.clues) {
     nlohmann::json entry;
     entry["x"] = columnOf(index);
     entry["y"] = rowOf(index);
     entry["type"] = kind;
+    // A lotus writes no value key at all; every other kind requires one.
     if (kind == kClueLetter)
       entry["value"] = std::string(1, static_cast<char>('A' + value));
-    else
+    else if (kind != kClueLotus)
       entry["value"] = value;
-    // Written only where there is one, so a board with no darts round-trips
-    // byte-identically to what the page downloads — the rule `shapes` follows.
-    if (kind == kClueDart)
+    // Written only where there is one, so a board with no directed clues
+    // round-trips byte-identically to what the page downloads — the rule
+    // `shapes` follows. A lotus's direction is its AXIS; its seat is written
+    // only off its default, the same discipline again.
+    if (kind == kClueDart || kind == kClueLotus)
       entry["direction"] = direction;
+    if (kind == kClueLotus && seat != 0)
+      entry["seat"] = seat;
     symbols.push_back(entry);
   }
   return symbols;
@@ -172,10 +191,32 @@ nlohmann::json shapesToJson(const Puzzle &puzzle) {
   return shapes;
 }
 
+/**
+ * The format version the file claims, defaulting to 1 where the key is absent
+ * — which every fixture captured before the tag existed relies on.
+ *
+ * Anything this build does not read is refused by name. A LATER version is a
+ * file from a newer build, whose additions this one has never heard of; an
+ * earlier one means the repo's own fixtures were not rewritten alongside the
+ * bump, since migrating is the page's job and not this side's.
+ */
+void checkVersion(const nlohmann::json &document, const std::string &path) {
+  if (!document.contains("version"))
+    return;
+  const auto &tag = document.at("version");
+  if (!tag.is_number_integer())
+    throw FixtureError("version must be an integer in " + path);
+  if (const auto version = tag.get<int>(); version != kConfigVersion)
+    throw FixtureError(
+        std::format("Unsupported config version {} (this build reads {}) in {}",
+                    version, kConfigVersion, path));
+}
+
 } // namespace
 
 Fixture load(const std::string &path) {
   const nlohmann::json document = readDocument(path);
+  checkVersion(document, path);
   Fixture fixture;
   Puzzle &puzzle = fixture.puzzle;
   puzzle.width = document.at("gridWidth").get<int>();
@@ -194,6 +235,10 @@ Fixture load(const std::string &path) {
 void save(const std::string &path, const Fixture &fixture) {
   const Puzzle &puzzle = fixture.puzzle;
   nlohmann::json document;
+  // nlohmann sorts an object's keys, so this does not come out first the way
+  // the page's own writer puts it — only that it is THERE matters, since every
+  // reader on both sides looks the key up rather than reading in order.
+  document["version"] = kConfigVersion;
   document["gridWidth"] = puzzle.width;
   document["gridHeight"] = puzzle.height;
 

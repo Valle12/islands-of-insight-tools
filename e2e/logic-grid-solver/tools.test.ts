@@ -75,10 +75,11 @@ test.describe("Logic Grid Solver tools", () => {
     // Four: the three colours plus merge, which also changes what the board is
     // rather than doing something to it once.
     await expect(page.locator("#color-row .tool-button")).toHaveCount(4);
-    // `.symbol-chip` means "the clue KINDS". A dart's four direction toggles
-    // sit inside its control and deliberately do not answer to that class.
-    await expect(page.locator("#symbol-row .symbol-chip")).toHaveCount(3);
-    await expect(page.locator("#symbol-row .direction-toggle")).toHaveCount(4);
+    // `.symbol-chip` means "the clue KINDS". The dart's arrows and the
+    // symmetry symbol's axes sit inside their controls as `.direction-toggle`
+    // and deliberately do not answer to that class — four toggles each.
+    await expect(page.locator("#symbol-row .symbol-chip")).toHaveCount(4);
+    await expect(page.locator("#symbol-row .direction-toggle")).toHaveCount(8);
   });
 
   test("left paints dark and right paints light", async ({ page }) => {
@@ -328,6 +329,44 @@ test.describe("Logic Grid Solver tools", () => {
     await expect(cellAt(page, 0, 0)).toHaveAttribute("data-color", "unknown");
   });
 
+  /**
+   * A merged cell carries ONE clue, on the square the player put it on. That
+   * matters most for a dart, whose line starts there — on a three-square bar
+   * the same dart on each square is three different puzzles, and an editor
+   * that re-homed it to a canonical middle square could only express one of
+   * them. Real pointer presses rather than the unit tests' synthetic ones,
+   * since the seam bridges and the arrow glyph are both in the way.
+   */
+  test("a clue lands on the square of a merged cell it was pressed on", async ({
+    page,
+  }) => {
+    await tool(page, "merge").click();
+    await dragRow(page, 0, 0, 2);
+
+    await clueChip(page, "dart").click();
+    await clueValue(page, "dart").fill("2");
+    await cellAt(page, 2, 0).click();
+    await expect(cellAt(page, 2, 0)).toHaveText(/2/);
+    await expect(cellAt(page, 0, 0)).toHaveText("");
+    await expect(cellAt(page, 1, 0)).toHaveText("");
+
+    // Another square of the same cell MOVES it rather than adding a second or
+    // reading as "the same clue again" and lifting it.
+    await cellAt(page, 0, 0).click();
+    await expect(cellAt(page, 0, 0)).toHaveText(/2/);
+    await expect(cellAt(page, 2, 0)).toHaveText("");
+
+    // The same square again turns it, which is the directed kinds' re-click
+    // rule and is what makes the move above the only other outcome.
+    const aimed = await cellAt(page, 0, 0).getAttribute("data-direction");
+    await cellAt(page, 0, 0).click();
+    await expect(cellAt(page, 0, 0)).not.toHaveAttribute(
+      "data-direction",
+      aimed!,
+    );
+    await expect(cellAt(page, 0, 0)).toHaveText(/2/);
+  });
+
   test("reset asks first, then clears the board and the rules", async ({
     page,
   }) => {
@@ -447,5 +486,103 @@ test.describe("Logic Grid Solver tools", () => {
       expect(await seatOf(3, "left")).toBe("above");
     });
 
+  });
+
+  /**
+   * The symmetry symbol is the dart's counterpart with an AXIS instead of a
+   * number: a control with no value field, one glyph turned four ways — and,
+   * on a merged cell, a SEAT on the grid lines that only a real pointer
+   * position can choose, which is the half no unit test reaches.
+   */
+  test.describe("symmetry", () => {
+    function axisToggle(page: Page, axis: string) {
+      return page.locator(
+        `#symbol-row .symbol-tool[data-symbol="lotus"] ` +
+          `.direction-toggle[data-axis="${axis}"]`,
+      );
+    }
+
+    async function placeLotus(page: Page, x: number, y: number, axis: string) {
+      await axisToggle(page, axis).click();
+      await cellAt(page, x, y).click();
+    }
+
+    test("has no value field and stamps the rotated glyph", async ({
+      page,
+    }) => {
+      await expect(
+        page.locator(
+          '#symbol-row .symbol-tool[data-symbol="lotus"] .symbol-value',
+        ),
+      ).toHaveCount(0);
+      await placeLotus(page, 1, 1, "vertical");
+      const cell = cellAt(page, 1, 1);
+      await expect(cell).toHaveAttribute("data-symbol", "lotus");
+      await expect(cell).toHaveAttribute("data-axis", "vertical");
+      await expect(cell).toHaveAccessibleName(
+        "Column 2, Row 2, Unknown, Symmetry along the vertical axis",
+      );
+    });
+
+    test("exactly one axis reads as chosen", async ({ page }) => {
+      await axisToggle(page, "diagonal-up").click();
+      await expect(axisToggle(page, "diagonal-up")).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      await expect(axisToggle(page, "horizontal")).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+    });
+
+    test("clicking a placed symbol turns it 45 degrees", async ({ page }) => {
+      await placeLotus(page, 2, 2, "horizontal");
+      const cell = cellAt(page, 2, 2);
+
+      await cell.click();
+      await expect(cell).toHaveAttribute("data-axis", "diagonal-down");
+      await cell.click();
+      await expect(cell).toHaveAttribute("data-axis", "vertical");
+
+      await cell.click({ button: "right" });
+      await expect(cell).not.toHaveAttribute("data-axis", /.*/);
+      await expect(cell).toHaveAccessibleName("Column 3, Row 3, Unknown");
+    });
+
+    /** Compass keys do not name axes, so the horizontal pair steps instead. */
+    test("the horizontal arrows rotate a focused symbol", async ({ page }) => {
+      await placeLotus(page, 1, 0, "horizontal");
+      const cell = cellAt(page, 1, 0);
+      await cell.press("ArrowRight");
+      await expect(cell).toHaveAttribute("data-axis", "diagonal-down");
+      await cell.press("ArrowLeft");
+      await expect(cell).toHaveAttribute("data-axis", "horizontal");
+    });
+
+    /**
+     * The seat. Pressed near the seam inside a merged cell, the symbol sits ON
+     * the grid line between the two squares — `data-seat` slides the glyph
+     * half a square over — and turning there skips the diagonals, which have
+     * no reflection on a grid-line seat to offer.
+     */
+    test("a press near a merged cell's seam seats the symbol on it", async ({
+      page,
+    }) => {
+      await tool(page, "merge").click();
+      await dragRow(page, 0, 0, 1);
+
+      await axisToggle(page, "vertical").click();
+      const cell = cellAt(page, 0, 0);
+      const box = (await cell.boundingBox())!;
+      const seam = { x: box.width - 2, y: box.height / 2 };
+      await cell.click({ position: seam });
+      await expect(cell).toHaveAttribute("data-seat", "1");
+      await expect(cell).toHaveAttribute("data-axis", "vertical");
+
+      await cell.click({ position: seam });
+      await expect(cell).toHaveAttribute("data-axis", "horizontal");
+      await expect(cell).toHaveAttribute("data-seat", "1");
+    });
   });
 });

@@ -21,6 +21,23 @@ public:
   using std::runtime_error::runtime_error;
 };
 
+/**
+ * Which shape of the download format this build reads and writes — the same
+ * number `CONFIG_VERSION` holds in `src/pages/logic-grid-solver/config.ts`,
+ * and the two have to move together.
+ *
+ * A file with no `version` key is version 1, the format as it stood before the
+ * tag existed, which is what lets every fixture captured before it load
+ * unchanged.
+ *
+ * There are deliberately NO migrations here. The page migrates, because it is
+ * the only side that reads files a stranger wrote; these tools read this
+ * repo's own fixtures, which are rewritten to the new shape in the same change
+ * that raises the version. An older file reaching them means that rewrite was
+ * missed, so it is refused rather than guessed at.
+ */
+inline constexpr int kConfigVersion = 1;
+
 struct Fixture {
   Puzzle puzzle;
   /**

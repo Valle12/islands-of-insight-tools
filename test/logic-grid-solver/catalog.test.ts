@@ -6,14 +6,18 @@ import {
   ruleAt,
 } from "../../src/pages/logic-grid-solver/rules";
 import {
+  AXES,
+  AXIS_COUNT,
   DIRECTION_COUNT,
   DIRECTIONS,
   MIN_AREA_VALUE,
   parseSymbolValue,
+  SEAT_COUNT,
   symbolDirectionError,
   SYMBOL_KIND_COUNT,
   SYMBOL_KINDS,
   symbolKindAt,
+  symbolSeatError,
   symbolValueError,
   symbolValueMax,
 } from "../../src/pages/logic-grid-solver/symbols";
@@ -48,6 +52,12 @@ const RULE_ORDER: [number, string][] = [
   [17, "area-two-light"],
   [18, "area-four-dark"],
   [19, "area-four-light"],
+  [20, "area-five-dark"],
+  [21, "area-five-light"],
+  [22, "no-dark-light-dark"],
+  [23, "no-light-dark-light"],
+  [24, "no-dark-t"],
+  [25, "no-light-t"],
 ];
 
 /**
@@ -67,12 +77,18 @@ const ROW_ORDER: string[] = [
   "no-dark-1x5",
   "no-light-1x5",
   "no-checkerboard",
+  "no-dark-light-dark",
+  "no-light-dark-light",
+  "no-dark-t",
+  "no-light-t",
   "connect-dark",
   "connect-light",
   "area-two-dark",
   "area-two-light",
   "area-four-dark",
   "area-four-light",
+  "area-five-dark",
+  "area-five-light",
   "one-symbol-dark",
   "one-symbol-light",
   "underclued",
@@ -82,6 +98,15 @@ const SYMBOL_ORDER: [number, string][] = [
   [0, "area"],
   [1, "letter"],
   [2, "dart"],
+  [3, "lotus"],
+];
+
+/** The four axes reuse the `direction` key, so their order is frozen too. */
+const AXIS_ORDER: [number, string][] = [
+  [0, "horizontal"],
+  [1, "diagonal-down"],
+  [2, "vertical"],
+  [3, "diagonal-up"],
 ];
 
 /** The four directions are stored by index too, so their order is frozen. */
@@ -154,6 +179,21 @@ describe("SYMBOL_KINDS", () => {
   });
 });
 
+describe("AXES", () => {
+  test.each(AXIS_ORDER)("index %i is still %s", (index, id) => {
+    expect(AXES[index]?.id).toBe(id);
+  });
+
+  test("the pinned order covers every axis", () => {
+    expect(AXIS_COUNT).toBe(AXIS_ORDER.length);
+  });
+
+  test("ids are unique and labels are non-empty", () => {
+    expect(new Set(AXES.map(axis => axis.id)).size).toBe(AXIS_COUNT);
+    expect(AXES.every(axis => axis.label.trim() !== "")).toBeTrue();
+  });
+});
+
 describe("DIRECTIONS", () => {
   test.each(DIRECTION_ORDER)("index %i is still %s", (index, id) => {
     expect(DIRECTIONS[index]?.id).toBe(id);
@@ -186,6 +226,10 @@ describe("symbolValueMax", () => {
     expect(
       symbolValueMax(symbolKindAt(2)!, { gridWidth: 3, gridHeight: 9 }),
     ).toBe(8);
+  });
+
+  test("a valueless kind has no number to bound", () => {
+    expect(symbolValueMax(symbolKindAt(3)!, SIZE)).toBe(0);
   });
 });
 
@@ -238,6 +282,16 @@ describe("symbolValueError", () => {
       );
     }
   });
+
+  /** Not merely ignored: a value on a clue that never reads one would look
+   * like part of the puzzle and change nothing about it. */
+  test("a symmetry symbol refuses to carry a value at all", () => {
+    const lotus = symbolKindAt(3)!;
+    expect(symbolValueError(lotus, undefined, SIZE)).toBeNull();
+    expect(symbolValueError(lotus, 0, SIZE)).toBe(
+      "Symmetry symbols carry no value.",
+    );
+  });
 });
 
 describe("symbolDirectionError", () => {
@@ -268,6 +322,44 @@ describe("symbolDirectionError", () => {
       "Only a directed symbol carries a direction, and Area number is not one.",
     );
   });
+
+  /** The lotus reuses the key as its AXIS, with the same bounds. */
+  test("an axis-aimed kind takes one of the four in the same key", () => {
+    const lotus = symbolKindAt(3)!;
+    for (let index = 0; index < AXIS_COUNT; index++) {
+      expect(symbolDirectionError(lotus, index)).toBeNull();
+    }
+    expect(symbolDirectionError(lotus, undefined)).toBe(
+      `Symmetry directions must be integers between 0 and ${AXIS_COUNT - 1}.`,
+    );
+  });
+});
+
+describe("symbolSeatError", () => {
+  const area = symbolKindAt(0)!;
+  const lotus = symbolKindAt(3)!;
+
+  test("a symmetry symbol takes one of the four seats, or none", () => {
+    expect(symbolSeatError(lotus, undefined)).toBeNull();
+    for (let seat = 0; seat < SEAT_COUNT; seat++) {
+      expect(symbolSeatError(lotus, seat)).toBeNull();
+    }
+  });
+
+  test("refuses a seat outside the four", () => {
+    for (const value of [-1, SEAT_COUNT, 1.5, "1"]) {
+      expect(symbolSeatError(lotus, value)).toBe(
+        `Symmetry seats must be integers between 0 and ${SEAT_COUNT - 1}.`,
+      );
+    }
+  });
+
+  test("any other kind refuses to carry one at all", () => {
+    expect(symbolSeatError(area, undefined)).toBeNull();
+    expect(symbolSeatError(area, 1)).toBe(
+      "Only a symmetry symbol carries a seat, and Area number is not one.",
+    );
+  });
 });
 
 describe("parseSymbolValue", () => {
@@ -292,5 +384,10 @@ describe("parseSymbolValue", () => {
     expect(parseSymbolValue(area, "99", SIZE)).toBeNull();
     expect(parseSymbolValue(letter, "", SIZE)).toBeNull();
     expect(parseSymbolValue(letter, "AB", SIZE)).toBeNull();
+  });
+
+  /** A valueless kind has no field, so nothing typed is ever its value. */
+  test("returns null for a valueless kind whatever was typed", () => {
+    expect(parseSymbolValue(symbolKindAt(3)!, "3", SIZE)).toBeNull();
   });
 });

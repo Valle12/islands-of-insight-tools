@@ -171,6 +171,70 @@ bool hasCheckerboard(const Model &model, const Colors &colors) {
   return false;
 }
 
+/// A line of three alternating colours with `color` at both ends, in either
+/// direction. Both colours are named outright, so a gap can never take part in
+/// one: `kUnplayable` equals neither.
+bool hasTriple(const Model &model, const Colors &colors, const uint8_t color) {
+  const uint8_t other = opposite(color);
+  const auto held = [&colors](const int x, const int y) {
+    return colors[slot(cellIndex(x, y))];
+  };
+  for (int y = 0; y < model.height(); y++) {
+    for (int x = 0; x < model.width(); x++) {
+      if (held(x, y) != color)
+        continue;
+      if (x + 2 < model.width() && held(x + 1, y) == other &&
+          held(x + 2, y) == color)
+        return true;
+      if (y + 2 < model.height() && held(x, y + 1) == other &&
+          held(x, y + 2) == color)
+        return true;
+    }
+  }
+  return false;
+}
+
+Violation tripleProblem(const Model &model, const Colors &colors) {
+  using enum Violation;
+  if (model.hasRule(Rule::NoDarkLightDark) && hasTriple(model, colors, kDark))
+    return Triple;
+  if (model.hasRule(Rule::NoLightDarkLight) && hasTriple(model, colors, kLight))
+    return Triple;
+  return None;
+}
+
+/// A T of `color`: a straight three with a fourth cell on the middle's other
+/// side. Scanned from the CENTRE, which sees all four rotations as a bar plus
+/// a stem — and sees the T inside a plus, which contains one.
+bool hasTee(const Model &model, const Colors &colors, const uint8_t color) {
+  const auto held = [&model, &colors, color](const int x, const int y) {
+    return x >= 0 && x < model.width() && y >= 0 && y < model.height() &&
+           colors[slot(cellIndex(x, y))] == color;
+  };
+  for (int y = 0; y < model.height(); y++) {
+    for (int x = 0; x < model.width(); x++) {
+      if (!held(x, y))
+        continue;
+      if (held(x - 1, y) && held(x + 1, y) &&
+          (held(x, y - 1) || held(x, y + 1)))
+        return true;
+      if (held(x, y - 1) && held(x, y + 1) &&
+          (held(x - 1, y) || held(x + 1, y)))
+        return true;
+    }
+  }
+  return false;
+}
+
+Violation teeProblem(const Model &model, const Colors &colors) {
+  using enum Violation;
+  if (model.hasRule(Rule::NoDarkT) && hasTee(model, colors, kDark))
+    return Tee;
+  if (model.hasRule(Rule::NoLightT) && hasTee(model, colors, kLight))
+    return Tee;
+  return None;
+}
+
 /// An empty colour is vacuously one region, which is what lets a board be
 /// legally all-dark while `connect-light` is switched on.
 bool isOneRegion(const Bits &cells) {
@@ -230,6 +294,8 @@ Violation regionSizeProblem(const Model &model, const Bits &dark,
       {.rule = AreaTwoLight, .color = kLight, .area = 2},
       {.rule = AreaFourDark, .color = kDark, .area = 4},
       {.rule = AreaFourLight, .color = kLight, .area = 4},
+      {.rule = AreaFiveDark, .color = kDark, .area = 5},
+      {.rule = AreaFiveLight, .color = kLight, .area = 5},
   });
   const bool wrong = std::ranges::any_of(
       kAreaRules, [&model, &dark, &light](const AreaRule &row) {
@@ -326,6 +392,41 @@ Violation dartProblem(const Model &model, const Colors &colors) {
 }
 
 /**
+ * Every lotus's region maps to itself across the lotus's axis.
+ *
+ * The region is the connected same-colour set of squares holding the lotus's
+ * cell, and symmetry means the mirror of each of its squares is on the board,
+ * playable and the same colour — which by the region's maximality puts the
+ * mirror in the region too. Geometry is re-derived from the clue here rather
+ * than read off `Model::lotuses`, the discipline `dartProblem` sets: an oracle
+ * sharing the search's precomputed tables could only prove the two agree, and
+ * a wrongly built mirror map is exactly what this has to catch.
+ */
+Violation lotusProblem(const Model &model, const Colors &colors) {
+  for (const int id : model.lotusClues) {
+    const Clue &clue = model.puzzle.clues[slot(id)];
+    // A lotus nobody can read is one nothing satisfies. Only reachable from a
+    // puzzle that skipped `structureProblem`, which names it properly.
+    if (!isAxis(clue.direction) || !isSeat(clue.seat) ||
+        (isDiagonalAxis(clue.direction) && !diagonalSeatValid(clue.seat)))
+      return Violation::LotusAsymmetric;
+    const int cx2 = seatX2(clue.index, clue.seat);
+    const int cy2 = seatY2(clue.index, clue.seat);
+    const uint8_t color = colors[slot(clue.index)];
+    const Bits region = component(clue.index, maskOf(model, colors, color));
+    for (int i = region.nextSet(0); i >= 0; i = region.nextSet(i + 1)) {
+      const auto [mx, my] =
+          mirrorSquare(clue.direction, cx2, cy2, columnOf(i), rowOf(i));
+      if (mx < 0 || mx >= model.width() || my < 0 || my >= model.height())
+        return Violation::LotusAsymmetric;
+      if (colors[slot(cellIndex(mx, my))] != color)
+        return Violation::LotusAsymmetric;
+    }
+  }
+  return Violation::None;
+}
+
+/**
  * Every cell of one letter in one region, and no region holding two letters.
  *
  * The subset test does double duty: a group cell painted the other colour is
@@ -387,6 +488,12 @@ const char *describe(const Violation violation) {
     return "A merged cell came back in two colours";
   case DartCount:
     return "A dart does not count what its line really holds";
+  case Triple:
+    return "A forbidden line of three alternating colours";
+  case Tee:
+    return "A forbidden T of one colour";
+  case LotusAsymmetric:
+    return "A symmetry symbol's region does not mirror across its axis";
   }
   return "Unknown violation";
 }
@@ -411,6 +518,10 @@ Violation check(const Model &model, const Colors &colors) {
   // free of anything the pattern compiler derived.
   if (model.hasRule(Rule::NoCheckerboard) && hasCheckerboard(model, colors))
     return Checkerboard;
+  if (const Violation problem = tripleProblem(model, colors); problem != None)
+    return problem;
+  if (const Violation problem = teeProblem(model, colors); problem != None)
+    return problem;
 
   const Bits dark = maskOf(model, colors, kDark);
   const Bits light = maskOf(model, colors, kLight);
@@ -429,7 +540,9 @@ Violation check(const Model &model, const Colors &colors) {
   if (const Violation problem = letterProblem(model, colors, dark, light);
       problem != None)
     return problem;
-  return dartProblem(model, colors);
+  if (const Violation problem = dartProblem(model, colors); problem != None)
+    return problem;
+  return lotusProblem(model, colors);
 }
 
 } // namespace lg::verify
