@@ -64,6 +64,23 @@ const MIGRATIONS: readonly ConfigMigration[] = [];
  */
 export const CONFIG_VERSION = configVersion(MIGRATIONS);
 
+/**
+ * What the page tells a player whose file was written in an older version.
+ *
+ * A function here rather than a string built at the call site, because the
+ * branch that shows it CANNOT RUN while `MIGRATIONS` is empty — no file is
+ * ever old — and a message nothing can reach is a message nothing checks. This
+ * way its wording is pinned like every other string in this file, and the part
+ * left untested is one `if`.
+ */
+export function migrationNotice(from: number): string {
+  return (
+    `This board was saved in format version ${from} and has been updated to ` +
+    `version ${CONFIG_VERSION}. Download it again to save the file in the ` +
+    `current format.`
+  );
+}
+
 export type ConfigParseResult = ConfigResult<LogicGridTest>;
 
 /** Returns the first problem with the colour grid, or null when it is valid. */

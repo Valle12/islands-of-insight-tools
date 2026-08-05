@@ -13,7 +13,12 @@ import type {
   LogicGridTool,
 } from "./../../util/types";
 import { Board } from "./board";
-import { CONFIG_VERSION, MAX_GRID_SIDE, validateConfig } from "./config";
+import {
+  CONFIG_VERSION,
+  MAX_GRID_SIDE,
+  migrationNotice,
+  validateConfig,
+} from "./config";
 import { RULE_DISPLAY_ORDER, RULES } from "./rules";
 import {
   solveLogicGrid,
@@ -828,11 +833,7 @@ export class LogicGridSolverEditor {
     // in full and is not a failure. What the banner is for is the COPY on
     // disk, which is still in the old format until it is written out again.
     if (result.migratedFrom !== undefined) {
-      this.showWarning(
-        `This board was saved in format version ${result.migratedFrom} and ` +
-          `has been updated to version ${CONFIG_VERSION}. Download it again ` +
-          `to save the file in the current format.`,
-      );
+      this.showWarning(migrationNotice(result.migratedFrom));
     }
   }
 

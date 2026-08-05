@@ -3,6 +3,7 @@ import { readdirSync } from "fs";
 import {
   CONFIG_VERSION,
   MAX_GRID_SIDE,
+  migrationNotice,
   validateConfig,
 } from "../../src/pages/logic-grid-solver/config";
 import { RULE_COUNT } from "../../src/pages/logic-grid-solver/rules";
@@ -117,6 +118,20 @@ describe("validateConfig (logic grid)", () => {
     expect(result.ok).toBeFalse();
     if (result.ok) return;
     expect(result.error).toBe("version must be a positive integer.");
+  });
+
+  /**
+   * The banner an out-of-date file gets. Pinned here rather than through the
+   * editor because no file can BE out of date until `MIGRATIONS` has an entry
+   * — so the page's one `if` is all this cannot reach, and whoever writes the
+   * first migration should cover it there.
+   */
+  test("names both versions in the notice an out-of-date file gets", () => {
+    expect(migrationNotice(1)).toBe(
+      "This board was saved in format version 1 and has been updated to " +
+        `version ${CONFIG_VERSION}. Download it again to save the file in ` +
+        "the current format.",
+    );
   });
 
   /** A canonical file, whatever order the rules were written in. */
