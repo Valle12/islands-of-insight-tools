@@ -43,6 +43,12 @@ enum class Violation : uint8_t {
   CellSplit,
   /// A dart's number does not match what its line really holds.
   DartCount,
+  /// A line of three alternating colours that a triple rule forbids.
+  Triple,
+  /// A T-tetromino of one colour, in any of its four rotations.
+  Tee,
+  /// A symmetry symbol's region does not map to itself across its axis.
+  LotusAsymmetric,
 };
 
 const char *describe(Violation violation);

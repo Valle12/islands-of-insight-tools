@@ -13,9 +13,12 @@ import type { LogicGridSolverEditor } from "./logicGridSolver";
 import { createOutlineLayer, drawShapeOutlines } from "./outlineLayer";
 import { NO_SHAPE, ShapeLayer } from "./shapes";
 import {
+  AXIS_COUNT,
+  DEFAULT_AXIS,
   DEFAULT_DIRECTION,
   DIRECTION_COUNT,
   directionIndex,
+  isDiagonalAxis,
   symbolKindAt,
   symbolValueMax,
   type LogicGridSymbolKind,
@@ -66,12 +69,16 @@ function directionForKey(key: string): number | null {
  * Whether two clues are the same clue — which is what decides whether writing
  * one changes anything at all.
  *
- * The direction counts, so re-aiming a dart really is a change.
+ * The direction and the seat count, so re-aiming a dart or re-seating a
+ * symmetry symbol really is a change.
  */
 function sameClue(a: LogicGridClue | null, b: LogicGridClue | null): boolean {
   if (a === null || b === null) return a === b;
   return (
-    a.type === b.type && a.value === b.value && a.direction === b.direction
+    a.type === b.type &&
+    a.value === b.value &&
+    a.direction === b.direction &&
+    (a.seat ?? 0) === (b.seat ?? 0)
   );
 }
 
@@ -83,29 +90,106 @@ function sameClue(a: LogicGridClue | null, b: LogicGridClue | null): boolean {
  * same clue apart from where it points is a request to point it somewhere
  * else. Four clicks take a dart all the way round, and lifting one is the
  * right button's job alone — which is what makes placing a row of darts and
- * then aiming them a sequence of plain clicks.
+ * then aiming them a sequence of plain clicks. A symmetry symbol turns only
+ * on its OWN seat: a click at a different seat of the same cell re-seats it.
  */
 function turnsInstead(
   held: LogicGridClue | null,
   next: LogicGridClue | null,
 ): boolean {
   if (!held || next?.direction === undefined) return false;
-  return held.type === next.type && held.value === next.value;
+  return (
+    held.type === next.type &&
+    held.value === next.value &&
+    (held.seat ?? 0) === (next.seat ?? 0)
+  );
 }
 
-/** The same clue aimed one step CLOCKWISE, which is the order `DIRECTIONS` is in. */
+/**
+ * The same clue aimed one step CLOCKWISE — a quarter turn along `DIRECTIONS`,
+ * or 45 degrees along `AXES` for a symmetry symbol, skipping the diagonals
+ * where its seat sits on a grid line and they have no reflection to offer.
+ */
 function turned(clue: LogicGridClue): LogicGridClue {
+  if (symbolKindAt(clue.type)?.aims === "axis") {
+    const from = clue.direction ?? DEFAULT_AXIS;
+    const seam = clue.seat === 1 || clue.seat === 2;
+    let next = (from + 1) % AXIS_COUNT;
+    if (seam && isDiagonalAxis(next)) next = (next + 1) % AXIS_COUNT;
+    return { ...clue, direction: next };
+  }
   const from = clue.direction ?? DEFAULT_DIRECTION;
   return { ...clue, direction: (from + 1) % DIRECTION_COUNT };
 }
 
-/** A clue with its direction attached only when its kind carries one. */
+/** The same clue one step ANTICLOCKWISE: three clockwise turns, which is also
+ * right where a grid-line seat leaves only the two straight axes. */
+function turnedBack(clue: LogicGridClue): LogicGridClue {
+  return turned(turned(turned(clue)));
+}
+
+/**
+ * Which half-square offsets a press leans to, and the home square the lean
+ * names — the pressed square, or the seat's top-left neighbour when the lean
+ * crosses a grid line to the left or above. Bit 0 leans right, bit 1 down;
+ * fractions past roughly three quarters count, which also catches a press on
+ * the invisible bridge between two squares, whose coordinates lie beyond the
+ * square's own edge.
+ */
+function leanOf(
+  event: PointerEvent,
+  position: Position,
+  rect: DOMRect,
+): { home: Position; lean: number } {
+  const fx = (event.clientX - rect.left) / rect.width;
+  const fy = (event.clientY - rect.top) / rect.height;
+  const home = { ...position };
+  let lean = 0;
+  if (fx > 0.75) lean |= 1;
+  else if (fx < 0.25 && position.x > 0) {
+    home.x -= 1;
+    lean |= 1;
+  }
+  if (fy > 0.75) lean |= 2;
+  else if (fy < 0.25 && position.y > 0) {
+    home.y -= 1;
+    lean |= 2;
+  }
+  return { home, lean };
+}
+
+/**
+ * One clue as the config stores it, with `value`, `direction` and `seat` only
+ * where there is one: they are the format's optional keys, and every fixture
+ * predating them has to round-trip byte-identically. A seat of 0 means the
+ * square's own centre, which is what absent means.
+ */
+function symbolOf(clue: LogicGridClue, x: number, y: number): LogicGridSymbol {
+  return {
+    x,
+    y,
+    type: clue.type,
+    ...(clue.value === undefined ? {} : { value: clue.value }),
+    ...(clue.direction === undefined ? {} : { direction: clue.direction }),
+    ...(clue.seat ? { seat: clue.seat } : {}),
+  };
+}
+
+/** A clue with its value, direction and seat attached only when its kind
+ * carries one — a valueless lotus holds no `value` key at all, and a seat of
+ * 0 means the square's own centre, which is what absent means. */
 function clueOf(
   type: number,
-  value: LogicGridSymbolValue,
+  value: LogicGridSymbolValue | undefined,
   direction: number | null,
+  seat = 0,
 ): LogicGridClue {
-  return direction === null ? { type, value } : { type, value, direction };
+  return {
+    type,
+    ...(value === undefined ? {} : { value }),
+    ...(direction === null ? {} : { direction }),
+    ...(seat ? { seat } : {}),
+  };
 }
 
 export class Board {
@@ -230,19 +314,7 @@ export class Board {
     for (let y = 0; y < this.gridHeight; y++) {
       for (let x = 0; x < this.gridWidth; x++) {
         const clue = this.clues[x]?.[y];
-        // `direction` only where there is one: it is the format's optional key
-        // and every fixture predating it has to round-trip byte-identically.
-        if (clue) {
-          symbols.push({
-            x,
-            y,
-            type: clue.type,
-            value: clue.value,
-            ...(clue.direction === undefined
-              ? {}
-              : { direction: clue.direction }),
-          });
-        }
+        if (clue) symbols.push(symbolOf(clue, x, y));
       }
     }
     return symbols;
@@ -312,13 +384,19 @@ export class Board {
       }
     }
     for (const symbol of config.symbols) {
-      // Moved to its cell's anchor. The validator accepts a clue on any square
-      // of a merged cell — lenient in — while the editor keeps exactly one
-      // place it can be, so what comes back out is canonical.
-      const { x, y } = this.anchor({ x: symbol.x, y: symbol.y });
-      const column = this.clues[x];
+      // Kept on the square the file names, for every kind. Where a clue sits
+      // inside a merged cell is the player's choice — a dart's square is where
+      // its ray starts, and even an area number reads as a different board when
+      // it moves — so nothing is re-homed on the way in and what comes back out
+      // is what went in.
+      const column = this.clues[symbol.x];
       if (column) {
-        column[y] = clueOf(symbol.type, symbol.value, symbol.direction ?? null);
+        column[symbol.y] = clueOf(
+          symbol.type,
+          symbol.value,
+          symbol.direction ?? null,
+          symbol.seat ?? 0,
+        );
       }
     }
   }
@@ -413,14 +491,6 @@ export class Board {
     return { x, y };
   }
 
-  /** Re-aims the directed clue on `position`, if there is one. */
-  private aim(position: Position, direction: number) {
-    const anchor = this.anchor(position);
-    const clue = this.clueAt(anchor);
-    if (clue?.direction === undefined) return;
-    this.writeCell(anchor, this.colorAt(anchor), { ...clue, direction });
-  }
-
   private beginStroke(event: PointerEvent) {
     // Left and right only. The middle button and the browser-back buttons all
     // arrive here as pointerdowns and must not paint.
@@ -428,12 +498,113 @@ export class Board {
     const position = this.extractCellPosition(event.target);
     if (!position) return;
 
-    const stroke = this.strokeFor(event.button === 2, position);
-    if (!stroke) return;
+    const pressed = this.strokeFor(event.button === 2, position);
+    if (!pressed) return;
+    // A symmetry stroke's seat is fixed here from where the pointer went down
+    // — before the re-click rule, which compares seats — and its home square
+    // may be the seam's other neighbour.
+    const { stroke, home } = this.seatStroke(pressed, event, position);
 
-    this.stroke = this.toggled(stroke, position);
+    this.stroke = this.toggled(stroke, home);
     this.digitCell = null;
-    this.applyStroke(this.stroke, position);
+    this.applyStroke(this.stroke, home);
+  }
+
+  /**
+   * Fixes a symmetry stroke's seat from where the pointer went down, and
+   * names the HOME square the stroke should start on — the seat's top-left
+   * neighbour when the press leaned onto a grid line, the pressed square
+   * itself everywhere else and for every other stroke.
+   */
+  private seatStroke(
+    stroke: Stroke,
+    event: PointerEvent,
+    position: Position,
+  ): { stroke: Stroke; home: Position } {
+    if (stroke.kind !== "clue" || !stroke.clue) {
+      return { stroke, home: position };
+    }
+    if (symbolKindAt(stroke.clue.type)?.aims !== "axis") {
+      return { stroke, home: position };
+    }
+    const axis = stroke.clue.direction ?? null;
+    const snapped = this.snapSeat(event, position, axis);
+    return {
+      stroke: {
+        kind: "clue",
+        clue: clueOf(stroke.clue.type, undefined, axis, snapped.seat),
+      },
+      home: snapped.home,
+    };
+  }
+
+  /**
+   * Where inside its cell a symmetry press lands: the nearest of the cell's
+   * LEGAL seat points to where the pointer went down. The press's fractions
+   * within the square lean the seat right or down past roughly three quarters
+   * — which also catches a press on the invisible bridge between two squares,
+   * whose coordinates lie beyond the square's own edge — and a lean towards
+   * the left or top is the neighbouring square's own rightward or downward
+   * seat, since a home square is always its seat's top-left neighbour. A lean
+   * that leaves the cell, or a seat the shape cannot carry, falls back to the
+   * pressed square's centre.
+   */
+  private snapSeat(
+    event: PointerEvent,
+    position: Position,
+    axis: number | null,
+  ): { home: Position; seat: number } {
+    const centre = { home: position, seat: 0 };
+    const element = this.cellElements[position.x]?.[position.y];
+    if (!element) return centre;
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return centre;
+
+    const { home, lean } = leanOf(event, position, rect);
+    if (lean === 0) return centre;
+
+    // A home that moved must still be a square of the SAME cell, or the lean
+    // walked out of it.
+    const id = this.shapes.idAt(this.shapes.flat(position));
+    if (id === NO_SHAPE) return centre;
+    const moved = home.x !== position.x || home.y !== position.y;
+    if (moved && this.shapes.idAt(this.shapes.flat(home)) !== id) {
+      return centre;
+    }
+    return this.seatLegalAt(home, lean, axis) ? { home, seat: lean } : centre;
+  }
+
+  /**
+   * Whether `seat` really sits inside `home`'s merged cell — the same rule
+   * the validator enforces, asked before a stroke stamps it: a seam seat
+   * needs the square beyond it as a shape-mate, a corner at least three of
+   * its four squares, and the two diagonal axes refuse the seam seats their
+   * reflection cannot exist on.
+   */
+  private seatLegalAt(
+    home: Position,
+    seat: number,
+    axis: number | null,
+  ): boolean {
+    if (seat === 0) return true;
+    if (axis !== null && isDiagonalAxis(axis) && (seat === 1 || seat === 2)) {
+      return false;
+    }
+    const id = this.shapes.idAt(this.shapes.flat(home));
+    if (id === NO_SHAPE) return false;
+    const owns = (x: number, y: number) =>
+      x < this.gridWidth &&
+      y < this.gridHeight &&
+      this.shapes.idAt(this.shapes.flat({ x, y })) === id;
+    if (seat === 1) return owns(home.x + 1, home.y);
+    if (seat === 2) return owns(home.x, home.y + 1);
+    return (
+      1 +
+        Number(owns(home.x + 1, home.y)) +
+        Number(owns(home.x, home.y + 1)) +
+        Number(owns(home.x + 1, home.y + 1)) >=
+      3
+    );
   }
 
   /**
@@ -489,10 +660,20 @@ export class Board {
   }
 
   private clueStroke(): Stroke | null {
-    if (this.symbolValue === null) return null;
+    const kind = symbolKindAt(this.selectedSymbol);
+    if (!kind) return null;
+    // A valueless kind stamps with no value at all; every other kind waits
+    // for its field to hold something usable. The direction is gated on the
+    // KIND rather than on what the editor last set, so switching from a
+    // directed kind cannot leak its aim onto one that carries none.
+    if (kind.valueKind !== "none" && this.symbolValue === null) return null;
     return {
       kind: "clue",
-      clue: clueOf(this.selectedSymbol, this.symbolValue, this.symbolDirection),
+      clue: clueOf(
+        this.selectedSymbol,
+        kind.valueKind === "none" ? undefined : (this.symbolValue ?? undefined),
+        kind.aims === "none" ? null : this.symbolDirection,
+      ),
     };
   }
 
@@ -511,7 +692,11 @@ export class Board {
         : stroke;
     }
     if (stroke.kind === "clue" && stroke.clue) {
-      const held = this.clueAt(this.anchor(position));
+      // This SQUARE's own clue, not the cell's. A press on a different square
+      // of a clued cell is a request to move the clue there, so it must not
+      // read as "the same clue again" and lift it — and on a merged cell wide
+      // enough to seat two symmetry symbols the same way, it used to.
+      const held = this.clueAt(position);
       // A DIRECTED clue turns rather than lifting — see `turnsInstead`. The
       // turned clue is what the whole stroke then writes, so a drag over a row
       // of matching darts aims them all the same way rather than each one a
@@ -524,11 +709,20 @@ export class Board {
     return stroke;
   }
 
-  /** Where a cell's clue lives — the square itself unless the cell is merged. */
-  private anchor(position: Position): Position {
-    return this.shapes.position(
-      this.shapes.anchorOf(this.shapes.flat(position)),
-    );
+  /**
+   * The cell's one clue and the square it lives on — any member square, since
+   * where a clue sits inside a merged cell is the player's own choice, so the
+   * whole cell is searched rather than one slot read.
+   */
+  private cellClue(
+    position: Position,
+  ): { clue: LogicGridClue; home: Position } | null {
+    for (const square of this.shapes.cellSquares(this.shapes.flat(position))) {
+      const at = this.shapes.position(square);
+      const clue = this.clueAt(at);
+      if (clue) return { clue, home: at };
+    }
+    return null;
   }
 
   /**
@@ -536,9 +730,10 @@ export class Board {
    * one in progress, so the keyboard path can apply a single-cell stroke
    * without touching the drag state.
    *
-   * A merged cell takes one colour for all of its squares and carries its clue
-   * at its anchor, so every branch below works on the whole cell rather than on
-   * the square the pointer happens to be over.
+   * A merged cell takes one colour for all of its squares, so the colour
+   * branches below work on the whole cell rather than on the square the pointer
+   * happens to be over. Its ONE clue is the other way round: which square holds
+   * it is the player's choice, so a clue lands exactly where the press did.
    */
   private applyStroke(stroke: Stroke, position: Position) {
     if (stroke.kind === "merge") {
@@ -551,7 +746,6 @@ export class Board {
     }
 
     const squares = this.shapes.cellSquares(this.shapes.flat(position));
-    const anchor = this.anchor(position);
 
     if (stroke.kind === "erase") {
       for (const square of squares) {
@@ -561,28 +755,73 @@ export class Board {
     }
 
     if (stroke.kind === "color") {
-      this.paintCell(stroke.value, squares, anchor);
+      this.paintCell(stroke.value, squares);
       return;
     }
 
     // A clue cannot be placed on a gap; lifting one always may.
     if (stroke.clue && !isPlayable(this.colorAt(position))) return;
-    this.writeCell(anchor, this.colorAt(anchor), stroke.clue);
+    this.placeCellClue(position, this.seated(stroke.clue, position));
   }
 
-  /** One colour across every square of a cell, with its clue kept at the anchor. */
-  private paintCell(value: number, squares: number[], anchor: Position) {
+  /**
+   * A clue as this square can really carry it. A dragged symmetry stroke keeps
+   * the seat its press fixed only where the cell under the pointer surrounds
+   * that point too — a drag crosses cells with different shapes around them,
+   * and the pressed one's own snap legalised only the first. Every other kind
+   * sits at its square's centre and passes straight through.
+   */
+  private seated(
+    clue: LogicGridClue | null,
+    position: Position,
+  ): LogicGridClue | null {
+    if (!clue || symbolKindAt(clue.type)?.aims !== "axis") return clue;
+    const seat = clue.seat ?? 0;
+    const axis = clue.direction ?? null;
+    return clueOf(
+      clue.type,
+      undefined,
+      axis,
+      this.seatLegalAt(position, seat, axis) ? seat : 0,
+    );
+  }
+
+  /**
+   * Writes a cell's ONE clue onto one square of it, clearing whichever square
+   * held the old one first — the two need not be the same square, since moving
+   * a clue within its cell is exactly what a press on another square means.
+   * Lifting writes the null where the clue really is.
+   */
+  private placeCellClue(position: Position, clue: LogicGridClue | null) {
+    const existing = this.cellClue(position);
+    if (
+      existing &&
+      (existing.home.x !== position.x || existing.home.y !== position.y)
+    ) {
+      this.writeCell(existing.home, this.colorAt(existing.home), null);
+    }
+    const target = clue === null && existing ? existing.home : position;
+    this.writeCell(target, this.colorAt(target), clue);
+  }
+
+  /** One colour across every square of a cell, with its clue left on whichever
+   * square of it the player put it on. */
+  private paintCell(value: number, squares: number[]) {
     // A gap in the board is not a cell the puzzle clues, so painting one drops
     // whatever clue was there — and it is not part of a merged cell either, so
     // painting a merged cell away dissolves it back into loose squares.
-    const clue = value === UNPLAYABLE ? null : this.clueAt(anchor);
+    const held =
+      value === UNPLAYABLE
+        ? null
+        : this.cellClue(this.shapes.position(squares[0]!));
     const dissolving = value === UNPLAYABLE && squares.length > 1;
     if (dissolving) this.shapes.dissolve(this.shapes.idAt(squares[0]!));
 
     for (const square of squares) {
       const at = this.shapes.position(square);
-      const keeps = at.x === anchor.x && at.y === anchor.y;
-      this.writeCell(at, value, keeps ? clue : null);
+      const keeps =
+        held !== null && at.x === held.home.x && at.y === held.home.y;
+      this.writeCell(at, value, keeps ? held.clue : null);
     }
     // Only after the writes: the seams these squares no longer share depend on
     // membership the loop above was still changing.
@@ -776,54 +1015,84 @@ export class Board {
         this.splitSquare(position);
         return;
       }
-      const lift = this.anchor(position);
+      // The null lands where the clue really lives, which on a merged cell is
+      // whichever of its squares the player put it on.
+      const lift = this.cellClue(position)?.home ?? position;
       this.writeCell(lift, this.colorAt(lift), null);
       return;
     }
 
-    // An arrow key aims a directed clue, so the gesture is not pointer-only.
-    // Guarded on the cell actually carrying one: everywhere else the arrows go
-    // on scrolling the page, which is what they did before darts existed.
-    const aim = directionForKey(event.key);
-    if (aim !== null) {
-      if (this.clueAt(this.anchor(position))?.direction === undefined) return;
-      event.preventDefault();
-      this.digitCell = null;
-      this.aim(position, aim);
-      return;
-    }
+    if (this.handleArrowKey(event, position)) return;
 
-    // A clue belongs to the CELL, so typing on any square of a merged one
-    // edits the clue at its anchor — the same square `applyStroke` writes. On
-    // a non-anchor square the raw position reads no existing clue and would
-    // then stamp a second one beside it, which a directed clue cannot even
-    // survive: `config.ts` refuses a dart anywhere but the anchor.
-    const anchor = this.anchor(position);
-    const clue = this.nextClue(anchor, event.key);
+    // A merged cell carries ONE clue, so typing on any square of one edits the
+    // clue it already has wherever that sits — reading only the focused
+    // square's own slot would stamp a second one beside it. A cell with none
+    // takes its first on the square being typed on, which is the keyboard's
+    // version of placing it where the press landed.
+    const held = this.cellClue(position);
+    const home = held?.home ?? position;
+    const clue = this.nextClue(home, held?.clue ?? null, event.key);
     if (!clue) return;
     event.preventDefault();
-    this.writeCell(anchor, this.colorAt(anchor), clue);
+    this.writeCell(home, this.colorAt(home), clue);
+  }
+
+  /**
+   * An arrow key aims a directed clue, so the gesture is not pointer-only —
+   * ABSOLUTELY for a compass kind, four keys naming four directions. Compass
+   * keys do not name axes, so on a symmetry symbol the horizontal pair STEPS
+   * instead — left anticlockwise, right clockwise, skipping the diagonals a
+   * grid-line seat cannot carry — while the vertical pair, like every arrow
+   * over a cell with nothing aimed on it, goes on scrolling the page.
+   */
+  private handleArrowKey(event: KeyboardEvent, position: Position): boolean {
+    if (directionForKey(event.key) === null) return false;
+    const held = this.cellClue(position);
+    if (held?.clue.direction === undefined) return false;
+
+    if (symbolKindAt(held.clue.type)?.aims === "axis") {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return false;
+      event.preventDefault();
+      this.digitCell = null;
+      const write =
+        event.key === "ArrowRight" ? turned(held.clue) : turnedBack(held.clue);
+      this.writeCell(held.home, this.colorAt(held.home), write);
+      return true;
+    }
+
+    event.preventDefault();
+    this.digitCell = null;
+    this.writeCell(held.home, this.colorAt(held.home), {
+      ...held.clue,
+      direction: directionForKey(event.key)!,
+    });
+    return true;
   }
 
   /**
    * The clue a keystroke produces. A key edits the clue already on the cell
    * when it suits that clue's kind, and otherwise stamps the selected kind — so
    * a digit types into an area number and a letter into a letter, without the
-   * chip row having to be touched first.
+   * chip row having to be touched first. A valueless kind has nothing for a
+   * keystroke to edit, so it neither takes one nor loses its clue to one.
    */
-  private nextClue(position: Position, key: string): LogicGridClue | null {
+  private nextClue(
+    position: Position,
+    existing: LogicGridClue | null,
+    key: string,
+  ): LogicGridClue | null {
     if (!isPlayable(this.colorAt(position))) return null;
 
-    const existing = this.clueAt(position);
     const type = existing ? existing.type : this.selectedSymbol;
     const kind = symbolKindAt(type);
-    if (!kind) return null;
+    if (!kind || kind.valueKind === "none") return null;
 
     // Typing edits the clue that is there, so a dart under the cursor keeps its
     // own aim; only a fresh one takes the tool's.
-    const direction = kind.directed
-      ? (existing?.direction ?? this.symbolDirection ?? DEFAULT_DIRECTION)
-      : null;
+    const direction =
+      kind.aims === "none"
+        ? null
+        : (existing?.direction ?? this.symbolDirection ?? DEFAULT_DIRECTION);
 
     if (kind.valueKind === "letter") {
       return LETTER_KEY_PATTERN.test(key)

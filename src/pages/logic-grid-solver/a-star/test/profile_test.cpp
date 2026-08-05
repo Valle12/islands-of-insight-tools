@@ -132,6 +132,17 @@ TEST(Profile, DeclinesDarts) {
   EXPECT_FALSE(profile::applicable(buildModel(darted)));
 }
 
+/// Same refusal for the lotus, whose mirror crosses the sweep in BOTH
+/// directions — the whitelist declines it with no code knowing it exists.
+TEST(Profile, DeclinesLotuses) {
+  const Puzzle plain = test::board({"a..", "...", "..a"});
+  ASSERT_TRUE(profile::applicable(buildModel(plain)));
+
+  Puzzle lotused = plain;
+  test::withLotus(lotused, 1, 1, kAxisHorizontal);
+  EXPECT_FALSE(profile::applicable(buildModel(lotused)));
+}
+
 /**
  * And the whitelist itself: every rule the sweep does not name is refused,
  * whatever it is. Without this a rule appended to the catalogue tomorrow would

@@ -221,10 +221,12 @@ describe("LogicGridSolverEditor", () => {
       ]);
     });
 
-    /** Every kind carries its own field, so none of them has to be named. */
-    test("gives every clue kind its own value field", () => {
+    /** Every kind that CARRIES a value gets its own field, so none has to be
+     * named — and a valueless kind renders no field at all, which is why the
+     * two counts diverge now the symmetry symbol exists. */
+    test("gives every value-carrying clue kind its own value field", () => {
       expect(document.querySelectorAll("#symbol-row .symbol-value")).toHaveLength(
-        SYMBOL_KINDS.length,
+        SYMBOL_KINDS.filter(kind => kind.valueKind !== "none").length,
       );
       expect(valueField(0).type).toBe("number");
       expect(valueField(0).value).toBe("1");
@@ -611,6 +613,7 @@ describe("LogicGridSolverEditor", () => {
 
       expect(blobs).toHaveLength(1);
       expect(JSON.parse(await blobs[0]!.text())).toEqual({
+        version: 1,
         gridWidth: 2,
         gridHeight: 2,
         rules: [0, 10],
@@ -680,6 +683,7 @@ describe("LogicGridSolverEditor", () => {
 
   describe("Upload", () => {
     const config: LogicGridTest = {
+      version: 1,
       gridWidth: 2,
       gridHeight: 1,
       rules: [11],

@@ -4,6 +4,7 @@ import {
   UNKNOWN,
   UNPLAYABLE,
 } from "../../src/pages/logic-grid-solver/cell";
+import { CONFIG_VERSION } from "../../src/pages/logic-grid-solver/config";
 import { RULES } from "../../src/pages/logic-grid-solver/rules";
 import { SYMBOL_KINDS } from "../../src/pages/logic-grid-solver/symbols";
 import type { LogicGridTest } from "../../src/util/types";
@@ -38,6 +39,7 @@ const symbolIndex = (id: string) => {
 const AREA_SYMBOL = symbolIndex("area");
 const LETTER_SYMBOL = symbolIndex("letter");
 const DART_SYMBOL = symbolIndex("dart");
+const LOTUS_SYMBOL = symbolIndex("lotus");
 
 /**
  * A puzzle from a picture, one string per row:
@@ -70,6 +72,9 @@ export function board(rows: string[], ruleIds: string[] = []): LogicGridTest {
     }
   }
   return {
+    // Current by construction: these boards stand in for files the editor
+    // itself could have written, and every one of those carries the tag.
+    version: CONFIG_VERSION,
     gridWidth,
     gridHeight,
     rules: ruleIds.map(ruleIndex).sort((a, b) => a - b),
@@ -119,6 +124,32 @@ export function withDart(
   direction: number,
 ): LogicGridTest {
   config.symbols.push({ x, y, type: DART_SYMBOL, value, direction });
+  config.symbols.sort((a, b) => a.y - b.y || a.x - b.x);
+  return config;
+}
+
+/**
+ * Puts a symmetry symbol (the game's lotus) on a cell. A second call like
+ * `withDart`, and for the same reason — it carries an AXIS in the `direction`
+ * key (0 horizontal, 1 falling diagonal, 2 vertical, 3 rising diagonal) and,
+ * on a merged cell, an optional SEAT: half a square right for bit 0, down for
+ * bit 1, so the axis point can sit on the cell's grid lines. No value at all.
+ * Mirrors `withLotus` in the C++ `TestBoards.h`.
+ */
+export function withLotus(
+  config: LogicGridTest,
+  x: number,
+  y: number,
+  axis: number,
+  seat = 0,
+): LogicGridTest {
+  config.symbols.push({
+    x,
+    y,
+    type: LOTUS_SYMBOL,
+    direction: axis,
+    ...(seat ? { seat } : {}),
+  });
   config.symbols.sort((a, b) => a.y - b.y || a.x - b.x);
   return config;
 }
@@ -199,6 +230,45 @@ export const areaFourBoard = (): LogicGridTest =>
   board(["....", "...."], ["area-four-dark", "area-four-light"]);
 
 /**
+ * The two dark givens sit a cell apart under "no dark-light-dark", so the
+ * middle of the top row cannot be light — the first MIXED-colour clause
+ * (checkerboards aside) forcing a cell through the real module.
+ */
+export const forbiddenTripleBoard = (): LogicGridTest => {
+  const config = board(["...", "..."], ["no-dark-light-dark"]);
+  withGiven(config, 0, 0, DARK);
+  withGiven(config, 2, 0, DARK);
+  return config;
+};
+
+/**
+ * A dark bar across the top under "no dark T": the square under its middle is
+ * the T's stem and can only be light. The four-rotation pattern family's trip
+ * through the boundary, same as `forbiddenTripleBoard` is the triples'.
+ */
+export const teeBoard = (): LogicGridTest => {
+  const config = board(["...", "..."], ["no-dark-t"]);
+  withGiven(config, 0, 0, DARK);
+  withGiven(config, 1, 0, DARK);
+  withGiven(config, 2, 0, DARK);
+  return config;
+};
+
+/**
+ * The same purpose again for area FIVE — six wide, because an area of five
+ * implies a forbidden straight run of SIX, and this is the first board that
+ * six-cell clause even fits on. `kMaxPatternCells` was raised for it, so this
+ * board is what sends a six-cell clause through the real module. The given
+ * dark corner forces a real dark region of exactly five; light is
+ * unconstrained, so the board is solvable (five dark across the top, say, and
+ * everything else light).
+ */
+export const areaFiveBoard = (): LogicGridTest => {
+  const config = board(["......", "......"], ["area-five-dark"]);
+  return withGiven(config, 0, 0, DARK);
+};
+
+/**
  * Two darts, both of which fill in immediately and between them settle the
  * whole board — which is the technique the game calls dart minimax: a dart
  * holding 0, or holding as many squares as its line has, leaves no choice.
@@ -240,6 +310,30 @@ export const dartOverMergedBoard = (): LogicGridTest => {
 };
 
 /**
+ * A dart INSIDE a merged cell, on a square the cell's middle is not.
+ *
+ * Which square of a merged cell a clue sits on is the player's choice, and for
+ * a dart it is load-bearing: the line starts there. The cell is the two dark
+ * squares of the top row and the dart is on the RIGHT one, so its line runs
+ * down column 1 and forces both squares under it light. Re-homed to the middle
+ * of the cell — which is what the editor used to do, and what the validator
+ * used to insist on — the line would run down column 0 instead and the answer
+ * would name two different cells. Underclued, so the answer IS the forced set
+ * and the column it names is the assertion.
+ */
+export const dartInMergedBoard = (): LogicGridTest => {
+  const config = board(["...", "...", "..."], ["underclued"]);
+  withGiven(config, 0, 0, DARK);
+  withGiven(config, 1, 0, DARK);
+  withDart(config, 1, 0, 2, 2);
+  withShape(config, [
+    [0, 0],
+    [1, 0],
+  ]);
+  return config;
+};
+
+/**
  * A board with merged cells: a 1x3 bar across the top row and an L below it,
  * with "no dark 1x3" on.
  *
@@ -264,6 +358,42 @@ export const mergedCellBoard = (): LogicGridTest => {
     [0, 2],
     [1, 2],
   ]);
+  return config;
+};
+
+/**
+ * A symmetry symbol whose own colour is given, with one dark neighbour above:
+ * the region must mirror across the horizontal axis, so the square below is
+ * forced dark while the rest of the board stays free. The lotus's
+ * `direction`-as-axis crosses the boundary nowhere else — every captured
+ * board predates the kind — which is the same argument the dart boards make.
+ */
+export const lotusBoard = (): LogicGridTest => {
+  const config = board(["...", "...", "..."]);
+  withGiven(config, 1, 0, DARK);
+  withGiven(config, 1, 1, DARK);
+  withLotus(config, 1, 1, 0);
+  return config;
+};
+
+/**
+ * A symmetry symbol SEATED on the seam of its own 1x2 merged cell — the axis
+ * is the grid line between its two squares — with the top-right square
+ * already dark. Mirroring forces the square below it dark, and the bottom row
+ * reflects off the board, so it can only be light: the whole answer is
+ * forced, which makes any arm's wrong seat arithmetic loud. The `seat` key
+ * crosses the boundary nowhere else.
+ */
+export const lotusOverMergedBoard = (): LogicGridTest => {
+  const config = board(["..", "..", ".."]);
+  withShape(config, [
+    [0, 0],
+    [0, 1],
+  ]);
+  withGiven(config, 0, 0, DARK);
+  withGiven(config, 0, 1, DARK);
+  withGiven(config, 1, 0, DARK);
+  withLotus(config, 0, 0, 0, 2);
   return config;
 };
 

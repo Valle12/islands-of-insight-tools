@@ -101,15 +101,18 @@ bool readClues(const val &puzzleVal, Puzzle &puzzle, const char *&error) {
     }
     // Read unconditionally. The bridge sends -1 for a clue that carries none,
     // so a DIRECTED kind arriving without one is refused by name in
-    // `clueValueProblem` rather than silently pointing up.
+    // `clueValueProblem` rather than silently pointing up. `value` defaults
+    // instead — a lotus sends none at all and requires 0 — and `seat` defaults
+    // to the square's own centre, refused by name on any other kind.
     const val direction = entry["direction"];
     puzzle.clues.push_back(
         {.index = cellIndex(x, y),
          .kind = static_cast<uint8_t>(kind),
-         .value = entry["value"].as<int>(),
+         .value = opt(entry, "value", 0),
          .direction = direction.isUndefined() || direction.isNull()
                           ? -1
-                          : direction.as<int>()});
+                          : direction.as<int>(),
+         .seat = opt(entry, "seat", 0)});
   }
   return true;
 }

@@ -86,6 +86,12 @@ function parseArgs(argv: string[]) {
      * it reproduces exactly the boards it always did.
      */
     darts: 0,
+    /**
+     * The same for a SYMMETRY symbol, which only lands where its region really
+     * mirrors across the drawn axis — so raise it well above `--darts` to see
+     * a comparable number, since most random regions mirror across nothing.
+     */
+    lotus: 0,
   };
   /**
    * A flag's value as a number, or a hard stop.
@@ -112,6 +118,7 @@ function parseArgs(argv: string[]) {
     "--rules": next => (opts.rules = number("--rules", next())),
     "--shapes": next => (opts.shapes = number("--shapes", next())),
     "--darts": next => (opts.darts = number("--darts", next())),
+    "--lotus": next => (opts.lotus = number("--lotus", next())),
     "--width": next => (opts.width = number("--width", next())),
     "--height": next => (opts.height = number("--height", next())),
     "--exe": next => {
@@ -144,6 +151,7 @@ async function generate(opts: Options, path: string, seed: number) {
   if (opts.rules >= 0) args.push("--rules", String(opts.rules));
   if (opts.shapes > 0) args.push("--shapes", String(opts.shapes));
   if (opts.darts > 0) args.push("--darts", String(opts.darts));
+  if (opts.lotus > 0) args.push("--lotus", String(opts.lotus));
   const { exitCode } = await runCli(opts.exe, args, 120_000);
   return exitCode === 0;
 }

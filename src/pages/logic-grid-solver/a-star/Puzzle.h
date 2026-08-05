@@ -83,6 +83,19 @@ struct Dart {
   Bits ray;
 };
 
+/// One lotus's geometry, worked out once like a dart's ray: the axis point in
+/// DOUBLED coordinates — a seat on a grid line is then still an integer — and
+/// where every square of the board reflects to. See `Model::lotuses`.
+struct Lotus {
+  int clueId = 0;
+  int index = 0;
+  int axis = kAxisHorizontal;
+  int cx2 = 0;
+  int cy2 = 0;
+  /// The strided index each square reflects to, or -1 for off the board.
+  std::array<int16_t, kMaxCells> mirror{};
+};
+
 /// Every clue carrying one letter. All of them share a region, so they share a
 /// colour too — which is the whole of "letter colour deduction".
 struct LetterGroup {
@@ -122,6 +135,8 @@ struct Model {
   std::vector<int> areaClues;
   /// ...and of every dart, which `darts` below carries the geometry for.
   std::vector<int> dartClues;
+  /// ...and of every lotus, which `lotuses` below carries the mirrors for.
+  std::vector<int> lotusClues;
   std::vector<LetterGroup> letters;
   /// Index into `letters` for each cell, or -1.
   std::vector<int> letterAt;
@@ -144,6 +159,15 @@ struct Model {
    * could legally carry.
    */
   std::vector<Dart> darts;
+
+  /**
+   * Every lotus's reflection map, precomputed like a dart's ray: mirrors are a
+   * property of the board and its seat, never of the colouring. A clue whose
+   * axis or seat cannot be read stays in `lotusClues` but not here, so
+   * `verify::check` refuses every colouring rather than quietly solving the
+   * board without it — the same net `buildDarts` has.
+   */
+  std::vector<Lotus> lotuses;
 
   /**
    * The merged cells as masks, in `puzzle.shapes` order, and which one each
@@ -208,6 +232,12 @@ enum class Problem : uint8_t {
   DartValue,
   DartDirection,
   DartExceedsLine,
+  LotusValue,
+  LotusAxis,
+  LotusSeat,
+  LotusDiagonalSeat,
+  SeatOnWrongKind,
+  LotusMirrorLeavesBoard,
   ShapeOffBoard,
   ShapeOnGap,
   ShapeOverlaps,

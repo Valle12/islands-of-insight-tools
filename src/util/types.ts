@@ -83,12 +83,19 @@ export type LogicGridSymbolValue = number | string;
 export type LogicGridClue = {
   /** Index into `SYMBOL_KINDS`, which is append-only. */
   type: number;
-  value: LogicGridSymbolValue;
+  /**
+   * OPTIONAL because the lotus — the first VALUELESS kind — carries none, and
+   * writes no key at all rather than a stand-in. Required for every other
+   * kind, which the validator enforces per kind.
+   */
+  value?: LogicGridSymbolValue;
   /**
    * Which way a DIRECTED clue points: 0 up, 1 right, 2 down, 3 left. That is
    * the repo's canonical order — the same one `DIRECTION_MAP` decodes in the
    * rolling-blocks and shifting-mosaic bridges, and the one `nearestVertex`
    * returns for four sides, which is what lets the arrow be dragged round.
+   * For the lotus the same key is its AXIS: 0 horizontal, 1 the falling
+   * diagonal, 2 vertical, 3 the rising diagonal — 45-degree clockwise steps.
    *
    * OPTIONAL, and omitted entirely rather than written as `0` for a kind that
    * carries none: every captured fixture predates this key and must keep
@@ -96,6 +103,15 @@ export type LogicGridClue = {
    * `shapes` below does.
    */
   direction?: number;
+  /**
+   * Where inside a merged cell a lotus's axis point sits, as two half-square
+   * offsets from the home square's centre: bit 0 half a square right, bit 1
+   * half a square down — so 1 and 2 are the midpoints of the edges to the
+   * right and below, and 3 is a corner where squares meet. Lotus-only, and
+   * OPTIONAL with 0 (the square's own centre) omitted, the same round-trip
+   * discipline as `direction`.
+   */
+  seat?: number;
 };
 
 /** A clue as the config stores it: sparse, so an unclued board carries none. */
@@ -105,6 +121,13 @@ export type LogicGridSymbol = LogicGridClue & {
 };
 
 export type LogicGridTest = {
+  /**
+   * Which shape of this format the file is in — see `src/util/configVersion.ts`
+   * for how an older one is read. Written FIRST, and required here rather than
+   * optional so a writer cannot forget it: a file with no tag is version 1 on
+   * the way IN, but everything this build produces says which version it is.
+   */
+  version: number;
   gridWidth: number;
   gridHeight: number;
   /** Indices into `RULES`, which is append-only. Ascending and unique. */

@@ -122,6 +122,26 @@ TEST(Propagate, AFinishedAreaOfFourIsOutlined) {
   EXPECT_EQ(deduce(puzzle), Rows({"DDDDL", "#####"}));
 }
 
+/// And at FIVE, appended after four and enforced by the same walk — the only
+/// thing the pattern table sees of this size is the straight run of six.
+TEST(Propagate, AnAreaOfFiveFillsItsOnlyRoom) {
+  const Puzzle puzzle =
+      test::board({"D....", "#####"}, test::ruleSet({Rule::AreaFiveDark}));
+  EXPECT_EQ(deduce(puzzle), Rows({"DDDDD", "#####"}));
+}
+
+TEST(Propagate, ARegionWithNoRoomToReachFiveIsRefused) {
+  const Puzzle puzzle =
+      test::board({"D...#", "#####"}, test::ruleSet({Rule::AreaFiveDark}));
+  EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
+}
+
+TEST(Propagate, AFinishedAreaOfFiveIsOutlined) {
+  const Puzzle puzzle =
+      test::board({"DDDDD.", "######"}, test::ruleSet({Rule::AreaFiveDark}));
+  EXPECT_EQ(deduce(puzzle), Rows({"DDDDDL", "######"}));
+}
+
 /**
  * Both sizes on one colour is not a contradiction — it is satisfied exactly
  * where that colour is absent — and propagation reaches that as soon as there
@@ -208,6 +228,76 @@ TEST(Propagate, AMergedDartDoesNotCountItself) {
   // Three squares left on the line past its own cell, and all must be light.
   test::withDart(puzzle, 0, 0, 3, kDirRight);
   EXPECT_EQ(deduce(puzzle), Rows({"DDLLL"}));
+}
+
+// --- Lotuses --------------------------------------------------------------
+
+/// The core deduction: a square connected to the lotus through decided cells
+/// is certainly in its region, so its mirror must take the same colour.
+TEST(Propagate, ALotusForcesTheMirrorOfItsRegion) {
+  Puzzle puzzle = test::board({".D.", ".D.", "..."});
+  test::withLotus(puzzle, 1, 1, kAxisHorizontal);
+  EXPECT_EQ(deduce(puzzle), Rows({".D.", ".D.", ".D."}));
+}
+
+TEST(Propagate, ALotusAxisAimsWhereItSays) {
+  Puzzle puzzle = test::board({"...", "DD.", "..."});
+  test::withLotus(puzzle, 1, 1, kAxisVertical);
+  EXPECT_EQ(deduce(puzzle), Rows({"...", "DDD", "..."}));
+}
+
+/// The "\" axis through the centre swaps above with left.
+TEST(Propagate, ADiagonalLotusSwapsAboveAndLeft) {
+  Puzzle puzzle = test::board({".D.", ".D.", "..."});
+  test::withLotus(puzzle, 1, 1, kAxisDiagonalDown);
+  EXPECT_EQ(deduce(puzzle), Rows({".D.", "DD.", "..."}));
+}
+
+/// "Lotus opposing nulls": a cell whose reflection leaves the board would
+/// break the symmetry the moment it joined, so it cannot take the colour.
+TEST(Propagate, ACellWhoseMirrorLeavesTheBoardCannotJoin) {
+  Puzzle puzzle = test::board({"D..", "..."});
+  test::withLotus(puzzle, 0, 0, kAxisHorizontal);
+  EXPECT_EQ(deduce(puzzle), Rows({"D..", "L.."}));
+}
+
+TEST(Propagate, ACellMirroredOntoAGapCannotJoin) {
+  Puzzle puzzle = test::board({".D#"});
+  test::withLotus(puzzle, 1, 0, kAxisVertical);
+  EXPECT_EQ(deduce(puzzle), Rows({"LD#"}));
+}
+
+/// "Lotus opposing cells": the reflection is already the other colour.
+TEST(Propagate, ACellMirroredOntoTheOtherColourCannotJoin) {
+  Puzzle puzzle = test::board({".DL"});
+  test::withLotus(puzzle, 1, 0, kAxisVertical);
+  EXPECT_EQ(deduce(puzzle), Rows({"LDL"}));
+}
+
+/// A lotus on the seam of its own 1x2 cell: the axis is the grid line between
+/// its two squares, so the column beside it swaps top for bottom.
+TEST(Propagate, ASeatedLotusMirrorsAcrossItsCellsSeam) {
+  Puzzle puzzle = test::board({"DD", ".."});
+  test::withGiven(puzzle, 0, 1, kDark);
+  test::withShape(puzzle, {{0, 0}, {0, 1}});
+  test::withLotus(puzzle, 0, 0, kAxisHorizontal, 2);
+  EXPECT_EQ(deduce(puzzle), Rows({"DD", "DD"}));
+}
+
+/**
+ * The game's "uncoloured symmetry": a lotus with its own colour still open
+ * already reflects a decided neighbour, whatever the lotus turns out to be.
+ * Plain propagation cannot say so — the propagator skips an undecided lotus on
+ * purpose — but the probe tries both colours and keeps what they agree on.
+ */
+TEST(Propagate, UncolouredSymmetryFallsOutOfTheProbe) {
+  Puzzle puzzle = test::board({".D.", "...", "..."});
+  test::withLotus(puzzle, 1, 1, kAxisHorizontal);
+  const Rows plain = deduce(puzzle);
+  const Rows probed = lookAhead(puzzle);
+  ASSERT_EQ(probed.size(), 3U);
+  EXPECT_EQ(probed[2][1], 'D');
+  EXPECT_NE(plain, probed);
 }
 
 // --- Merged cells ---------------------------------------------------------

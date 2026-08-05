@@ -13,7 +13,12 @@ import type {
   LogicGridTool,
 } from "./../../util/types";
 import { Board } from "./board";
-import { MAX_GRID_SIDE, validateConfig } from "./config";
+import {
+  CONFIG_VERSION,
+  MAX_GRID_SIDE,
+  migrationNotice,
+  validateConfig,
+} from "./config";
 import { RULE_DISPLAY_ORDER, RULES } from "./rules";
 import {
   solveLogicGrid,
@@ -24,6 +29,10 @@ import { SolutionView } from "./solutionView";
 import { UNDERCLUED } from "./verify";
 import { dressClue } from "./cellView";
 import {
+  AXES,
+  AXIS_ICON,
+  axisIndex,
+  DEFAULT_AXIS,
   DEFAULT_DIRECTION,
   DIRECTION_ICON,
   DIRECTIONS,
@@ -36,14 +45,29 @@ import {
   type LogicGridSymbolKind,
 } from "./symbols";
 
-/** What each clue kind's value field starts out holding. */
+/** What each clue kind's value field starts out holding. A valueless kind has
+ * no field, so its slot is never read. */
 function defaultValues(): string[] {
-  return SYMBOL_KINDS.map(kind => (kind.valueKind === "number" ? "1" : "A"));
+  return SYMBOL_KINDS.map(kind => {
+    if (kind.valueKind === "number") return "1";
+    return kind.valueKind === "letter" ? "A" : "";
+  });
 }
 
-/** Which way each directed kind starts out pointing. */
+/** Which way each directed kind starts out aimed — compass kinds point right,
+ * axis kinds lie horizontal. */
 function defaultDirections(): number[] {
-  return SYMBOL_KINDS.map(() => DEFAULT_DIRECTION);
+  return SYMBOL_KINDS.map(kind =>
+    kind.aims === "axis" ? DEFAULT_AXIS : DEFAULT_DIRECTION,
+  );
+}
+
+/** The aim a kind's chip miniature is drawn with — always its DEFAULT: the
+ * chip says which kind this is, and the toggles say where the next one will
+ * point. Undefined for a kind that aims nowhere. */
+function defaultAimOf(kind: LogicGridSymbolKind): number | undefined {
+  if (kind.aims === "compass") return DEFAULT_DIRECTION;
+  return kind.aims === "axis" ? DEFAULT_AXIS : undefined;
 }
 
 export class LogicGridSolverEditor {
@@ -169,10 +193,14 @@ export class LogicGridSolverEditor {
     return parseSymbolValue(kind, raw, this.gridSize());
   }
 
-  /** Which way clue kind `index` points, or null when it points nowhere. */
+  /** Which way clue kind `index` is aimed, or null when it points nowhere. */
   private directionOf(index: number): number | null {
-    if (!symbolKindAt(index)?.directed) return null;
-    return this.symbolDirections[index] ?? DEFAULT_DIRECTION;
+    const kind = symbolKindAt(index);
+    if (!kind || kind.aims === "none") return null;
+    return (
+      this.symbolDirections[index] ??
+      (kind.aims === "axis" ? DEFAULT_AXIS : DEFAULT_DIRECTION)
+    );
   }
 
   /** The value the symbol tool stamps, or null while its field is unusable. */
@@ -209,13 +237,16 @@ export class LogicGridSolverEditor {
     // are delegated to the rows rather than bound per chip.
     this.symbolRow.addEventListener("click", event => {
       // The arrows sit INSIDE a kind's control, so they are asked about first:
-      // one of them is a direction change, not a change of kind.
+      // one of them is a direction change, not a change of kind. An axis
+      // toggle carries `data-axis` where a compass one carries
+      // `data-direction`; both resolve to an index in the same key.
       const arrow = this.arrowFrom(event.target);
       if (arrow) {
-        this.selectDirection(
-          Number(arrow.dataset.symbolIndex),
-          directionIndex(arrow.dataset.direction),
-        );
+        const aim =
+          arrow.dataset.axis === undefined
+            ? directionIndex(arrow.dataset.direction)
+            : axisIndex(arrow.dataset.axis);
+        this.selectDirection(Number(arrow.dataset.symbolIndex), aim);
         return;
       }
       const chip = this.chipFrom(event.target);
@@ -462,16 +493,12 @@ export class LogicGridSolverEditor {
   }
 
   /**
-   * One clue kind as a split control: the chip that selects it, a hairline
-   * divider, the value it will stamp, and — for a directed kind — a second
-   * divider and the arrows it will stamp.
-   *
-   * Everything belongs beside its own chip rather than in one shared field
-   * below the row — a single field has to keep saying which clue it is for,
-   * and every kind added makes that worse. All three current kinds carry a
-   * value; a kind that carried none would render the chip alone.
+   * The value field of a kind that carries one, with its leading divider. A
+   * valueless kind renders nothing here: its control is the chip and the axis
+   * toggles with no field between.
    */
-  private symbolTool(kind: LogicGridSymbolKind, index: number) {
+  private valueField(kind: LogicGridSymbolKind, index: number) {
+    if (kind.valueKind === "none") return "";
     const numeric = kind.valueKind === "number";
     const max = symbolValueMax(kind, this.gridSize());
     const limits = numeric
@@ -484,15 +511,62 @@ export class LogicGridSolverEditor {
     // control much wider than it had any need to be.
     const chars = numeric ? String(max).length : 1;
     return `
+        <span class="symbol-divider" aria-hidden="true"></span>
+        <input class="symbol-value" data-symbol-index="${index}" ${limits}
+          style="--value-chars: ${chars}" aria-label="${kind.label} value" />
+    `;
+  }
+
+  /**
+   * The four axes an axis-aimed kind is laid along — the lotus's counterpart
+   * to `directionToggles`, one glyph turned four ways by `data-axis` exactly
+   * as the tile turns it. Same class as the compass arrows on purpose: the
+   * styling and the "not a `.symbol-chip`" rule are about being a segmented
+   * picker, not about what the segments mean.
+   */
+  private axisToggles(kind: LogicGridSymbolKind, index: number) {
+    const buttons = AXES.map(
+      axis => `
+        <button class="direction-toggle" type="button"
+          data-symbol-index="${index}" data-axis="${axis.id}"
+          title="${axis.label}"
+          aria-label="${kind.label} along the ${axis.label.toLowerCase()} axis"
+          aria-pressed="false"
+        ><md-icon class="cell-axis">${AXIS_ICON}</md-icon></button>
+      `,
+    ).join("");
+    return `
+      <span class="symbol-divider" aria-hidden="true"></span>
+      <div class="symbol-directions" role="group"
+        aria-label="${kind.label} axis"
+      >${buttons}</div>
+    `;
+  }
+
+  /** The picker a kind's aims call for, or nothing for an unaimed kind. */
+  private aimToggles(kind: LogicGridSymbolKind, index: number) {
+    if (kind.aims === "compass") return this.directionToggles(kind, index);
+    return kind.aims === "axis" ? this.axisToggles(kind, index) : "";
+  }
+
+  /**
+   * One clue kind as a split control: the chip that selects it, then — each
+   * with its own hairline divider — the value it will stamp and the aim it
+   * will stamp, for the kinds that carry one.
+   *
+   * Everything belongs beside its own chip rather than in one shared field
+   * below the row — a single field has to keep saying which clue it is for,
+   * and every kind added makes that worse.
+   */
+  private symbolTool(kind: LogicGridSymbolKind, index: number) {
+    return `
       <div class="symbol-tool" data-symbol="${kind.id}">
         <button class="tool-button symbol-chip" type="button"
           data-symbol-index="${index}" data-symbol="${kind.id}"
           title="${kind.label}" aria-label="${kind.label}"
         ><span class="symbol-sample"></span></button>
-        <span class="symbol-divider" aria-hidden="true"></span>
-        <input class="symbol-value" data-symbol-index="${index}" ${limits}
-          style="--value-chars: ${chars}" aria-label="${kind.label} value" />
-        ${kind.directed ? this.directionToggles(kind, index) : ""}
+        ${this.valueField(kind, index)}
+        ${this.aimToggles(kind, index)}
       </div>
     `;
   }
@@ -513,49 +587,58 @@ export class LogicGridSolverEditor {
     // `dressClue` is what draws one. A chip that spelled its own arrow out
     // would be a second drawing of the same thing, free to drift from it.
     //
-    // Always shown pointing RIGHT, whatever is currently armed: the chip says
-    // which KIND of clue this is, and the four arrows beside it are what say
-    // where the next one will point.
-    SYMBOL_KINDS.forEach((kind, index) => {
+    // Always shown in its DEFAULT aim — right, or the horizontal axis —
+    // whatever is currently armed: the chip says which KIND of clue this is,
+    // and the toggles beside it are what say where the next one will point.
+    SYMBOL_KINDS.forEach(kind => {
       const sample = this.symbolRow.querySelector<HTMLElement>(
         `.symbol-tool[data-symbol="${kind.id}"] .symbol-sample`,
       );
       if (!sample) return;
-      const aim = kind.directed ? DEFAULT_DIRECTION : undefined;
-      dressClue(sample, kind.sample, aim);
+      dressClue(sample, kind, kind.sample, defaultAimOf(kind));
     });
   }
 
   /**
    * Restyles the clue row without rebuilding it, and shows each field's own
    * validity: an unusable value stamps nothing, so it has to say so.
+   *
+   * The field is refreshed only where one exists — a valueless kind renders
+   * none — while the selected state and the aim toggles refresh regardless.
+   * An early return on the missing field would silently skip both.
    */
   private refreshSymbolRow() {
     SYMBOL_KINDS.forEach((kind, index) => {
       const tool = this.symbolRow.querySelector<HTMLElement>(
         `.symbol-tool[data-symbol="${kind.id}"]`,
       );
-      const field = tool?.querySelector<HTMLInputElement>(".symbol-value");
-      if (!tool || !field) return;
+      if (!tool) return;
 
       const selected =
         this.selectedTool === "symbol" && this.selectedSymbol === index;
       tool.classList.toggle("selected", selected);
 
-      const raw = this.symbolValues[index] ?? "";
-      // Never write what is already there: assigning `value` moves the caret
-      // to the end, and this runs while the user is typing into the field.
-      if (field.value !== raw) field.value = raw;
+      const field = tool.querySelector<HTMLInputElement>(".symbol-value");
+      if (field) {
+        const raw = this.symbolValues[index] ?? "";
+        // Never write what is already there: assigning `value` moves the caret
+        // to the end, and this runs while the user is typing into the field.
+        if (field.value !== raw) field.value = raw;
 
-      if (this.valueOf(index) === null) {
-        field.setAttribute("aria-invalid", "true");
-      } else {
-        field.removeAttribute("aria-invalid");
+        if (this.valueOf(index) === null) {
+          field.setAttribute("aria-invalid", "true");
+        } else {
+          field.removeAttribute("aria-invalid");
+        }
       }
 
       const aimed = this.directionOf(index);
       tool.querySelectorAll<HTMLElement>(".direction-toggle").forEach(arrow => {
-        const on = directionIndex(arrow.dataset.direction) === aimed;
+        const target =
+          arrow.dataset.axis === undefined
+            ? directionIndex(arrow.dataset.direction)
+            : axisIndex(arrow.dataset.axis);
+        const on = target === aimed;
         arrow.classList.toggle("selected", on);
         arrow.setAttribute("aria-pressed", String(on));
       });
@@ -601,6 +684,10 @@ export class LogicGridSolverEditor {
   private currentConfig(): LogicGridTest {
     const shapes = this.board.getShapes();
     return {
+      // First, so a downloaded file says which format it is in before it says
+      // anything else. Always the current version: this is what the editor
+      // holds, whatever version the file it came from was written in.
+      version: CONFIG_VERSION,
       gridWidth: this.gridWidth,
       gridHeight: this.gridHeight,
       rules: [...this.activeRules].sort((a, b) => a - b),
@@ -741,6 +828,13 @@ export class LogicGridSolverEditor {
     }
 
     this.applyLoadedConfig(result.config);
+
+    // After the board is on screen, not instead of it: an older file is read
+    // in full and is not a failure. What the banner is for is the COPY on
+    // disk, which is still in the old format until it is written out again.
+    if (result.migratedFrom !== undefined) {
+      this.showWarning(migrationNotice(result.migratedFrom));
+    }
   }
 
   /** Applies a validated config to the board. */

@@ -63,9 +63,22 @@ enum class Rule : uint8_t {
   // so the pair is satisfied exactly when that colour is absent.
   AreaFourDark = 18,
   AreaFourLight = 19,
+  // And at five, which sits past the table trade-off exactly as four does:
+  // `regionArea` carries both halves, and the table sees only the implied
+  // straight run of six.
+  AreaFiveDark = 20,
+  AreaFiveLight = 21,
+  // The first arrangements naming BOTH colours: a line of three alternating
+  // colours, in either orientation. Pure table rules like 0..10 — the
+  // checkerboard already proved the table speaks mixed colours.
+  NoDarkLightDark = 22,
+  NoLightDarkLight = 23,
+  // The T-tetromino, all four rotations, one colour each. Table rules too.
+  NoDarkT = 24,
+  NoLightT = 25,
 };
 
-inline constexpr int kRuleCount = 20;
+inline constexpr int kRuleCount = 26;
 
 /// The active rules as a bit per index.
 using RuleMask = uint32_t;
@@ -100,6 +113,8 @@ inline constexpr auto kAreaFamily = std::to_array<AreaRule>({
     {.rule = Rule::AreaTwoLight, .color = kLight, .area = 2},
     {.rule = Rule::AreaFourDark, .color = kDark, .area = 4},
     {.rule = Rule::AreaFourLight, .color = kLight, .area = 4},
+    {.rule = Rule::AreaFiveDark, .color = kDark, .area = 5},
+    {.rule = Rule::AreaFiveLight, .color = kLight, .area = 5},
 });
 
 /**
@@ -121,10 +136,12 @@ struct PatternCell {
   uint8_t color = kDark;
 };
 
-/// The most cells any pattern here needs: a run of five. It sizes `Clause`, so
-/// raising it costs a little memory per clause and nothing else — every loop
-/// over a pattern or a clause is driven by its own `count`.
-inline constexpr int kMaxPatternCells = 5;
+/// The most cells any pattern here needs: the run of SIX an area-five rule
+/// implies. It sizes `Clause`, so raising it costs a little memory per clause
+/// and nothing else — every loop over a pattern or a clause is driven by its
+/// own `count`. `runPattern` writes `cells[i]` with no assert of its own, so
+/// this must never lag the longest `impliedRun` any rule set can produce.
+inline constexpr int kMaxPatternCells = 6;
 
 struct Pattern {
   std::array<PatternCell, kMaxPatternCells> cells{};

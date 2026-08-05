@@ -39,12 +39,21 @@ struct DartSpec {
   int direction = kDirRight;
 };
 
+/// A lotus: where it sits, which way its axis lies, and its seat.
+struct LotusSpec {
+  int x = 0;
+  int y = 0;
+  int axis = kAxisHorizontal;
+  int seat = 0;
+};
+
 struct Case {
   std::string name;
   std::vector<std::string> picture;
   std::vector<Rule> rules;
   std::vector<Merge> merges;
   std::vector<DartSpec> darts;
+  std::vector<LotusSpec> lotuses;
 };
 
 /// gtest appends `# GetParam() = …` to every discovered name, and without this
@@ -63,6 +72,7 @@ struct Board {
   std::vector<std::string> picture;
   std::vector<Merge> merges;
   std::vector<DartSpec> darts;
+  std::vector<LotusSpec> lotuses;
 };
 
 struct RuleSet {
@@ -87,6 +97,10 @@ std::vector<Case> allCases() {
       // fire. Every other shape here is at most four across in both directions,
       // which would have made that rule set a no-op against brute force.
       {.name = "wide", .picture = {".....", "....."}},
+      // And six wide, for the area-five pair: an area of five implies a
+      // forbidden run of SIX, which no other board here has room to hold. Two
+      // rows keep the enumeration at 2^12.
+      {.name = "wide6", .picture = {"......", "......"}},
       // Merged cells. Everything about them lives on the VARIABLE side — the
       // rules still read the square grid — so what has to be checked is that
       // fusing squares removes exactly the colourings that split a cell and no
@@ -149,6 +163,33 @@ std::vector<Case> allCases() {
        .picture = {"...", "...", "..."},
        .merges = {{{1, 0}, {2, 0}}},
        .darts = {{.x = 0, .y = 0, .value = 2, .direction = kDirRight}}},
+      // Lotuses. The propagator paints (the mirror of everything connected to
+      // the lotus through decided cells) and refuses (cells whose reflection
+      // can never match), and over-doing EITHER removes real solutions —
+      // invisible at runtime, which is this suite's whole reason to exist.
+      {.name = "lotus",
+       .picture = {"...", "...", "..."},
+       .lotuses = {{.x = 1, .y = 1, .axis = kAxisHorizontal}}},
+      {.name = "lotusDiagonal",
+       .picture = {"...", "...", "..."},
+       .lotuses = {{.x = 1, .y = 1, .axis = kAxisDiagonalDown}}},
+      // Off-centre, so most of the board reflects off an edge — the heaviest
+      // use of the "opposing nulls" refusal.
+      {.name = "lotusEdge",
+       .picture = {"...", "...", "..."},
+       .lotuses = {{.x = 0, .y = 0, .axis = kAxisVertical}}},
+      // Two parallel axes: connected they would force a translation, which no
+      // finite region survives — the game's "connection restriction", here as
+      // an emergent fact brute force gets to referee.
+      {.name = "twoLotuses",
+       .picture = {"...", "...", "..."},
+       .lotuses = {{.x = 1, .y = 0, .axis = kAxisHorizontal},
+                   {.x = 1, .y = 2, .axis = kAxisHorizontal}}},
+      // A seat on the seam of a 1x2 cell: the axis is a grid line.
+      {.name = "lotusSeat",
+       .picture = {"..", "..", ".."},
+       .merges = {{{0, 0}, {0, 1}}},
+       .lotuses = {{.x = 0, .y = 0, .axis = kAxisHorizontal, .seat = 2}}},
   };
   const std::vector<RuleSet> ruleSets = {
       {.name = "none", .rules = {}},
@@ -192,16 +233,37 @@ std::vector<Case> allCases() {
       // colour is absent. Worth enumerating precisely because it looks like a
       // contradiction and is not.
       {.name = "areaTwoAndFourDark", .rules = {AreaTwoDark, AreaFourDark}},
+      // Area FIVE: the same walk as four, at the first size whose implied run
+      // — six cells — forced the pattern table wider. The run-3 pairing is the
+      // implication fold at this size, where the direct rule wins the min.
+      {.name = "areaFiveDark", .rules = {AreaFiveDark}},
+      {.name = "areaFiveBoth", .rules = {AreaFiveDark, AreaFiveLight}},
+      {.name = "areaFiveAndConnect", .rules = {AreaFiveDark, ConnectLight}},
+      {.name = "areaFiveAndRun3", .rules = {AreaFiveDark, NoDark1x3}},
+      // The mixed-colour triples and the T — the first table rules to name
+      // both colours since the checkerboard, and the first with a subsumption
+      // of their own. `tWithRun3` and `tWithAreaTwo` are the subsumed cases:
+      // the T patterns are dropped there, and brute force is what proves that
+      // dropping them removed no colouring a full table would have kept.
+      {.name = "noDLD", .rules = {NoDarkLightDark}},
+      {.name = "bothTriples", .rules = {NoDarkLightDark, NoLightDarkLight}},
+      {.name = "tripleAndConnect", .rules = {NoDarkLightDark, ConnectDark}},
+      {.name = "noDarkT", .rules = {NoDarkT}},
+      {.name = "bothTees", .rules = {NoDarkT, NoLightT}},
+      {.name = "tWithRun3", .rules = {NoDarkT, NoDark1x3}},
+      {.name = "tWithAreaTwo", .rules = {NoDarkT, AreaTwoDark}},
+      {.name = "teeAndTriple", .rules = {NoDarkT, NoLightDarkLight}},
   };
 
   std::vector<Case> cases;
-  for (const auto &[boardName, picture, merges, darts] : boards) {
+  for (const auto &[boardName, picture, merges, darts, lotuses] : boards) {
     for (const auto &[ruleSetName, ruleList] : ruleSets)
       cases.push_back({.name = std::string(boardName) + "_" + ruleSetName,
                        .picture = picture,
                        .rules = ruleList,
                        .merges = merges,
-                       .darts = darts});
+                       .darts = darts,
+                       .lotuses = lotuses});
   }
   return cases;
 }
@@ -212,6 +274,8 @@ Puzzle puzzleFor(const Case &one) {
     test::withShape(puzzle, merge);
   for (const auto &[x, y, value, direction] : one.darts)
     test::withDart(puzzle, x, y, value, direction);
+  for (const auto &[x, y, axis, seat] : one.lotuses)
+    test::withLotus(puzzle, x, y, axis, seat);
   return puzzle;
 }
 

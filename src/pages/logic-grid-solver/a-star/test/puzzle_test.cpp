@@ -297,4 +297,138 @@ TEST(Darts, ADartIsNotAnAreaClue) {
   EXPECT_GE(model.clueAt[slot(cellIndex(0, 0))], 0);
 }
 
+// --- Lotuses --------------------------------------------------------------
+
+TEST(Lotuses, AKindWithNoAxisIsRefused) {
+  Puzzle puzzle = test::board(open());
+  // What a fixture or a bridge sends for a clue carrying no direction at all.
+  puzzle.clues.push_back(
+      {.index = cellIndex(1, 1), .kind = kClueLotus, .direction = -1});
+  EXPECT_EQ(structureProblem(puzzle), Problem::LotusAxis);
+}
+
+TEST(Lotuses, AnAxisOutsideTheFourIsRefused) {
+  Puzzle puzzle = test::board(open());
+  test::withLotus(puzzle, 1, 1, kAxisCount);
+  EXPECT_EQ(structureProblem(puzzle), Problem::LotusAxis);
+}
+
+/// The first VALUELESS kind: a number on it would look like part of the puzzle
+/// and mean nothing, which is the same reason a stray direction is refused.
+TEST(Lotuses, AValueIsRefused) {
+  Puzzle puzzle = test::board(open());
+  puzzle.clues.push_back({.index = cellIndex(1, 1),
+                          .kind = kClueLotus,
+                          .value = 2,
+                          .direction = kAxisHorizontal});
+  EXPECT_EQ(structureProblem(puzzle), Problem::LotusValue);
+}
+
+TEST(Lotuses, ASeatOutsideTheFourIsRefused) {
+  Puzzle puzzle = test::board(open());
+  test::withLotus(puzzle, 1, 1, kAxisHorizontal, kSeatCount);
+  EXPECT_EQ(structureProblem(puzzle), Problem::LotusSeat);
+}
+
+/// A plain cell has nothing between squares to sit on.
+TEST(Lotuses, ASeatOffTheCentreNeedsAMergedCell) {
+  Puzzle puzzle = test::board(open());
+  test::withLotus(puzzle, 1, 1, kAxisHorizontal, 2);
+  EXPECT_EQ(structureProblem(puzzle), Problem::LotusSeat);
+}
+
+TEST(Lotuses, ASeamSeatNeedsBothItsSquaresInOneCell) {
+  Puzzle good = test::board(open());
+  test::withShape(good, {{1, 1}, {1, 2}});
+  test::withLotus(good, 1, 1, kAxisHorizontal, 2);
+  EXPECT_EQ(structureProblem(good), Problem::None);
+
+  // The same seat with the cell lying the OTHER way: the square below the
+  // seam is not a shape-mate, so there is no seam to sit on.
+  Puzzle bad = test::board(open());
+  test::withShape(bad, {{1, 1}, {2, 1}});
+  test::withLotus(bad, 1, 1, kAxisHorizontal, 2);
+  EXPECT_EQ(structureProblem(bad), Problem::LotusSeat);
+}
+
+/// Three of the corner's four squares is enough — a 2x2 block's centre has
+/// four, and an L-tromino's natural middle is the corner it wraps.
+TEST(Lotuses, ACornerSeatNeedsThreeOfItsFourSquares) {
+  Puzzle ell = test::board(open());
+  test::withShape(ell, {{0, 0}, {1, 0}, {1, 1}});
+  test::withLotus(ell, 0, 0, kAxisVertical, 3);
+  EXPECT_EQ(structureProblem(ell), Problem::None);
+
+  Puzzle domino = test::board(open());
+  test::withShape(domino, {{0, 0}, {1, 0}});
+  test::withLotus(domino, 0, 0, kAxisVertical, 3);
+  EXPECT_EQ(structureProblem(domino), Problem::LotusSeat);
+}
+
+/// A diagonal axis through an edge midpoint would map square centres onto
+/// square CORNERS: there is no reflection on the grid, so the combination is
+/// refused rather than defined. The centre and the corner both carry it.
+TEST(Lotuses, ADiagonalAxisRefusesASeamSeat) {
+  Puzzle seam = test::board(open());
+  test::withShape(seam, {{1, 1}, {2, 1}});
+  test::withLotus(seam, 1, 1, kAxisDiagonalDown, 1);
+  EXPECT_EQ(structureProblem(seam), Problem::LotusDiagonalSeat);
+
+  Puzzle corner = test::board(open());
+  test::withShape(corner, {{0, 0}, {1, 0}, {0, 1}, {1, 1}});
+  test::withLotus(corner, 0, 0, kAxisDiagonalUp, 3);
+  EXPECT_EQ(structureProblem(corner), Problem::None);
+}
+
+TEST(Lotuses, ASeatOnAnyOtherKindIsRefused) {
+  Puzzle puzzle = test::board(open());
+  puzzle.clues.push_back({.index = cellIndex(0, 0),
+                          .kind = kClueDart,
+                          .value = 1,
+                          .direction = kDirRight,
+                          .seat = 1});
+  EXPECT_EQ(structureProblem(puzzle), Problem::SeatOnWrongKind);
+}
+
+/// Every square of the lotus's own cell is in its region whatever the colours,
+/// so a member reflecting off the board is unsolvable before any colouring —
+/// named, like a dart outgrowing its own line.
+TEST(Lotuses, AnOwnCellMirrorOffTheBoardIsNamed) {
+  Puzzle puzzle = test::board({"..", ".."});
+  test::withShape(puzzle, {{0, 0}, {0, 1}});
+  // The axis runs through the TOP square's centre, so the cell's own lower
+  // square reflects above the board.
+  test::withLotus(puzzle, 0, 0, kAxisHorizontal);
+  ASSERT_EQ(structureProblem(puzzle), Problem::None);
+  EXPECT_EQ(contradiction(buildModel(puzzle)), Problem::LotusMirrorLeavesBoard);
+}
+
+/// A lotus is a symbol for "one symbol per area" and nothing else: no area
+/// value, no letter group, no dart line.
+TEST(Lotuses, ALotusIsOnlyASymbol) {
+  Puzzle puzzle = test::board(open());
+  test::withLotus(puzzle, 1, 1, kAxisHorizontal);
+  const Model model = buildModel(puzzle);
+  EXPECT_TRUE(model.areaClues.empty());
+  EXPECT_TRUE(model.dartClues.empty());
+  EXPECT_TRUE(model.letters.empty());
+  ASSERT_EQ(model.lotusClues.size(), 1U);
+  ASSERT_EQ(model.lotuses.size(), 1U);
+  EXPECT_EQ(model.areaValueAt(cellIndex(1, 1)), 0);
+  EXPECT_GE(model.clueAt[slot(cellIndex(1, 1))], 0);
+}
+
+/// The precomputed map is pure geometry: the centre square of a 3x3 under a
+/// horizontal axis swaps the rows above and below and keeps its own.
+TEST(Lotuses, TheMirrorMapReflectsAcrossTheAxis) {
+  Puzzle puzzle = test::board(open());
+  test::withLotus(puzzle, 1, 1, kAxisHorizontal);
+  const Model model = buildModel(puzzle);
+  ASSERT_EQ(model.lotuses.size(), 1U);
+  const Lotus &lotus = model.lotuses.front();
+  EXPECT_EQ(lotus.mirror[slot(cellIndex(0, 0))], cellIndex(0, 2));
+  EXPECT_EQ(lotus.mirror[slot(cellIndex(1, 1))], cellIndex(1, 1));
+  EXPECT_EQ(lotus.mirror[slot(cellIndex(2, 2))], cellIndex(2, 0));
+}
+
 } // namespace

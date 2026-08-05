@@ -85,6 +85,28 @@ export const RULES: readonly LogicGridRule[] = [
     label: "Light regions have area 4",
     group: "region",
   },
+  { id: "area-five-dark", label: "Dark regions have area 5", group: "region" },
+  {
+    id: "area-five-light",
+    label: "Light regions have area 5",
+    group: "region",
+  },
+  // The first arrangements that name BOTH colours: a line of three alternating
+  // colours, in either orientation. Appended here like everything since the
+  // reorder, and drawn in the arrangement band where they belong.
+  {
+    id: "no-dark-light-dark",
+    label: "No dark-light-dark",
+    group: "arrangement",
+  },
+  {
+    id: "no-light-dark-light",
+    label: "No light-dark-light",
+    group: "arrangement",
+  },
+  // The T-tetromino, in any of its four rotations.
+  { id: "no-dark-t", label: "No dark T", group: "arrangement" },
+  { id: "no-light-t", label: "No light T", group: "arrangement" },
 ];
 
 /** How many rules a puzzle can draw from — every known one. */

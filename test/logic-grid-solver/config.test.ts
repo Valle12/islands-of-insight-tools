@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync } from "fs";
 import {
+  CONFIG_VERSION,
   MAX_GRID_SIDE,
+  migrationNotice,
   validateConfig,
 } from "../../src/pages/logic-grid-solver/config";
 import { RULE_COUNT } from "../../src/pages/logic-grid-solver/rules";
@@ -13,6 +15,7 @@ const RESOURCE_DIR = `${import.meta.dir}/../resources/logic-grid-solver`;
 describe("validateConfig (logic grid)", () => {
   /** 3x2, one clue of each kind, one gap. */
   const validConfig: LogicGridTest = {
+    version: CONFIG_VERSION,
     gridWidth: 3,
     gridHeight: 2,
     rules: [0, 2],
@@ -58,7 +61,77 @@ describe("validateConfig (logic grid)", () => {
       "gridWidth",
       "rules",
       "symbols",
+      "version",
     ]);
+  });
+
+  /** The tag leads the file, so a reader can tell which shape it is in before
+   * it has parsed anything that shape could have changed. */
+  test("writes the version as the first key", () => {
+    const result = validateConfig(clone());
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(Object.keys(result.config)[0]).toBe("version");
+  });
+
+  /**
+   * Every board captured before the tag existed has no `version` key, and a
+   * player's downloads folder is full of them. Absent means the first version,
+   * which is the current one — so such a file is not "old", and nothing is
+   * reported as migrated.
+   */
+  test("accepts a file with no version and calls it current", () => {
+    const { version, ...withoutVersion } = clone();
+    expect(version).toBe(CONFIG_VERSION);
+    const result = validateConfig(withoutVersion);
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.config.version).toBe(CONFIG_VERSION);
+    expect(result.migratedFrom).toBeUndefined();
+  });
+
+  test("reports nothing migrated for a file already current", () => {
+    const result = validateConfig(clone());
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.migratedFrom).toBeUndefined();
+  });
+
+  /**
+   * The version is read before a single structural check, so a file this build
+   * cannot read says so instead of failing somewhere inside a shape that has
+   * since changed meaning.
+   */
+  test("refuses a board from a newer build by name", () => {
+    const result = validateConfig({ ...clone(), version: CONFIG_VERSION + 1 });
+    expect(result.ok).toBeFalse();
+    if (result.ok) return;
+    expect(result.error).toBe(
+      `This board is saved in format version ${CONFIG_VERSION + 1}, and this ` +
+        `build reads up to version ${CONFIG_VERSION}. Update the page and ` +
+        `load it again.`,
+    );
+  });
+
+  test("refuses a version that is not a positive integer", () => {
+    const result = validateConfig({ ...clone(), version: "1" });
+    expect(result.ok).toBeFalse();
+    if (result.ok) return;
+    expect(result.error).toBe("version must be a positive integer.");
+  });
+
+  /**
+   * The banner an out-of-date file gets. Pinned here rather than through the
+   * editor because no file can BE out of date until `MIGRATIONS` has an entry
+   * — so the page's one `if` is all this cannot reach, and whoever writes the
+   * first migration should cover it there.
+   */
+  test("names both versions in the notice an out-of-date file gets", () => {
+    expect(migrationNotice(1)).toBe(
+      "This board was saved in format version 1 and has been updated to " +
+        `version ${CONFIG_VERSION}. Download it again to save the file in ` +
+        "the current format.",
+    );
   });
 
   /** A canonical file, whatever order the rules were written in. */
@@ -233,16 +306,61 @@ describe("validateConfig (logic grid)", () => {
       "Only a directed symbol carries a direction, and Area number is not one.",
     ],
     [
-      // Where an undirected clue sits inside a merged cell is decoration and
-      // the editor re-homes it on load; a dart's square is where its line
-      // starts, so moving it would load a different puzzle.
-      "a dart off its merged cell's anchor",
+      // The first valueless kind: a number on it would look like part of the
+      // puzzle and mean nothing.
+      "a symmetry symbol carrying a value",
       {
         ...validConfig,
-        symbols: [{ x: 1, y: 1, type: 2, value: 1, direction: 1 }],
+        symbols: [{ x: 0, y: 0, type: 3, value: 1, direction: 0 }],
+      },
+      "Symmetry symbols carry no value.",
+    ],
+    [
+      "a symmetry symbol with no axis",
+      { ...validConfig, symbols: [{ x: 0, y: 0, type: 3 }] },
+      "Symmetry directions must be integers between 0 and 3.",
+    ],
+    [
+      "a symmetry seat outside the four",
+      {
+        ...validConfig,
+        symbols: [{ x: 0, y: 0, type: 3, direction: 0, seat: 4 }],
+      },
+      "Symmetry seats must be integers between 0 and 3.",
+    ],
+    [
+      "a seat on a clue that has none",
+      { ...validConfig, symbols: [{ x: 0, y: 0, type: 0, value: 1, seat: 1 }] },
+      "Only a symmetry symbol carries a seat, and Area number is not one.",
+    ],
+    [
+      // A diagonal axis through an edge midpoint would map square centres
+      // onto square corners: there is no reflection on the grid to check.
+      "a diagonal symmetry on a grid-line seat",
+      {
+        ...validConfig,
+        symbols: [{ x: 0, y: 0, type: 3, direction: 1, seat: 1 }],
+      },
+      "A diagonal symmetry symbol cannot sit on a grid-line seat.",
+    ],
+    [
+      "a seat with no merged cell to sit in",
+      {
+        ...validConfig,
+        symbols: [{ x: 0, y: 0, type: 3, direction: 0, seat: 2 }],
+      },
+      "Column 1, row 1 carries a seat but no merged cell to sit in.",
+    ],
+    [
+      // Seat 2 is the midpoint of the edge BELOW, and this cell lies along
+      // the bottom row: there is no square beyond the seam to share it.
+      "a seat its merged cell does not surround",
+      {
+        ...validConfig,
+        symbols: [{ x: 0, y: 1, type: 3, direction: 0, seat: 2 }],
         shapes: [[3, 4]],
       },
-      "A directed symbol on a merged cell must sit on column 1, row 2.",
+      "Column 1, row 2 carries a seat its merged cell does not surround.",
     ],
   ];
 
@@ -262,6 +380,25 @@ describe("validateConfig (logic grid)", () => {
     expect(result.config.shapes).toEqual([[3, 4]]);
   });
 
+  /**
+   * Which square of a merged cell a clue sits on is the player's own choice
+   * and is kept exactly as written — for a dart it is where the line STARTS,
+   * so a validator that moved one to a canonical square would load a different
+   * puzzle from the file it was handed.
+   */
+  test("accepts a clue on any square of its merged cell", () => {
+    const result = validateConfig({
+      ...clone(),
+      symbols: [{ x: 1, y: 1, type: 2, value: 1, direction: 1 }],
+      shapes: [[3, 4]],
+    });
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.config.symbols).toEqual([
+      { x: 1, y: 1, type: 2, value: 1, direction: 1 },
+    ]);
+  });
+
   test("accepts a dart and keeps the way it points", () => {
     const result = validateConfig({
       ...clone(),
@@ -271,6 +408,35 @@ describe("validateConfig (logic grid)", () => {
     if (!result.ok) return;
     expect(result.config.symbols).toEqual([
       { x: 0, y: 0, type: 2, value: 2, direction: 3 },
+    ]);
+  });
+
+  /** No `value` key at all, and both new keys kept exactly as written: the
+   * axis in `direction`, and the seat on the seam its cell really has. */
+  test("accepts a symmetry symbol and keeps its axis and seat", () => {
+    const result = validateConfig({
+      ...clone(),
+      symbols: [{ x: 0, y: 1, type: 3, direction: 2, seat: 1 }],
+      shapes: [[3, 4]],
+    });
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.config.symbols).toEqual([
+      { x: 0, y: 1, type: 3, direction: 2, seat: 1 },
+    ]);
+  });
+
+  /** A seat of 0 means the square's own centre, which is what absent means —
+   * so it normalises back to absent, exactly as an empty `shapes` does. */
+  test("normalises a seat of zero back to absent", () => {
+    const result = validateConfig({
+      ...clone(),
+      symbols: [{ x: 0, y: 0, type: 3, direction: 0, seat: 0 }],
+    });
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.config.symbols).toEqual([
+      { x: 0, y: 0, type: 3, direction: 0 },
     ]);
   });
 

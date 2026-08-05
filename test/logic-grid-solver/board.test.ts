@@ -654,6 +654,7 @@ describe("Board (logic grid)", () => {
     test("round-trips the direction through a config", () => {
       const board = makeBoard(3, 3);
       board.loadConfig({
+        version: 1,
         gridWidth: 3,
         gridHeight: 3,
         rules: [],
@@ -672,10 +673,210 @@ describe("Board (logic grid)", () => {
     });
   });
 
+  /**
+   * The symmetry symbol (the game's lotus): the first VALUELESS kind, whose
+   * `direction` is an axis and whose place inside a merged cell — the SEAT —
+   * is chosen by where the pointer goes down, half-grid points included.
+   */
+  describe("Symmetry symbols", () => {
+    const LOTUS = 3;
+
+    function makeLotusBoard(axis = 0) {
+      const board = makeBoard(4, 3, "symbol", LOTUS, null);
+      board.setSymbolDirection(axis);
+      return board;
+    }
+
+    /**
+     * A press that says WHERE in the square it landed. happy-dom has no
+     * layout, so the square's box is stubbed and the coordinates do the rest —
+     * which is exactly the half of seat-snapping a unit test can reach.
+     */
+    function pressAt(x: number, y: number, clientX: number, clientY: number) {
+      const cell = cellAt(x, y);
+      spyOn(cell, "getBoundingClientRect").mockReturnValue({
+        left: 0,
+        top: 0,
+        width: 40,
+        height: 40,
+      } as DOMRect);
+      cell.dispatchEvent(
+        new MouseEvent("pointerdown", {
+          bubbles: true,
+          button: LEFT,
+          clientX,
+          clientY,
+        }),
+      );
+    }
+
+    /** A vertical 1x2 merged cell in the top-left corner. */
+    function withMergedColumn(board: Board) {
+      board.setSelectedTool("merge");
+      press(0, 0);
+      drag(0, 1);
+      release();
+      board.setSelectedTool("symbol");
+    }
+
+    test("stamps with an axis and no value key", () => {
+      const board = makeLotusBoard(0);
+      press(1, 1);
+      expect(board.getSymbols()).toEqual([
+        { x: 1, y: 1, type: LOTUS, direction: 0 },
+      ]);
+      expect(cellAt(1, 1).dataset.symbol).toBe("lotus");
+      expect(cellAt(1, 1).dataset.axis).toBe("horizontal");
+      expect(cellAt(1, 1).getAttribute("aria-label")).toBe(
+        "Column 2, Row 2, Unknown, Symmetry along the horizontal axis",
+      );
+    });
+
+    test("re-clicking turns it 45 degrees clockwise, four times round", () => {
+      const board = makeLotusBoard(0);
+      press(1, 1);
+      press(1, 1);
+      expect(cellAt(1, 1).dataset.axis).toBe("diagonal-down");
+      press(1, 1);
+      expect(cellAt(1, 1).dataset.axis).toBe("vertical");
+      press(1, 1);
+      expect(cellAt(1, 1).dataset.axis).toBe("diagonal-up");
+      press(1, 1);
+      expect(board.getSymbols()).toEqual([
+        { x: 1, y: 1, type: LOTUS, direction: 0 },
+      ]);
+    });
+
+    test("the right button lifts it", () => {
+      const board = makeLotusBoard(2);
+      press(1, 1);
+      press(1, 1, RIGHT);
+      expect(board.getSymbols()).toEqual([]);
+      expect(cellAt(1, 1).dataset.symbol).toBeUndefined();
+    });
+
+    /** A valueless kind has nothing for a keystroke to edit — and it must not
+     * lose its clue to one either. */
+    test("digits neither edit nor replace it", () => {
+      const board = makeLotusBoard(0);
+      press(1, 1);
+      type(1, 1, "3");
+      expect(board.getSymbols()).toEqual([
+        { x: 1, y: 1, type: LOTUS, direction: 0 },
+      ]);
+    });
+
+    /** Compass keys do not name axes, so the horizontal pair STEPS the axis
+     * instead, and the vertical pair keeps scrolling. */
+    test("the horizontal arrows step the axis either way round", () => {
+      const board = makeLotusBoard(0);
+      press(1, 1);
+      type(1, 1, "ArrowRight");
+      expect(cellAt(1, 1).dataset.axis).toBe("diagonal-down");
+      type(1, 1, "ArrowLeft");
+      expect(cellAt(1, 1).dataset.axis).toBe("horizontal");
+      type(1, 1, "ArrowUp");
+      expect(cellAt(1, 1).dataset.axis).toBe("horizontal");
+      expect(board.getSymbols()).toHaveLength(1);
+    });
+
+    test("another kind stamped over it clears it first", () => {
+      const board = makeLotusBoard(0);
+      press(1, 1);
+      board.setSelectedSymbol(0);
+      board.setSymbolValue(2);
+      press(1, 1);
+      expect(board.getSymbols()).toEqual([{ x: 1, y: 1, type: 0, value: 2 }]);
+    });
+
+    test("a press near the seam seats it on the grid line", () => {
+      const board = makeLotusBoard(0);
+      withMergedColumn(board);
+      pressAt(0, 0, 20, 38);
+      expect(board.getSymbols()).toEqual([
+        { x: 0, y: 0, type: LOTUS, direction: 0, seat: 2 },
+      ]);
+      expect(cellAt(0, 0).dataset.seat).toBe("2");
+    });
+
+    /** Leaning towards a square that is not a shape-mate has no seam to sit
+     * on, so the press falls back to the square's own centre. */
+    test("a seat the shape cannot carry falls back to the centre", () => {
+      const board = makeLotusBoard(0);
+      withMergedColumn(board);
+      pressAt(0, 0, 38, 20);
+      expect(board.getSymbols()).toEqual([
+        { x: 0, y: 0, type: LOTUS, direction: 0 },
+      ]);
+    });
+
+    /** A diagonal axis has no reflection on a grid-line seat, so the seam is
+     * skipped rather than defined. */
+    test("a diagonal axis refuses the seam and sits at the centre", () => {
+      const board = makeLotusBoard(1);
+      withMergedColumn(board);
+      pressAt(0, 0, 20, 38);
+      expect(board.getSymbols()).toEqual([
+        { x: 0, y: 0, type: LOTUS, direction: 1 },
+      ]);
+    });
+
+    test("turning on a grid-line seat skips the diagonals", () => {
+      const board = makeLotusBoard(0);
+      withMergedColumn(board);
+      pressAt(0, 0, 20, 38);
+      pressAt(0, 0, 20, 38);
+      expect(board.getSymbols()).toEqual([
+        { x: 0, y: 0, type: LOTUS, direction: 2, seat: 2 },
+      ]);
+      pressAt(0, 0, 20, 38);
+      expect(board.getSymbols()).toEqual([
+        { x: 0, y: 0, type: LOTUS, direction: 0, seat: 2 },
+      ]);
+    });
+
+    test("restructuring its cell drops it", () => {
+      const board = makeLotusBoard(0);
+      withMergedColumn(board);
+      pressAt(0, 0, 20, 38);
+      board.setSelectedTool("merge");
+      press(0, 1, RIGHT);
+      release();
+      expect(board.getSymbols()).toEqual([]);
+    });
+
+    /** Every kind keeps the square its file names, and for a lotus that square
+     * is half of its seat: `(0,0)` seat 2 is the seam BELOW the top square, a
+     * different point from the same seat under either of the others. */
+    test("loadConfig keeps it on its own square", () => {
+      const board = makeBoard(4, 3);
+      board.loadConfig({
+        version: 1,
+        gridWidth: 4,
+        gridHeight: 3,
+        rules: [],
+        cells: [
+          [UNKNOWN, UNKNOWN, UNKNOWN],
+          [UNKNOWN, UNKNOWN, UNKNOWN],
+          [UNKNOWN, UNKNOWN, UNKNOWN],
+          [UNKNOWN, UNKNOWN, UNKNOWN],
+        ],
+        symbols: [{ x: 0, y: 0, type: LOTUS, direction: 0, seat: 2 }],
+        shapes: [[0, 4, 8]],
+      });
+      board.renderGrid();
+      expect(board.getSymbols()).toEqual([
+        { x: 0, y: 0, type: LOTUS, direction: 0, seat: 2 },
+      ]);
+      expect(cellAt(0, 0).dataset.seat).toBe("2");
+    });
+  });
+
   describe("loadConfig", () => {
     test("fills both layers", () => {
       const board = makeBoard(2, 2);
       board.loadConfig({
+        version: 1,
         gridWidth: 2,
         gridHeight: 2,
         rules: [],
@@ -811,7 +1012,13 @@ describe("Board (logic grid)", () => {
       expect(board.getCells()[3]![0]).toBe(UNKNOWN);
     });
 
-    test("a merged cell carries its clue once, at its anchor", () => {
+    /**
+     * A merged cell holds ONE clue, on whichever of its squares the player put
+     * it — the game draws a dart's line from its own square, and even an area
+     * number reads as a different board when it moves, so nothing is re-homed
+     * to a canonical middle square any more.
+     */
+    test("a merged cell carries its clue once, where it was pressed", () => {
       const board = makeBoard(4, 3, "merge");
       mergeAcross([
         [0, 0],
@@ -821,26 +1028,47 @@ describe("Board (logic grid)", () => {
 
       board.setSelectedTool("symbol");
       board.setSymbolValue(3);
-      // Clued from the far end; the clue still lands in the middle of the cell,
-      // which is where a player reading the shape looks for it.
       press(2, 0, LEFT);
       release();
-      expect(board.getSymbols()).toEqual([{ x: 1, y: 0, type: 0, value: 3 }]);
-      expect(cellAt(1, 0).textContent).toBe("3");
+      expect(board.getSymbols()).toEqual([{ x: 2, y: 0, type: 0, value: 3 }]);
+      expect(cellAt(2, 0).textContent).toBe("3");
+      expect(cellAt(1, 0).textContent).toBe("");
+    });
+
+    /** Pressing another square MOVES the cell's one clue rather than lifting
+     * it: two clues on one cell is what the model does not allow, and a press
+     * that reads as "the same clue again" would have erased this one. */
+    test("pressing another square of a clued cell moves the clue there", () => {
+      const board = makeBoard(4, 3, "merge");
+      mergeAcross([
+        [0, 0],
+        [1, 0],
+        [2, 0],
+      ]);
+
+      board.setSelectedTool("symbol");
+      board.setSymbolValue(3);
+      press(2, 0, LEFT);
+      release();
+      press(0, 0, LEFT);
+      release();
+      expect(board.getSymbols()).toEqual([{ x: 0, y: 0, type: 0, value: 3 }]);
+      expect(cellAt(0, 0).textContent).toBe("3");
       expect(cellAt(2, 0).textContent).toBe("");
+
+      // ...and the SAME square still erases, which is the only way a press
+      // lifts one.
+      press(0, 0, LEFT);
+      release();
+      expect(board.getSymbols()).toEqual([]);
     });
 
     /**
-     * The keyboard has to agree with the pointer above. Typing on a non-anchor
-     * square used to read no clue there and stamp a SECOND one beside the
-     * anchor's — two clues on one cell, which the model does not allow and
-     * which a directed clue cannot round-trip at all, `config.ts` refusing a
-     * dart anywhere but the anchor.
-     *
-     * Two digits rather than one, so the second also has to find the first's
-     * number at the anchor rather than start again beside it.
+     * The keyboard has to agree with the pointer above: a first clue lands on
+     * the square being typed on, and the second digit then has to find the
+     * first's number rather than start again beside it.
      */
-    test("typing on any square of a merged cell clues its anchor", () => {
+    test("typing on a square of a merged cell clues that square", () => {
       const board = makeBoard(4, 3, "merge");
       mergeAcross([
         [0, 0],
@@ -851,8 +1079,29 @@ describe("Board (logic grid)", () => {
       board.setSelectedTool("symbol");
       type(2, 0, "1");
       type(2, 0, "2");
-      expect(board.getSymbols()).toEqual([{ x: 1, y: 0, type: 0, value: 12 }]);
-      expect(cellAt(1, 0).textContent).toBe("12");
+      expect(board.getSymbols()).toEqual([{ x: 2, y: 0, type: 0, value: 12 }]);
+      expect(cellAt(2, 0).textContent).toBe("12");
+    });
+
+    /**
+     * The cell carries one clue however many squares it spans, so typing on a
+     * DIFFERENT square edits the one already there rather than stamping a
+     * second beside it. It stays where it is: typing is an edit, and only a
+     * press moves a clue.
+     */
+    test("typing on another square edits the clue the cell already has", () => {
+      const board = makeBoard(4, 3, "merge");
+      mergeAcross([
+        [0, 0],
+        [1, 0],
+        [2, 0],
+      ]);
+
+      board.setSelectedTool("symbol");
+      type(2, 0, "1");
+      type(0, 0, "2");
+      expect(board.getSymbols()).toEqual([{ x: 2, y: 0, type: 0, value: 12 }]);
+      expect(cellAt(0, 0).textContent).toBe("");
     });
 
     test("Backspace on any square of a merged cell lifts its clue", () => {
@@ -1021,6 +1270,7 @@ describe("Board (logic grid)", () => {
     test("loading a config restores its merged cells", () => {
       const board = makeBoard(4, 3, "merge");
       board.loadConfig({
+        version: 1,
         gridWidth: 4,
         gridHeight: 3,
         rules: [],
@@ -1030,14 +1280,15 @@ describe("Board (logic grid)", () => {
           [UNKNOWN, UNKNOWN, UNKNOWN],
           [UNKNOWN, UNKNOWN, UNKNOWN],
         ],
-        // The clue is written on the far square; the editor keeps exactly one
-        // place it can live, so it comes back at the cell's anchor.
+        // On the far square of the merged cell, and it stays there: which
+        // square holds a clue is the file's to say, so a load moves nothing.
         symbols: [{ x: 1, y: 0, type: 0, value: 2 }],
         shapes: [[0, 1]],
       });
       board.renderGrid();
       expect(board.getShapes()).toEqual([[0, 1]]);
-      expect(board.getSymbols()).toEqual([{ x: 0, y: 0, type: 0, value: 2 }]);
+      expect(board.getSymbols()).toEqual([{ x: 1, y: 0, type: 0, value: 2 }]);
+      expect(cellAt(1, 0).textContent).toBe("2");
       expect(cellAt(0, 0).classList.contains("cell-join-right")).toBeTrue();
     });
   });

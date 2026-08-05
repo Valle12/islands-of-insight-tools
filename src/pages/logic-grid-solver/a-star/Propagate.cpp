@@ -229,6 +229,31 @@ bool propagateAreas(const Model &model, Domains &domains) {
 // ----------------------------------------------------------- region area --
 
 /**
+ * Anything that may hold `color` but could never gather `area` of it. Subsumes
+ * `regionArea`'s shift sweep for larger areas, and catches the cells no
+ * definite region reaches.
+ *
+ * `open` is snapshotted, so a piece excluded below stays in it — which is why
+ * every piece is marked visited whatever happens to it, rather than only the
+ * ones that survive. Reading a stale `open` can only make a piece look BIGGER
+ * than it still is, so it under-deduces and never over-deduces, and the
+ * fixpoint picks up whatever this pass left.
+ */
+bool pruneSmallPieces(Domains &domains, const uint8_t color, const int area) {
+  Bits visited;
+  const Bits open = domains.possible(color);
+  for (int i = open.nextSet(0); i >= 0; i = open.nextSet(i + 1)) {
+    if (visited.test(i))
+      continue;
+    const Bits piece = component(i, open);
+    visited = visited | piece;
+    if (piece.count() < area && !excludeAll(domains, piece, color))
+      return false;
+  }
+  return true;
+}
+
+/**
  * "Every region of `color` has exactly `area` cells", enforced whole.
  *
  * An area CLUE names one region and knows where it is; this names all of them
@@ -292,26 +317,7 @@ bool regionArea(const Model &model, Domains &domains, const uint8_t color,
       return false;
   }
 
-  // Anything that may still hold the colour but could never gather `area` of
-  // it. Subsumes the shift sweep above for larger areas, and catches the cells
-  // no definite region reaches.
-  //
-  // `open` is snapshotted, so a piece excluded below stays in it — which is why
-  // every piece is marked visited whatever happens to it, rather than only the
-  // ones that survive. Reading a stale `open` can only make a piece look BIGGER
-  // than it still is, so it under-deduces and never over-deduces, and the
-  // fixpoint picks up whatever this pass left.
-  Bits visited;
-  const Bits open = domains.possible(color);
-  for (int i = open.nextSet(0); i >= 0; i = open.nextSet(i + 1)) {
-    if (visited.test(i))
-      continue;
-    const Bits piece = component(i, open);
-    visited = visited | piece;
-    if (piece.count() < area && !excludeAll(domains, piece, color))
-      return false;
-  }
-  return true;
+  return pruneSmallPieces(domains, color, area);
 }
 
 bool propagateRegionAreas(const Model &model, Domains &domains) {
@@ -404,6 +410,76 @@ bool propagateDarts(const Model &model, Domains &domains) {
                         ? dartColorChoice(domains, dart)
                         : dartCardinality(model, domains, dart, color);
     if (!ok)
+      return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------- lotuses --
+
+/**
+ * A lotus requires the connected same-colour region holding it to map to
+ * itself across its axis, and with the lotus's own colour decided that
+ * propagates in both directions at once. Every square already connected to the
+ * lotus through DECIDED cells is certainly in the region whatever happens
+ * next, so its mirror must take the same colour — the game's "lotus opposing
+ * cells", with "opposing nulls" as the refutation when the mirror leaves the
+ * board. And a cell beside that core would JOIN the region the moment it took
+ * the colour, so one of its squares reflecting somewhere the colour can never
+ * be keeps the whole cell out.
+ *
+ * At a complete assignment the core IS the whole region and the first loop
+ * checks exactly what `verify::lotusProblem` checks, which is what keeps
+ * `oracleRejections` at zero.
+ */
+bool lotusSymmetry(const Model &model, Domains &domains, const Lotus &lotus,
+                   const uint8_t color) {
+  const uint8_t other = opposite(color);
+  const Bits core = component(lotus.index, domains.definite(color));
+  for (int i = core.nextSet(0); i >= 0; i = core.nextSet(i + 1)) {
+    const int reflected = lotus.mirror[slot(i)];
+    if (reflected < 0 || !model.playable.test(reflected))
+      return false;
+    if (!domains.exclude(reflected, other))
+      return false;
+  }
+
+  // Whole CELLS on the fringe, because a merged cell joins with every square
+  // it has. `colorOf(reflected) == other` is a DECIDED other only — an open
+  // mirror may yet take the colour, so it restricts nothing.
+  Bits seen;
+  const Bits fringe = core.grown() & domains.undecided();
+  for (int i = fringe.nextSet(0); i >= 0; i = fringe.nextSet(i + 1)) {
+    if (seen.test(i))
+      continue;
+    const Bits mask = model.cellMask(i);
+    seen = seen | mask;
+    for (int j = mask.nextSet(0); j >= 0; j = mask.nextSet(j + 1)) {
+      if (const int reflected = lotus.mirror[slot(j)];
+          reflected >= 0 && model.playable.test(reflected) &&
+          domains.colorOf(reflected) != other)
+        continue;
+      if (!domains.exclude(i, color))
+        return false;
+      break;
+    }
+  }
+  return true;
+}
+
+/**
+ * With the lotus's cell still open nothing fires, on purpose: which colour its
+ * region even is is unknown. The probe cascade covers that case — trying both
+ * colours of the lotus's cell runs this propagator under each hypothesis and
+ * keeps what both agree on, which is exactly the game's "uncoloured symmetry"
+ * technique falling out of machinery that already existed.
+ */
+bool propagateLotuses(const Model &model, Domains &domains) {
+  for (const Lotus &lotus : model.lotuses) {
+    const uint8_t color = domains.colorOf(lotus.index);
+    if (color == kUnknown)
+      continue;
+    if (!lotusSymmetry(model, domains, lotus, color))
       return false;
   }
   return true;
@@ -743,6 +819,8 @@ bool propagateGlobal(const Model &model, Domains &domains) {
   if (!model.areaClues.empty() && !propagateAreas(model, domains))
     return false;
   if (!model.darts.empty() && !propagateDarts(model, domains))
+    return false;
+  if (!model.lotuses.empty() && !propagateLotuses(model, domains))
     return false;
   if (!model.letters.empty() && !propagateLetters(domains, model))
     return false;

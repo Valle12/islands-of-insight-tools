@@ -10,7 +10,7 @@ import {
   toGrid,
   verifyLogicGrid,
 } from "../../src/pages/logic-grid-solver/verify";
-import { board, painted, withDart, withShape } from "./boards";
+import { board, painted, withDart, withLotus, withShape } from "./boards";
 
 /**
  * The page's own rule checker — the last thing between a bad answer from the
@@ -115,6 +115,61 @@ describe("verifyLogicGrid", () => {
         "none",
       );
     });
+
+    test("catches a forbidden triple in either direction", () => {
+      expect(
+        judge(["...", "..."], ["DLD", "LLL"], ["no-dark-light-dark"]),
+      ).toBe("triple");
+      // Down the first column: D over L over D.
+      expect(
+        judge(["..", "..", ".."], ["DL", "LL", "DL"], ["no-dark-light-dark"]),
+      ).toBe("triple");
+      expect(
+        judge(["...", "..."], ["DDL", "LLD"], ["no-dark-light-dark"]),
+      ).toBe("none");
+    });
+
+    test("a triple names the colour at its ends", () => {
+      // The same line, judged under each rule: L-D-L is the OTHER rule's shape.
+      expect(
+        judge(["...", "..."], ["LDL", "DDD"], ["no-dark-light-dark"]),
+      ).toBe("none");
+      expect(
+        judge(["...", "..."], ["LDL", "DDD"], ["no-light-dark-light"]),
+      ).toBe("triple");
+    });
+
+    /** Two darks a gap apart are not a triple: the middle must really be light. */
+    test("a gap never completes a triple", () => {
+      expect(
+        judge([".#.", "..."], ["D#D", "LLL"], ["no-dark-light-dark"]),
+      ).toBe("none");
+    });
+
+    test("catches a T in every rotation", () => {
+      expect(judge(["...", "..."], ["DDD", "LDL"], ["no-dark-t"])).toBe("tee");
+      expect(judge(["...", "..."], ["LDL", "DDD"], ["no-dark-t"])).toBe("tee");
+      expect(judge(["..", "..", ".."], ["DL", "DD", "DL"], ["no-dark-t"])).toBe(
+        "tee",
+      );
+      expect(judge(["..", "..", ".."], ["LD", "DD", "LD"], ["no-dark-t"])).toBe(
+        "tee",
+      );
+    });
+
+    test("a bare line is not a T, and a plus contains one", () => {
+      expect(judge(["...", "..."], ["DDD", "LLL"], ["no-dark-t"])).toBe("none");
+      expect(
+        judge(["...", "...", "..."], ["LDL", "DDD", "LDL"], ["no-dark-t"]),
+      ).toBe("tee");
+    });
+
+    test("the two T rules are separate switches", () => {
+      expect(judge(["...", "..."], ["DDD", "LDL"], ["no-light-t"])).toBe(
+        "none",
+      );
+      expect(judge(["...", "..."], ["LLL", "DLD"], ["no-light-t"])).toBe("tee");
+    });
   });
 
   describe("connectivity", () => {
@@ -210,6 +265,29 @@ describe("verifyLogicGrid", () => {
       expect(judge(["....", "...."], ["DDDL", "LLLL"], ["area-four-dark"])).toBe(
         "region-size",
       );
+    });
+
+    /**
+     * The area-FIVE pair, appended after four and checked the same way. Six
+     * wide on purpose: five is the first size whose implied forbidden run —
+     * SIX cells — did not fit in the pattern table as it stood.
+     */
+    test("catches an area-five region that is too big or too small", () => {
+      expect(
+        judge(["......", "......"], ["DDDDDL", "LLLLLL"], ["area-five-dark"]),
+      ).toBe("none");
+      // The straight six an area of five implies.
+      expect(
+        judge(["......", "......"], ["DDDDDD", "LLLLLL"], ["area-five-dark"]),
+      ).toBe("region-size");
+      expect(
+        judge(["......", "......"], ["DDDDLL", "LLLLLL"], ["area-five-dark"]),
+      ).toBe("region-size");
+      // The same colouring judged from the other colour's side: light is one
+      // region of seven.
+      expect(
+        judge(["......", "......"], ["DDDDDL", "LLLLLL"], ["area-five-light"]),
+      ).toBe("region-size");
     });
 
     /**
@@ -325,6 +403,76 @@ describe("verifyLogicGrid", () => {
       ]);
       expect(verifyLogicGrid(config, painted(["DLLLD"]))).toBe("none");
       expect(verifyLogicGrid(config, painted(["DDDDL"]))).toBe("dart");
+    });
+  });
+
+  describe("symmetry", () => {
+    /** A lotus on the centre of a 3x3, and a colouring to judge. Mirrors the
+     * lotus block in `a-star/test/verify_test.cpp`. */
+    const judgeLotus = (answer: string[], axis: number) => {
+      const config = board(["...", "...", "..."]);
+      withLotus(config, 1, 1, axis);
+      return verifyLogicGrid(config, painted(answer));
+    };
+
+    test("the region must mirror across the axis", () => {
+      expect(judgeLotus(["LDL", "DDD", "LDL"], 0)).toBe("none");
+      // One extra dark corner joins the region and reflects onto a light cell.
+      expect(judgeLotus(["LDL", "DDD", "LDD"], 0)).toBe("symmetry");
+    });
+
+    test("a diagonal axis transposes the region", () => {
+      expect(judgeLotus(["LDL", "DDL", "LLD"], 1)).toBe("none");
+      expect(judgeLotus(["LDL", "DDD", "LLL"], 1)).toBe("symmetry");
+    });
+
+    test("only the region holding the symbol is mirrored", () => {
+      // The far dark pair reflects clean off the board and is nobody's
+      // business: it is not the symbol's region.
+      const config = board(["....."]);
+      withLotus(config, 1, 0, 2);
+      expect(verifyLogicGrid(config, painted(["LDLDD"]))).toBe("none");
+    });
+
+    test("the region may not reflect off the board or onto a gap", () => {
+      const edge = board(["..."]);
+      withLotus(edge, 0, 0, 2);
+      expect(verifyLogicGrid(edge, painted(["DDL"]))).toBe("symmetry");
+      expect(verifyLogicGrid(edge, painted(["DLL"]))).toBe("none");
+
+      const gapped = board(["..#"]);
+      withLotus(gapped, 1, 0, 2);
+      expect(verifyLogicGrid(gapped, painted(["DD#"]))).toBe("symmetry");
+    });
+
+    /** A seat on the seam of a 1x2 cell: rows swap in pairs across the grid
+     * line, and the third row reflects above the board. */
+    test("a seam seat mirrors across the grid line", () => {
+      const config = board(["..", "..", ".."]);
+      withShape(config, [
+        [0, 0],
+        [0, 1],
+      ]);
+      withLotus(config, 0, 0, 0, 2);
+      expect(verifyLogicGrid(config, painted(["DD", "DD", "LL"]))).toBe(
+        "none",
+      );
+      expect(verifyLogicGrid(config, painted(["DD", "DD", "DL"]))).toBe(
+        "symmetry",
+      );
+    });
+
+    test("two lotuses each hold the region to their own axis", () => {
+      const config = board(["...", "...", "..."]);
+      withLotus(config, 1, 1, 0);
+      withLotus(config, 1, 0, 2);
+      expect(verifyLogicGrid(config, painted(["LDL", "DDD", "LDL"]))).toBe(
+        "none",
+      );
+      // Still symmetric for the horizontal one; the vertical one is broken.
+      expect(verifyLogicGrid(config, painted(["LDL", "DDL", "LDL"]))).toBe(
+        "symmetry",
+      );
     });
   });
 

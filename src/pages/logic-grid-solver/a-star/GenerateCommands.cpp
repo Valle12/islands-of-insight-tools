@@ -45,7 +45,9 @@ constexpr auto kColorRules = std::to_array<Rule>(
      Rule::NoLight1x4, Rule::NoDark1x4, Rule::NoCheckerboard, Rule::NoLight1x5,
      Rule::NoDark1x5, Rule::OneSymbolDark, Rule::OneSymbolLight,
      Rule::AreaTwoDark, Rule::AreaTwoLight, Rule::AreaFourDark,
-     Rule::AreaFourLight});
+     Rule::AreaFourLight, Rule::AreaFiveDark, Rule::AreaFiveLight,
+     Rule::NoDarkLightDark, Rule::NoLightDarkLight, Rule::NoDarkT,
+     Rule::NoLightT});
 
 Bits heldBy(const Model &model, const Colors &colors, const uint8_t color) {
   Bits held;
@@ -315,6 +317,8 @@ struct ClueChances {
   /// Off unless `--darts` asks for them, so a campaign without it draws no
   /// random number for a dart and reproduces every board it always did.
   int dart = 0;
+  /// Off unless `--lotus` asks, with the same contract again.
+  int lotus = 0;
 };
 
 /// The state that crosses every region: where the clues go, which cells already
@@ -345,16 +349,46 @@ int dartValueAt(const Model &model, const Colors &colors, const int spot,
 }
 
 /**
+ * Whether the region holding `spot` really mirrors across `axis` through its
+ * centre, read off the colouring the way `dartValueAt` reads a count — the
+ * same walk `Verify` does. A lotus has no value to derive; the clue must
+ * simply be TRUE where it lands, and this is what says so. Draws nothing.
+ */
+bool lotusHoldsAt(const Model &model, const Colors &colors, const int spot,
+                  const int axis) {
+  const int cx2 = 2 * columnOf(spot);
+  const int cy2 = 2 * rowOf(spot);
+  const uint8_t color = colors[slot(spot)];
+  Bits held;
+  for (int i = model.playable.nextSet(0); i >= 0;
+       i = model.playable.nextSet(i + 1)) {
+    if (colors[slot(i)] == color)
+      held.set(i);
+  }
+  const Bits region = component(spot, held);
+  for (int i = region.nextSet(0); i >= 0; i = region.nextSet(i + 1)) {
+    const auto [mx, my] = mirrorSquare(axis, cx2, cy2, columnOf(i), rowOf(i));
+    if (mx < 0 || mx >= model.width() || my < 0 || my >= model.height())
+      return false;
+    if (colors[slot(cellIndex(mx, my))] != color)
+      return false;
+  }
+  return true;
+}
+
+/**
  * Puts at most one clue on one region, reading its value off the colouring.
  *
  * The `rng` draws here are in a fixed order — the spot, the area roll, the
- * letter roll, then the dart roll — and every one after the first is behind a
- * short circuit that skips it entirely when it cannot apply. Reordering them,
- * or hoisting one out of its condition, silently changes every board this
- * generator has ever produced; the dart pair is appended LAST and skipped
- * outright at `chances.dart == 0`, which is what keeps `--darts 0` reproducing
- * exactly the boards it always did. Hash-compare regenerated fixtures across
- * several seeds after touching this.
+ * letter roll, the dart roll, then the lotus roll — and every one after the
+ * first is behind a short circuit that skips it entirely when it cannot
+ * apply. Reordering them, or hoisting one out of its condition, silently
+ * changes every board this generator has ever produced; each directed pair is
+ * appended LAST-so-far and skipped outright at a zero chance, which is what
+ * keeps `--darts 0` and `--lotus 0` reproducing exactly the boards they
+ * always did. The lotus's satisfiability CHECK draws nothing, so a failed one
+ * costs the region its clue and nothing else. Hash-compare regenerated
+ * fixtures across several seeds after touching this.
  */
 void clueOneRegion(ClueRun &run, const ClueChances &chances,
                    const std::vector<int> &cells, const int size,
@@ -382,13 +416,22 @@ void clueOneRegion(ClueRun &run, const ClueChances &chances,
          .kind = kClueDart,
          .value = dartValueAt(model, colors, spot, direction),
          .direction = direction});
+    return;
+  }
+  if (chances.lotus > 0 && run.rng.uniform(0, 99) < chances.lotus) {
+    const int axis = run.rng.uniform(0, kAxisCount - 1);
+    if (!lotusHoldsAt(model, colors, spot, axis))
+      return;
+    run.used.set(spot);
+    run.puzzle.clues.push_back(
+        {.index = spot, .kind = kClueLotus, .direction = axis});
   }
 }
 
 /// Reads clues off the colouring the board was given, so every one of them is
 /// satisfiable together by construction.
 void deriveClues(const Model &model, const Colors &colors, SeededRng &rng,
-                 const bool sparse, const int dartChance, Puzzle &puzzle) {
+                 const bool sparse, const Options &options, Puzzle &puzzle) {
   Bits colored;
   for (int i = model.playable.nextSet(0); i >= 0;
        i = model.playable.nextSet(i + 1)) {
@@ -401,7 +444,8 @@ void deriveClues(const Model &model, const Colors &colors, SeededRng &rng,
   ClueRun run{.rng = rng, .puzzle = puzzle, .used = used};
   const ClueChances chances{.area = sparse ? 25 : 70,
                             .letter = sparse ? 10 : 25,
-                            .dart = dartChance};
+                            .dart = options.darts,
+                            .lotus = options.lotus};
 
   for (const Bits &side : {colored, light}) {
     const Regions regions = labelRegions(side, model);
@@ -501,7 +545,7 @@ int run(const Options &options) {
     if (!paintLegal(bare, rng, colors))
       continue;
 
-    deriveClues(bare, colors, rng, sparse, options.darts, puzzle);
+    deriveClues(bare, colors, rng, sparse, options, puzzle);
     // Off its own stream, and only when asked, so every seed that produced a
     // board before this existed still produces exactly that board.
     if (options.shapes > 0) {

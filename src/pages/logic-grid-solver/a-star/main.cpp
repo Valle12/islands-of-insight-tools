@@ -43,6 +43,9 @@ struct CliOptions {
   /// Roughly how often a generated region carries a dart instead of nothing.
   /// 0 draws no random number for one, so every old seed reproduces.
   int darts = 0;
+  /// The same for a symmetry symbol, placed only where its region really
+  /// mirrors. 0 draws nothing, so every old seed reproduces.
+  int lotus = 0;
   int rules = -1;
   bool quiet = false;
   bool brute = false;
@@ -88,7 +91,8 @@ void printUsage() {
                "       logic_grid --generate <path> [--seed N] "
                "[--kind clued|underclued]\n"
                "                  [--width N] [--height N] [--rules MASK]\n"
-               "                  [--shapes PERCENT] [--darts PERCENT]\n";
+               "                  [--shapes PERCENT] [--darts PERCENT] "
+               "[--lotus PERCENT]\n";
 }
 
 /**
@@ -149,6 +153,8 @@ bool assignValue(CliOptions &opts, const std::string_view flag,
     return readFlag(flag, value, opts.shapes);
   else if (flag == "--darts")
     return readFlag(flag, value, opts.darts);
+  else if (flag == "--lotus")
+    return readFlag(flag, value, opts.lotus);
   else {
     std::cerr << "Unknown argument: " << flag << "\n";
     return false;
@@ -321,7 +327,8 @@ int main(const int argc, char **argv) {
                                     .rules = opts.rules,
                                     .kind = opts.kind,
                                     .shapes = opts.shapes,
-                                    .darts = opts.darts};
+                                    .darts = opts.darts,
+                                    .lotus = opts.lotus};
     return generate::run(genOpts);
   }
 
