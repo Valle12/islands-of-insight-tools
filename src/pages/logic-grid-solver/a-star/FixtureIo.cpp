@@ -74,7 +74,9 @@ void readClues(const nlohmann::json &document, Puzzle &puzzle,
       throw FixtureError("Unknown clue kind in " + path);
     // A lotus carries no number at all, and a file that gives it one is
     // refused rather than the key being dropped — dropping it would load a
-    // different-looking puzzle under the same name.
+    // different-looking puzzle under the same name. The trailing branch is
+    // every NUMBER-carrying kind — area, dart and viewpoint — which all store
+    // a plain integer.
     int value = 0;
     if (kind == kClueLetter)
       value = letterFrom(entry.at("value"), path);

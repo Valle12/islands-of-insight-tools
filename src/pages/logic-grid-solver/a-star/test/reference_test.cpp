@@ -47,6 +47,14 @@ struct LotusSpec {
   int seat = 0;
 };
 
+/// A viewpoint: where it sits and how many squares it must see, its own square
+/// included. No direction — the four rays ARE the clue.
+struct ViewpointSpec {
+  int x = 0;
+  int y = 0;
+  int value = 1;
+};
+
 struct Case {
   std::string name;
   std::vector<std::string> picture;
@@ -54,6 +62,7 @@ struct Case {
   std::vector<Merge> merges;
   std::vector<DartSpec> darts;
   std::vector<LotusSpec> lotuses;
+  std::vector<ViewpointSpec> viewpoints;
 };
 
 /// gtest appends `# GetParam() = …` to every discovered name, and without this
@@ -73,6 +82,7 @@ struct Board {
   std::vector<Merge> merges;
   std::vector<DartSpec> darts;
   std::vector<LotusSpec> lotuses;
+  std::vector<ViewpointSpec> viewpoints;
 };
 
 struct RuleSet {
@@ -190,6 +200,40 @@ std::vector<Case> allCases() {
        .picture = {"..", "..", ".."},
        .merges = {{{0, 0}, {0, 1}}},
        .lotuses = {{.x = 0, .y = 0, .axis = kAxisHorizontal, .seat = 2}}},
+      // Viewpoints. The propagator brackets every ray between "already seen"
+      // and "could still see" and forces in both directions off the bracket —
+      // over-doing either removes real solutions, which only this suite sees.
+      {.name = "viewpoint",
+       .picture = {"...", "...", "..."},
+       .viewpoints = {{.x = 0, .y = 0, .value = 3}}},
+      // The whole cross of the centre square — the game's "maximal viewpoint",
+      // where every ray must be seen out to its end.
+      {.name = "viewpointMax",
+       .picture = {"...", "...", "..."},
+       .viewpoints = {{.x = 1, .y = 1, .value = 5}}},
+      // Sight stops at the gap, where a dart's line steps over it.
+      {.name = "viewpointGap",
+       .picture = {".#.", "...", "..."},
+       .viewpoints = {{.x = 0, .y = 0, .value = 3}}},
+      // Two viewpoints that can see each other — the game's "perpendicular
+      // viewpoints" technique, emergent from the counting meeting itself, and
+      // brute force referees the interplay.
+      {.name = "twoViewpoints",
+       .picture = {"...", "...", "..."},
+       .viewpoints = {{.x = 0, .y = 1, .value = 3},
+                      {.x = 2, .y = 1, .value = 2}}},
+      // A viewpoint ON a merged cell: its own squares count only where a ray
+      // crosses them — the vertical domino puts one own square on the down
+      // ray, so the count can never be below two.
+      {.name = "viewpointOnCell",
+       .picture = {"...", "...", "..."},
+       .merges = {{{0, 0}, {0, 1}}},
+       .viewpoints = {{.x = 0, .y = 0, .value = 2}}},
+      // ...and a merged cell ACROSS a ray, counted once per square crossed.
+      {.name = "viewpointOverCell",
+       .picture = {"...", "...", "..."},
+       .merges = {{{1, 0}, {2, 0}}},
+       .viewpoints = {{.x = 0, .y = 0, .value = 3}}},
   };
   const std::vector<RuleSet> ruleSets = {
       {.name = "none", .rules = {}},
@@ -253,17 +297,55 @@ std::vector<Case> allCases() {
       {.name = "tWithRun3", .rules = {NoDarkT, NoDark1x3}},
       {.name = "tWithAreaTwo", .rules = {NoDarkT, AreaTwoDark}},
       {.name = "teeAndTriple", .rules = {NoDarkT, NoLightDarkLight}},
+      // The 3+1 rules and the three subsumptions each has to prove sound: a
+      // pair rule, an area of exactly two and the colour's diagonal rule all
+      // drop the 3+1 instances. `threeOneWithAreaThree` is the near-miss where
+      // dropping would be WRONG — an area of three lays out no trominoes, and
+      // a bent dark region of three with the odd corner light is legal
+      // everywhere except under this rule.
+      {.name = "threeOneDark", .rules = {NoThreeDarkOneLight}},
+      {.name = "threeOneBoth",
+       .rules = {NoThreeDarkOneLight, NoThreeLightOneDark}},
+      {.name = "threeOneWithPair", .rules = {NoThreeDarkOneLight, NoDark1x2}},
+      {.name = "threeOneWithAreaTwo",
+       .rules = {NoThreeDarkOneLight, AreaTwoDark}},
+      {.name = "threeOneWithAreaThree",
+       .rules = {NoThreeDarkOneLight, AreaThreeDark}},
+      {.name = "threeOneWithDiagonal",
+       .rules = {NoThreeDarkOneLight, NoDarkDiagonal}},
+      // The diagonal rules, whose two-cell clauses subsume the square, the T,
+      // the bent trominoes and the checkerboard — each pairing proves its drop
+      // kept every colouring, and the lightSquare one that the drop stays on
+      // its own colour. `diagonalAndConnect` is the shape the rule plays in
+      // the game: straight bars that must also form one region.
+      {.name = "diagonalDark", .rules = {NoDarkDiagonal}},
+      {.name = "diagonalBoth", .rules = {NoDarkDiagonal, NoLightDiagonal}},
+      {.name = "diagonalAndConnect", .rules = {NoDarkDiagonal, ConnectDark}},
+      {.name = "diagonalWithSquares", .rules = {NoDarkDiagonal, NoDark2x2}},
+      {.name = "diagonalWithLightSquare",
+       .rules = {NoDarkDiagonal, NoLight2x2}},
+      {.name = "diagonalWithTee", .rules = {NoDarkDiagonal, NoDarkT}},
+      {.name = "diagonalWithAreaTwo", .rules = {NoDarkDiagonal, AreaTwoDark}},
+      {.name = "diagonalWithChecker",
+       .rules = {NoDarkDiagonal, NoCheckerboard}},
+      // Area THREE: `regionArea` again, at a size the table keeps no shapes
+      // for beyond the implied run of four.
+      {.name = "areaThreeDark", .rules = {AreaThreeDark}},
+      {.name = "areaThreeBoth", .rules = {AreaThreeDark, AreaThreeLight}},
+      {.name = "areaThreeAndConnect", .rules = {AreaThreeDark, ConnectLight}},
   };
 
   std::vector<Case> cases;
-  for (const auto &[boardName, picture, merges, darts, lotuses] : boards) {
+  for (const auto &[boardName, picture, merges, darts, lotuses, viewpoints] :
+       boards) {
     for (const auto &[ruleSetName, ruleList] : ruleSets)
       cases.push_back({.name = std::string(boardName) + "_" + ruleSetName,
                        .picture = picture,
                        .rules = ruleList,
                        .merges = merges,
                        .darts = darts,
-                       .lotuses = lotuses});
+                       .lotuses = lotuses,
+                       .viewpoints = viewpoints});
   }
   return cases;
 }
@@ -276,6 +358,8 @@ Puzzle puzzleFor(const Case &one) {
     test::withDart(puzzle, x, y, value, direction);
   for (const auto &[x, y, axis, seat] : one.lotuses)
     test::withLotus(puzzle, x, y, axis, seat);
+  for (const auto &[x, y, value] : one.viewpoints)
+    test::withViewpoint(puzzle, x, y, value);
   return puzzle;
 }
 

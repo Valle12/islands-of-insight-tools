@@ -362,6 +362,32 @@ describe("validateConfig (logic grid)", () => {
       },
       "Column 1, row 2 carries a seat its merged cell does not surround.",
     ],
+    [
+      // Its own square always counts, so there is no viewpoint of zero.
+      "a viewpoint of zero",
+      { ...validConfig, symbols: [{ x: 0, y: 0, type: 4, value: 0 }] },
+      "Viewpoint values must be integers between 1 and 4.",
+    ],
+    [
+      // Bounded by the CROSS — the row and the column, the own square counted
+      // once — which on this 3x2 board is four.
+      "a viewpoint seeing past its whole cross",
+      { ...validConfig, symbols: [{ x: 0, y: 0, type: 4, value: 5 }] },
+      "Viewpoint values must be integers between 1 and 4.",
+    ],
+    [
+      "a direction on a viewpoint",
+      {
+        ...validConfig,
+        symbols: [{ x: 0, y: 0, type: 4, value: 2, direction: 1 }],
+      },
+      "Only a directed symbol carries a direction, and Viewpoint is not one.",
+    ],
+    [
+      "a seat on a viewpoint",
+      { ...validConfig, symbols: [{ x: 0, y: 0, type: 4, value: 2, seat: 1 }] },
+      "Only a symmetry symbol carries a seat, and Viewpoint is not one.",
+    ],
   ];
 
   test.each(rejections)("rejects %s", (_name, input, error) => {
@@ -409,6 +435,18 @@ describe("validateConfig (logic grid)", () => {
     expect(result.config.symbols).toEqual([
       { x: 0, y: 0, type: 2, value: 2, direction: 3 },
     ]);
+  });
+
+  /** A number and nothing else: no direction, no seat — the four rays ARE the
+   * clue, so the config carries only where it sits and what it must see. */
+  test("accepts a viewpoint and keeps its number alone", () => {
+    const result = validateConfig({
+      ...clone(),
+      symbols: [{ x: 0, y: 0, type: 4, value: 3 }],
+    });
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.config.symbols).toEqual([{ x: 0, y: 0, type: 4, value: 3 }]);
   });
 
   /** No `value` key at all, and both new keys kept exactly as written: the

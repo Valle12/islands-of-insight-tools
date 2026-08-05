@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <utility>
 #include <vector>
 
 namespace lg {
@@ -36,6 +37,27 @@ Problem cellValueProblem(const Puzzle &puzzle) {
   return Problem::None;
 }
 
+/// A lotus carries no number: the axis and the seat are the whole clue. Split
+/// out of `clueValueProblem`'s branch for that one's cognitive complexity —
+/// the branch-per-kind order there is what carries the meaning, so this stays
+/// the lotus's block rather than growing into a general validator.
+Problem lotusValueProblem(const Clue &clue) {
+  using enum Problem;
+  if (clue.value != 0)
+    return LotusValue;
+  if (!isAxis(clue.direction))
+    return LotusAxis;
+  if (!isSeat(clue.seat))
+    return LotusSeat;
+  // A diagonal axis through an edge-midpoint seat maps square centres onto
+  // square CORNERS — there is no reflection on the grid, so the combination is
+  // refused rather than defined. Whether the seat fits its merged cell is
+  // `lotusSeats`' question, asked once the shapes are validated.
+  return isDiagonalAxis(clue.direction) && !diagonalSeatValid(clue.seat)
+             ? LotusDiagonalSeat
+             : None;
+}
+
 /**
  * What each kind's `value` — and, for a directed one, its `direction` — may be.
  *
@@ -53,21 +75,17 @@ Problem clueValueProblem(const Clue &clue, const Puzzle &puzzle,
     return clue.value >= 1 && clue.value <= playableCount ? None : AreaValue;
   if (clue.kind == kClueLetter)
     return clue.value >= 0 && clue.value < kLetterCount ? None : LetterValue;
-  if (clue.kind == kClueLotus) {
-    // A lotus carries no number: the axis and seat are the whole clue.
-    if (clue.value != 0)
-      return LotusValue;
-    if (!isAxis(clue.direction))
-      return LotusAxis;
-    if (!isSeat(clue.seat))
-      return LotusSeat;
-    // A diagonal axis through an edge-midpoint seat maps square centres onto
-    // square CORNERS — there is no reflection on the grid, so the combination
-    // is refused rather than defined. Whether the seat fits its merged cell is
-    // `lotusSeats`' question, asked once the shapes are validated.
-    return isDiagonalAxis(clue.direction) && !diagonalSeatValid(clue.seat)
-               ? LotusDiagonalSeat
-               : None;
+  if (clue.kind == kClueLotus)
+    return lotusValueProblem(clue);
+  if (clue.kind == kClueViewpoint) {
+    // Its own square always counts, so the floor is one; the ceiling is the
+    // whole cross — its row and its column, the own square counted once. The
+    // direction is IGNORED, like an area number's: the C++ default is a real
+    // direction and the TypeScript validator keeps the key off the kind, so
+    // demanding a sentinel here would only trap hand-built puzzles. A count
+    // too big for the rays the gaps really leave is named in `contradiction`.
+    const int cross = puzzle.width + puzzle.height - 1;
+    return clue.value >= 1 && clue.value <= cross ? None : ViewpointValue;
   }
 
   if (clue.direction < 0 || clue.direction >= kDirectionCount)
@@ -341,6 +359,8 @@ void buildClueTables(Model &model) {
       model.dartClues.push_back(id);
     } else if (clue.kind == kClueLotus) {
       model.lotusClues.push_back(id);
+    } else if (clue.kind == kClueViewpoint) {
+      model.viewpointClues.push_back(id);
     } else {
       int &group = groupOf[slot(clue.value)];
       if (group < 0) {
@@ -397,8 +417,9 @@ void fillMirror(const Model &model, Lotus &lotus) {
   lotus.mirror.fill(-1);
   for (int y = 0; y < model.height(); y++) {
     for (int x = 0; x < model.width(); x++) {
-      const auto [mx, my] = mirrorSquare(lotus.axis, lotus.cx2, lotus.cy2, x, y);
-      if (mx >= 0 && mx < model.width() && my >= 0 && my < model.height())
+      if (const auto [mx, my] =
+              mirrorSquare(lotus.axis, lotus.cx2, lotus.cy2, x, y);
+          mx >= 0 && mx < model.width() && my >= 0 && my < model.height())
         lotus.mirror[slot(cellIndex(x, y))] =
             static_cast<int16_t>(cellIndex(mx, my));
     }
@@ -431,6 +452,47 @@ void buildLotuses(Model &model) {
   }
 }
 
+/// One ray of a viewpoint's sight, from the square beyond its own outward. It
+/// stops at the first gap or the board's edge — sight does not step over a
+/// hole the way a dart's line does; see `Viewpoint::rays` for why that is the
+/// semantics rather than a tightening.
+std::vector<int16_t> sightRay(const Model &model, const int index,
+                              const int direction) {
+  const auto [stepX, stepY] = kDirectionSteps[slot(direction)];
+  std::vector<int16_t> ray;
+  for (int x = columnOf(index) + stepX, y = rowOf(index) + stepY;
+       x >= 0 && x < model.width() && y >= 0 && y < model.height();
+       x += stepX, y += stepY) {
+    const int at = cellIndex(x, y);
+    if (!model.playable.test(at))
+      break;
+    ray.push_back(static_cast<int16_t>(at));
+  }
+  return ray;
+}
+
+/**
+ * Each viewpoint's four rays, worked out once: they depend on the board, never
+ * on the colouring.
+ *
+ * The rays keep the squares of the clue's own cell — again `Viewpoint::rays`'
+ * own argument. Nothing here can fail to build, so there is no
+ * `buildDarts`-style net: a viewpoint carries no direction or seat that could
+ * be unreadable.
+ */
+void buildViewpoints(Model &model) {
+  for (const int id : model.viewpointClues) {
+    const Clue &clue = model.puzzle.clues[slot(id)];
+    Viewpoint viewpoint;
+    viewpoint.clueId = id;
+    viewpoint.index = clue.index;
+    viewpoint.value = clue.value;
+    for (int direction = 0; direction < kDirectionCount; direction++)
+      viewpoint.rays[slot(direction)] = sightRay(model, clue.index, direction);
+    model.viewpoints.push_back(std::move(viewpoint));
+  }
+}
+
 /// A dart can never name more squares than its own line holds. The board-wide
 /// bound in `clueValueProblem` cannot see this one: the line is shortened by
 /// every gap on it and by the dart's own merged cell.
@@ -454,6 +516,20 @@ Problem lotusMirrorsFit(const Model &model) {
     }
   }
   return Problem::None;
+}
+
+/// A viewpoint can never see more squares than its four rays hold. The
+/// board-wide bound in `clueValueProblem` cannot see this one: every ray is
+/// cut short by the first gap on it.
+Problem viewpointsFitSight(const Model &model) {
+  const bool bad =
+      std::ranges::any_of(model.viewpoints, [](const Viewpoint &viewpoint) {
+        int sight = 1;
+        for (const std::vector<int16_t> &ray : viewpoint.rays)
+          sight += static_cast<int>(ray.size());
+        return viewpoint.value > sight;
+      });
+  return bad ? Problem::ViewpointExceedsSight : Problem::None;
 }
 
 /// An area clue can never name more cells than its own playable region holds.
@@ -500,74 +576,90 @@ Problem letterCountForConnected(const Model &model) {
   return model.letters.size() > 2 ? TooManyLettersForConnected : None;
 }
 
+/// One `Problem` and the sentence the CLI, the page and the fixture tests all
+/// show for it. Paired with its enumerator by NAME rather than by position, so
+/// an enumerator inserted rather than appended cannot silently shift every
+/// message after it onto the wrong problem.
+struct ProblemMessage {
+  Problem problem;
+  const char *text;
+};
+
 } // namespace
 
+/**
+ * A table rather than a `switch` — the shape matters, because the switch's
+ * value was the compiler telling you about a `Problem` nobody had worded.
+ * `static_assert` below is that guard, and it is not weaker: it fires on
+ * exactly the omission `-Wswitch` caught (an enumerator added with no message),
+ * it fires on the native build as well as the clang one, and the lookup is by
+ * enumerator so the table may be written in any order.
+ */
 const char *describe(const Problem problem) {
   using enum Problem;
-  switch (problem) {
-  case None:
-    return "";
-  case GridSize:
-    return "Grid must be between 1 and 32 on each side";
-  case CellValue:
-    return "A cell value is outside the known colours";
-  case ClueOffBoard:
-    return "A clue sits outside the board";
-  case ClueKind:
-    return "A clue names an unknown kind";
-  case ClueOnGap:
-    return "A clue sits on an unplayable cell";
-  case ClueDuplicated:
-    return "A cell carries more than one clue";
-  case AreaValue:
-    return "An area number is larger than the board";
-  case LetterValue:
-    return "A letter is outside A to Z";
-  case DartValue:
-    return "A dart's number is larger than the board's longest line";
-  case DartDirection:
-    return "A dart does not say which way it points";
-  case DartExceedsLine:
-    return "A dart's number is larger than the number of squares in its line";
-  case LotusValue:
-    return "A symmetry symbol carries no number";
-  case LotusAxis:
-    return "A symmetry symbol does not say which way its axis lies";
-  case LotusSeat:
-    return "A symmetry symbol's seat is not inside its own merged cell";
-  case LotusDiagonalSeat:
-    return "A diagonal symmetry on a grid-line seat has no reflection on the "
-           "square grid";
-  case SeatOnWrongKind:
-    return "Only a symmetry symbol carries a seat";
-  case LotusMirrorLeavesBoard:
-    return "A symmetry symbol's own cell reflects off the board or onto an "
-           "unplayable cell";
-  case ShapeOffBoard:
-    return "A merged cell claims a square outside the board";
-  case ShapeOnGap:
-    return "A merged cell claims an unplayable square";
-  case ShapeOverlaps:
-    return "A square belongs to more than one merged cell";
-  case ShapeTooSmall:
-    return "A merged cell holds fewer than two squares";
-  case ShapeSplit:
-    return "A merged cell is not one connected shape";
-  case ShapeCluesDisagree:
-    return "A merged cell carries more than one clue";
-  case ShapeGivensDisagree:
-    return "A merged cell is painted in two colours";
-  case AreaExceedsRegion:
-    return "An area number is larger than the region it sits in";
-  case AreaSmallerThanCell:
-    return "An area number is smaller than the merged cell it sits on";
-  case LetterSplitByGaps:
-    return "Cells with the same letter are cut apart by unplayable cells";
-  case TooManyLettersForConnected:
-    return "Both colours are connected, so the board has at most two regions "
-           "and cannot hold three different letters";
-  }
-  return "Unknown problem";
+  static constexpr std::array kMessages{
+      ProblemMessage{None, ""},
+      ProblemMessage{GridSize, "Grid must be between 1 and 32 on each side"},
+      ProblemMessage{CellValue, "A cell value is outside the known colours"},
+      ProblemMessage{ClueOffBoard, "A clue sits outside the board"},
+      ProblemMessage{ClueKind, "A clue names an unknown kind"},
+      ProblemMessage{ClueOnGap, "A clue sits on an unplayable cell"},
+      ProblemMessage{ClueDuplicated, "A cell carries more than one clue"},
+      ProblemMessage{AreaValue, "An area number is larger than the board"},
+      ProblemMessage{LetterValue, "A letter is outside A to Z"},
+      ProblemMessage{DartValue, "A dart's number is larger than the board's "
+                                "longest line"},
+      ProblemMessage{DartDirection, "A dart does not say which way it points"},
+      ProblemMessage{DartExceedsLine, "A dart's number is larger than the "
+                                      "number of squares in its line"},
+      ProblemMessage{LotusValue, "A symmetry symbol carries no number"},
+      ProblemMessage{LotusAxis, "A symmetry symbol does not say which way its "
+                                "axis lies"},
+      ProblemMessage{LotusSeat, "A symmetry symbol's seat is not inside its "
+                                "own merged cell"},
+      ProblemMessage{LotusDiagonalSeat, "A diagonal symmetry on a grid-line "
+                                        "seat has no reflection on the square "
+                                        "grid"},
+      ProblemMessage{SeatOnWrongKind, "Only a symmetry symbol carries a seat"},
+      ProblemMessage{LotusMirrorLeavesBoard, "A symmetry symbol's own cell "
+                                             "reflects off the board or onto "
+                                             "an unplayable cell"},
+      ProblemMessage{ShapeOffBoard, "A merged cell claims a square outside the "
+                                    "board"},
+      ProblemMessage{ShapeOnGap, "A merged cell claims an unplayable square"},
+      ProblemMessage{ShapeOverlaps, "A square belongs to more than one merged "
+                                    "cell"},
+      ProblemMessage{ShapeTooSmall, "A merged cell holds fewer than two "
+                                    "squares"},
+      ProblemMessage{ShapeSplit, "A merged cell is not one connected shape"},
+      ProblemMessage{ShapeCluesDisagree, "A merged cell carries more than one "
+                                         "clue"},
+      ProblemMessage{ShapeGivensDisagree, "A merged cell is painted in two "
+                                          "colours"},
+      ProblemMessage{AreaExceedsRegion, "An area number is larger than the "
+                                        "region it sits in"},
+      ProblemMessage{AreaSmallerThanCell, "An area number is smaller than the "
+                                          "merged cell it sits on"},
+      ProblemMessage{LetterSplitByGaps, "Cells with the same letter are cut "
+                                        "apart by unplayable cells"},
+      ProblemMessage{TooManyLettersForConnected,
+                     "Both colours are connected, so the board has at most two "
+                     "regions and cannot hold three different letters"},
+      ProblemMessage{ViewpointValue, "A viewpoint's number must be between one "
+                                     "and its whole row and column"},
+      ProblemMessage{ViewpointExceedsSight, "A viewpoint's number is larger "
+                                            "than the number of squares its "
+                                            "sight can reach"},
+  };
+  // Every enumerator has a message. This must count against `Count` and not
+  // against the last real enumerator: measured, an appended one leaves that
+  // one's value alone, so the assert held and the new problem described itself
+  // as "Unknown problem" — the exact omission the switch used to catch.
+  static_assert(static_cast<int>(kMessages.size()) ==
+                std::to_underlying(Count));
+  const auto found =
+      std::ranges::find(kMessages, problem, &ProblemMessage::problem);
+  return found == kMessages.end() ? "Unknown problem" : found->text;
 }
 
 Problem structureProblem(const Puzzle &puzzle) {
@@ -622,6 +714,7 @@ Model buildModel(const Puzzle &puzzle) {
   // shapes, since a dart's line has its own cell taken out of it.
   buildDarts(model);
   buildLotuses(model);
+  buildViewpoints(model);
   return model;
 }
 
@@ -634,6 +727,8 @@ Problem contradiction(const Model &model) {
   if (const Problem problem = dartFitsLine(model); problem != None)
     return problem;
   if (const Problem problem = lotusMirrorsFit(model); problem != None)
+    return problem;
+  if (const Problem problem = viewpointsFitSight(model); problem != None)
     return problem;
   if (const Problem problem = lettersReachable(model); problem != None)
     return problem;

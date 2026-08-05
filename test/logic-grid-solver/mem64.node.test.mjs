@@ -32,6 +32,12 @@ const wasmPath = join(wasmDir, "astar.mem64.wasm");
 // module — so it is aimed off the edge of the board, where its line is empty
 // and a value of zero is satisfied by every colouring. That keeps this board's
 // answer exactly what it was while still refusing a missing direction.
+//
+// The viewpoint (type 4) rides along the same way. No value of one is
+// constraint-free — its own square always counts — so a three in the far
+// corner was picked by solving THIS board through the native CLI and keeping
+// a count its answer satisfies; the board stays solvable, which is all this
+// smoke test asks.
 const BOARD = {
   gridWidth: 5,
   gridHeight: 5,
@@ -42,6 +48,7 @@ const BOARD = {
     { x: 2, y: 2, type: 0, value: 9 },
     // type 2 is `dart`, direction 0 is up — off the board from the top row.
     { x: 0, y: 0, type: 2, value: 0, direction: 0 },
+    { x: 4, y: 4, type: 4, value: 3 },
   ],
 };
 

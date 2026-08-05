@@ -548,6 +548,69 @@ h2 {
   --axis-size: 20px;
 }
 
+/* ------------------------------------------------------------ viewpoints --
+ *
+ * A viewpoint is its number ringed by four outward chevrons, one per ray its
+ * sight runs along — `chevron_right` seated and turned per `data-edge`, the
+ * dart's one-glyph trick a third time. Keyed on the class and the edge alone,
+ * because the same three places draw one: the board, the answer's read-only
+ * grid, and the miniature on the clue kind's own chip.
+ *
+ * The chevrons are absolutely positioned at the tile's edges, so they take no
+ * part in layout — `.grid-cell` is already the positioning context and keeps
+ * the number centred on its own. They are painted ink with no hit target:
+ * the square underneath keeps all the clicking.
+ */
+.cell-chevron {
+  --chevron-size: 13px;
+  --md-icon-size: var(--chevron-size);
+
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.cell-chevron[data-edge="up"] {
+  top: 0;
+  left: 50%;
+  translate: -50% 0;
+  rotate: -90deg;
+}
+
+.cell-chevron[data-edge="right"] {
+  top: 50%;
+  right: 0;
+  translate: 0 -50%;
+}
+
+.cell-chevron[data-edge="down"] {
+  bottom: 0;
+  left: 50%;
+  translate: -50% 0;
+  rotate: 90deg;
+}
+
+.cell-chevron[data-edge="left"] {
+  top: 50%;
+  left: 0;
+  translate: 0 -50%;
+  rotate: 180deg;
+}
+
+/* The ring takes the tile's edges, so the number steps below the bare-label
+   buckets above — the widest it gets is two digits, the 32x32 cross's 63. */
+.grid-cell[data-viewpoint] {
+  font-size: 18px;
+}
+
+.grid-cell[data-viewpoint][data-label-length="2"] {
+  font-size: 15px;
+}
+
 .grid-cell[data-color="unknown"] {
   background: transparent;
   border-style: dashed;
@@ -682,6 +745,21 @@ h2 {
 
 .symbol-sample[data-direction] .cell-arrow {
   --arrow-size: 18px;
+}
+
+/* The viewpoint chip is a miniature too — the ring needs a box to hang on,
+   which the inline sample span is not, so it becomes a small tile of its own. */
+.symbol-sample[data-viewpoint] {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  font-size: 13px;
+}
+
+.symbol-sample .cell-chevron {
+  --chevron-size: 9px;
 }
 
 /* The picker's own arrows are the same glyph, turned by the same rules. */
@@ -1054,25 +1132,12 @@ h2 {
 
   /* A directed clue fits two things in the square, so it steps down with it. */
   .grid-cell[data-direction] {
-    font-size: 12px;
+    font-size: 16px;
   }
 
   /* The axis glyph follows the smaller square. */
   .grid-cell .cell-axis {
     --axis-size: 25px;
-  }
-
-  .grid-cell[data-direction][data-label-length="2"] {
-    font-size: 11px;
-  }
-
-  .grid-cell[data-direction][data-label-length="3"],
-  .grid-cell[data-direction][data-label-length="4"] {
-    font-size: 9px;
-  }
-
-  .grid-cell[data-direction] {
-    font-size: 16px;
   }
 
   .grid-cell[data-direction][data-label-length="2"] {
@@ -1095,5 +1160,18 @@ h2 {
   .grid-cell[data-direction][data-label-length="3"] .cell-arrow,
   .grid-cell[data-direction][data-label-length="4"] .cell-arrow {
     --arrow-size: 15px;
+  }
+
+  /* The chevron ring follows the smaller square, its number with it. */
+  .grid-cell[data-viewpoint] {
+    font-size: 15px;
+  }
+
+  .grid-cell[data-viewpoint][data-label-length="2"] {
+    font-size: 12px;
+  }
+
+  .grid-cell .cell-chevron {
+    --chevron-size: 11px;
   }
 }

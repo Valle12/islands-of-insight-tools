@@ -76,12 +76,32 @@ enum class Rule : uint8_t {
   // The T-tetromino, all four rotations, one colour each. Table rules too.
   NoDarkT = 24,
   NoLightT = 25,
+  // A 2x2 holding exactly three of one colour and one of the other — the first
+  // mixed-colour rule with more instances than orientations: the odd cell can
+  // take any corner. Four table patterns per rule.
+  NoThreeDarkOneLight = 26,
+  NoThreeLightOneDark = 27,
+  // No two cells of the colour touching corner to corner, even inside one
+  // connected piece — an L-bend and a filled 2x2 both break it, so every
+  // region of the colour is a straight bar. Two 2-cell table patterns each,
+  // and the first patterns whose cells are not orthogonally contiguous.
+  NoDarkDiagonal = 28,
+  NoLightDiagonal = 29,
+  // Region sizes again, appended like four and five: `regionArea` carries both
+  // halves and the table sees only the implied straight run of FOUR.
+  AreaThreeDark = 30,
+  AreaThreeLight = 31,
 };
 
-inline constexpr int kRuleCount = 26;
+inline constexpr int kRuleCount = 32;
 
-/// The active rules as a bit per index.
-using RuleMask = uint32_t;
+/// The active rules as a bit per index. 64 wide because the catalogue reached
+/// exactly 32 rules on a 32-bit mask — the next appended rule would have been
+/// undefined behaviour in `bit()` rather than a compile error.
+using RuleMask = uint64_t;
+
+static_assert(kRuleCount <= 64,
+              "RuleMask holds a bit per rule; widen it before the 65th");
 
 constexpr RuleMask bit(const Rule rule) {
   return RuleMask{1} << std::to_underlying(rule);
@@ -115,6 +135,8 @@ inline constexpr auto kAreaFamily = std::to_array<AreaRule>({
     {.rule = Rule::AreaFourLight, .color = kLight, .area = 4},
     {.rule = Rule::AreaFiveDark, .color = kDark, .area = 5},
     {.rule = Rule::AreaFiveLight, .color = kLight, .area = 5},
+    {.rule = Rule::AreaThreeDark, .color = kDark, .area = 3},
+    {.rule = Rule::AreaThreeLight, .color = kLight, .area = 3},
 });
 
 /**

@@ -674,6 +674,77 @@ describe("Board (logic grid)", () => {
   });
 
   /**
+   * The viewpoint: a number ringed by four sight chevrons, and the first
+   * number-carrying kind with no direction since the area clue — so placing,
+   * lifting and typing follow the plain rules, and nothing turns.
+   */
+  describe("Viewpoints", () => {
+    const VIEWPOINT = 4;
+
+    /** A board with one viewpoint already on `(1, 1)`. */
+    function withViewpoint(value = 3) {
+      const board = makeBoard(4, 3, "symbol", VIEWPOINT, value);
+      press(1, 1, LEFT);
+      release();
+      return board;
+    }
+
+    test("stamps a bare number ringed by four chevrons", () => {
+      const board = withViewpoint(3);
+      expect(board.getSymbols()).toEqual([
+        { x: 1, y: 1, type: VIEWPOINT, value: 3 },
+      ]);
+      const cell = cellAt(1, 1);
+      expect(cell.getAttribute("aria-label")).toBe(
+        "Column 2, Row 2, Unknown, Viewpoint 3",
+      );
+      expect(cell.dataset.viewpoint).toBe("");
+      expect(cell.querySelector(".cell-value")?.textContent).toBe("3");
+      expect(cell.querySelectorAll(".cell-chevron")).toHaveLength(4);
+      expect(cell.querySelector(".cell-chevron")?.textContent).toBe(
+        "chevron_right",
+      );
+    });
+
+    /** No direction, so the directed kinds' turning rule never fires: the
+     * same clue again is a lift, exactly as for an area number. */
+    test("re-clicking lifts rather than turning", () => {
+      const board = withViewpoint(2);
+      press(1, 1, LEFT);
+      release();
+      expect(board.getSymbols()).toEqual([]);
+      expect(cellAt(1, 1).dataset.viewpoint).toBeUndefined();
+      expect(cellAt(1, 1).querySelector(".cell-chevron")).toBeNull();
+    });
+
+    test("an arrow key on a viewpoint keeps scrolling", () => {
+      const board = withViewpoint(2);
+      type(1, 1, "ArrowDown");
+      expect(board.getSymbols()).toEqual([
+        { x: 1, y: 1, type: VIEWPOINT, value: 2 },
+      ]);
+    });
+
+    /** Bounded by the CROSS of a 4x3 board — six — so a second digit cannot
+     * grow the number past it. */
+    test("typing keeps the viewpoint's own bounds", () => {
+      const board = withViewpoint(2);
+      type(1, 1, "6");
+      expect(board.getSymbols()[0]!.value).toBe(6);
+      type(1, 1, "1");
+      expect(board.getSymbols()[0]!.value).toBe(6);
+    });
+
+    /** The floor is one — its own square always counts — so a leading zero is
+     * ignored rather than clamped, the area number's rule. */
+    test("a leading zero leaves the last good value standing", () => {
+      const board = withViewpoint(2);
+      type(1, 1, "0");
+      expect(board.getSymbols()[0]!.value).toBe(2);
+    });
+  });
+
+  /**
    * The symmetry symbol (the game's lotus): the first VALUELESS kind, whose
    * `direction` is an axis and whose place inside a merged cell — the SEAT —
    * is chosen by where the pointer goes down, half-grid points included.

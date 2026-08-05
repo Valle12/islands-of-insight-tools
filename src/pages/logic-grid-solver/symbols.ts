@@ -12,6 +12,14 @@ export type LogicGridValueKind = "number" | "letter" | "none";
  */
 export type LogicGridAims = "none" | "compass" | "axis";
 
+/**
+ * The geometry a kind's number measures, and therefore what bounds it: the
+ * whole `"board"` for an area number, one straight `"line"` for the dart, the
+ * `"cross"` of a row and a column for the viewpoint. Ignored by a letter or
+ * valueless kind, the way `minValue` is.
+ */
+export type LogicGridReach = "board" | "line" | "cross";
+
 export interface LogicGridSymbolKind {
   /** Stable, lowercase, and never reused — it is what the tests read. */
   readonly id: string;
@@ -28,6 +36,15 @@ export interface LogicGridSymbolKind {
    * key in the config.
    */
   readonly aims: LogicGridAims;
+  /**
+   * What the number measures. Required rather than defaulted so a new kind has
+   * to say — the dart's line bound once rode on `aims: "compass"` because the
+   * two happened to coincide, and a viewpoint (direction-less, yet bounded by
+   * its rays) is exactly the kind that coincidence would have mis-measured.
+   * The `"cross"` reach also draws: it is what puts the four sight chevrons on
+   * the tile.
+   */
+  readonly reach: LogicGridReach;
 }
 
 /** An area of zero cells is not a region, so the smallest area clue is 1. */
@@ -55,6 +72,7 @@ export const SYMBOL_KINDS: readonly LogicGridSymbolKind[] = [
     valueKind: "number",
     minValue: MIN_AREA_VALUE,
     aims: "none",
+    reach: "board",
   },
   {
     id: "letter",
@@ -63,6 +81,9 @@ export const SYMBOL_KINDS: readonly LogicGridSymbolKind[] = [
     valueKind: "letter",
     minValue: 0,
     aims: "none",
+    // Inert for a letter, like `minValue`: a letter is not a number and no
+    // bound is ever asked of it.
+    reach: "board",
   },
   {
     id: "dart",
@@ -75,6 +96,7 @@ export const SYMBOL_KINDS: readonly LogicGridSymbolKind[] = [
     // colour, which is one of the two cases that fill in immediately.
     minValue: 0,
     aims: "compass",
+    reach: "line",
   },
   {
     id: "lotus",
@@ -87,6 +109,24 @@ export const SYMBOL_KINDS: readonly LogicGridSymbolKind[] = [
     valueKind: "none",
     minValue: 0,
     aims: "axis",
+    // Inert too: a valueless kind has no number for any reach to bound.
+    reach: "board",
+  },
+  {
+    id: "viewpoint",
+    label: "Viewpoint",
+    // Unused: a cross-reach chip is a miniature drawn by `dressClue`, the
+    // number ringed by its four chevrons.
+    sample: "3",
+    valueKind: "number",
+    // Its own square always counts, so there is no viewpoint of zero — unlike
+    // the dart, whose count starts beyond its own cell.
+    minValue: 1,
+    // No direction at all: the four rays ARE the clue, which is exactly what
+    // `reach: "cross"` says. The first number-carrying kind with no picker
+    // since the area number, so its control is chip + field and nothing else.
+    aims: "none",
+    reach: "cross",
   },
 ];
 
@@ -116,6 +156,15 @@ export interface LogicGridDirection {
  * also keeps the icon subset in `common.css` one name shorter.
  */
 export const DIRECTION_ICON = "arrow_right_alt";
+
+/**
+ * The one chevron a viewpoint's four sight marks are drawn with, turned into
+ * place by the stylesheet exactly as the dart's arrow is — and already in the
+ * `icon_names` subset in common.css, where the home page's cards use it, so
+ * the viewpoint costs the subset nothing. The `keyboard_arrow_*` family is
+ * the same chevron four times over, which is what it would have cost.
+ */
+export const VIEWPOINT_ICON = "chevron_right";
 
 /**
  * The four directions a clue can point, in a FIXED order — a config stores the
@@ -217,26 +266,25 @@ export interface LogicGridSize {
 }
 
 /**
- * The largest value `kind` can usefully carry on a board of this size.
+ * The largest value `kind` can usefully carry on a board of this size, read
+ * off the geometry its `reach` names.
  *
  * An area number names cells in a region, so the board's area bounds it. A
  * dart counts along ONE straight line, so the longest ray bounds it instead —
- * every square of the longer side except the one the dart sits on. A valueless
- * kind has no number to bound, and 0 says so without a special case at every
- * caller.
- *
- * The line bound follows from the dart being a line clue rather than from its
- * arrow, and `compass` is only standing in for that because the two coincide.
- * A compass-aimed clue that measured something else would need to say so.
+ * every square of the longer side except the one the dart sits on. A
+ * viewpoint sees its whole row and its whole column at most, its own square
+ * counted once. A valueless kind has no number to bound, and 0 says so
+ * without a special case at every caller.
  */
 export function symbolValueMax(
   kind: LogicGridSymbolKind,
   size: LogicGridSize,
 ): number {
   if (kind.valueKind === "none") return 0;
-  return kind.aims === "compass"
-    ? Math.max(size.gridWidth, size.gridHeight) - 1
-    : size.gridWidth * size.gridHeight;
+  if (kind.reach === "line")
+    return Math.max(size.gridWidth, size.gridHeight) - 1;
+  if (kind.reach === "cross") return size.gridWidth + size.gridHeight - 1;
+  return size.gridWidth * size.gridHeight;
 }
 
 /**

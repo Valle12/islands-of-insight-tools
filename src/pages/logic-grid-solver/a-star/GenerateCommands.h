@@ -25,7 +25,8 @@ struct Options {
   int width = 0;
   int height = 0;
   /// -1 for a random subset of the colouring rules; otherwise a literal mask.
-  int rules = -1;
+  /// 64-bit because a plain `int` cannot name bit 31, the 32nd rule's.
+  int64_t rules = -1;
   /// "clued" for a board with plenty of clues, "underclued" for a sparse one
   /// with the underclued rule switched on.
   std::string kind = "clued";
@@ -54,6 +55,13 @@ struct Options {
    * mirror across it — the check reads the colouring and draws nothing.
    */
   int lotus = 0;
+  /**
+   * And once more for a viewpoint, appended after the lotus roll with the
+   * same zero-skip contract. Like a dart there is a value to derive — the
+   * count is read off the colouring, so every roll that fires places a clue
+   * that is satisfiable by construction.
+   */
+  int viewpoints = 0;
 };
 
 /// 0 when a puzzle was written, 1 when no attempt produced one. Nothing is

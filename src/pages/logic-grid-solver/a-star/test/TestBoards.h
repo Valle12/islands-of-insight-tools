@@ -104,6 +104,18 @@ inline void withLotus(Puzzle &puzzle, const int x, const int y, const int axis,
 }
 
 /**
+ * Puts a viewpoint on a cell: a counting clue with no direction at all — its
+ * number is its own square plus the leading same-colour run along each of the
+ * four rays. The `Clue` default direction is left standing, which is exactly
+ * what `clueValueProblem` ignoring it exists to allow.
+ */
+inline void withViewpoint(Puzzle &puzzle, const int x, const int y,
+                          const int value) {
+  puzzle.clues.push_back(
+      {.index = cellIndex(x, y), .kind = kClueViewpoint, .value = value});
+}
+
+/**
  * Fuses squares into one merged cell. A second call rather than a glyph: the
  * picture's alphabet is entirely spoken for, and a shape needs to say which
  * squares go together rather than just that a square is in one.

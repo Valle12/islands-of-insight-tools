@@ -40,6 +40,7 @@ const AREA_SYMBOL = symbolIndex("area");
 const LETTER_SYMBOL = symbolIndex("letter");
 const DART_SYMBOL = symbolIndex("dart");
 const LOTUS_SYMBOL = symbolIndex("lotus");
+const VIEWPOINT_SYMBOL = symbolIndex("viewpoint");
 
 /**
  * A puzzle from a picture, one string per row:
@@ -150,6 +151,23 @@ export function withLotus(
     direction: axis,
     ...(seat ? { seat } : {}),
   });
+  config.symbols.sort((a, b) => a.y - b.y || a.x - b.x);
+  return config;
+}
+
+/**
+ * Puts a viewpoint on a cell. A second call like the others: a counting clue
+ * with no direction at all, whose number is its own square plus the leading
+ * same-colour run along each of the four rays. Mirrors `withViewpoint` in the
+ * C++ `TestBoards.h`.
+ */
+export function withViewpoint(
+  config: LogicGridTest,
+  x: number,
+  y: number,
+  value: number,
+): LogicGridTest {
+  config.symbols.push({ x, y, type: VIEWPOINT_SYMBOL, value });
   config.symbols.sort((a, b) => a.y - b.y || a.x - b.x);
   return config;
 }
@@ -267,6 +285,41 @@ export const areaFiveBoard = (): LogicGridTest => {
   const config = board(["......", "......"], ["area-five-dark"]);
   return withGiven(config, 0, 0, DARK);
 };
+
+/**
+ * A 2x2 with three dark givens under "no 3 dark + 1 light": the fourth corner
+ * cannot be light, so the only answer paints it dark. The first family with
+ * more instances than orientations — four per rule, one per corner the odd
+ * cell can take — making its trip through the boundary. An engine that
+ * silently ignored the rule could answer the corner light and be thrown out
+ * by `verify.ts`.
+ */
+export const threeOneBoard = (): LogicGridTest => {
+  const config = board(["..", ".."], ["no-three-dark-one-light"]);
+  withGiven(config, 0, 0, DARK);
+  withGiven(config, 1, 0, DARK);
+  withGiven(config, 0, 1, DARK);
+  return config;
+};
+
+/**
+ * A dark given in the middle under "no dark diagonal": all four of its
+ * diagonal neighbours are forced light, whatever else happens. The two-cell
+ * diagonal patterns' trip through the boundary — the first clauses whose
+ * cells are not orthogonally contiguous.
+ */
+export const diagonalBoard = (): LogicGridTest => {
+  const config = board(["...", "...", "..."], ["no-dark-diagonal"]);
+  return withGiven(config, 1, 1, DARK);
+};
+
+/**
+ * `areaTwoBoard`'s role for the area-THREE pair, the size on `regionArea`'s
+ * side of the table trade: no shapes beyond the implied run of four. Six
+ * cells, satisfied by a dark row of three over a light one.
+ */
+export const areaThreeBoard = (): LogicGridTest =>
+  board(["...", "..."], ["area-three-dark", "area-three-light"]);
 
 /**
  * Two darts, both of which fill in immediately and between them settle the
@@ -394,6 +447,67 @@ export const lotusOverMergedBoard = (): LogicGridTest => {
   withGiven(config, 0, 1, DARK);
   withGiven(config, 1, 0, DARK);
   withLotus(config, 0, 0, 0, 2);
+  return config;
+};
+
+/**
+ * Two viewpoints on a board with a gap, and no rules at all, so the counting
+ * is the only thing deciding anything. The dark three at the closed end of
+ * the top corridor must see two more squares — the game's viewpoint
+ * expansion, and the corridor example the technique is usually told with —
+ * and its sight STOPS at the gap where a dart's line would step over. The
+ * light five below is everything it could still see with the dark square
+ * above it, so its whole row fills in. The kind and its `value` cross the
+ * boundary nowhere else: every captured board predates kind 4, the same
+ * argument the dart and lotus boards make.
+ */
+export const viewpointBoard = (): LogicGridTest => {
+  const config = board(["...#.", "....."]);
+  withGiven(config, 0, 0, DARK);
+  withGiven(config, 0, 1, LIGHT);
+  withViewpoint(config, 0, 0, 3);
+  withViewpoint(config, 0, 1, 5);
+  return config;
+};
+
+/**
+ * A viewpoint whose right ray crosses a merged 1x3 bar, with a value only the
+ * per-SQUARE reading can satisfy: four means three more squares seen, which is
+ * exactly the bar — so it joins the viewpoint's colour whole, and the square
+ * past it is the stop. A count that took the bar as ONE thing could never
+ * reach four on this board.
+ */
+export const viewpointOverMergedBoard = (): LogicGridTest => {
+  const config = board(["....."]);
+  withGiven(config, 0, 0, DARK);
+  withViewpoint(config, 0, 0, 4);
+  withShape(config, [
+    [1, 0],
+    [2, 0],
+    [3, 0],
+  ]);
+  return config;
+};
+
+/**
+ * A viewpoint ON a merged cell, on the end of an L whose third square lies on
+ * no ray through it. Underclued, so the answer IS the forced set: the clue's
+ * own square and its two ray neighbours are decided — the cell-mate on the
+ * left ray counts and the one diagonal to it counts only through the cell's
+ * one-colour rule, while the far corner the count never reaches stays
+ * undecided. Pure line geometry, read off the answer.
+ */
+export const viewpointOnMergedBoard = (): LogicGridTest => {
+  const config = board(["...", "...", "..."], ["underclued"]);
+  withGiven(config, 0, 0, DARK);
+  withGiven(config, 1, 0, DARK);
+  withGiven(config, 0, 1, DARK);
+  withShape(config, [
+    [0, 0],
+    [1, 0],
+    [0, 1],
+  ]);
+  withViewpoint(config, 1, 0, 2);
   return config;
 };
 

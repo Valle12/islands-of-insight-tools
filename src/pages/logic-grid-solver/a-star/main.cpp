@@ -46,7 +46,11 @@ struct CliOptions {
   /// The same for a symmetry symbol, placed only where its region really
   /// mirrors. 0 draws nothing, so every old seed reproduces.
   int lotus = 0;
-  int rules = -1;
+  /// And for a viewpoint, whose count is read off the colouring. 0 draws
+  /// nothing, so every old seed reproduces.
+  int viewpoints = 0;
+  /// 64-bit because a plain `int` cannot name bit 31, the 32nd rule's.
+  int64_t rules = -1;
   bool quiet = false;
   bool brute = false;
 };
@@ -92,7 +96,8 @@ void printUsage() {
                "[--kind clued|underclued]\n"
                "                  [--width N] [--height N] [--rules MASK]\n"
                "                  [--shapes PERCENT] [--darts PERCENT] "
-               "[--lotus PERCENT]\n";
+               "[--lotus PERCENT]\n"
+               "                  [--viewpoints PERCENT]\n";
 }
 
 /**
@@ -155,6 +160,8 @@ bool assignValue(CliOptions &opts, const std::string_view flag,
     return readFlag(flag, value, opts.darts);
   else if (flag == "--lotus")
     return readFlag(flag, value, opts.lotus);
+  else if (flag == "--viewpoints")
+    return readFlag(flag, value, opts.viewpoints);
   else {
     std::cerr << "Unknown argument: " << flag << "\n";
     return false;
@@ -328,7 +335,8 @@ int main(const int argc, char **argv) {
                                     .kind = opts.kind,
                                     .shapes = opts.shapes,
                                     .darts = opts.darts,
-                                    .lotus = opts.lotus};
+                                    .lotus = opts.lotus,
+                                    .viewpoints = opts.viewpoints};
     return generate::run(genOpts);
   }
 

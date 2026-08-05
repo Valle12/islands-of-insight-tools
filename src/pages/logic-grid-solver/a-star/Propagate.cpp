@@ -428,14 +428,29 @@ bool propagateDarts(const Model &model, Domains &domains) {
  * the colour, so one of its squares reflecting somewhere the colour can never
  * be keeps the whole cell out.
  *
- * At a complete assignment the core IS the whole region and the first loop
- * checks exactly what `verify::lotusProblem` checks, which is what keeps
- * `oracleRejections` at zero.
+ * With the colour's CONNECT rule on, both nets widen to the whole board: every
+ * solution holds the colour in ONE region, and the lotus's own cell is in it,
+ * so the region is provably the entire colour. A decided square then mirrors
+ * wherever it lies, connected to the lotus or not, and EVERY undecided cell is
+ * fringe — including one whose mirror is already the other colour, which is
+ * how the fold reaches the opposite colour too: the mirror of a decided dark
+ * square cannot take light, so it goes dark. One symmetry clue plus one
+ * connectivity rule folds the board in half, which is the coupling the
+ * viewpoint-era boards lean on hardest.
+ *
+ * At a complete assignment the core IS the whole region — under the connect
+ * rule because `propagateConnectivity` has already refused any split — and the
+ * first loop checks exactly what `verify::lotusProblem` checks, which is what
+ * keeps `oracleRejections` at zero.
  */
 bool lotusSymmetry(const Model &model, Domains &domains, const Lotus &lotus,
                    const uint8_t color) {
   const uint8_t other = opposite(color);
-  const Bits core = component(lotus.index, domains.definite(color));
+  const bool wholeColor = model.hasRule(color == kDark ? Rule::ConnectDark
+                                                       : Rule::ConnectLight);
+  const Bits core = wholeColor
+                        ? domains.definite(color)
+                        : component(lotus.index, domains.definite(color));
   for (int i = core.nextSet(0); i >= 0; i = core.nextSet(i + 1)) {
     const int reflected = lotus.mirror[slot(i)];
     if (reflected < 0 || !model.playable.test(reflected))
@@ -448,7 +463,8 @@ bool lotusSymmetry(const Model &model, Domains &domains, const Lotus &lotus,
   // it has. `colorOf(reflected) == other` is a DECIDED other only — an open
   // mirror may yet take the colour, so it restricts nothing.
   Bits seen;
-  const Bits fringe = core.grown() & domains.undecided();
+  const Bits fringe = wholeColor ? domains.undecided()
+                                 : core.grown() & domains.undecided();
   for (int i = fringe.nextSet(0); i >= 0; i = fringe.nextSet(i + 1)) {
     if (seen.test(i))
       continue;
@@ -480,6 +496,127 @@ bool propagateLotuses(const Model &model, Domains &domains) {
     if (color == kUnknown)
       continue;
     if (!lotusSymmetry(model, domains, lotus, color))
+      return false;
+  }
+  return true;
+}
+
+// ------------------------------------------------------------- viewpoints --
+
+/// One ray's leading runs from the clue outward: how many squares are already
+/// decided `color` before anything else appears (`held`), and how many could
+/// still be `color` before something never can (`room`). The ray's final
+/// visible run always lies between the two.
+struct RayReach {
+  int held = 0;
+  int room = 0;
+};
+
+RayReach rayReach(const Domains &domains, const std::vector<int16_t> &ray,
+                  const uint8_t color) {
+  RayReach reach;
+  const Bits &possible = domains.possible(color);
+  bool leading = true;
+  for (const int16_t square : ray) {
+    if (!possible.test(square))
+      break;
+    reach.room++;
+    if (leading && domains.colorOf(square) == color)
+      reach.held++;
+    else
+      leading = false;
+  }
+  return reach;
+}
+
+/**
+ * A viewpoint's count with its own colour settled: one for its own square plus
+ * the leading same-colour run along each ray. Each run is bracketed between
+ * its `held` and its `room`, so the total is too, and the two bounds prune in
+ * both directions — "too few squares left to see" is the game's viewpoint
+ * expansion, and "already seeing every one of them" is what caps a ray.
+ *
+ * Beyond the refutation, each ray is bracketed AGAINST the other three: it
+ * must supply at least what the others cannot (`lo`) and at most what they can
+ * spare (`hi`). The first `lo` squares are then visible in every completion
+ * and take the colour; and a ray already decided out to its cap must stop
+ * there, so the square beyond loses it. Both forces fan over a merged cell
+ * through `Domains::exclude`, and a cell straddling a boundary reports the
+ * contradiction itself, exactly as in `dartCardinality`.
+ *
+ * `held`/`room` go stale as forces land, which can only weaken later tests —
+ * `propagate` re-runs this to a fixpoint, the dart's discipline again. At a
+ * complete assignment held == room == the real run on every ray, so the
+ * refutation is exactly `verify::viewpointProblem`'s equality — which is what
+ * keeps `oracleRejections` at zero.
+ */
+bool viewpointSight(Domains &domains, const Viewpoint &viewpoint,
+                    const uint8_t color) {
+  std::array<RayReach, kDirectionCount> reaches;
+  int heldTotal = 0;
+  int roomTotal = 0;
+  for (int direction = 0; direction < kDirectionCount; direction++) {
+    reaches[slot(direction)] =
+        rayReach(domains, viewpoint.rays[slot(direction)], color);
+    heldTotal += reaches[slot(direction)].held;
+    roomTotal += reaches[slot(direction)].room;
+  }
+  const int need = viewpoint.value - 1;
+  if (heldTotal > need || roomTotal < need)
+    return false;
+
+  for (int direction = 0; direction < kDirectionCount; direction++) {
+    const auto &[held, room] = reaches[slot(direction)];
+    const std::vector<int16_t> &ray = viewpoint.rays[slot(direction)];
+    // `lo <= hi` needs no guard: it rearranges to facts the refutation above
+    // already established, and held <= room per ray by construction.
+    const int lo = std::max(held, need - (roomTotal - room));
+    const int hi = std::min(room, need - (heldTotal - held));
+    for (int i = held; i < lo; i++) {
+      if (!domains.assign(ray[slot(i)], color))
+        return false;
+    }
+    if (held == hi && hi < static_cast<int>(ray.size()) &&
+        !domains.exclude(ray[slot(hi)], color))
+      return false;
+  }
+  return true;
+}
+
+/**
+ * The viewpoint's own colour is still open, so it does not yet say which
+ * colour it counts. Either assumption that cannot be satisfied at all is ruled
+ * out — the refute-only-yourself shape of `dartColorChoice`, and the probe
+ * cascade does the rest, exactly as it does for an uncoloured lotus.
+ */
+bool viewpointColorChoice(Domains &domains, const Viewpoint &viewpoint) {
+  const auto fits = [&domains, &viewpoint](const uint8_t color) {
+    int held = 0;
+    int room = 0;
+    for (const std::vector<int16_t> &ray : viewpoint.rays) {
+      const auto [rayHeld, rayRoom] = rayReach(domains, ray, color);
+      held += rayHeld;
+      room += rayRoom;
+    }
+    const int need = viewpoint.value - 1;
+    return held <= need && room >= need;
+  };
+  const bool darkFits = fits(kDark);
+  const bool lightFits = fits(kLight);
+  if (!darkFits && !lightFits)
+    return false;
+  if (darkFits == lightFits)
+    return true;
+  return domains.assign(viewpoint.index, darkFits ? kDark : kLight);
+}
+
+bool propagateViewpoints(const Model &model, Domains &domains) {
+  for (const Viewpoint &viewpoint : model.viewpoints) {
+    const uint8_t color = domains.colorOf(viewpoint.index);
+    const bool ok = color == kUnknown
+                        ? viewpointColorChoice(domains, viewpoint)
+                        : viewpointSight(domains, viewpoint, color);
+    if (!ok)
       return false;
   }
   return true;
@@ -821,6 +958,8 @@ bool propagateGlobal(const Model &model, Domains &domains) {
   if (!model.darts.empty() && !propagateDarts(model, domains))
     return false;
   if (!model.lotuses.empty() && !propagateLotuses(model, domains))
+    return false;
+  if (!model.viewpoints.empty() && !propagateViewpoints(model, domains))
     return false;
   if (!model.letters.empty() && !propagateLetters(domains, model))
     return false;

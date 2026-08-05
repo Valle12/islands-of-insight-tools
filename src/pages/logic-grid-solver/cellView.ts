@@ -6,6 +6,7 @@ import {
   DIRECTION_ICON,
   directionAt,
   symbolKindAt,
+  VIEWPOINT_ICON,
   type LogicGridSymbolKind,
 } from "./symbols";
 
@@ -80,6 +81,7 @@ export function dressCell(
     delete element.dataset.direction;
     delete element.dataset.axis;
     delete element.dataset.seat;
+    delete element.dataset.viewpoint;
     element.textContent = "";
   }
 
@@ -88,8 +90,9 @@ export function dressCell(
 
 /**
  * The clue's own contents: a bare text node for an undirected one, a number
- * beside an arrow for a compass-aimed one, and the rotated axis glyph alone
- * for an axis-aimed one.
+ * beside an arrow for a compass-aimed one, the rotated axis glyph alone for an
+ * axis-aimed one — and, for a cross-reach one, the number ringed by four
+ * outward chevrons, one per ray its sight runs along.
  *
  * The arrow's SEAT is a quarter turn clockwise of the way it points — pointing
  * up puts it right of the number, pointing right puts it below, and so on —
@@ -98,7 +101,8 @@ export function dressCell(
  * the same `data-direction` turns the single arrow glyph to face the right way.
  * An axis-aimed clue is the same trick with nothing beside it: `data-axis`
  * turns one glyph four ways, and `data-seat` slides it onto the cell's grid
- * lines — half a square right for bit 0, down for bit 1.
+ * lines — half a square right for bit 0, down for bit 1. The chevrons are the
+ * trick a third time: one glyph, seated and turned per `data-edge`.
  *
  * Exported because the clue-kind CHIP draws a miniature of the tile with it:
  * one function so the chip and what it stamps cannot come to look like two
@@ -114,6 +118,7 @@ export function dressClue(
   if (kind.aims === "axis") {
     const axis = axisAt(direction ?? -1);
     delete element.dataset.direction;
+    delete element.dataset.viewpoint;
     element.dataset.axis = axis?.id ?? "horizontal";
     if (seat > 0) element.dataset.seat = String(seat);
     else delete element.dataset.seat;
@@ -127,6 +132,26 @@ export function dressClue(
 
   delete element.dataset.axis;
   delete element.dataset.seat;
+  if (kind.reach === "cross") {
+    delete element.dataset.direction;
+    // Presence, not a value: the hook the stylesheet positions the ring by.
+    element.dataset.viewpoint = "";
+    const value = document.createElement("span");
+    value.className = "cell-value";
+    value.textContent = label;
+    const parts: HTMLElement[] = [value];
+    for (const edge of ["up", "right", "down", "left"]) {
+      const chevron = document.createElement("md-icon");
+      chevron.className = "cell-chevron";
+      chevron.dataset.edge = edge;
+      chevron.textContent = VIEWPOINT_ICON;
+      parts.push(chevron);
+    }
+    element.replaceChildren(...parts);
+    return;
+  }
+
+  delete element.dataset.viewpoint;
   const aim =
     kind.aims === "compass" && direction !== undefined
       ? directionAt(direction)
