@@ -403,13 +403,14 @@ Violation dartProblem(const Model &model, const Colors &colors) {
  * a wrongly built mirror map is exactly what this has to catch.
  */
 Violation lotusProblem(const Model &model, const Colors &colors) {
+  using enum Violation;
   for (const int id : model.lotusClues) {
     const Clue &clue = model.puzzle.clues[slot(id)];
     // A lotus nobody can read is one nothing satisfies. Only reachable from a
     // puzzle that skipped `structureProblem`, which names it properly.
     if (!isAxis(clue.direction) || !isSeat(clue.seat) ||
         (isDiagonalAxis(clue.direction) && !diagonalSeatValid(clue.seat)))
-      return Violation::LotusAsymmetric;
+      return LotusAsymmetric;
     const int cx2 = seatX2(clue.index, clue.seat);
     const int cy2 = seatY2(clue.index, clue.seat);
     const uint8_t color = colors[slot(clue.index)];
@@ -418,12 +419,12 @@ Violation lotusProblem(const Model &model, const Colors &colors) {
       const auto [mx, my] =
           mirrorSquare(clue.direction, cx2, cy2, columnOf(i), rowOf(i));
       if (mx < 0 || mx >= model.width() || my < 0 || my >= model.height())
-        return Violation::LotusAsymmetric;
+        return LotusAsymmetric;
       if (colors[slot(cellIndex(mx, my))] != color)
-        return Violation::LotusAsymmetric;
+        return LotusAsymmetric;
     }
   }
-  return Violation::None;
+  return None;
 }
 
 /**

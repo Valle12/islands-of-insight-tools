@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <numeric>
 #include <utility>
 #include <vector>
 
@@ -175,7 +176,12 @@ constexpr std::pair<int, int> mirrorSquare(const int axis, const int cx2,
     return {cx2 - x, y};
   if (axis == kAxisDiagonalDown)
     return {y + (cx2 - cy2) / 2, x - (cx2 - cy2) / 2};
-  return {(cx2 + cy2) / 2 - y, (cx2 + cy2) / 2 - x};
+  // Exact, not rounded: a diagonal axis exists only where `cx2` and `cy2` share
+  // a parity, so their sum is even. The offset on the line above is a
+  // DIFFERENCE rather than a midpoint, which is why only this one is written
+  // that way.
+  const int mid = std::midpoint(cx2, cy2);
+  return {mid - y, mid - x};
 }
 
 /// A clue as the solver holds it: where it sits, what kind it is, and its

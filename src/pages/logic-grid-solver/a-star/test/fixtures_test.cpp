@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -82,12 +83,28 @@ TEST(LogicGridCorpus, EveryBoardIsTheCurrentFormatVersion) {
   }
 }
 
-/** A temporary file holding `document`, removed when the test ends. */
+/**
+ * A scratch path for the test currently running, in the test binary's own
+ * working directory.
+ *
+ * NOT the system temp directory, which is world-writable — a fixed name there
+ * is something any other user on the machine can plant a symlink at before the
+ * test opens it. The build directory belongs to the build. And the name
+ * carries the TEST's, because `gtest_discover_tests` gives every one of these
+ * its own ctest entry: at `-j 4` two of them run as separate processes at the
+ * same time and a shared filename would have them deleting each other's file.
+ */
+std::string scratchPath() {
+  const auto *info = testing::UnitTest::GetInstance()->current_test_info();
+  const std::string name = info == nullptr ? "scratch" : info->name();
+  return (std::filesystem::current_path() / ("lgVersion-" + name + ".json"))
+      .string();
+}
+
+/** A fixture file holding `document`, removed when the test ends. */
 class TempFixture {
 public:
-  explicit TempFixture(const nlohmann::json &document)
-      : path_((std::filesystem::temp_directory_path() / "lgVersionTest.json")
-                  .string()) {
+  explicit TempFixture(const nlohmann::json &document) {
     std::ofstream output(path_);
     output << document.dump(2);
   }
@@ -95,12 +112,23 @@ public:
   TempFixture &operator=(const TempFixture &) = delete;
   TempFixture(TempFixture &&) = delete;
   TempFixture &operator=(TempFixture &&) = delete;
-  ~TempFixture() { std::filesystem::remove(path_); }
+  /**
+   * The `error_code` overload, which is `noexcept`. The throwing one would let
+   * a destructor propagate during stack unwinding, and that is a call to
+   * `std::terminate` rather than a failing test — so a file that could not be
+   * removed is ignored on purpose.
+   */
+  ~TempFixture() {
+    std::error_code ignored;
+    std::filesystem::remove(path_, ignored);
+  }
 
   [[nodiscard]] const std::string &path() const { return path_; }
 
 private:
-  std::string path_;
+  // In-class rather than in the constructor's initializer list: there is one
+  // constructor and it always wants this value.
+  std::string path_ = scratchPath();
 };
 
 /** The smallest legal board, as a document to bend one key of at a time. */
