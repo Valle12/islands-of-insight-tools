@@ -235,6 +235,68 @@ Violation teeProblem(const Model &model, const Colors &colors) {
   return None;
 }
 
+/// A 2x2 holding exactly three of `color` and one of the other. Both colours
+/// are counted outright, so a 2x2 touching a gap can never qualify: a
+/// `kUnplayable` square equals neither.
+bool hasThreeOne(const Model &model, const Colors &colors,
+                 const uint8_t color) {
+  const uint8_t other = opposite(color);
+  for (int y = 0; y + 1 < model.height(); y++) {
+    for (int x = 0; x + 1 < model.width(); x++) {
+      const auto corners = std::to_array<uint8_t>(
+          {colors[slot(cellIndex(x, y))], colors[slot(cellIndex(x + 1, y))],
+           colors[slot(cellIndex(x, y + 1))],
+           colors[slot(cellIndex(x + 1, y + 1))]});
+      if (std::ranges::count(corners, color) == 3 &&
+          std::ranges::count(corners, other) == 1)
+        return true;
+    }
+  }
+  return false;
+}
+
+Violation threeOneProblem(const Model &model, const Colors &colors) {
+  using enum Violation;
+  if (model.hasRule(Rule::NoThreeDarkOneLight) &&
+      hasThreeOne(model, colors, kDark))
+    return ThreeOne;
+  if (model.hasRule(Rule::NoThreeLightOneDark) &&
+      hasThreeOne(model, colors, kLight))
+    return ThreeOne;
+  return None;
+}
+
+/// Two cells of `color` touching corner to corner, anywhere at all — being
+/// joined through an orthogonal neighbour does not excuse the touch, which is
+/// what makes every region of the colour a straight bar. Scanned from each
+/// cell's two DOWNWARD diagonals, so every pair is seen exactly once.
+bool hasDiagonal(const Model &model, const Colors &colors,
+                 const uint8_t color) {
+  const auto held = [&model, &colors, color](const int x, const int y) {
+    return x >= 0 && x < model.width() && y >= 0 && y < model.height() &&
+           colors[slot(cellIndex(x, y))] == color;
+  };
+  for (int y = 0; y < model.height(); y++) {
+    for (int x = 0; x < model.width(); x++) {
+      if (!held(x, y))
+        continue;
+      if (held(x + 1, y + 1) || held(x - 1, y + 1))
+        return true;
+    }
+  }
+  return false;
+}
+
+Violation diagonalProblem(const Model &model, const Colors &colors) {
+  using enum Violation;
+  if (model.hasRule(Rule::NoDarkDiagonal) && hasDiagonal(model, colors, kDark))
+    return Diagonal;
+  if (model.hasRule(Rule::NoLightDiagonal) &&
+      hasDiagonal(model, colors, kLight))
+    return Diagonal;
+  return None;
+}
+
 /// An empty colour is vacuously one region, which is what lets a board be
 /// legally all-dark while `connect-light` is switched on.
 bool isOneRegion(const Bits &cells) {
@@ -296,6 +358,8 @@ Violation regionSizeProblem(const Model &model, const Bits &dark,
       {.rule = AreaFourLight, .color = kLight, .area = 4},
       {.rule = AreaFiveDark, .color = kDark, .area = 5},
       {.rule = AreaFiveLight, .color = kLight, .area = 5},
+      {.rule = AreaThreeDark, .color = kDark, .area = 3},
+      {.rule = AreaThreeLight, .color = kLight, .area = 3},
   });
   const bool wrong = std::ranges::any_of(
       kAreaRules, [&model, &dark, &light](const AreaRule &row) {
@@ -428,6 +492,38 @@ Violation lotusProblem(const Model &model, const Colors &colors) {
 }
 
 /**
+ * Every viewpoint counts the squares it can SEE: its own square, plus the
+ * leading run of its own colour along each of the four directions. Sight stops
+ * at the first square of the other colour, at a gap — unlike a dart's line,
+ * which steps over one — and at the edge of the board. Squares are counted one
+ * at a time, so a merged cell contributes exactly the squares the sight
+ * crosses, wherever the rest of it lies; its own cell's squares count like any
+ * others, being the counted colour by definition.
+ *
+ * Walked from the clue rather than read off `Model::viewpoints`, the
+ * discipline `dartProblem` sets: an oracle sharing the search's precomputed
+ * rays could only prove the two agree, and a wrongly built ray is exactly what
+ * this has to catch.
+ */
+Violation viewpointProblem(const Model &model, const Colors &colors) {
+  for (const int id : model.viewpointClues) {
+    const Clue &clue = model.puzzle.clues[slot(id)];
+    const uint8_t own = colors[slot(clue.index)];
+    int count = 1;
+    for (const auto &[stepX, stepY] : kDirectionSteps) {
+      for (int x = columnOf(clue.index) + stepX, y = rowOf(clue.index) + stepY;
+           x >= 0 && x < model.width() && y >= 0 && y < model.height() &&
+           colors[slot(cellIndex(x, y))] == own;
+           x += stepX, y += stepY)
+        count++;
+    }
+    if (count != clue.value)
+      return Violation::ViewpointCount;
+  }
+  return Violation::None;
+}
+
+/**
  * Every cell of one letter in one region, and no region holding two letters.
  *
  * The subset test does double duty: a group cell painted the other colour is
@@ -495,6 +591,12 @@ const char *describe(const Violation violation) {
     return "A forbidden T of one colour";
   case LotusAsymmetric:
     return "A symmetry symbol's region does not mirror across its axis";
+  case ThreeOne:
+    return "A forbidden 2x2 of three of one colour and one of the other";
+  case Diagonal:
+    return "A forbidden corner touch of one colour";
+  case ViewpointCount:
+    return "A viewpoint's number does not match the squares it can see";
   }
   return "Unknown violation";
 }
@@ -523,6 +625,10 @@ Violation check(const Model &model, const Colors &colors) {
     return problem;
   if (const Violation problem = teeProblem(model, colors); problem != None)
     return problem;
+  if (const Violation problem = threeOneProblem(model, colors); problem != None)
+    return problem;
+  if (const Violation problem = diagonalProblem(model, colors); problem != None)
+    return problem;
 
   const Bits dark = maskOf(model, colors, kDark);
   const Bits light = maskOf(model, colors, kLight);
@@ -543,7 +649,9 @@ Violation check(const Model &model, const Colors &colors) {
     return problem;
   if (const Violation problem = dartProblem(model, colors); problem != None)
     return problem;
-  return lotusProblem(model, colors);
+  if (const Violation problem = lotusProblem(model, colors); problem != None)
+    return problem;
+  return viewpointProblem(model, colors);
 }
 
 } // namespace lg::verify

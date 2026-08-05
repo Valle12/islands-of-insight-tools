@@ -96,6 +96,26 @@ struct Lotus {
   std::array<int16_t, kMaxCells> mirror{};
 };
 
+/// One viewpoint's geometry, worked out once like a dart's ray: where it sits,
+/// its count, and the squares of each of its four rays in WALKING order.
+struct Viewpoint {
+  int clueId = 0;
+  int index = 0;
+  int value = 0;
+  /**
+   * The squares outward per direction, truncated at the first gap or the edge
+   * — sight stops at a hole in the board, where a dart's line steps over one.
+   *
+   * Ordered vectors rather than a `Bits`, because the propagator reasons about
+   * LEADING runs and a set cannot say which square comes first. And unlike a
+   * dart's ray these KEEP the squares of the clue's own cell: a viewpoint
+   * counts its own colour, so an own-cell square on a ray is simply a square
+   * already known to hold what is being counted — where the dart counts the
+   * opposite colour, which its own cell can never be.
+   */
+  std::array<std::vector<int16_t>, kDirectionCount> rays;
+};
+
 /// Every clue carrying one letter. All of them share a region, so they share a
 /// colour too — which is the whole of "letter colour deduction".
 struct LetterGroup {
@@ -137,6 +157,8 @@ struct Model {
   std::vector<int> dartClues;
   /// ...and of every lotus, which `lotuses` below carries the mirrors for.
   std::vector<int> lotusClues;
+  /// ...and of every viewpoint, which `viewpoints` below carries the rays for.
+  std::vector<int> viewpointClues;
   std::vector<LetterGroup> letters;
   /// Index into `letters` for each cell, or -1.
   std::vector<int> letterAt;
@@ -168,6 +190,13 @@ struct Model {
    * board without it — the same net `buildDarts` has.
    */
   std::vector<Lotus> lotuses;
+
+  /**
+   * Every viewpoint's four rays, precomputed the same way. No net here,
+   * deliberately: a viewpoint carries no direction or seat that could be
+   * unreadable, so every clue `structureProblem` accepts gets its geometry.
+   */
+  std::vector<Viewpoint> viewpoints;
 
   /**
    * The merged cells as masks, in `puzzle.shapes` order, and which one each
@@ -249,6 +278,12 @@ enum class Problem : uint8_t {
   AreaSmallerThanCell,
   LetterSplitByGaps,
   TooManyLettersForConnected,
+  ViewpointValue,
+  ViewpointExceedsSight,
+  /// Not a problem — the count, which `describe`'s table asserts itself
+  /// against so an enumerator appended above without a message stops
+  /// compiling. Keep it last, and never return it.
+  Count,
 };
 
 const char *describe(Problem problem);

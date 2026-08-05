@@ -92,6 +92,12 @@ function parseArgs(argv: string[]) {
      * a comparable number, since most random regions mirror across nothing.
      */
     lotus: 0,
+    /**
+     * And for a VIEWPOINT, whose count is read off the colouring like a
+     * dart's — every roll that fires places one, so `--darts`-like numbers
+     * give `--darts`-like yield. 0 draws nothing, as ever.
+     */
+    viewpoints: 0,
   };
   /**
    * A flag's value as a number, or a hard stop.
@@ -119,6 +125,8 @@ function parseArgs(argv: string[]) {
     "--shapes": next => (opts.shapes = number("--shapes", next())),
     "--darts": next => (opts.darts = number("--darts", next())),
     "--lotus": next => (opts.lotus = number("--lotus", next())),
+    "--viewpoints": next =>
+      (opts.viewpoints = number("--viewpoints", next())),
     "--width": next => (opts.width = number("--width", next())),
     "--height": next => (opts.height = number("--height", next())),
     "--exe": next => {
@@ -152,6 +160,7 @@ async function generate(opts: Options, path: string, seed: number) {
   if (opts.shapes > 0) args.push("--shapes", String(opts.shapes));
   if (opts.darts > 0) args.push("--darts", String(opts.darts));
   if (opts.lotus > 0) args.push("--lotus", String(opts.lotus));
+  if (opts.viewpoints > 0) args.push("--viewpoints", String(opts.viewpoints));
   const { exitCode } = await runCli(opts.exe, args, 120_000);
   return exitCode === 0;
 }

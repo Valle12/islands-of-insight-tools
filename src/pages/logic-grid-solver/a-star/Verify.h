@@ -49,6 +49,12 @@ enum class Violation : uint8_t {
   Tee,
   /// A symmetry symbol's region does not map to itself across its axis.
   LotusAsymmetric,
+  /// A 2x2 of three of one colour and one of the other, forbidden by rule.
+  ThreeOne,
+  /// Two cells of one colour touching corner to corner.
+  Diagonal,
+  /// A viewpoint's number does not match the squares it can see.
+  ViewpointCount,
 };
 
 const char *describe(Violation violation);

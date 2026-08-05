@@ -77,8 +77,9 @@ test.describe("Logic Grid Solver tools", () => {
     await expect(page.locator("#color-row .tool-button")).toHaveCount(4);
     // `.symbol-chip` means "the clue KINDS". The dart's arrows and the
     // symmetry symbol's axes sit inside their controls as `.direction-toggle`
-    // and deliberately do not answer to that class — four toggles each.
-    await expect(page.locator("#symbol-row .symbol-chip")).toHaveCount(4);
+    // and deliberately do not answer to that class — four toggles each. The
+    // viewpoint points nowhere, so the toggle count stays at eight.
+    await expect(page.locator("#symbol-row .symbol-chip")).toHaveCount(5);
     await expect(page.locator("#symbol-row .direction-toggle")).toHaveCount(8);
   });
 
@@ -486,6 +487,77 @@ test.describe("Logic Grid Solver tools", () => {
       expect(await seatOf(3, "left")).toBe("above");
     });
 
+  });
+
+  /**
+   * The viewpoint is the dart without the pointing: a number-carrying kind
+   * whose four chevrons are decoration for its four rays, so its control is
+   * chip + field with no toggles, and re-clicking lifts rather than turns.
+   */
+  test.describe("viewpoints", () => {
+    /** Arms the viewpoint tool with a value, then stamps it on a cell. */
+    async function placeViewpoint(
+      page: Page,
+      x: number,
+      y: number,
+      value: string,
+    ) {
+      await clueValue(page, "viewpoint").fill(value);
+      await cellAt(page, x, y).click();
+    }
+
+    test("stamps a number ringed by four chevrons", async ({ page }) => {
+      await placeViewpoint(page, 1, 1, "3");
+      const cell = cellAt(page, 1, 1);
+      await expect(cell).toHaveAttribute("data-symbol", "viewpoint");
+      await expect(cell).toHaveAttribute("data-viewpoint", "");
+      await expect(cell.locator(".cell-value")).toHaveText("3");
+      await expect(cell.locator(".cell-chevron")).toHaveCount(4);
+      await expect(cell).toHaveAccessibleName(
+        "Column 2, Row 2, Unknown, Viewpoint 3",
+      );
+    });
+
+    test("has no direction toggles beside its chip", async ({ page }) => {
+      await expect(
+        page.locator(
+          '#symbol-row .symbol-tool[data-symbol="viewpoint"] .direction-toggle',
+        ),
+      ).toHaveCount(0);
+      // But it does have its own value field, unlike the symmetry symbol.
+      await expect(clueValue(page, "viewpoint")).toHaveAttribute("min", "1");
+      await expect(clueValue(page, "viewpoint")).toHaveAttribute("max", "11");
+    });
+
+    /** Nothing to turn, so the directed kinds' re-click rule never fires. */
+    test("re-clicking a placed viewpoint lifts it", async ({ page }) => {
+      await placeViewpoint(page, 2, 2, "2");
+      const cell = cellAt(page, 2, 2);
+      await cell.click();
+      await expect(cell).not.toHaveAttribute("data-viewpoint", /.*/);
+      await expect(cell).toHaveAccessibleName("Column 3, Row 3, Unknown");
+    });
+
+    /**
+     * The chevrons hug the tile's edges with the number centred between them
+     * — only the stylesheet says so, and only a real browser has the layout
+     * to check it.
+     */
+    test("seats the four chevrons at the tile's edges", async ({ page }) => {
+      await placeViewpoint(page, 1, 1, "2");
+      const sides = await cellAt(page, 1, 1).evaluate(cell => {
+        const box = cell.getBoundingClientRect();
+        const middle = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+        return [...cell.querySelectorAll(".cell-chevron")].map(chevron => {
+          const ink = chevron.getBoundingClientRect();
+          const dx = ink.x + ink.width / 2 - middle.x;
+          const dy = ink.y + ink.height / 2 - middle.y;
+          if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? "right" : "left";
+          return dy > 0 ? "below" : "above";
+        });
+      });
+      expect([...sides].sort()).toEqual(["above", "below", "left", "right"]);
+    });
   });
 
   /**

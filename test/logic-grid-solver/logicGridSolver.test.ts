@@ -242,6 +242,16 @@ describe("LogicGridSolverEditor", () => {
       setSize("3", "2");
       expect(valueField(0).getAttribute("max")).toBe("6");
     });
+
+    /** A viewpoint sees its whole row and column at most, its own square
+     * counted once — the CROSS, which is neither the board's area nor its
+     * longest line, and its floor is one because it always sees itself. */
+    test("bounds the viewpoint field by the cross", () => {
+      expect(valueField(4).getAttribute("min")).toBe("1");
+      expect(valueField(4).getAttribute("max")).toBe("11");
+      setSize("3", "2");
+      expect(valueField(4).getAttribute("max")).toBe("4");
+    });
   });
 
   describe("Tool selection", () => {
@@ -358,6 +368,8 @@ describe("LogicGridSolverEditor", () => {
     test("only a directed kind is given arrows", () => {
       expect(arrows()).toHaveLength(4);
       expect(symbolTool(0).querySelector(".direction-toggle")).toBeNull();
+      // The viewpoint carries a number but points nowhere: chip + field only.
+      expect(symbolTool(4).querySelector(".direction-toggle")).toBeNull();
     });
 
     /**

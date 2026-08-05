@@ -143,17 +143,28 @@ TEST(Profile, DeclinesLotuses) {
   EXPECT_FALSE(profile::applicable(buildModel(lotused)));
 }
 
+/// And for the viewpoint, whose vertical rays reach across every row the
+/// frontier has already forgotten — declined like every non-letter kind.
+TEST(Profile, DeclinesViewpoints) {
+  const Puzzle plain = test::board({"a..", "...", "..a"});
+  ASSERT_TRUE(profile::applicable(buildModel(plain)));
+
+  Puzzle viewed = plain;
+  test::withViewpoint(viewed, 1, 1, 3);
+  EXPECT_FALSE(profile::applicable(buildModel(viewed)));
+}
+
 /**
  * And the whitelist itself: every rule the sweep does not name is refused,
  * whatever it is. Without this a rule appended to the catalogue tomorrow would
  * be accepted by default, exactly as `area-four-*` and darts would have been.
  */
 TEST(Profile, DeclinesEveryRuleItDoesNotName) {
+  using enum Rule;
   for (int index = 0; index < rules::kRuleCount; index++) {
     const auto rule = static_cast<Rule>(index);
-    const bool supported = rule == Rule::ConnectDark ||
-                           rule == Rule::ConnectLight ||
-                           rule == Rule::Underclued;
+    const bool supported =
+        rule == ConnectDark || rule == ConnectLight || rule == Underclued;
     EXPECT_EQ(takes({"a..", "...", "..a"}, {rule}), supported)
         << "rule " << rules::name(rule);
   }

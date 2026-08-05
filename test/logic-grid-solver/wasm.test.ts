@@ -12,11 +12,13 @@ import type { LogicGridTest } from "../../src/util/types";
 import {
   areaFiveBoard,
   areaFourBoard,
+  areaThreeBoard,
   areaTwoBoard,
   dartBoard,
   dartInMergedBoard,
   dartOverMergedBoard,
   deepSearchBoard,
+  diagonalBoard,
   forbiddenTripleBoard,
   impossibleBoard,
   lotusBoard,
@@ -25,7 +27,11 @@ import {
   runFiveBoard,
   solvableBoard,
   teeBoard,
+  threeOneBoard,
   undercluedBoard,
+  viewpointBoard,
+  viewpointOnMergedBoard,
+  viewpointOverMergedBoard,
 } from "./boards";
 
 /**
@@ -140,6 +146,13 @@ const CASES: Case[] = [
   // gets the same shortest-path-through-the-module board the runs have.
   ["forbidden-triple", forbiddenTripleBoard],
   ["tee", teeBoard],
+  // The next three pattern families, same argument: no captured board carries
+  // rules 26-31, so these are the only senders. The diagonal board is also the
+  // first whose clauses' cells are not orthogonally contiguous, and area three
+  // is `regionArea`'s at a size the table keeps no shapes for.
+  ["three-one", threeOneBoard],
+  ["diagonal", diagonalBoard],
+  ["area-three", areaThreeBoard],
   // The two dart boards are here for the same reason the merged-cell one is:
   // `toPuzzle` is the only place a clue's `direction` crosses the boundary, and
   // a sweep over the captured corpus would go green while never once sending
@@ -157,6 +170,11 @@ const CASES: Case[] = [
   // as an AXIS and the new `seat` key cross the boundary nowhere else.
   ["lotus", lotusBoard],
   ["lotus-over-merged", lotusOverMergedBoard],
+  // The viewpoint rides the same argument once more: hand-built senders of
+  // kind 4 and its gap-blocked sight, whatever the corpus happens to carry.
+  ["viewpoint", viewpointBoard],
+  ["viewpoint-over-merged", viewpointOverMergedBoard],
+  ["viewpoint-on-merged", viewpointOnMergedBoard],
   ["merged-cells", mergedCellBoard],
   ["deep-search", deepSearchBoard],
   ...captured.map(
@@ -234,5 +252,33 @@ describe("logic-grid wasm", () => {
     // The column the old rule would have named stays undecided, which is what
     // makes this a pin rather than a coincidence.
     expect([at(0, 1), at(0, 2)]).toEqual([UNKNOWN, UNKNOWN]);
+  }, 30_000);
+
+  /**
+   * The viewpoint's counterpart: a merged cell counts once per square a ray
+   * CROSSES, and an own-cell square off the rays does not count at all. The
+   * two on the L-cell's end is satisfiable only under that reading — the cell
+   * alone holds three squares, so "the whole cell counts" could never make
+   * two — and it caps both rays, forcing the squares beside it light while
+   * the corner its sight never reaches stays undecided.
+   */
+  test("a viewpoint counts squares along its rays, not its cell", async () => {
+    const wasm = await loadWasm();
+    const config = viewpointOnMergedBoard();
+    const result = wasm.solve(toPuzzle(config), {
+      engine: "cascade",
+      seed: 0,
+      maxMs: ARM_MS,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe("deduced");
+    expect(result.proven).toBeTrue();
+
+    const answer = flat(result.cells);
+    const at = (x: number, y: number) => answer[y * config.gridWidth + x];
+    expect([at(2, 0), at(1, 1)]).toEqual([LIGHT, LIGHT]);
+    // Invisible behind the stops, so the count says nothing about them.
+    expect([at(2, 1), at(1, 2)]).toEqual([UNKNOWN, UNKNOWN]);
   }, 30_000);
 });

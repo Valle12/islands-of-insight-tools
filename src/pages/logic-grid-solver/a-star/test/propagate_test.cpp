@@ -285,6 +285,30 @@ TEST(Propagate, ASeatedLotusMirrorsAcrossItsCellsSeam) {
 }
 
 /**
+ * One symmetry clue plus the colour's CONNECT rule folds the whole board:
+ * connectivity makes the lotus's region every cell of its colour, so a
+ * decided square ANYWHERE mirrors — not just the decided-connected core — and
+ * the fold reaches the other colour too: the dark corner's mirror cannot take
+ * light without dragging the corner into the light region, so it goes dark
+ * from clear across the board.
+ */
+TEST(Propagate, AConnectedLotusFoldsTheWholeBoard) {
+  Puzzle puzzle = test::board({"D....", ".....", "....."},
+                              test::ruleSet({Rule::ConnectLight}));
+  test::withGiven(puzzle, 2, 0, kLight);
+  test::withLotus(puzzle, 2, 0, kAxisVertical);
+  EXPECT_EQ(deduce(puzzle), Rows({"D.L.D", ".....", "....."}));
+
+  // Without the rule only the decided-connected core is provably in the
+  // region, and the far corner's mirror stays free — which pins that the fold
+  // really is the coupling, not a wider lotus.
+  Puzzle loose = test::board({"D....", ".....", "....."});
+  test::withGiven(loose, 2, 0, kLight);
+  test::withLotus(loose, 2, 0, kAxisVertical);
+  EXPECT_EQ(deduce(loose)[0][4], '.');
+}
+
+/**
  * The game's "uncoloured symmetry": a lotus with its own colour still open
  * already reflects a decided neighbour, whatever the lotus turns out to be.
  * Plain propagation cannot say so — the propagator skips an undecided lotus on
@@ -298,6 +322,94 @@ TEST(Propagate, UncolouredSymmetryFallsOutOfTheProbe) {
   ASSERT_EQ(probed.size(), 3U);
   EXPECT_EQ(probed[2][1], 'D');
   EXPECT_NE(plain, probed);
+}
+
+// --- Viewpoints -----------------------------------------------------------
+
+/// A viewpoint of one already sees its fill, so every ray is capped: the four
+/// squares beside it lose its colour, and the corners stay free.
+TEST(Propagate, AViewpointOfOneCapsEveryRay) {
+  Puzzle puzzle = test::board({"...", "...", "..."});
+  test::withGiven(puzzle, 1, 1, kDark);
+  test::withViewpoint(puzzle, 1, 1, 1);
+  EXPECT_EQ(deduce(puzzle), Rows({".L.", "LDL", ".L."}));
+}
+
+/// The other extreme, the game's "maximal viewpoint": a number equal to the
+/// whole cross means every ray is seen out to its end.
+TEST(Propagate, AMaximalViewpointPaintsItsWholeCross) {
+  Puzzle puzzle = test::board({"...", "...", "..."});
+  test::withGiven(puzzle, 1, 1, kDark);
+  test::withViewpoint(puzzle, 1, 1, 5);
+  EXPECT_EQ(deduce(puzzle), Rows({".D.", "DDD", ".D."}));
+}
+
+/**
+ * The game's "viewpoint expansion", and the corridor example it is usually
+ * told with: a three at the closed end of a corridor must see two more
+ * squares, so both take its colour — and the run must stop there, so the
+ * square after them takes the other. The square beyond THAT is invisible
+ * behind the stop and stays free.
+ */
+TEST(Propagate, AViewpointExpandsWhatEveryCompletionMustSee) {
+  Puzzle puzzle = test::board({"....."});
+  test::withGiven(puzzle, 0, 0, kDark);
+  test::withViewpoint(puzzle, 0, 0, 3);
+  EXPECT_EQ(deduce(puzzle), Rows({"DDDL."}));
+}
+
+/// A run already as long as the number allows must stop where it stands.
+TEST(Propagate, AViewpointAlreadyFullStopsTheRunBeyondIt) {
+  Puzzle puzzle = test::board({"....."});
+  test::withGiven(puzzle, 0, 0, kDark);
+  test::withGiven(puzzle, 1, 0, kDark);
+  test::withViewpoint(puzzle, 0, 0, 2);
+  EXPECT_EQ(deduce(puzzle), Rows({"DDL.."}));
+}
+
+/// Sight stops at the gap, so this board has two visible squares at most and a
+/// three can never be satisfied — by either colour.
+TEST(Propagate, AViewpointNoColourFitsIsRefused) {
+  Puzzle puzzle = test::board({"..#"});
+  test::withGiven(puzzle, 0, 0, kDark);
+  test::withViewpoint(puzzle, 0, 0, 3);
+  EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
+}
+
+/// Its own colour is still open, so it does not yet say which colour it
+/// counts. Only light fits a one beside a decided dark: dark would see it.
+TEST(Propagate, AViewpointOnlyOneColourFitsSettlesItsOwnCell) {
+  Puzzle puzzle = test::board({"..."});
+  test::withGiven(puzzle, 1, 0, kDark);
+  test::withViewpoint(puzzle, 0, 0, 1);
+  EXPECT_EQ(deduce(puzzle), Rows({"LD."}));
+}
+
+/// A forced ray square paints its whole merged cell — `Domains::exclude`'s
+/// fan-out, with the counting none the wiser — and the run then stops beyond.
+TEST(Propagate, AViewpointForcesAMergedCellOnItsRay) {
+  Puzzle puzzle = test::board({"....."});
+  test::withGiven(puzzle, 0, 0, kDark);
+  test::withShape(puzzle, {{1, 0}, {2, 0}, {3, 0}});
+  test::withViewpoint(puzzle, 0, 0, 4);
+  EXPECT_EQ(deduce(puzzle), Rows({"DDDDL"}));
+}
+
+/**
+ * An uncoloured viewpoint reasons through the probe, like an uncoloured
+ * lotus: a two here cannot be dark — the decided dark two squares along would
+ * pull the forced first square into a run of two and overload the count — so
+ * the probe settles it light, and the count then paints its one visible
+ * square. Plain propagation says nothing, on purpose: the shallow colour
+ * choice only refutes what no completion could satisfy at all.
+ */
+TEST(Propagate, AnUncolouredViewpointFallsOutOfTheProbe) {
+  Puzzle puzzle = test::board({"..D."});
+  test::withViewpoint(puzzle, 0, 0, 2);
+  const Rows plain = deduce(puzzle);
+  const Rows probed = lookAhead(puzzle);
+  EXPECT_EQ(plain, Rows({"..D."}));
+  EXPECT_EQ(probed, Rows({"LLD."}));
 }
 
 // --- Merged cells ---------------------------------------------------------

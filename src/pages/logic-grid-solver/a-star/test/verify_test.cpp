@@ -239,6 +239,89 @@ TEST(Verify, TheTwoTeeRulesAreSeparateSwitches) {
             Violation::Tee);
 }
 
+TEST(Verify, CatchesAThreeOneSquare) {
+  EXPECT_EQ(judge({"..", ".."}, {"DD", "DL"}, {Rule::NoThreeDarkOneLight}),
+            Violation::ThreeOne);
+  // All four of one colour is a different arrangement, and an even split too.
+  EXPECT_EQ(judge({"..", ".."}, {"DD", "DD"}, {Rule::NoThreeDarkOneLight}),
+            Violation::None);
+  EXPECT_EQ(judge({"..", ".."}, {"DD", "LL"}, {Rule::NoThreeDarkOneLight}),
+            Violation::None);
+}
+
+TEST(Verify, TheOddCellMayTakeAnyCorner) {
+  EXPECT_EQ(judge({"..", ".."}, {"LD", "DD"}, {Rule::NoThreeDarkOneLight}),
+            Violation::ThreeOne);
+  EXPECT_EQ(judge({"..", ".."}, {"DL", "DD"}, {Rule::NoThreeDarkOneLight}),
+            Violation::ThreeOne);
+  EXPECT_EQ(judge({"..", ".."}, {"DD", "LD"}, {Rule::NoThreeDarkOneLight}),
+            Violation::ThreeOne);
+}
+
+TEST(Verify, TheTwoThreeOneRulesAreSeparateSwitches) {
+  EXPECT_EQ(judge({"..", ".."}, {"LL", "LD"}, {Rule::NoThreeDarkOneLight}),
+            Violation::None);
+  EXPECT_EQ(judge({"..", ".."}, {"LL", "LD"}, {Rule::NoThreeLightOneDark}),
+            Violation::ThreeOne);
+}
+
+/// Three of a colour around a gap is legal: the rule wants a FULL 2x2 split
+/// three and one, and a gap is neither colour.
+TEST(Verify, AGapNeverCompletesAThreeOne) {
+  EXPECT_EQ(judge({"..", ".#"}, {"DD", "D#"}, {Rule::NoThreeDarkOneLight}),
+            Violation::None);
+}
+
+TEST(Verify, CatchesADiagonalTouchOnEitherDiagonal) {
+  EXPECT_EQ(judge({"..", ".."}, {"DL", "LD"}, {Rule::NoDarkDiagonal}),
+            Violation::Diagonal);
+  EXPECT_EQ(judge({"..", ".."}, {"LD", "DL"}, {Rule::NoDarkDiagonal}),
+            Violation::Diagonal);
+  EXPECT_EQ(judge({"...", "..."}, {"DDD", "LLL"}, {Rule::NoDarkDiagonal}),
+            Violation::None);
+}
+
+/// The literal reading: being joined through an orthogonal neighbour does not
+/// excuse the touch, so an L-bend and a filled 2x2 both break the rule and
+/// every legal region of the colour is a straight bar.
+TEST(Verify, AConnectedBendStillBreaksTheDiagonalRule) {
+  EXPECT_EQ(judge({"..", ".."}, {"DD", "DL"}, {Rule::NoDarkDiagonal}),
+            Violation::Diagonal);
+  EXPECT_EQ(judge({"..", ".."}, {"DD", "DD"}, {Rule::NoDarkDiagonal}),
+            Violation::Diagonal);
+}
+
+TEST(Verify, TheTwoDiagonalRulesAreSeparateSwitches) {
+  EXPECT_EQ(judge({"..", ".."}, {"DD", "LD"}, {Rule::NoLightDiagonal}),
+            Violation::None);
+  EXPECT_EQ(judge({"..", ".."}, {"DD", "LD"}, {Rule::NoDarkDiagonal}),
+            Violation::Diagonal);
+}
+
+/// The touch is the squares' geometry, not the board's: two cells meeting only
+/// across a gap's corner still meet.
+TEST(Verify, ATouchAcrossAGapsCornerStillCounts) {
+  EXPECT_EQ(judge({".#", "#."}, {"D#", "#D"}, {Rule::NoDarkDiagonal}),
+            Violation::Diagonal);
+}
+
+/// The area-THREE pair, appended after five. `everyRegionIs` and the family
+/// listing carry it, so what is pinned here is the two new rows.
+TEST(Verify, CatchesAnAreaThreeRegionOfTheWrongSize) {
+  EXPECT_EQ(judge({"...", "..."}, {"DDD", "LLL"}, {Rule::AreaThreeDark}),
+            Violation::None);
+  // The bent one, which no run rule reaches.
+  EXPECT_EQ(judge({"...", "..."}, {"DDL", "DLL"}, {Rule::AreaThreeDark}),
+            Violation::None);
+  EXPECT_EQ(judge({"...", "..."}, {"DDL", "LLL"}, {Rule::AreaThreeDark}),
+            Violation::RegionSize);
+  EXPECT_EQ(judge({"....", "...."}, {"DDDD", "LLLL"}, {Rule::AreaThreeDark}),
+            Violation::RegionSize);
+  // The same first colouring judged from the other side: light is a three too.
+  EXPECT_EQ(judge({"...", "..."}, {"DDD", "LLL"}, {Rule::AreaThreeLight}),
+            Violation::None);
+}
+
 TEST(Verify, CatchesADisconnectedColour) {
   EXPECT_EQ(judge({"...", "..."}, {"DLD", "LLL"}, {Rule::ConnectDark}),
             Violation::Disconnected);
@@ -303,6 +386,8 @@ TEST(Verify, EveryViolationHasAMessage) {
   EXPECT_STRNE(verify::describe(Violation::Triple), "");
   EXPECT_STRNE(verify::describe(Violation::Tee), "");
   EXPECT_STRNE(verify::describe(Violation::LotusAsymmetric), "");
+  EXPECT_STRNE(verify::describe(Violation::ThreeOne), "");
+  EXPECT_STRNE(verify::describe(Violation::Diagonal), "");
 }
 
 /// A dart on `(0, 0)` aimed along the top row, and a colouring to judge.
@@ -446,6 +531,89 @@ TEST(Verify, TwoLotusesEachHoldTheRegionToTheirOwnAxis) {
   // Still symmetric for the horizontal lotus; the vertical one is broken.
   EXPECT_EQ(verify::check(model, test::colors({"LDL", "DDL", "LDL"})),
             Violation::LotusAsymmetric);
+}
+
+/// A viewpoint on `(x, y)` holding `value`, and a colouring to judge.
+Violation judgeViewpoint(const std::vector<std::string> &picture,
+                         const std::vector<std::string> &painted, const int x,
+                         const int y, const int value) {
+  Puzzle puzzle = test::board(picture);
+  test::withViewpoint(puzzle, x, y, value);
+  return verify::check(buildModel(puzzle), test::colors(painted));
+}
+
+TEST(Verify, AViewpointCountsItselfAndItsLeadingRuns) {
+  EXPECT_EQ(judgeViewpoint({"....."}, {"DDLDD"}, 0, 0, 2), Violation::None);
+  EXPECT_EQ(judgeViewpoint({"....."}, {"DDLDD"}, 0, 0, 3),
+            Violation::ViewpointCount);
+}
+
+TEST(Verify, AViewpointSeesInAllFourDirections) {
+  EXPECT_EQ(judgeViewpoint({"...", "...", "..."}, {"LDL", "DDD", "LDL"}, 1, 1,
+                           5),
+            Violation::None);
+  EXPECT_EQ(judgeViewpoint({"...", "...", "..."}, {"LDL", "DDD", "LDL"}, 1, 1,
+                           4),
+            Violation::ViewpointCount);
+}
+
+/// The two colourings differ ONLY in the viewpoint's own square, and the same
+/// line reads as three lights from a light one and as one square from a dark.
+TEST(Verify, AViewpointTakesTheColourOfItsOwnCell) {
+  EXPECT_EQ(judgeViewpoint({"....."}, {"LLLDD"}, 0, 0, 3), Violation::None);
+  EXPECT_EQ(judgeViewpoint({"....."}, {"DLLDD"}, 0, 0, 1), Violation::None);
+  EXPECT_EQ(judgeViewpoint({"....."}, {"DLLDD"}, 0, 0, 3),
+            Violation::ViewpointCount);
+}
+
+/// Sight stops at a gap — where a dart's line steps over one, a viewpoint on
+/// the same board sees two squares and never the pair beyond the hole.
+TEST(Verify, SightStopsAtAGap) {
+  EXPECT_EQ(judgeViewpoint({"..#.."}, {"LL#LL"}, 0, 0, 2), Violation::None);
+  EXPECT_EQ(judgeViewpoint({"..#.."}, {"LL#LL"}, 0, 0, 4),
+            Violation::ViewpointCount);
+}
+
+/**
+ * A merged cell along a ray contributes every square the sight crosses — and
+ * the squares of the viewpoint's OWN cell count too, being its own colour by
+ * definition, which is where it differs from a dart's line.
+ */
+TEST(Verify, AViewpointCountsAMergedCellOncePerSquare) {
+  Puzzle over = test::board({"....."});
+  test::withViewpoint(over, 0, 0, 4);
+  test::withShape(over, {{1, 0}, {2, 0}, {3, 0}});
+  EXPECT_EQ(verify::check(buildModel(over), test::colors({"DDDDL"})),
+            Violation::None);
+
+  Puzzle own = test::board({"....."});
+  test::withViewpoint(own, 0, 0, 2);
+  test::withShape(own, {{0, 0}, {1, 0}});
+  const Model model = buildModel(own);
+  EXPECT_EQ(verify::check(model, test::colors({"DDLLL"})), Violation::None);
+  Puzzle tooFew = test::board({"....."});
+  test::withViewpoint(tooFew, 0, 0, 1);
+  test::withShape(tooFew, {{0, 0}, {1, 0}});
+  EXPECT_EQ(verify::check(buildModel(tooFew), test::colors({"DDLLL"})),
+            Violation::ViewpointCount);
+}
+
+/**
+ * Pure line geometry: an own-cell square OFF the rays does not count. The
+ * L-cell's third square sits diagonally from the clue, on no ray through it,
+ * so the count is two — the clue's square and the cell-mate on its left ray.
+ */
+TEST(Verify, AnOffRaySquareOfItsOwnCellDoesNotCount) {
+  Puzzle puzzle = test::board({"..", ".."});
+  test::withShape(puzzle, {{0, 0}, {1, 0}, {0, 1}});
+  test::withViewpoint(puzzle, 1, 0, 2);
+  const Model model = buildModel(puzzle);
+  EXPECT_EQ(verify::check(model, test::colors({"DD", "DL"})), Violation::None);
+  Puzzle three = test::board({"..", ".."});
+  test::withShape(three, {{0, 0}, {1, 0}, {0, 1}});
+  test::withViewpoint(three, 1, 0, 3);
+  EXPECT_EQ(verify::check(buildModel(three), test::colors({"DD", "DL"})),
+            Violation::ViewpointCount);
 }
 
 /// The same, for a board carrying one merged cell the picture cannot draw.

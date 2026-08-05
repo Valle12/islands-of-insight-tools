@@ -431,4 +431,118 @@ TEST(Lotuses, TheMirrorMapReflectsAcrossTheAxis) {
   EXPECT_EQ(lotus.mirror[slot(cellIndex(2, 2))], cellIndex(2, 0));
 }
 
+// --- Viewpoints -------------------------------------------------------------
+
+/// The own square always counts, so there is no viewpoint of zero — unlike a
+/// dart, whose count starts beyond its own cell.
+TEST(Viewpoints, AValueOfZeroIsRefused) {
+  Puzzle puzzle = test::board(open());
+  test::withViewpoint(puzzle, 0, 0, 0);
+  EXPECT_EQ(structureProblem(puzzle), Problem::ViewpointValue);
+}
+
+/// The ceiling is the whole cross — the row and the column, the own square
+/// counted once — which on a 3x3 is five.
+TEST(Viewpoints, ANumberBeyondTheCrossIsRefused) {
+  Puzzle good = test::board(open());
+  test::withViewpoint(good, 1, 1, 5);
+  EXPECT_EQ(structureProblem(good), Problem::None);
+  Puzzle bad = test::board(open());
+  test::withViewpoint(bad, 1, 1, 6);
+  EXPECT_EQ(structureProblem(bad), Problem::ViewpointValue);
+}
+
+/**
+ * The board-wide bound above cannot see this one: each ray is cut short by the
+ * first gap on it, so "fits the cross" and "fits what this viewpoint's sight
+ * can really reach" are different questions — the second worth a name, like a
+ * dart outgrowing its own line.
+ */
+TEST(Viewpoints, ANumberBeyondItsOwnSightIsNamed) {
+  Puzzle puzzle = test::board({".#.", "###", "..."});
+  test::withViewpoint(puzzle, 0, 0, 2);
+  ASSERT_EQ(structureProblem(puzzle), Problem::None);
+  EXPECT_EQ(contradiction(buildModel(puzzle)), Problem::ViewpointExceedsSight);
+}
+
+/// The generic net covers the new kind too: a seat belongs to a lotus alone.
+TEST(Viewpoints, ASeatIsRefused) {
+  Puzzle puzzle = test::board(open());
+  puzzle.clues.push_back({.index = cellIndex(0, 0),
+                          .kind = kClueViewpoint,
+                          .value = 1,
+                          .direction = kDirUp,
+                          .seat = 1});
+  EXPECT_EQ(structureProblem(puzzle), Problem::SeatOnWrongKind);
+}
+
+/**
+ * A viewpoint carries no direction, so whatever the field holds is IGNORED
+ * rather than range-checked: the C++ `Clue` default is a real direction and
+ * the bridge sends -1 for an absent key, and both must mean the same clue.
+ * Refusing either would trap one of the two writers.
+ */
+TEST(Viewpoints, ADirectionIsIgnored) {
+  for (const int direction : {-1, static_cast<int>(kDirUp)}) {
+    Puzzle puzzle = test::board(open());
+    puzzle.clues.push_back({.index = cellIndex(0, 0),
+                            .kind = kClueViewpoint,
+                            .value = 1,
+                            .direction = direction});
+    EXPECT_EQ(structureProblem(puzzle), Problem::None) << direction;
+  }
+}
+
+/// Sight stops at a gap, where a dart's line steps over one — the same board
+/// gives the dart three squares and the viewpoint's ray one.
+TEST(Viewpoints, TheRaysStopAtGaps) {
+  Puzzle puzzle = test::board({"..#..", "....."});
+  test::withViewpoint(puzzle, 0, 0, 1);
+  const Model model = buildModel(puzzle);
+  ASSERT_EQ(model.viewpoints.size(), 1U);
+  const Viewpoint &viewpoint = model.viewpoints.front();
+  ASSERT_EQ(viewpoint.rays[slot(kDirRight)].size(), 1U);
+  EXPECT_EQ(viewpoint.rays[slot(kDirRight)].front(), cellIndex(1, 0));
+  EXPECT_EQ(viewpoint.rays[slot(kDirDown)].size(), 1U);
+  EXPECT_TRUE(viewpoint.rays[slot(kDirUp)].empty());
+  EXPECT_TRUE(viewpoint.rays[slot(kDirLeft)].empty());
+}
+
+/// Unlike a dart's line, the rays KEEP the squares of the clue's own cell: a
+/// viewpoint counts its own colour, which its cell holds by definition.
+TEST(Viewpoints, TheRaysKeepTheOwnCellsSquares) {
+  Puzzle puzzle = test::board({"....."});
+  test::withShape(puzzle, {{0, 0}, {1, 0}});
+  test::withViewpoint(puzzle, 0, 0, 1);
+  const Model model = buildModel(puzzle);
+  ASSERT_EQ(model.viewpoints.size(), 1U);
+  const std::vector<int16_t> &ray =
+      model.viewpoints.front().rays[slot(kDirRight)];
+  ASSERT_EQ(ray.size(), 4U);
+  EXPECT_EQ(ray.front(), cellIndex(1, 0));
+}
+
+/// A viewpoint is a symbol for "one symbol per area" and nothing else: no area
+/// value, no letter group, no dart line, no mirror map.
+TEST(Viewpoints, AViewpointIsOnlyASymbol) {
+  Puzzle puzzle = test::board(open());
+  test::withViewpoint(puzzle, 1, 1, 3);
+  const Model model = buildModel(puzzle);
+  EXPECT_TRUE(model.areaClues.empty());
+  EXPECT_TRUE(model.dartClues.empty());
+  EXPECT_TRUE(model.lotusClues.empty());
+  EXPECT_TRUE(model.letters.empty());
+  ASSERT_EQ(model.viewpointClues.size(), 1U);
+  ASSERT_EQ(model.viewpoints.size(), 1U);
+  EXPECT_EQ(model.areaValueAt(cellIndex(1, 1)), 0);
+  EXPECT_GE(model.clueAt[slot(cellIndex(1, 1))], 0);
+}
+
+TEST(Viewpoints, EveryProblemHasAMessage) {
+  using enum Problem;
+  for (const Problem problem : {ViewpointValue, ViewpointExceedsSight})
+    EXPECT_STRNE(describe(problem), "")
+        << static_cast<int>(std::to_underlying(problem));
+}
+
 } // namespace

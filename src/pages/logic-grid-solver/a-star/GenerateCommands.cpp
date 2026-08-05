@@ -47,7 +47,9 @@ constexpr auto kColorRules = std::to_array<Rule>(
      Rule::AreaTwoDark, Rule::AreaTwoLight, Rule::AreaFourDark,
      Rule::AreaFourLight, Rule::AreaFiveDark, Rule::AreaFiveLight,
      Rule::NoDarkLightDark, Rule::NoLightDarkLight, Rule::NoDarkT,
-     Rule::NoLightT});
+     Rule::NoLightT, Rule::NoThreeDarkOneLight, Rule::NoThreeLightOneDark,
+     Rule::NoDarkDiagonal, Rule::NoLightDiagonal, Rule::AreaThreeDark,
+     Rule::AreaThreeLight});
 
 Bits heldBy(const Model &model, const Colors &colors, const uint8_t color) {
   Bits held;
@@ -319,6 +321,8 @@ struct ClueChances {
   int dart = 0;
   /// Off unless `--lotus` asks, with the same contract again.
   int lotus = 0;
+  /// Off unless `--viewpoints` asks, with the same contract a third time.
+  int viewpoint = 0;
 };
 
 /// The state that crosses every region: where the clues go, which cells already
@@ -377,18 +381,39 @@ bool lotusHoldsAt(const Model &model, const Colors &colors, const int spot,
 }
 
 /**
+ * How many squares a viewpoint at `spot` really sees, read off the colouring:
+ * its own square plus the leading same-colour run along each of the four rays.
+ * The same walk `Verify` does — sight stops at a gap, unlike a dart's line —
+ * so the clue is satisfiable by construction, and always at least one.
+ */
+int viewpointValueAt(const Model &model, const Colors &colors, const int spot) {
+  const uint8_t own = colors[slot(spot)];
+  int count = 1;
+  for (const auto &[stepX, stepY] : kDirectionSteps) {
+    for (int x = columnOf(spot) + stepX, y = rowOf(spot) + stepY;
+         x >= 0 && x < model.width() && y >= 0 && y < model.height() &&
+         colors[slot(cellIndex(x, y))] == own;
+         x += stepX, y += stepY)
+      count++;
+  }
+  return count;
+}
+
+/**
  * Puts at most one clue on one region, reading its value off the colouring.
  *
  * The `rng` draws here are in a fixed order — the spot, the area roll, the
- * letter roll, the dart roll, then the lotus roll — and every one after the
- * first is behind a short circuit that skips it entirely when it cannot
- * apply. Reordering them, or hoisting one out of its condition, silently
- * changes every board this generator has ever produced; each directed pair is
- * appended LAST-so-far and skipped outright at a zero chance, which is what
- * keeps `--darts 0` and `--lotus 0` reproducing exactly the boards they
- * always did. The lotus's satisfiability CHECK draws nothing, so a failed one
- * costs the region its clue and nothing else. Hash-compare regenerated
- * fixtures across several seeds after touching this.
+ * letter roll, the dart roll, the lotus roll, then the viewpoint roll — and
+ * every one after the first is behind a short circuit that skips it entirely
+ * when it cannot apply. Reordering them, or hoisting one out of its
+ * condition, silently changes every board this generator has ever produced;
+ * each new kind is appended LAST-so-far and skipped outright at a zero
+ * chance, which is what keeps `--darts 0`, `--lotus 0` and `--viewpoints 0`
+ * reproducing exactly the boards they always did. The lotus's satisfiability
+ * CHECK draws nothing, so a failed one costs the region its clue and nothing
+ * else; a viewpoint's value is READ off the colouring like a dart's, so its
+ * roll is the only number it draws. Hash-compare regenerated fixtures across
+ * several seeds after touching this.
  */
 void clueOneRegion(ClueRun &run, const ClueChances &chances,
                    const std::vector<int> &cells, const int size,
@@ -425,6 +450,14 @@ void clueOneRegion(ClueRun &run, const ClueChances &chances,
     run.used.set(spot);
     run.puzzle.clues.push_back(
         {.index = spot, .kind = kClueLotus, .direction = axis});
+    return;
+  }
+  if (chances.viewpoint > 0 && run.rng.uniform(0, 99) < chances.viewpoint) {
+    run.used.set(spot);
+    run.puzzle.clues.push_back(
+        {.index = spot,
+         .kind = kClueViewpoint,
+         .value = viewpointValueAt(model, colors, spot)});
   }
 }
 
@@ -445,7 +478,8 @@ void deriveClues(const Model &model, const Colors &colors, SeededRng &rng,
   const ClueChances chances{.area = sparse ? 25 : 70,
                             .letter = sparse ? 10 : 25,
                             .dart = options.darts,
-                            .lotus = options.lotus};
+                            .lotus = options.lotus,
+                            .viewpoint = options.viewpoints};
 
   for (const Bits &side : {colored, light}) {
     const Regions regions = labelRegions(side, model);

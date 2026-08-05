@@ -58,6 +58,12 @@ const RULE_ORDER: [number, string][] = [
   [23, "no-light-dark-light"],
   [24, "no-dark-t"],
   [25, "no-light-t"],
+  [26, "no-three-dark-one-light"],
+  [27, "no-three-light-one-dark"],
+  [28, "no-dark-diagonal"],
+  [29, "no-light-diagonal"],
+  [30, "area-three-dark"],
+  [31, "area-three-light"],
 ];
 
 /**
@@ -81,10 +87,16 @@ const ROW_ORDER: string[] = [
   "no-light-dark-light",
   "no-dark-t",
   "no-light-t",
+  "no-three-dark-one-light",
+  "no-three-light-one-dark",
+  "no-dark-diagonal",
+  "no-light-diagonal",
   "connect-dark",
   "connect-light",
   "area-two-dark",
   "area-two-light",
+  "area-three-dark",
+  "area-three-light",
   "area-four-dark",
   "area-four-light",
   "area-five-dark",
@@ -99,6 +111,7 @@ const SYMBOL_ORDER: [number, string][] = [
   [1, "letter"],
   [2, "dart"],
   [3, "lotus"],
+  [4, "viewpoint"],
 ];
 
 /** The four axes reuse the `direction` key, so their order is frozen too. */
@@ -228,6 +241,14 @@ describe("symbolValueMax", () => {
     ).toBe(8);
   });
 
+  test("a viewpoint is bounded by its cross, not the longest side", () => {
+    expect(symbolValueMax(symbolKindAt(4)!, SIZE)).toBe(9);
+    // The asymmetric board is what tells w + h - 1 apart from max(w, h) - 1.
+    expect(
+      symbolValueMax(symbolKindAt(4)!, { gridWidth: 3, gridHeight: 9 }),
+    ).toBe(11);
+  });
+
   test("a valueless kind has no number to bound", () => {
     expect(symbolValueMax(symbolKindAt(3)!, SIZE)).toBe(0);
   });
@@ -281,6 +302,18 @@ describe("symbolValueError", () => {
         "Letter values must be a single letter from A to Z.",
       );
     }
+  });
+
+  /** Its own square always counts, so there is no viewpoint of zero — unlike
+   * the dart, whose count starts beyond its own cell. */
+  test("a viewpoint counts itself, so its floor is one", () => {
+    const viewpoint = symbolKindAt(4)!;
+    expect(symbolValueError(viewpoint, 1, SIZE)).toBeNull();
+    expect(symbolValueError(viewpoint, 9, SIZE)).toBeNull();
+    expect(symbolValueError(viewpoint, 0, SIZE)).toBe(
+      "Viewpoint values must be integers between 1 and 9.",
+    );
+    expect(symbolValueError(viewpoint, 10, SIZE)).not.toBeNull();
   });
 
   /** Not merely ignored: a value on a clue that never reads one would look

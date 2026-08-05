@@ -10,7 +10,14 @@ import {
   toGrid,
   verifyLogicGrid,
 } from "../../src/pages/logic-grid-solver/verify";
-import { board, painted, withDart, withLotus, withShape } from "./boards";
+import {
+  board,
+  painted,
+  withDart,
+  withLotus,
+  withShape,
+  withViewpoint,
+} from "./boards";
 
 /**
  * The page's own rule checker — the last thing between a bad answer from the
@@ -170,6 +177,77 @@ describe("verifyLogicGrid", () => {
       );
       expect(judge(["...", "..."], ["LLL", "DLD"], ["no-light-t"])).toBe("tee");
     });
+
+    test("catches a 3+1 square with the odd cell on any corner", () => {
+      const rule = ["no-three-dark-one-light"];
+      expect(judge(["..", ".."], ["DD", "DL"], rule)).toBe("three-one");
+      expect(judge(["..", ".."], ["DD", "LD"], rule)).toBe("three-one");
+      expect(judge(["..", ".."], ["DL", "DD"], rule)).toBe("three-one");
+      expect(judge(["..", ".."], ["LD", "DD"], rule)).toBe("three-one");
+      // All four of one colour is a different arrangement, and an even split.
+      expect(judge(["..", ".."], ["DD", "DD"], rule)).toBe("none");
+      expect(judge(["..", ".."], ["DD", "LL"], rule)).toBe("none");
+    });
+
+    test("the two 3+1 rules are separate switches", () => {
+      expect(
+        judge(["..", ".."], ["LL", "LD"], ["no-three-dark-one-light"]),
+      ).toBe("none");
+      expect(
+        judge(["..", ".."], ["LL", "LD"], ["no-three-light-one-dark"]),
+      ).toBe("three-one");
+    });
+
+    /** Three of a colour around a gap is legal: the rule wants a FULL 2x2
+     * split three and one, and a gap is neither colour. */
+    test("a gap never completes a 3+1 square", () => {
+      expect(
+        judge(["..", ".#"], ["DD", "D#"], ["no-three-dark-one-light"]),
+      ).toBe("none");
+    });
+
+    test("catches a corner touch on either diagonal", () => {
+      expect(judge(["..", ".."], ["DL", "LD"], ["no-dark-diagonal"])).toBe(
+        "diagonal",
+      );
+      expect(judge(["..", ".."], ["LD", "DL"], ["no-dark-diagonal"])).toBe(
+        "diagonal",
+      );
+      expect(judge(["...", "..."], ["DDD", "LLL"], ["no-dark-diagonal"])).toBe(
+        "none",
+      );
+    });
+
+    /**
+     * The literal reading: being joined through an orthogonal neighbour does
+     * not excuse the touch, so an L-bend and a filled 2x2 both break the rule
+     * and every legal region of the colour is a straight bar.
+     */
+    test("a connected bend still breaks the diagonal rule", () => {
+      expect(judge(["..", ".."], ["DD", "DL"], ["no-dark-diagonal"])).toBe(
+        "diagonal",
+      );
+      expect(judge(["..", ".."], ["DD", "DD"], ["no-dark-diagonal"])).toBe(
+        "diagonal",
+      );
+    });
+
+    test("the two diagonal rules are separate switches", () => {
+      expect(judge(["..", ".."], ["DD", "LD"], ["no-light-diagonal"])).toBe(
+        "none",
+      );
+      expect(judge(["..", ".."], ["DD", "LD"], ["no-dark-diagonal"])).toBe(
+        "diagonal",
+      );
+    });
+
+    /** The touch is the squares' geometry, not the board's: two cells meeting
+     * only across a gap's corner still meet. */
+    test("a touch across a gap's corner still counts", () => {
+      expect(judge([".#", "#."], ["D#", "#D"], ["no-dark-diagonal"])).toBe(
+        "diagonal",
+      );
+    });
   });
 
   describe("connectivity", () => {
@@ -288,6 +366,31 @@ describe("verifyLogicGrid", () => {
       expect(
         judge(["......", "......"], ["DDDDDL", "LLLLLL"], ["area-five-light"]),
       ).toBe("region-size");
+    });
+
+    /**
+     * The area-THREE pair, appended after five and drawn beside its family.
+     * `regionAreaProblem` was already generic in the number, so what is pinned
+     * is the two new rows in `AREA_RULES`.
+     */
+    test("catches an area-three region that is too big or too small", () => {
+      expect(judge(["...", "..."], ["DDD", "LLL"], ["area-three-dark"])).toBe(
+        "none",
+      );
+      // The bent one, which no run rule reaches.
+      expect(judge(["...", "..."], ["DDL", "DLL"], ["area-three-dark"])).toBe(
+        "none",
+      );
+      expect(judge(["...", "..."], ["DDL", "LLL"], ["area-three-dark"])).toBe(
+        "region-size",
+      );
+      expect(judge(["....", "...."], ["DDDD", "LLLL"], ["area-three-dark"])).toBe(
+        "region-size",
+      );
+      // The same first colouring judged from the other side: light is a three.
+      expect(judge(["...", "..."], ["DDD", "LLL"], ["area-three-light"])).toBe(
+        "none",
+      );
     });
 
     /**
@@ -473,6 +576,109 @@ describe("verifyLogicGrid", () => {
       expect(verifyLogicGrid(config, painted(["LDL", "DDL", "LDL"]))).toBe(
         "symmetry",
       );
+    });
+  });
+
+  describe("viewpoints", () => {
+    /** A viewpoint on `(0, 0)` holding `value`, and a colouring to judge.
+     * Mirrors the viewpoint block in `a-star/test/verify_test.cpp`. */
+    const judgeViewpoint = (
+      picture: string[],
+      answer: string[],
+      value: number,
+    ) => {
+      const config = board(picture);
+      withViewpoint(config, 0, 0, value);
+      return verifyLogicGrid(config, painted(answer));
+    };
+
+    test("counts itself and its leading same-colour runs", () => {
+      expect(judgeViewpoint(["....."], ["DDLDD"], 2)).toBe("none");
+      expect(judgeViewpoint(["....."], ["DDLDD"], 3)).toBe("viewpoint");
+    });
+
+    test("sees in all four directions at once", () => {
+      const config = board(["...", "...", "..."]);
+      withViewpoint(config, 1, 1, 5);
+      expect(verifyLogicGrid(config, painted(["LDL", "DDD", "LDL"]))).toBe(
+        "none",
+      );
+      const four = board(["...", "...", "..."]);
+      withViewpoint(four, 1, 1, 4);
+      expect(verifyLogicGrid(four, painted(["LDL", "DDD", "LDL"]))).toBe(
+        "viewpoint",
+      );
+    });
+
+    test("takes the colour of its own cell, so it counts its own", () => {
+      // The two colourings differ ONLY in the viewpoint's own square: the
+      // same line reads as three from a light one and one from a dark one.
+      expect(judgeViewpoint(["....."], ["LLLDD"], 3)).toBe("none");
+      expect(judgeViewpoint(["....."], ["DLLDD"], 1)).toBe("none");
+      expect(judgeViewpoint(["....."], ["DLLDD"], 3)).toBe("viewpoint");
+    });
+
+    /** Sight STOPS at a gap — where a dart's line steps over one — so the
+     * pair past the hole is invisible however it is painted. */
+    test("sight stops at a gap", () => {
+      expect(judgeViewpoint(["..#.."], ["LL#LL"], 2)).toBe("none");
+      expect(judgeViewpoint(["..#.."], ["LL#LL"], 4)).toBe("viewpoint");
+    });
+
+    /**
+     * A merged cell along a ray contributes every square the sight crosses —
+     * and the squares of the viewpoint's OWN cell count too, being its own
+     * colour by definition, which is where it differs from a dart's line.
+     */
+    test("counts a merged cell once per square the sight crosses", () => {
+      const over = board(["....."]);
+      withViewpoint(over, 0, 0, 4);
+      withShape(over, [
+        [1, 0],
+        [2, 0],
+        [3, 0],
+      ]);
+      expect(verifyLogicGrid(over, painted(["DDDDL"]))).toBe("none");
+
+      const own = board(["....."]);
+      withViewpoint(own, 0, 0, 2);
+      withShape(own, [
+        [0, 0],
+        [1, 0],
+      ]);
+      expect(verifyLogicGrid(own, painted(["DDLLL"]))).toBe("none");
+      const tooFew = board(["....."]);
+      withViewpoint(tooFew, 0, 0, 1);
+      withShape(tooFew, [
+        [0, 0],
+        [1, 0],
+      ]);
+      expect(verifyLogicGrid(tooFew, painted(["DDLLL"]))).toBe("viewpoint");
+    });
+
+    /**
+     * Pure line geometry: an own-cell square OFF the rays does not count. The
+     * L-cell's third square sits diagonally from the clue, on no ray through
+     * it, so the count is two — the clue's square and the cell-mate on its
+     * left ray.
+     */
+    test("an off-ray square of its own cell does not count", () => {
+      const config = board(["..", ".."]);
+      withShape(config, [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+      ]);
+      withViewpoint(config, 1, 0, 2);
+      expect(verifyLogicGrid(config, painted(["DD", "DL"]))).toBe("none");
+      const three = board(["..", ".."]);
+      withShape(three, [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+      ]);
+      withViewpoint(three, 1, 0, 3);
+      expect(verifyLogicGrid(three, painted(["DD", "DL"]))).toBe("viewpoint");
     });
   });
 

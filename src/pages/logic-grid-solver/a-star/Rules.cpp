@@ -135,6 +135,11 @@ void addAreaShapes(const RuleMask mask, const uint8_t color, Patterns &into) {
   // pair — and then nothing of this colour can be coloured at all.
   if (impliedRun(mask, color) == 2)
     return;
+  // A bent tromino contains a corner touch, so the diagonal rule's two-cell
+  // clause fires before any tromino instance could — while the straight three
+  // stays with `addRuns`, which a diagonal pair says nothing about.
+  if (has(mask, color == kDark ? Rule::NoDarkDiagonal : Rule::NoLightDiagonal))
+    return;
   for (const Pattern &pattern : bentPatterns(color))
     into.emplace_back(pattern);
 }
@@ -212,7 +217,87 @@ void addTees(const RuleMask mask, const uint8_t color, Patterns &into) {
     return;
   if (const int run = impliedRun(mask, color); run != 0 && run <= 3)
     return;
+  // A T's stem touches both of the bar's end cells corner to corner, so the
+  // diagonal rule's two-cell clause fires before any T instance could.
+  if (has(mask, color == kDark ? NoDarkDiagonal : NoLightDiagonal))
+    return;
   for (const Pattern &pattern : teePatterns(color))
+    into.emplace_back(pattern);
+}
+
+/// The four ways a 2x2 can hold three of `color` and one of the other: the odd
+/// cell takes each corner in turn.
+std::array<Pattern, 4> threeOnePatterns(const uint8_t color) {
+  const auto box = std::to_array<PatternCell>({
+      {.dx = 0, .dy = 0, .color = color},
+      {.dx = 1, .dy = 0, .color = color},
+      {.dx = 0, .dy = 1, .color = color},
+      {.dx = 1, .dy = 1, .color = color},
+  });
+  std::array<Pattern, 4> out{};
+  for (int odd = 0; odd < 4; odd++) {
+    auto &[cells, count] = out[slot(odd)];
+    for (int i = 0; i < 4; i++) {
+      cells[slot(count)] = box[slot(i)];
+      if (i == odd)
+        cells[slot(count)].color = opposite(color);
+      count++;
+    }
+  }
+  return out;
+}
+
+/**
+ * The 3+1 rules — a 2x2 holding three of the colour and one of the other.
+ *
+ * Subsumed three ways, each because the three majority cells alone already
+ * break a stronger clause in the table: they always contain an orthogonal
+ * pair, they ARE a bent tromino, and they always contain a diagonally
+ * adjacent pair. The area gate is `== 2` exactly, not "2 or 3": an area of
+ * THREE puts no trominoes in the table, and a bent tromino of the colour can
+ * be a complete legal region of three with the fourth cell the other colour —
+ * which only this rule forbids. As with the T, an instance that cannot fire
+ * first would double-score one broken shape in `GenerateCommands::cost()`.
+ */
+void addThreeOnes(const RuleMask mask, const uint8_t color, Patterns &into) {
+  using enum Rule;
+  if (!has(mask, color == kDark ? NoThreeDarkOneLight : NoThreeLightOneDark))
+    return;
+  if (impliedRun(mask, color) == 2)
+    return;
+  if (smallestGlobalArea(mask, color) == 2)
+    return;
+  if (has(mask, color == kDark ? NoDarkDiagonal : NoLightDiagonal))
+    return;
+  for (const Pattern &pattern : threeOnePatterns(color))
+    into.emplace_back(pattern);
+}
+
+/// The two ways one colour can touch corner to corner: the falling diagonal of
+/// a 2x2 and the rising one. Two cells each — the first patterns whose cells
+/// are not orthogonally contiguous, which the compiler never required:
+/// contiguity is a region concept, and a pattern is just a list of offsets.
+std::array<Pattern, 2> diagonalPatterns(const uint8_t color) {
+  const auto cell = [color](const int dx, const int dy) {
+    return PatternCell{.dx = static_cast<int8_t>(dx),
+                       .dy = static_cast<int8_t>(dy),
+                       .color = color};
+  };
+  return {
+      fromCells(std::to_array({cell(0, 0), cell(1, 1)})),
+      fromCells(std::to_array({cell(1, 0), cell(0, 1)})),
+  };
+}
+
+/// The diagonal rules — never subsumed: the only other two-cell patterns are
+/// the orthogonal pairs, and a straight pair contains no corner touch. Several
+/// LARGER shapes contain one, and each of those is dropped at its own builder
+/// when a diagonal rule is active.
+void addDiagonals(const RuleMask mask, const uint8_t color, Patterns &into) {
+  using enum Rule;
+  if (!has(mask, color == kDark ? NoDarkDiagonal : NoLightDiagonal))
+    return;
+  for (const Pattern &pattern : diagonalPatterns(color))
     into.emplace_back(pattern);
 }
 
@@ -247,6 +332,12 @@ const char *name(const Rule rule) {
       "no-light-dark-light",
       "no-dark-t",
       "no-light-t",
+      "no-three-dark-one-light",
+      "no-three-light-one-dark",
+      "no-dark-diagonal",
+      "no-light-diagonal",
+      "area-three-dark",
+      "area-three-light",
   });
   static_assert(kNames.size() == kRuleCount,
                 "every rule needs its id, in index order");
@@ -267,9 +358,11 @@ int smallestGlobalArea(const RuleMask mask, const uint8_t color) {
 Patterns patternsFor(const RuleMask mask) {
   using enum Rule;
   Patterns patterns;
-  if (has(mask, NoDark2x2))
+  // A monochrome 2x2 contains a corner touch of its own colour, so under that
+  // colour's diagonal rule the two-cell clause always fires first.
+  if (has(mask, NoDark2x2) && !has(mask, NoDarkDiagonal))
     patterns.emplace_back(squarePattern(kDark));
-  if (has(mask, NoLight2x2))
+  if (has(mask, NoLight2x2) && !has(mask, NoLightDiagonal))
     patterns.emplace_back(squarePattern(kLight));
 
   addRuns(mask, kDark, patterns);
@@ -284,6 +377,12 @@ Patterns patternsFor(const RuleMask mask) {
   addTees(mask, kDark, patterns);
   addTees(mask, kLight, patterns);
 
+  addThreeOnes(mask, kDark, patterns);
+  addThreeOnes(mask, kLight, patterns);
+
+  addDiagonals(mask, kDark, patterns);
+  addDiagonals(mask, kLight, patterns);
+
   // The checkerboard lemma, which is why BOTH connect rules together imply the
   // checkerboard patterns even when the board never asked for them. Suppose a
   // 2x2 held one; join its two dark corners by a dark path and its two light
@@ -292,8 +391,13 @@ Patterns patternsFor(const RuleMask mask) {
   // dark cell is a light cell, so nowhere else. A pair of closed curves in the
   // plane cannot cross an odd number of times, so one of the two paths does not
   // exist and one of the two rules is broken.
-  if (has(mask, NoCheckerboard) ||
-      (has(mask, ConnectDark) && has(mask, ConnectLight))) {
+  //
+  // EITHER diagonal rule subsumes both patterns: a checkerboard is a dark
+  // corner touch and a light one in the same 2x2, so whichever colour's rule
+  // is on, its two-cell clause fires on every instance first.
+  if ((has(mask, NoCheckerboard) ||
+       (has(mask, ConnectDark) && has(mask, ConnectLight))) &&
+      !has(mask, NoDarkDiagonal) && !has(mask, NoLightDiagonal)) {
     patterns.emplace_back(checkerPattern(kDark));
     patterns.emplace_back(checkerPattern(kLight));
   }

@@ -74,7 +74,8 @@ inline constexpr uint8_t kClueArea = 0;
 inline constexpr uint8_t kClueLetter = 1;
 inline constexpr uint8_t kClueDart = 2;
 inline constexpr uint8_t kClueLotus = 3;
-inline constexpr int kClueKindCount = 4;
+inline constexpr uint8_t kClueViewpoint = 4;
+inline constexpr int kClueKindCount = 5;
 
 /// Letters arrive as 0..25 rather than as characters: the search never needs
 /// the glyph, and the two boundaries that do convert once.

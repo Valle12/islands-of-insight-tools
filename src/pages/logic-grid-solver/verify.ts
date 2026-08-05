@@ -43,7 +43,10 @@ export type LogicGridViolation =
   | "area-with-many-symbols"
   | "cell-split"
   | "dart"
-  | "symmetry";
+  | "symmetry"
+  | "three-one"
+  | "diagonal"
+  | "viewpoint";
 
 /**
  * A rule's position in the append-only catalogue, by its stable id.
@@ -69,6 +72,10 @@ const NO_DARK_LIGHT_DARK = ruleIndex("no-dark-light-dark");
 const NO_LIGHT_DARK_LIGHT = ruleIndex("no-light-dark-light");
 const NO_DARK_T = ruleIndex("no-dark-t");
 const NO_LIGHT_T = ruleIndex("no-light-t");
+const NO_THREE_DARK_ONE_LIGHT = ruleIndex("no-three-dark-one-light");
+const NO_THREE_LIGHT_ONE_DARK = ruleIndex("no-three-light-one-dark");
+const NO_DARK_DIAGONAL = ruleIndex("no-dark-diagonal");
+const NO_LIGHT_DIAGONAL = ruleIndex("no-light-diagonal");
 const ONE_SYMBOL_DARK = ruleIndex("one-symbol-dark");
 const ONE_SYMBOL_LIGHT = ruleIndex("one-symbol-light");
 export const UNDERCLUED = ruleIndex("underclued");
@@ -107,6 +114,8 @@ const AREA_RULES: readonly { index: number; color: number; area: number }[] = [
   { index: ruleIndex("area-four-light"), color: LIGHT, area: 4 },
   { index: ruleIndex("area-five-dark"), color: DARK, area: 5 },
   { index: ruleIndex("area-five-light"), color: LIGHT, area: 5 },
+  { index: ruleIndex("area-three-dark"), color: DARK, area: 3 },
+  { index: ruleIndex("area-three-light"), color: LIGHT, area: 3 },
 ];
 
 /**
@@ -126,6 +135,7 @@ const AREA_SYMBOL = symbolIndex("area");
 const LETTER_SYMBOL = symbolIndex("letter");
 const DART_SYMBOL = symbolIndex("dart");
 const LOTUS_SYMBOL = symbolIndex("lotus");
+const VIEWPOINT_SYMBOL = symbolIndex("viewpoint");
 
 /** The two axes with no reflection on a grid-line seat. Resolved by id like
  * every other index here, so a reorder fails loudly at import. */
@@ -296,18 +306,24 @@ function tripleProblem(
   return "none";
 }
 
+/** A bounds-checked "is (x, y) on the board and holding `color`" reader — the
+ * probe the centre-anchored scans share, since their steps walk off the board. */
+function holds(config: LogicGridTest, cells: number[], color: number) {
+  return (x: number, y: number) =>
+    x >= 0 &&
+    x < config.gridWidth &&
+    y >= 0 &&
+    y < config.gridHeight &&
+    at(config, cells, x, y) === color;
+}
+
 /**
  * A T of one colour: a straight three with a fourth cell on the middle's other
  * side. Scanned from the CENTRE, which sees all four rotations as a bar plus a
  * stem — and sees the T inside a plus, which contains one.
  */
 function hasTee(config: LogicGridTest, cells: number[], color: number) {
-  const held = (x: number, y: number) =>
-    x >= 0 &&
-    x < config.gridWidth &&
-    y >= 0 &&
-    y < config.gridHeight &&
-    at(config, cells, x, y) === color;
+  const held = holds(config, cells, color);
   for (let y = 0; y < config.gridHeight; y++) {
     for (let x = 0; x < config.gridWidth; x++) {
       if (!held(x, y)) continue;
@@ -334,6 +350,70 @@ function teeProblem(
 ): LogicGridViolation {
   if (has(config, NO_DARK_T) && hasTee(config, cells, DARK)) return "tee";
   if (has(config, NO_LIGHT_T) && hasTee(config, cells, LIGHT)) return "tee";
+  return "none";
+}
+
+/**
+ * A 2x2 holding exactly three of `color` and one of the other. Both colours
+ * are counted outright, so a 2x2 touching a gap can never qualify: a gap
+ * equals neither.
+ */
+function hasThreeOne(config: LogicGridTest, cells: number[], color: number) {
+  const other = color === DARK ? LIGHT : DARK;
+  for (let y = 0; y + 1 < config.gridHeight; y++) {
+    for (let x = 0; x + 1 < config.gridWidth; x++) {
+      const corners = [
+        at(config, cells, x, y),
+        at(config, cells, x + 1, y),
+        at(config, cells, x, y + 1),
+        at(config, cells, x + 1, y + 1),
+      ];
+      if (
+        corners.filter(held => held === color).length === 3 &&
+        corners.includes(other)
+      )
+        return true;
+    }
+  }
+  return false;
+}
+
+function threeOneProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  if (has(config, NO_THREE_DARK_ONE_LIGHT) && hasThreeOne(config, cells, DARK))
+    return "three-one";
+  if (has(config, NO_THREE_LIGHT_ONE_DARK) && hasThreeOne(config, cells, LIGHT))
+    return "three-one";
+  return "none";
+}
+
+/**
+ * Two cells of `color` touching corner to corner, anywhere at all — being
+ * joined through an orthogonal neighbour does not excuse the touch, which is
+ * what makes every region of the colour a straight bar. Scanned from each
+ * cell's two DOWNWARD diagonals, so every pair is seen exactly once.
+ */
+function hasDiagonal(config: LogicGridTest, cells: number[], color: number) {
+  const held = holds(config, cells, color);
+  for (let y = 0; y < config.gridHeight; y++) {
+    for (let x = 0; x < config.gridWidth; x++) {
+      if (!held(x, y)) continue;
+      if (held(x + 1, y + 1) || held(x - 1, y + 1)) return true;
+    }
+  }
+  return false;
+}
+
+function diagonalProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  if (has(config, NO_DARK_DIAGONAL) && hasDiagonal(config, cells, DARK))
+    return "diagonal";
+  if (has(config, NO_LIGHT_DIAGONAL) && hasDiagonal(config, cells, LIGHT))
+    return "diagonal";
   return "none";
 }
 
@@ -431,6 +511,49 @@ function dartProblem(
       if (at(config, cells, x, y) === other) count++;
     }
     if (count !== symbol.value) return "dart";
+  }
+  return "none";
+}
+
+/**
+ * Every viewpoint counts the squares it can SEE: its own square, plus the
+ * leading run of its own colour along each of the four directions. Sight
+ * stops at the first square of the other colour, at a gap — unlike a dart's
+ * line, which steps over one — and at the edge of the board. Squares are
+ * counted one at a time, so a merged cell contributes exactly the squares the
+ * sight crosses, wherever the rest of it lies; its own cell's squares count
+ * like any others, being the counted colour by definition.
+ *
+ * Walked from the clue like everything in this file: this is the one place
+ * that says out loud what a viewpoint sees, so a solver that built its rays
+ * wrongly has something to disagree with.
+ */
+function viewpointProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  for (const symbol of config.symbols) {
+    if (symbol.type !== VIEWPOINT_SYMBOL) continue;
+    const own = at(config, cells, symbol.x, symbol.y);
+    let count = 1;
+    for (const [dx, dy] of [
+      [0, -1],
+      [1, 0],
+      [0, 1],
+      [-1, 0],
+    ] as const) {
+      for (
+        let x = symbol.x + dx, y = symbol.y + dy;
+        x >= 0 &&
+        x < config.gridWidth &&
+        y >= 0 &&
+        y < config.gridHeight &&
+        at(config, cells, x, y) === own;
+        x += dx, y += dy
+      )
+        count++;
+    }
+    if (count !== symbol.value) return "viewpoint";
   }
   return "none";
 }
@@ -672,6 +795,8 @@ export function verifyLogicGrid(
     runProblem,
     tripleProblem,
     teeProblem,
+    threeOneProblem,
+    diagonalProblem,
     connectivityProblem,
     regionSizeProblem,
     areaProblem,
@@ -679,6 +804,7 @@ export function verifyLogicGrid(
     letterProblem,
     dartProblem,
     lotusProblem,
+    viewpointProblem,
   ];
   for (const check of checks) {
     const problem = check(config, cells);

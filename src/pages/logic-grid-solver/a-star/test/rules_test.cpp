@@ -3,6 +3,7 @@
 #include "Puzzle.h"
 #include "Rules.h"
 
+#include <algorithm>
 #include <gtest/gtest.h>
 #include <utility>
 
@@ -42,7 +43,13 @@ TEST(Rules, IndicesMirrorTheCatalogue) {
   EXPECT_EQ(std::to_underlying(Rule::NoLightDarkLight), 23);
   EXPECT_EQ(std::to_underlying(Rule::NoDarkT), 24);
   EXPECT_EQ(std::to_underlying(Rule::NoLightT), 25);
-  EXPECT_EQ(rules::kRuleCount, 26);
+  EXPECT_EQ(std::to_underlying(Rule::NoThreeDarkOneLight), 26);
+  EXPECT_EQ(std::to_underlying(Rule::NoThreeLightOneDark), 27);
+  EXPECT_EQ(std::to_underlying(Rule::NoDarkDiagonal), 28);
+  EXPECT_EQ(std::to_underlying(Rule::NoLightDiagonal), 29);
+  EXPECT_EQ(std::to_underlying(Rule::AreaThreeDark), 30);
+  EXPECT_EQ(std::to_underlying(Rule::AreaThreeLight), 31);
+  EXPECT_EQ(rules::kRuleCount, 32);
 }
 
 TEST(Rules, NamesAreTheIdsFromTheCatalogue) {
@@ -65,6 +72,14 @@ TEST(Rules, NamesAreTheIdsFromTheCatalogue) {
   EXPECT_STREQ(rules::name(Rule::NoLightDarkLight), "no-light-dark-light");
   EXPECT_STREQ(rules::name(Rule::NoDarkT), "no-dark-t");
   EXPECT_STREQ(rules::name(Rule::NoLightT), "no-light-t");
+  EXPECT_STREQ(rules::name(Rule::NoThreeDarkOneLight),
+               "no-three-dark-one-light");
+  EXPECT_STREQ(rules::name(Rule::NoThreeLightOneDark),
+               "no-three-light-one-dark");
+  EXPECT_STREQ(rules::name(Rule::NoDarkDiagonal), "no-dark-diagonal");
+  EXPECT_STREQ(rules::name(Rule::NoLightDiagonal), "no-light-diagonal");
+  EXPECT_STREQ(rules::name(Rule::AreaThreeDark), "area-three-dark");
+  EXPECT_STREQ(rules::name(Rule::AreaThreeLight), "area-three-light");
 }
 
 TEST(Rules, GlobalAreaListsItsMembers) {
@@ -74,6 +89,8 @@ TEST(Rules, GlobalAreaListsItsMembers) {
   EXPECT_EQ(smallestGlobalArea(rules::bit(Rule::AreaTwoLight), kLight), 2);
   EXPECT_EQ(smallestGlobalArea(rules::bit(Rule::AreaFourDark), kDark), 4);
   EXPECT_EQ(smallestGlobalArea(rules::bit(Rule::AreaFiveLight), kLight), 5);
+  EXPECT_EQ(smallestGlobalArea(rules::bit(Rule::AreaThreeDark), kDark), 3);
+  EXPECT_EQ(smallestGlobalArea(rules::bit(Rule::AreaThreeLight), kLight), 3);
   EXPECT_EQ(smallestGlobalArea(rules::bit(Rule::ConnectDark), kDark), 0);
 }
 
@@ -118,6 +135,19 @@ TEST(Patterns, AnAreaOfFiveImpliesARunOfSix) {
   EXPECT_EQ(patterns.back().count, 6);
   EXPECT_EQ(patterns.front().cells[5].dx, 5);
   EXPECT_EQ(patterns.back().cells[5].dy, 5);
+}
+
+/// Area THREE sits on four and five's side of the table trade: `regionArea`
+/// carries both halves, and the table sees only the implied straight run of
+/// FOUR — well inside `kMaxPatternCells`, so the constant did not move.
+TEST(Patterns, AnAreaOfThreeAddsNoShapesBeyondItsImpliedRun) {
+  const rules::Patterns patterns =
+      rules::patternsFor(rules::bit(Rule::AreaThreeDark));
+  ASSERT_EQ(patterns.size(), 2U);
+  EXPECT_EQ(patterns.front().count, 4);
+  EXPECT_EQ(patterns.back().count, 4);
+  EXPECT_EQ(patterns.front().cells[3].dx, 3);
+  EXPECT_EQ(patterns.back().cells[3].dy, 3);
 }
 
 /// Both sizes on one colour take the shorter implied run, and nothing else.
@@ -270,6 +300,157 @@ TEST(Patterns, ARunOfOneColourDoesNotSubsumeTheOtherTee) {
   EXPECT_EQ(patterns.size(), 6U);
 }
 
+TEST(Patterns, AThreeOneRuleIsFourMixedPatterns) {
+  // One per corner the odd cell can take, three of the colour and one of the
+  // other in each.
+  const rules::Patterns patterns =
+      rules::patternsFor(rules::bit(Rule::NoThreeDarkOneLight));
+  ASSERT_EQ(patterns.size(), 4U);
+  for (const auto &[cells, count] : patterns) {
+    ASSERT_EQ(count, 4);
+    // Only the first `count` entries are the pattern; the array's tail is
+    // default-initialised and happens to read as dark.
+    EXPECT_EQ(std::count_if(cells.begin(), cells.begin() + count,
+                            [](const auto &cell) {
+                              return cell.color == kDark;
+                            }),
+              3);
+  }
+}
+
+TEST(Patterns, TheTwoThreeOneRulesAreMirrors) {
+  const rules::Patterns patterns =
+      rules::patternsFor(rules::bit(Rule::NoThreeLightOneDark));
+  ASSERT_EQ(patterns.size(), 4U);
+  // The first pattern's odd cell is its first corner.
+  EXPECT_EQ(patterns.front().cells[0].color, kDark);
+  EXPECT_EQ(patterns.front().cells[1].color, kLight);
+  EXPECT_EQ(patterns.front().cells[2].color, kLight);
+  EXPECT_EQ(patterns.front().cells[3].color, kLight);
+}
+
+TEST(Patterns, APairRuleSubsumesTheThreeOne) {
+  // Three cells of a 2x2 always contain an orthogonal pair, so the pair
+  // clause fires first on every instance.
+  const rules::Patterns patterns = rules::patternsFor(
+      rules::bit(Rule::NoThreeDarkOneLight) | rules::bit(Rule::NoDark1x2));
+  ASSERT_EQ(patterns.size(), 2U);
+  EXPECT_EQ(patterns.front().count, 2);
+}
+
+TEST(Patterns, AnAreaOfTwoSubsumesTheThreeOne) {
+  // The three majority cells ARE a bent tromino, which the area rule lays out.
+  const rules::Patterns patterns = rules::patternsFor(
+      rules::bit(Rule::NoThreeDarkOneLight) | rules::bit(Rule::AreaTwoDark));
+  EXPECT_EQ(patterns.size(), 6U);
+}
+
+TEST(Patterns, AnAreaOfThreeDoesNotSubsumeTheThreeOne) {
+  // The near-miss the `== 2` gate exists for: an area of THREE lays out no
+  // trominoes, and a bent dark tromino with the odd corner light is a complete
+  // legal region of three — which only the 3+1 clause forbids. Dropping it
+  // here would silently weaken the rule.
+  const rules::Patterns patterns = rules::patternsFor(
+      rules::bit(Rule::NoThreeDarkOneLight) | rules::bit(Rule::AreaThreeDark));
+  ASSERT_EQ(patterns.size(), 6U);
+  const auto mixed = [](const rules::Pattern &pattern) {
+    return std::ranges::any_of(pattern.cells, [](const auto &cell) {
+      return cell.color == kLight;
+    });
+  };
+  EXPECT_EQ(std::ranges::count_if(patterns, mixed), 4);
+}
+
+TEST(Patterns, ADiagonalRuleSubsumesTheThreeOne) {
+  const rules::Patterns patterns = rules::patternsFor(
+      rules::bit(Rule::NoThreeDarkOneLight) | rules::bit(Rule::NoDarkDiagonal));
+  ASSERT_EQ(patterns.size(), 2U);
+  EXPECT_EQ(patterns.front().count, 2);
+}
+
+TEST(Patterns, ADiagonalRuleIsTwoPatterns) {
+  // The falling diagonal of a 2x2 and the rising one — the first patterns
+  // whose cells are not orthogonally contiguous.
+  const rules::Patterns patterns =
+      rules::patternsFor(rules::bit(Rule::NoDarkDiagonal));
+  ASSERT_EQ(patterns.size(), 2U);
+  EXPECT_EQ(patterns.front().count, 2);
+  EXPECT_EQ(patterns.front().cells[1].dx, 1);
+  EXPECT_EQ(patterns.front().cells[1].dy, 1);
+  EXPECT_EQ(patterns.back().count, 2);
+  EXPECT_EQ(patterns.back().cells[0].dx, 1);
+  EXPECT_EQ(patterns.back().cells[1].dy, 1);
+}
+
+TEST(Patterns, TheTwoDiagonalRulesAreMirrors) {
+  const rules::Patterns patterns =
+      rules::patternsFor(rules::bit(Rule::NoLightDiagonal));
+  ASSERT_EQ(patterns.size(), 2U);
+  EXPECT_EQ(patterns.front().cells[0].color, kLight);
+  EXPECT_EQ(patterns.front().cells[1].color, kLight);
+}
+
+TEST(Patterns, ADiagonalRuleSubsumesTheSquare) {
+  // A monochrome 2x2 contains a corner touch of its own colour.
+  const rules::Patterns patterns = rules::patternsFor(
+      rules::bit(Rule::NoDark2x2) | rules::bit(Rule::NoDarkDiagonal));
+  ASSERT_EQ(patterns.size(), 2U);
+  EXPECT_EQ(patterns.front().count, 2);
+}
+
+TEST(Patterns, ADiagonalRuleOfOneColourKeepsTheOtherSquare) {
+  const rules::Patterns patterns = rules::patternsFor(
+      rules::bit(Rule::NoLight2x2) | rules::bit(Rule::NoDarkDiagonal));
+  EXPECT_EQ(patterns.size(), 3U);
+}
+
+TEST(Patterns, ADiagonalRuleSubsumesTheTee) {
+  // A T's stem touches both of the bar's ends corner to corner.
+  const rules::Patterns patterns = rules::patternsFor(
+      rules::bit(Rule::NoDarkT) | rules::bit(Rule::NoDarkDiagonal));
+  EXPECT_EQ(patterns.size(), 2U);
+}
+
+TEST(Patterns, ADiagonalRuleSubsumesTheTrominoes) {
+  // The bent four contain a corner touch; the straight pair from the implied
+  // run does not, and stays.
+  const rules::Patterns patterns = rules::patternsFor(
+      rules::bit(Rule::AreaTwoDark) | rules::bit(Rule::NoDarkDiagonal));
+  ASSERT_EQ(patterns.size(), 4U);
+  EXPECT_EQ(patterns[0].count, 3);
+  EXPECT_EQ(patterns[1].count, 3);
+  EXPECT_EQ(patterns[2].count, 2);
+  EXPECT_EQ(patterns[3].count, 2);
+}
+
+TEST(Patterns, ADiagonalRuleSubsumesBothCheckerboards) {
+  using enum Rule;
+  // A checkerboard is a dark corner touch AND a light one in the same 2x2, so
+  // whichever colour's rule is on fires first on every instance.
+  const rules::Patterns explicitRule = rules::patternsFor(
+      rules::bit(NoCheckerboard) | rules::bit(NoDarkDiagonal));
+  ASSERT_EQ(explicitRule.size(), 2U);
+  EXPECT_EQ(explicitRule.front().count, 2);
+  const rules::Patterns implied = rules::patternsFor(
+      rules::bit(ConnectDark) | rules::bit(ConnectLight) |
+      rules::bit(NoLightDiagonal));
+  ASSERT_EQ(implied.size(), 2U);
+  EXPECT_EQ(implied.front().count, 2);
+}
+
+TEST(Patterns, ADiagonalRuleDoesNotSubsumeTheRuns) {
+  // A straight bar has no corner touch, so the run clauses keep their work.
+  const rules::Patterns patterns = rules::patternsFor(
+      rules::bit(Rule::NoDark1x3) | rules::bit(Rule::NoDarkDiagonal));
+  EXPECT_EQ(patterns.size(), 4U);
+}
+
+TEST(Patterns, ADiagonalRuleDoesNotSubsumeTheTriples) {
+  const rules::Patterns patterns = rules::patternsFor(
+      rules::bit(Rule::NoDarkLightDark) | rules::bit(Rule::NoDarkDiagonal));
+  EXPECT_EQ(patterns.size(), 4U);
+}
+
 TEST(Patterns, TheTwoAreaRulesDoNotSubsumeEachOther) {
   const rules::Patterns patterns = rules::patternsFor(
       rules::bit(Rule::AreaTwoDark) | rules::bit(Rule::AreaTwoLight));
@@ -308,6 +489,18 @@ TEST(Patterns, InstancesCoverEveryAnchorThatFits) {
   const Model model =
       buildModel(test::board({"...", "...", "..."}, rules::bit(Rule::NoDark2x2)));
   EXPECT_EQ(model.clauses.size(), 4U);
+}
+
+TEST(Patterns, ADiagonalPairInsideOneMergedCellIsAUnitClause) {
+  // An L-cell holds both squares of the falling pair, so its two literals
+  // collapse to one: the cell can never be dark at all. The rising pair keeps
+  // its squares in different cells and stays a two-literal clause.
+  Puzzle puzzle = test::board({"..", ".."}, rules::bit(Rule::NoDarkDiagonal));
+  test::withShape(puzzle, {{0, 0}, {1, 0}, {1, 1}});
+  const Model model = buildModel(puzzle);
+  ASSERT_EQ(model.clauses.size(), 2U);
+  const auto unit = [](const Clause &clause) { return clause.count == 1; };
+  EXPECT_EQ(std::ranges::count_if(model.clauses, unit), 1);
 }
 
 TEST(Patterns, ABentInstanceFitsWhereAStraightOneCannot) {

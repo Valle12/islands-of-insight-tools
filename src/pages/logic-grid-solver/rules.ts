@@ -15,6 +15,14 @@ export interface LogicGridRule {
   readonly label: string;
   /** Where it is drawn. Says nothing about where it is stored. */
   readonly group: LogicGridRuleGroup;
+  /**
+   * WHERE in its band the chip is drawn, when the frozen storage position is
+   * not where it belongs on screen. Defaults to the storage index, so a band
+   * normally reads in catalogue order; a fractional value slots a
+   * late-appended rule between older neighbours — display-only, exactly like
+   * `group`, and free to change the same way.
+   */
+  readonly order?: number;
 }
 
 /**
@@ -107,6 +115,46 @@ export const RULES: readonly LogicGridRule[] = [
   // The T-tetromino, in any of its four rotations.
   { id: "no-dark-t", label: "No dark T", group: "arrangement" },
   { id: "no-light-t", label: "No light T", group: "arrangement" },
+  // A 2x2 holding exactly three of one colour and one of the other. The id
+  // names the majority colour first, so the dark-first pair rule holds.
+  {
+    id: "no-three-dark-one-light",
+    label: "No 3 dark + 1 light",
+    group: "arrangement",
+  },
+  {
+    id: "no-three-light-one-dark",
+    label: "No 3 light + 1 dark",
+    group: "arrangement",
+  },
+  // No two cells of the colour touching corner to corner — even inside one
+  // connected piece, so an L-bend and a filled 2x2 both break it and every
+  // region of the colour is a straight bar.
+  {
+    id: "no-dark-diagonal",
+    label: "No dark diagonal",
+    group: "arrangement",
+  },
+  {
+    id: "no-light-diagonal",
+    label: "No light diagonal",
+    group: "arrangement",
+  },
+  // Region sizes again, appended like four and five — and DRAWN between the
+  // area-two and area-four pairs, so the band reads by size. `order` slots
+  // them there; sharing one value keeps dark before light by stability.
+  {
+    id: "area-three-dark",
+    label: "Dark regions have area 3",
+    group: "region",
+    order: 17.5,
+  },
+  {
+    id: "area-three-light",
+    label: "Light regions have area 3",
+    group: "region",
+    order: 17.5,
+  },
 ];
 
 /** How many rules a puzzle can draw from — every known one. */
@@ -125,15 +173,20 @@ const GROUP_ORDER: readonly LogicGridRuleGroup[] = [
  *
  * This exists so the catalogue can stay append-only while the row still reads
  * in family order — `area-two-dark` is stored at 16 and drawn beside
- * `connect-light` at 12. Grouping is stable, so within a band the chips keep
- * their catalogue order and a rule appended to an existing band lands at the end
- * of it without anything else being touched.
+ * `connect-light` at 12. Within a band the chips sort by `order ?? index`,
+ * stably: a rule appended to an existing band lands at the end of it without
+ * anything else being touched, unless its entry says where else it belongs —
+ * which is how the area-three pair draws between area-two and area-four while
+ * being stored at 30 and 31.
  *
  * Nothing is stored in this order and nothing may be: it is the row's layout and
  * may be changed freely, which is exactly what `RULES` may not.
  */
 export const RULE_DISPLAY_ORDER: readonly number[] = GROUP_ORDER.flatMap(
-  group => RULES.flatMap((rule, index) => (rule.group === group ? [index] : [])),
+  group =>
+    RULES.flatMap((rule, index) => (rule.group === group ? [index] : [])).sort(
+      (a, b) => (RULES[a]!.order ?? a) - (RULES[b]!.order ?? b),
+    ),
 );
 
 export function ruleAt(index: number): LogicGridRule | undefined {

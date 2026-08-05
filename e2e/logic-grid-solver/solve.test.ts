@@ -7,6 +7,7 @@ import {
   mergedCellBoard,
   solvableBoard,
   undercluedBoard,
+  viewpointBoard,
 } from "../../test/logic-grid-solver/boards";
 
 // Every visit goes through gotoIsolated: this page registers the COOP/COEP
@@ -294,5 +295,48 @@ test.describe("Logic Grid Solver solving", () => {
       "horizontal",
     );
     await expect(solutionCell(page, 0, 0)).toHaveAttribute("data-seat", "2");
+  });
+
+  /**
+   * The viewpoint end to end: the dark three at the corridor's closed end must
+   * see two more squares — sight stopping at the gap — and the light five
+   * below fills its whole row. A value lost at either boundary would settle a
+   * different board, and the answer has to come back wearing the number and
+   * its chevron ring.
+   */
+  test("solves a board its viewpoints settle, and keeps their chevrons", async ({
+    page,
+  }) => {
+    await upload(page, viewpointBoard());
+    await page.getByRole("button", { name: "Solve Grid" }).click();
+
+    await expect(page.locator("#solution-view")).toBeVisible();
+
+    // The three extends the dark corridor to the gap...
+    for (const x of [1, 2]) {
+      await expect(solutionCell(page, x, 0)).toHaveAttribute(
+        "data-color",
+        "dark",
+      );
+    }
+    // ...and the five paints the whole bottom row light.
+    for (const x of [1, 2, 3, 4]) {
+      await expect(solutionCell(page, x, 1)).toHaveAttribute(
+        "data-color",
+        "light",
+      );
+    }
+
+    // The answer is drawn with the same clues the editor showed, ring and all.
+    await expect(solutionCell(page, 0, 0)).toHaveAttribute(
+      "data-viewpoint",
+      "",
+    );
+    await expect(solutionCell(page, 0, 0).locator(".cell-value")).toHaveText(
+      "3",
+    );
+    await expect(
+      solutionCell(page, 0, 1).locator(".cell-chevron"),
+    ).toHaveCount(4);
   });
 });
