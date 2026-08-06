@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "gridWidth": 6,
+  "gridHeight": 6,
+  "rules": [
+    0,
+    11
+  ],
+  "cells": [
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  ],
+  "symbols": [
+    {
+      "x": 5,
+      "y": 0,
+      "type": 2,
+      "value": 3,
+      "direction": 3
+    },
+    {
+      "x": 0,
+      "y": 2,
+      "type": 2,
+      "value": 2,
+      "direction": 2
+    },
+    {
+      "x": 2,
+      "y": 2,
+      "type": 2,
+      "value": 2,
+      "direction": 2
+    },
+    {
+      "x": 4,
+      "y": 2,
+      "type": 2,
+      "value": 2,
+      "direction": 2
+    },
+    {
+      "x": 5,
+      "y": 2,
+      "type": 2,
+      "value": 5,
+      "direction": 3
+    },
+    {
+      "x": 0,
+      "y": 3,
+      "type": 2,
+      "value": 2,
+      "direction": 0
+    },
+    {
+      "x": 2,
+      "y": 3,
+      "type": 2,
+      "value": 2,
+      "direction": 0
+    },
+    {
+      "x": 4,
+      "y": 3,
+      "type": 2,
+      "value": 2,
+      "direction": 0
+    },
+    {
+      "x": 5,
+      "y": 3,
+      "type": 2,
+      "value": 5,
+      "direction": 3
+    },
+    {
+      "x": 5,
+      "y": 5,
+      "type": 2,
+      "value": 3,
+      "direction": 3
+    }
+  ]
+}

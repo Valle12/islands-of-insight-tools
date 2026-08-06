@@ -6,7 +6,7 @@ import {
   migrationNotice,
   validateConfig,
 } from "../../src/pages/logic-grid-solver/config";
-import { RULE_COUNT } from "../../src/pages/logic-grid-solver/rules";
+import { RULE_COUNT, RULES } from "../../src/pages/logic-grid-solver/rules";
 import { SYMBOL_KIND_COUNT } from "../../src/pages/logic-grid-solver/symbols";
 import type { LogicGridTest } from "../../src/util/types";
 
@@ -37,6 +37,52 @@ describe("validateConfig (logic grid)", () => {
     expect(result.ok).toBeTrue();
     if (!result.ok) return;
     expect(result.config).toEqual(validConfig);
+  });
+
+  /**
+   * Under "Numbers are off by one" every numeric clue displays its true count
+   * ± 1, so a displayed ZERO is legal exactly when the file carries rule 32 —
+   * and the same file without it is refused with the un-widened bounds.
+   */
+  test("a displayed zero needs the off-by-one rule", () => {
+    const offByOne = RULES.findIndex(rule => rule.id === "off-by-one");
+    const zeroed = {
+      ...clone(),
+      rules: [offByOne],
+      symbols: [{ x: 0, y: 0, type: 0, value: 0 }],
+    };
+    const withRule = validateConfig(zeroed);
+    expect(withRule.ok).toBeTrue();
+    if (withRule.ok) {
+      expect(withRule.config.symbols).toEqual([
+        { x: 0, y: 0, type: 0, value: 0 },
+      ]);
+    }
+    expect(validateConfig({ ...zeroed, rules: [] })).toEqual({
+      ok: false,
+      error: "Area number values must be integers between 1 and 6.",
+    });
+  });
+
+  /** A galaxy is position and kind alone, and a value on one is refused by
+   * the same generic net that covers the lotus. */
+  test("a galaxy round-trips bare and refuses a value", () => {
+    const galaxy = 5;
+    const bare = {
+      ...clone(),
+      symbols: [{ x: 0, y: 0, type: galaxy }],
+    };
+    const result = validateConfig(bare);
+    expect(result.ok).toBeTrue();
+    if (result.ok) {
+      expect(result.config.symbols).toEqual([{ x: 0, y: 0, type: galaxy }]);
+    }
+    expect(
+      validateConfig({
+        ...clone(),
+        symbols: [{ x: 0, y: 0, type: galaxy, value: 0 }],
+      }),
+    ).toEqual({ ok: false, error: "Galaxy symbols carry no value." });
   });
 
   test("a board with no rules and no clues is still a board", () => {
@@ -265,18 +311,6 @@ describe("validateConfig (logic grid)", () => {
       "Column 1, row 2 is a different colour from the rest of its merged cell.",
     ],
     [
-      "two symbols on one merged cell",
-      {
-        ...validConfig,
-        symbols: [
-          { x: 0, y: 1, type: 0, value: 2 },
-          { x: 1, y: 1, type: 1, value: "B" },
-        ],
-        shapes: [[3, 4]],
-      },
-      "A merged cell carries more than one symbol.",
-    ],
-    [
       "a dart with no direction",
       { ...validConfig, symbols: [{ x: 0, y: 0, type: 2, value: 1 }] },
       "Dart directions must be integers between 0 and 3.",
@@ -423,6 +457,23 @@ describe("validateConfig (logic grid)", () => {
     expect(result.config.symbols).toEqual([
       { x: 1, y: 1, type: 2, value: 1, direction: 1 },
     ]);
+  });
+
+  test("accepts several clues on one merged cell, one per square", () => {
+    // The game's harder boards do exactly this — two darts on one domino. An
+    // impossible combination (two different letters, say) still loads; the
+    // SOLVER is what refuses it, with an honest unsolvable.
+    const result = validateConfig({
+      ...clone(),
+      symbols: [
+        { x: 0, y: 1, type: 2, value: 1, direction: 1 },
+        { x: 1, y: 1, type: 2, value: 0, direction: 0 },
+      ],
+      shapes: [[3, 4]],
+    });
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.config.symbols).toHaveLength(2);
   });
 
   test("accepts a dart and keeps the way it points", () => {

@@ -55,6 +55,12 @@ struct ViewpointSpec {
   int value = 1;
 };
 
+/// A galaxy: where it sits, and nothing else — no value, direction or seat.
+struct GalaxySpec {
+  int x = 0;
+  int y = 0;
+};
+
 struct Case {
   std::string name;
   std::vector<std::string> picture;
@@ -63,6 +69,7 @@ struct Case {
   std::vector<DartSpec> darts;
   std::vector<LotusSpec> lotuses;
   std::vector<ViewpointSpec> viewpoints;
+  std::vector<GalaxySpec> galaxies;
 };
 
 /// gtest appends `# GetParam() = …` to every discovered name, and without this
@@ -83,6 +90,7 @@ struct Board {
   std::vector<DartSpec> darts;
   std::vector<LotusSpec> lotuses;
   std::vector<ViewpointSpec> viewpoints;
+  std::vector<GalaxySpec> galaxies;
 };
 
 struct RuleSet {
@@ -234,6 +242,87 @@ std::vector<Case> allCases() {
        .picture = {"...", "...", "..."},
        .merges = {{{1, 0}, {2, 0}}},
        .viewpoints = {{.x = 0, .y = 0, .value = 3}}},
+      // A viewpoint of ONE: the collapse case under off-by-one — its displayed
+      // 0 twin cannot join this roster, since a 0 is only legal WITH the rule
+      // and every board here runs under every rule set.
+      {.name = "viewpointOne",
+       .picture = {"...", "...", "..."},
+       .viewpoints = {{.x = 1, .y = 1, .value = 1}}},
+      // Seven wide: the first board an area-six implied run of SEVEN can even
+      // instantiate on. Deliberately no 8x2 sibling — 2^16 per rule set is
+      // real money, and the run-of-eight is pinned in rules_test and crossed
+      // through the wasm boundary instead.
+      {.name = "wide7", .picture = {".......", "......."}},
+      // Two area clues whose displayed values differ by exactly two — the
+      // off-by-2 trick's board. Legal under EVERY rule set here: without
+      // off-by-one they are honest counts in separate corners.
+      {.name = "areasOffByTwo", .picture = {"1..", "...", "..3"}},
+      // Galaxies. The propagator is the lotus's shared fold under a point
+      // mirror, and over-doing either half removes real solutions only this
+      // suite can see.
+      {.name = "galaxy",
+       .picture = {"...", "...", "..."},
+       .galaxies = {{.x = 1, .y = 1}}},
+      // Off-centre, so most of the board turns off an edge — the heaviest use
+      // of the opposing-nulls refusal, the lotusEdge of the half turn.
+      {.name = "galaxyEdge",
+       .picture = {"...", "...", "..."},
+       .galaxies = {{.x = 0, .y = 0}}},
+      // Two galaxies: connected they would compose to a translation no finite
+      // region survives — the "galaxies cannot touch" theorem, deliberately
+      // coded nowhere, with brute force as its referee.
+      {.name = "twoGalaxies",
+       .picture = {"...", "...", "..."},
+       .galaxies = {{.x = 1, .y = 0}, {.x = 1, .y = 2}}},
+      // A galaxy ON a merged cell: the mirror is about its own SQUARE, and its
+      // cell-mate must land somewhere playable — here it does.
+      {.name = "galaxyOnCell",
+       .picture = {"...", "...", "..."},
+       .merges = {{{0, 0}, {1, 0}}},
+       .galaxies = {{.x = 1, .y = 0}}},
+      // ...and a merged cell inside the mirrored REGION rather than under the
+      // clue itself.
+      {.name = "galaxyOverCell",
+       .picture = {"...", "...", "..."},
+       .merges = {{{1, 0}, {2, 0}}},
+       .galaxies = {{.x = 0, .y = 0}}},
+      // The own-cell mirror off the board: every colouring fuses the cell into
+      // the galaxy's region and its far square turns past the edge, so brute
+      // force must count zero solutions and the engine must agree.
+      {.name = "galaxyOffCell",
+       .picture = {"..."},
+       .merges = {{{0, 0}, {1, 0}}},
+       .galaxies = {{.x = 0, .y = 0}}},
+      // A merged cell may carry SEVERAL clues, one per square — the game's
+      // harder boards put two darts on one domino. The next five are that
+      // capability across the kinds, brute force refereeing what each
+      // combination really admits.
+      {.name = "twoDartsOneCell",
+       .picture = {"...", "...", "..."},
+       .merges = {{{0, 0}, {1, 0}}},
+       .darts = {{.x = 0, .y = 0, .value = 1, .direction = kDirRight},
+                 {.x = 1, .y = 0, .value = 1, .direction = kDirDown}}},
+      // Two area numbers that AGREE about their shared region.
+      {.name = "twoAreasOneCell",
+       .picture = {"22.", "...", "..."},
+       .merges = {{{0, 0}, {1, 0}}}},
+      // ...and two that cannot both be exact: one region cannot have area 2
+      // and 4 at once, so plain rule sets must count zero solutions — while
+      // under off-by-one the candidate sets {1,3} and {3,5} intersect at 3,
+      // the off-by-2 trick landing on a single CELL.
+      {.name = "areasDisagreeOnCell",
+       .picture = {"24.", "...", "..."},
+       .merges = {{{0, 0}, {1, 0}}}},
+      // Two different letters welded together can never sit in different
+      // regions: zero solutions, reached by search rather than by structure.
+      {.name = "twoLettersOneCell",
+       .picture = {"ab.", "...", "..."},
+       .merges = {{{0, 0}, {1, 0}}}},
+      // Mixed kinds on one cell are legal and solvable.
+      {.name = "dartAndLetterOneCell",
+       .picture = {"a..", "...", "..."},
+       .merges = {{{0, 0}, {1, 0}}},
+       .darts = {{.x = 1, .y = 0, .value = 1, .direction = kDirDown}}},
   };
   const std::vector<RuleSet> ruleSets = {
       {.name = "none", .rules = {}},
@@ -333,11 +422,100 @@ std::vector<Case> allCases() {
       {.name = "areaThreeDark", .rules = {AreaThreeDark}},
       {.name = "areaThreeBoth", .rules = {AreaThreeDark, AreaThreeLight}},
       {.name = "areaThreeAndConnect", .rules = {AreaThreeDark, ConnectLight}},
+      // The elbow rules and their gates: the area-two pairing is the DEDUP
+      // (both would lay the same four shapes), area-three the near-miss where
+      // dropping would be wrong, and the pair/diagonal pairings the ordinary
+      // subsumptions.
+      {.name = "elbowDark", .rules = {NoDarkElbow}},
+      {.name = "elbowBoth", .rules = {NoDarkElbow, NoLightElbow}},
+      {.name = "elbowWithAreaTwo", .rules = {NoDarkElbow, AreaTwoDark}},
+      {.name = "elbowWithAreaThree", .rules = {NoDarkElbow, AreaThreeDark}},
+      {.name = "elbowWithDiagonal", .rules = {NoDarkElbow, NoDarkDiagonal}},
+      {.name = "elbowWithPair", .rules = {NoDarkElbow, NoDark1x2}},
+      // The L rules: both handednesses compiled, and every gate proved to
+      // keep all the colourings a full table would — the area-four pairing is
+      // the near-miss where an L-shaped region of four is legal.
+      {.name = "ellDark", .rules = {NoDarkEll}},
+      {.name = "ellBoth", .rules = {NoDarkEll, NoLightEll}},
+      {.name = "ellWithRun3", .rules = {NoDarkEll, NoDark1x3}},
+      {.name = "ellWithElbow", .rules = {NoDarkEll, NoDarkElbow}},
+      {.name = "ellWithKnight", .rules = {NoDarkEll, NoDarkKnight}},
+      {.name = "ellWithAreaFour", .rules = {NoDarkEll, AreaFourDark}},
+      // The distance rules — the first patterns that fire across a gap, which
+      // the `gaps` and `dartGap` boards above exercise directly — and the
+      // rules they newly subsume: the long runs and the triples, but never
+      // the domino.
+      {.name = "distanceDark", .rules = {NoDarkAnyDark}},
+      {.name = "distanceBoth", .rules = {NoDarkAnyDark, NoLightAnyLight}},
+      {.name = "distanceWithRun3", .rules = {NoDarkAnyDark, NoDark1x3}},
+      {.name = "distanceWithPair", .rules = {NoDarkAnyDark, NoDark1x2}},
+      {.name = "distanceWithTriple",
+       .rules = {NoDarkAnyDark, NoDarkLightDark}},
+      {.name = "distanceAndConnect", .rules = {NoDarkAnyDark, ConnectDark}},
+      // The long T, subsumed six ways over; the area-five pairing is its
+      // near-miss, a long-T region of exactly five being legal under it.
+      {.name = "longTeeDark", .rules = {NoDarkLongT}},
+      {.name = "longTeeWithTee", .rules = {NoDarkLongT, NoDarkT}},
+      {.name = "longTeeWithEll", .rules = {NoDarkLongT, NoDarkEll}},
+      {.name = "longTeeWithAreaFive", .rules = {NoDarkLongT, AreaFiveDark}},
+      // The knight rules — subsumed by nothing, subsuming the L and long T.
+      {.name = "knightDark", .rules = {NoDarkKnight}},
+      {.name = "knightBoth", .rules = {NoDarkKnight, NoLightKnight}},
+      {.name = "knightWithDiagonal", .rules = {NoDarkKnight, NoDarkDiagonal}},
+      // The mixed T — its bar IS a triple, its ends a distance pair, and one
+      // arm-crossing-stem corner a mixed elbow, so each pairing proves a drop.
+      {.name = "mixedTeeDark", .rules = {NoLightCrossedDarkT}},
+      {.name = "mixedTeeBoth",
+       .rules = {NoLightCrossedDarkT, NoDarkCrossedLightT}},
+      {.name = "mixedTeeWithTriple",
+       .rules = {NoLightCrossedDarkT, NoDarkLightDark}},
+      {.name = "mixedTeeWithMixedElbow",
+       .rules = {NoLightCrossedDarkT, NoDarkLightDarkElbow}},
+      // The mixed elbow — subsumed only by its ENDS' diagonal rule, and newly
+      // subsuming the 3+1 and the checkerboard.
+      {.name = "mixedElbowDark", .rules = {NoDarkLightDarkElbow}},
+      {.name = "mixedElbowBoth",
+       .rules = {NoDarkLightDarkElbow, NoLightDarkLightElbow}},
+      {.name = "mixedElbowWithDiagonal",
+       .rules = {NoDarkLightDarkElbow, NoDarkDiagonal}},
+      {.name = "mixedElbowWithThreeOne",
+       .rules = {NoThreeDarkOneLight, NoDarkLightDarkElbow}},
+      {.name = "mixedElbowWithChecker",
+       .rules = {NoDarkLightDarkElbow, NoCheckerboard}},
+      // The larger areas. Six is the first size whose implied run of seven
+      // fits only the wide7 board; twenty-four degenerates to "the colour is
+      // absent" on every board here, and BOTH at twenty-four is unsolvable
+      // everywhere — every cell needs a colour — which is exactly worth
+      // sweeping because it looks like a special case and is not one.
+      {.name = "areaSixDark", .rules = {AreaSixDark}},
+      {.name = "areaSixBoth", .rules = {AreaSixDark, AreaSixLight}},
+      {.name = "areaSevenDark", .rules = {AreaSevenDark}},
+      {.name = "areaTwentyFourDark", .rules = {AreaTwentyFourDark}},
+      {.name = "areaTwentyFourBoth",
+       .rules = {AreaTwentyFourDark, AreaTwentyFourLight}},
+      // Off-by-one: every numeric clue's displayed value bent by one, with
+      // the connect pairing driving `cardinality`, the one-symbol pairing
+      // `clueReach`, and the area-two pairing `mergeLimits` — each of them a
+      // candidate-set consumer with its own way to over-prune.
+      {.name = "offByOne", .rules = {OffByOne}},
+      {.name = "offByOneAndConnect", .rules = {OffByOne, ConnectDark}},
+      {.name = "offByOneOneSymbol", .rules = {OffByOne, OneSymbolDark}},
+      {.name = "offByOneAreaTwo", .rules = {OffByOne, AreaTwoDark}},
+      // The collinearity emission (connect + elbow => every off-axis pair)
+      // and the border-arc propagator (both connects => two perimeter arcs).
+      // Both are derived facts whose over-pruning nothing at runtime could
+      // catch, which is exactly what this sweep exists for.
+      {.name = "elbowAndConnect", .rules = {NoDarkElbow, ConnectDark}},
+      {.name = "elbowLightAndConnect", .rules = {NoLightElbow, ConnectLight}},
+      {.name = "elbowAndConnectBoth",
+       .rules = {NoDarkElbow, ConnectDark, ConnectLight}},
+      {.name = "teeAndConnectBoth",
+       .rules = {NoDarkT, ConnectDark, ConnectLight}},
   };
 
   std::vector<Case> cases;
-  for (const auto &[boardName, picture, merges, darts, lotuses, viewpoints] :
-       boards) {
+  for (const auto &[boardName, picture, merges, darts, lotuses, viewpoints,
+                    galaxies] : boards) {
     for (const auto &[ruleSetName, ruleList] : ruleSets)
       cases.push_back({.name = std::string(boardName) + "_" + ruleSetName,
                        .picture = picture,
@@ -345,7 +523,8 @@ std::vector<Case> allCases() {
                        .merges = merges,
                        .darts = darts,
                        .lotuses = lotuses,
-                       .viewpoints = viewpoints});
+                       .viewpoints = viewpoints,
+                       .galaxies = galaxies});
   }
   return cases;
 }
@@ -360,6 +539,8 @@ Puzzle puzzleFor(const Case &one) {
     test::withLotus(puzzle, x, y, axis, seat);
   for (const auto &[x, y, value] : one.viewpoints)
     test::withViewpoint(puzzle, x, y, value);
+  for (const auto &[x, y] : one.galaxies)
+    test::withGalaxy(puzzle, x, y);
   return puzzle;
 }
 

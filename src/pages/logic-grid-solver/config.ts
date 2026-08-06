@@ -11,6 +11,7 @@ import {
 import type { LogicGridSymbol, LogicGridTest } from "../../util/types";
 import { CELL_LIMIT, UNPLAYABLE } from "./cell";
 import { RULE_COUNT } from "./rules";
+import { OFF_BY_ONE } from "./verify";
 import {
   axisIndex,
   SYMBOL_KIND_COUNT,
@@ -132,6 +133,7 @@ function symbolError(
   gridWidth: number,
   gridHeight: number,
   cells: number[][],
+  offByOne: boolean,
 ): string | null {
   if (typeof symbol !== "object" || symbol === null) {
     return "Every symbol must be a JSON object.";
@@ -161,6 +163,7 @@ function symbolError(
   const valueProblem = symbolValueError(kind, raw.value, {
     gridWidth,
     gridHeight,
+    offByOne,
   });
   if (valueProblem !== null) return valueProblem;
   const directionProblem = symbolDirectionError(kind, raw.direction);
@@ -189,13 +192,14 @@ function symbolsError(
   gridWidth: number,
   gridHeight: number,
   cells: number[][],
+  offByOne: boolean,
 ): string | null {
   if (!Array.isArray(symbols)) {
     return "symbols must be an array.";
   }
   const seen = new Set<number>();
   for (const symbol of symbols) {
-    const problem = symbolError(symbol, gridWidth, gridHeight, cells);
+    const problem = symbolError(symbol, gridWidth, gridHeight, cells, offByOne);
     if (problem !== null) return problem;
 
     const entry = symbol as LogicGridSymbol;
@@ -300,12 +304,21 @@ function connectedError(shape: number[], gridWidth: number): string | null {
     : "Every merged cell must be one connected shape.";
 }
 
-/** Returns the first problem with the merged-cell layer, or null. */
+/**
+ * Returns the first problem with the merged-cell layer, or null.
+ *
+ * A merged cell may carry SEVERAL clues, one per square — the game's harder
+ * boards do exactly that (two darts on one domino). WHICH square each clue
+ * sits on is the player's own choice and is data: a dart's square is where
+ * its ray starts and a symmetry symbol's is half of its seat, so every kind
+ * keeps the square the file names. Combinations no colouring can satisfy
+ * (two different letters, disagreeing area numbers) are the solver's to
+ * refuse — the board loads, and Solve answers unsolvable by name.
+ */
 function shapesError(
   shapes: unknown,
   size: { gridWidth: number; gridHeight: number },
   cells: number[][],
-  symbols: LogicGridSymbol[],
 ): string | null {
   if (!Array.isArray(shapes)) {
     return "shapes must be an array.";
@@ -314,19 +327,6 @@ function shapesError(
   for (const shape of shapes) {
     const problem = shapeError(shape, size, cells, claimed);
     if (problem !== null) return problem;
-
-    // A merged cell is ONE cell, so it carries at most one clue however many
-    // squares it spans — and WHICH of its squares that clue sits on is the
-    // player's own choice, so there is nothing else to ask. A dart's square is
-    // where its ray starts and a symmetry symbol's is half of its seat, so
-    // every kind keeps the square the file names.
-    const squares = shape as number[];
-    const clued = symbols.filter(symbol =>
-      squares.includes(symbol.y * size.gridWidth + symbol.x),
-    );
-    if (clued.length > 1) {
-      return "A merged cell carries more than one symbol.";
-    }
   }
   return null;
 }
@@ -400,12 +400,17 @@ export function validateConfig(data: unknown): ConfigParseResult {
 
   const rulesProblem = rulesError(raw.rules);
   if (rulesProblem !== null) return { ok: false, error: rulesProblem };
+  // Read AFTER `rulesError`, so the list is known to be well formed: a file
+  // with rule 32 on may carry a displayed 0 — and one without it may not,
+  // whatever build wrote it.
+  const offByOne = (raw.rules as number[]).includes(OFF_BY_ONE);
 
   const symbolsProblem = symbolsError(
     raw.symbols,
     gridWidth,
     gridHeight,
     cells,
+    offByOne,
   );
   if (symbolsProblem !== null) return { ok: false, error: symbolsProblem };
 
@@ -436,12 +441,7 @@ export function validateConfig(data: unknown): ConfigParseResult {
   };
 
   if (raw.shapes !== undefined) {
-    const shapesProblem = shapesError(
-      raw.shapes,
-      { gridWidth, gridHeight },
-      cells,
-      symbols,
-    );
+    const shapesProblem = shapesError(raw.shapes, { gridWidth, gridHeight }, cells);
     if (shapesProblem !== null) return { ok: false, error: shapesProblem };
     const shapes = (raw.shapes as number[][]).map(shape => [...shape]);
     if (shapes.length > 0) config.shapes = shapes;

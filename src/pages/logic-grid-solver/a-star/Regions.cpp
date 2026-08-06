@@ -17,7 +17,7 @@ namespace {
  * and a dart is a symbol like any other. Only what a kind says about its region
  * is kind-specific, and a dart says nothing: it talks about a line across the
  * board rather than about the region it happens to sit in. So it falls through
- * with the count and nothing else, and must never reach `areaValue`, which
+ * with the count and nothing else, and must never reach the area band, which
  * would read its number as a size the region has to have.
  */
 void absorbClue(Regions &regions, const Model &model, const int id,
@@ -33,10 +33,36 @@ void absorbClue(Regions &regions, const Model &model, const int id,
   }
   if (clue.kind != kClueArea)
     return;
-  if (int &value = regions.areaValue[slot(id)]; value == 0)
-    value = clue.value;
-  else if (value != clue.value)
-    value = kAreaConflict;
+
+  int &lo = regions.areaLo[slot(id)];
+  int &hi = regions.areaHi[slot(id)];
+  if (hi == kAreaConflict)
+    return;
+  const ClueCandidates candidates = model.candidatesFor(clue);
+  if (lo == 0 && hi == 0) {
+    if (candidates.empty()) {
+      hi = kAreaConflict;
+      return;
+    }
+    lo = candidates.lo();
+    hi = candidates.hi();
+    return;
+  }
+  // Exact SET intersection of two at-most-two-value sets — the off-by-2
+  // trick: {a-1, a+1} and {b-1, b+1} share the middle value when |a - b| is
+  // exactly two, share both when a == b, and share nothing otherwise.
+  ClueCandidates merged;
+  for (int i = 0; i < candidates.count; i++) {
+    if (const int value = candidates.values[slot(i)];
+        value == lo || value == hi)
+      merged.add(value);
+  }
+  if (merged.empty()) {
+    hi = kAreaConflict;
+    return;
+  }
+  lo = merged.lo();
+  hi = merged.hi();
 }
 
 /// Queues every unlabelled orthogonal neighbour inside `set`. The bounds test
@@ -72,7 +98,8 @@ Regions labelRegions(const Bits &set, const Model &model) {
       continue;
     const int id = regions.count();
     regions.size.push_back(0);
-    regions.areaValue.push_back(0);
+    regions.areaLo.push_back(0);
+    regions.areaHi.push_back(0);
     regions.letters.push_back(0);
     regions.clues.push_back(0);
     regions.id[slot(start)] = id;

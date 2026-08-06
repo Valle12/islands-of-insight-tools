@@ -72,7 +72,10 @@ export class Board {
   }
 
   renderGrid() {
-    this.grid.style.gridTemplateColumns = `repeat(${this.gridWidth}, minmax(0, 1fr))`;
+    // Fixed-size tracks, never minmax(0, 1fr): the squares have a hard width,
+    // so a track allowed to shrink below it makes the cells overlap sideways
+    // at narrow viewports. Fixed tracks let #grid-shell scroll instead.
+    this.grid.style.gridTemplateColumns = `repeat(${this.gridWidth}, var(--mt-cell))`;
 
     // One fragment, one insertion: appending cell by cell to a live #grid
     // makes the browser lay out the whole grid on every one of them.

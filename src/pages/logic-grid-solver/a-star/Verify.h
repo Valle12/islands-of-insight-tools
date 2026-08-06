@@ -55,6 +55,23 @@ enum class Violation : uint8_t {
   Diagonal,
   /// A viewpoint's number does not match the squares it can see.
   ViewpointCount,
+  /// A bent tromino of one colour — a 2x2 with one square left out.
+  Elbow,
+  /// An L-tetromino of one colour, in either handedness.
+  Ell,
+  /// Two cells of one colour exactly two apart in a straight line.
+  DistancePair,
+  /// A T whose three arms are one colour and whose crossing is the other.
+  MixedTee,
+  /// A T-pentomino of one colour: a bar of three with a stem of two.
+  LongTee,
+  /// Two cells of one colour a chess knight's move apart.
+  Knight,
+  /// A bent tromino whose ends are one colour and whose corner is the other.
+  MixedElbow,
+  /// A galaxy symbol's region does not map to itself under a half turn about
+  /// the galaxy's own square.
+  GalaxyAsymmetric,
 };
 
 const char *describe(Violation violation);

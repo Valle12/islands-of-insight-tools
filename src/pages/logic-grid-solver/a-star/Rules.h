@@ -91,9 +91,51 @@ enum class Rule : uint8_t {
   // halves and the table sees only the implied straight run of FOUR.
   AreaThreeDark = 30,
   AreaThreeLight = 31,
+  // Not a colouring rule: it changes what every NUMERIC clue's displayed
+  // value means — the true count is the displayed value ± 1, and never the
+  // displayed value itself. Letters and the valueless kinds are untouched.
+  OffByOne = 32,
+  // The bent tromino, any orientation — the same four shapes an area of two
+  // contributes to the table, standing as their own rule.
+  NoDarkElbow = 33,
+  NoLightElbow = 34,
+  // The L-tetromino, BOTH mirror forms: eight orientations per colour.
+  NoDarkEll = 35,
+  NoLightEll = 36,
+  // Two squares of the colour exactly two apart in a straight line, whatever
+  // lies between them — the first patterns that fire ACROSS a gap, since only
+  // the two end squares are named.
+  NoDarkAnyDark = 37,
+  NoLightAnyLight = 38,
+  // Region sizes six and seven: `regionArea` carries both halves, and the
+  // table sees only the implied straight runs of seven and eight.
+  AreaSixDark = 39,
+  AreaSixLight = 40,
+  AreaSevenDark = 41,
+  AreaSevenLight = 42,
+  // The T-tetromino with its CROSSING cell — the bar's middle, where the stem
+  // attaches — the other colour and the three remaining cells the named one.
+  NoLightCrossedDarkT = 43,
+  NoDarkCrossedLightT = 44,
+  // The T-pentomino: a bar of three with a stem of TWO from its middle.
+  NoDarkLongT = 45,
+  NoLightLongT = 46,
+  // Area twenty-four sits past the table entirely: its implied run of 25
+  // outgrows `kMaxPatternCells`, so `addRuns` skips the emission and
+  // `regionArea` alone carries the size.
+  AreaTwentyFourDark = 47,
+  AreaTwentyFourLight = 48,
+  // Two squares of the colour a chess knight's move apart. Positional like
+  // the diagonal and distance rules: nothing between the squares is named.
+  NoDarkKnight = 49,
+  NoLightKnight = 50,
+  // The bent tromino with its CORNER cell — the square touching both others —
+  // the other colour and both ends the named one.
+  NoDarkLightDarkElbow = 51,
+  NoLightDarkLightElbow = 52,
 };
 
-inline constexpr int kRuleCount = 32;
+inline constexpr int kRuleCount = 53;
 
 /// The active rules as a bit per index. 64 wide because the catalogue reached
 /// exactly 32 rules on a 32-bit mask — the next appended rule would have been
@@ -137,6 +179,12 @@ inline constexpr auto kAreaFamily = std::to_array<AreaRule>({
     {.rule = Rule::AreaFiveLight, .color = kLight, .area = 5},
     {.rule = Rule::AreaThreeDark, .color = kDark, .area = 3},
     {.rule = Rule::AreaThreeLight, .color = kLight, .area = 3},
+    {.rule = Rule::AreaSixDark, .color = kDark, .area = 6},
+    {.rule = Rule::AreaSixLight, .color = kLight, .area = 6},
+    {.rule = Rule::AreaSevenDark, .color = kDark, .area = 7},
+    {.rule = Rule::AreaSevenLight, .color = kLight, .area = 7},
+    {.rule = Rule::AreaTwentyFourDark, .color = kDark, .area = 24},
+    {.rule = Rule::AreaTwentyFourLight, .color = kLight, .area = 24},
 });
 
 /**
@@ -158,12 +206,15 @@ struct PatternCell {
   uint8_t color = kDark;
 };
 
-/// The most cells any pattern here needs: the run of SIX an area-five rule
+/// The most cells any pattern here needs: the run of EIGHT an area-seven rule
 /// implies. It sizes `Clause`, so raising it costs a little memory per clause
 /// and nothing else — every loop over a pattern or a clause is driven by its
 /// own `count`. `runPattern` writes `cells[i]` with no assert of its own, so
-/// this must never lag the longest `impliedRun` any rule set can produce.
-inline constexpr int kMaxPatternCells = 6;
+/// this must never lag the longest `impliedRun` `addRuns` will lay out — and
+/// that is enforced in code now, not prose: a run the table cannot hold (area
+/// twenty-four's 25) is SKIPPED there rather than written, leaving
+/// `regionArea` to carry the size alone.
+inline constexpr int kMaxPatternCells = 8;
 
 struct Pattern {
   std::array<PatternCell, kMaxPatternCells> cells{};

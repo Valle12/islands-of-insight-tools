@@ -14,6 +14,7 @@
 namespace {
 
 using namespace lg;
+using rules::Rule;
 
 /// The plain 3x3 every shape case here is cut out of.
 std::vector<std::string> open() { return {"...", "...", "..."}; }
@@ -68,10 +69,13 @@ TEST(Shapes, ADisconnectedCellIsRejected) {
   EXPECT_EQ(structureProblem(puzzle), Problem::ShapeSplit);
 }
 
-TEST(Shapes, ACellCarriesAtMostOneClue) {
+TEST(Shapes, ACellMayCarryACluePerSquare) {
+  // The game's harder boards put several clues on one merged cell — two darts
+  // on one domino — so two clues on DIFFERENT squares of a cell are legal
+  // structure. `ClueDuplicated` still guards two on the same square.
   Puzzle puzzle = test::board({"22.", "...", "..."});
   test::withShape(puzzle, {{0, 0}, {1, 0}});
-  EXPECT_EQ(structureProblem(puzzle), Problem::ShapeCluesDisagree);
+  EXPECT_EQ(structureProblem(puzzle), Problem::None);
 }
 
 TEST(Shapes, ACellPaintedInTwoColoursIsRejected) {
@@ -86,7 +90,7 @@ TEST(Shapes, EveryProblemHasAMessage) {
   using enum Problem;
   for (const Problem problem :
        {ShapeOffBoard, ShapeOnGap, ShapeOverlaps, ShapeTooSmall, ShapeSplit,
-        ShapeCluesDisagree, ShapeGivensDisagree, AreaSmallerThanCell})
+        ShapeGivensDisagree, AreaSmallerThanCell})
     EXPECT_STRNE(describe(problem), "")
         << static_cast<int>(std::to_underlying(problem));
 }
@@ -142,7 +146,7 @@ TEST(Shapes, TwoSquaresOfOneCellCollapseToOneLiteral) {
   // cell is dark or it is not. Left as three literals it could never fire as a
   // unit, because the second and third copies read as more free cells.
   Puzzle puzzle = test::board({"...", "..."},
-                              test::ruleSet({rules::Rule::NoDark1x3}));
+                              test::ruleSet({Rule::NoDark1x3}));
   test::withShape(puzzle, {{0, 0}, {1, 0}, {2, 0}});
   const Model model = buildModel(puzzle);
 
@@ -163,7 +167,7 @@ TEST(Shapes, ACellSpanningBothColoursOfAPatternDropsTheInstance) {
   // the other. A cell holding (0,0) and (1,0) would have to be both, so that
   // arrangement cannot occur and there is nothing to forbid.
   const Puzzle plain =
-      test::board({"..", ".."}, test::ruleSet({rules::Rule::NoCheckerboard}));
+      test::board({"..", ".."}, test::ruleSet({Rule::NoCheckerboard}));
   const Model before = buildModel(plain);
   ASSERT_FALSE(before.clauses.empty());
 
@@ -180,7 +184,7 @@ TEST(Shapes, AClauseReachesAMergedCellThroughOneSquareOnly) {
   // Propagation is still complete, and that is the thing to hold on to:
   // `exclude` fans out over the cell, so deciding EITHER square queues both, and
   // between them every clause mentioning the cell gets rescanned.
-  Puzzle puzzle = test::board(open(), test::ruleSet({rules::Rule::NoDark2x2}));
+  Puzzle puzzle = test::board(open(), test::ruleSet({Rule::NoDark2x2}));
   test::withShape(puzzle, {{1, 1}, {1, 2}});
   const Model model = buildModel(puzzle);
 
@@ -543,6 +547,206 @@ TEST(Viewpoints, EveryProblemHasAMessage) {
   for (const Problem problem : {ViewpointValue, ViewpointExceedsSight})
     EXPECT_STRNE(describe(problem), "")
         << static_cast<int>(std::to_underlying(problem));
+}
+
+// --- Galaxies -------------------------------------------------------------
+
+TEST(Galaxies, AValueIsRefused) {
+  Puzzle puzzle = test::board(open());
+  test::withGalaxy(puzzle, 1, 1);
+  puzzle.clues.back().value = 3;
+  EXPECT_EQ(structureProblem(puzzle), Problem::GalaxyValue);
+}
+
+TEST(Galaxies, ASeatIsRefused) {
+  // The generic net: a seat on any non-lotus kind is `SeatOnWrongKind`, and a
+  // galaxy — centre-only by definition — is covered without a branch of its
+  // own.
+  Puzzle puzzle = test::board(open());
+  test::withGalaxy(puzzle, 1, 1);
+  puzzle.clues.back().seat = 1;
+  EXPECT_EQ(structureProblem(puzzle), Problem::SeatOnWrongKind);
+}
+
+TEST(Galaxies, ADirectionIsIgnored) {
+  // The `Clue` default is a real direction and a hand-built galaxy keeps it —
+  // the viewpoint's discipline: demanding a sentinel would trap exactly this.
+  Puzzle standing = test::board(open());
+  test::withGalaxy(standing, 1, 1);
+  EXPECT_EQ(structureProblem(standing), Problem::None);
+  Puzzle sentinel = test::board(open());
+  test::withGalaxy(sentinel, 1, 1);
+  sentinel.clues.back().direction = -1;
+  EXPECT_EQ(structureProblem(sentinel), Problem::None);
+}
+
+TEST(Galaxies, AGalaxyIsOnlyASymbol) {
+  Puzzle puzzle = test::board(open());
+  test::withGalaxy(puzzle, 1, 1);
+  const Model model = buildModel(puzzle);
+  EXPECT_TRUE(model.areaClues.empty());
+  EXPECT_TRUE(model.dartClues.empty());
+  EXPECT_TRUE(model.lotusClues.empty());
+  EXPECT_TRUE(model.viewpointClues.empty());
+  EXPECT_TRUE(model.letters.empty());
+  ASSERT_EQ(model.galaxyClues.size(), 1U);
+  ASSERT_EQ(model.galaxies.size(), 1U);
+  EXPECT_EQ(model.clueAt[slot(cellIndex(1, 1))], 0);
+}
+
+TEST(Galaxies, TheMirrorMapPointReflectsAboutTheOwnSquare) {
+  Puzzle puzzle = test::board(open());
+  test::withGalaxy(puzzle, 1, 1);
+  const Model model = buildModel(puzzle);
+  const Galaxy &galaxy = model.galaxies.front();
+  EXPECT_EQ(galaxy.mirror[slot(cellIndex(0, 0))], cellIndex(2, 2));
+  EXPECT_EQ(galaxy.mirror[slot(cellIndex(2, 0))], cellIndex(0, 2));
+  EXPECT_EQ(galaxy.mirror[slot(cellIndex(1, 1))], cellIndex(1, 1));
+
+  Puzzle corner = test::board(open());
+  test::withGalaxy(corner, 0, 0);
+  const Model cornered = buildModel(corner);
+  EXPECT_EQ(cornered.galaxies.front().mirror[slot(cellIndex(1, 1))], -1);
+  EXPECT_EQ(cornered.galaxies.front().mirror[slot(cellIndex(0, 0))],
+            cellIndex(0, 0));
+}
+
+TEST(Galaxies, AnOwnCellMirrorOffTheBoardIsNamed) {
+  // A PLAIN square always turns onto itself, so only a merged cell can put a
+  // galaxy's own cell off the board: about the LEFT square of a 1x2 cell the
+  // cell-mate lands past the edge, about the right one it stays on.
+  Puzzle off = test::board({"..."});
+  test::withShape(off, {{0, 0}, {1, 0}});
+  test::withGalaxy(off, 0, 0);
+  EXPECT_EQ(contradiction(buildModel(off)),
+            Problem::GalaxyMirrorLeavesBoard);
+
+  Puzzle fits = test::board({"..."});
+  test::withShape(fits, {{0, 0}, {1, 0}});
+  test::withGalaxy(fits, 1, 0);
+  EXPECT_EQ(contradiction(buildModel(fits)), Problem::None);
+}
+
+// --- Off by one -----------------------------------------------------------
+
+/// A displayed value's candidate TRUE counts: the value alone with the rules
+/// as they stand, the value ± 1 — floored per kind — under `off-by-one`.
+TEST(OffByOne, CandidatesAreTheDisplayedValuePlusMinusOne) {
+  Puzzle puzzle = test::board({"...."}, rules::bit(Rule::OffByOne));
+  test::withClue(puzzle, 0, 0, 2);
+  const Model model = buildModel(puzzle);
+  const ClueCandidates pair = model.candidatesFor(model.puzzle.clues.front());
+  ASSERT_EQ(pair.count, 2);
+  EXPECT_EQ(pair.lo(), 1);
+  EXPECT_EQ(pair.hi(), 3);
+
+  Puzzle exact = test::board({"...."});
+  test::withClue(exact, 0, 0, 2);
+  const Model bare = buildModel(exact);
+  const ClueCandidates one = bare.candidatesFor(bare.puzzle.clues.front());
+  ASSERT_EQ(one.count, 1);
+  EXPECT_EQ(one.lo(), 2);
+}
+
+/// The "one true value" collapses: a displayed 0 can only mean 1, and a
+/// displayed area 1 can only mean 2 — a region of zero cannot hold its clue.
+TEST(OffByOne, TheFloorCollapsesTheSmallDisplays) {
+  Puzzle zero = test::board({"...."}, rules::bit(Rule::OffByOne));
+  test::withClue(zero, 0, 0, 0);
+  const Model zeroModel = buildModel(zero);
+  const ClueCandidates fromZero =
+      zeroModel.candidatesFor(zeroModel.puzzle.clues.front());
+  ASSERT_EQ(fromZero.count, 1);
+  EXPECT_EQ(fromZero.lo(), 1);
+
+  Puzzle one = test::board({"...."}, rules::bit(Rule::OffByOne));
+  test::withClue(one, 0, 0, 1);
+  const Model oneModel = buildModel(one);
+  const ClueCandidates fromOne =
+      oneModel.candidatesFor(oneModel.puzzle.clues.front());
+  ASSERT_EQ(fromOne.count, 1);
+  EXPECT_EQ(fromOne.lo(), 2);
+}
+
+TEST(OffByOne, WidensTheDisplayedAreaBounds) {
+  using enum Problem;
+  using enum Rule;
+  Puzzle zero = test::board({"..", ".."}, rules::bit(OffByOne));
+  test::withClue(zero, 0, 0, 0);
+  EXPECT_EQ(structureProblem(zero), None);
+  Puzzle bare = test::board({"..", ".."});
+  test::withClue(bare, 0, 0, 0);
+  EXPECT_EQ(structureProblem(bare), AreaValue);
+  Puzzle top = test::board({"..", ".."}, rules::bit(OffByOne));
+  test::withClue(top, 0, 0, 5);
+  EXPECT_EQ(structureProblem(top), None);
+  Puzzle over = test::board({"..", ".."}, rules::bit(OffByOne));
+  test::withClue(over, 0, 0, 6);
+  EXPECT_EQ(structureProblem(over), AreaValue);
+}
+
+TEST(OffByOne, WidensTheDartAndViewpointBounds) {
+  using enum Problem;
+  using enum Rule;
+  // 3x2: the longest line is two squares, the cross is four.
+  Puzzle dart = test::board({"...", "..."}, rules::bit(OffByOne));
+  test::withDart(dart, 0, 0, 3, kDirRight);
+  EXPECT_EQ(structureProblem(dart), None);
+  Puzzle dartOver = test::board({"...", "..."}, rules::bit(OffByOne));
+  test::withDart(dartOver, 0, 0, 4, kDirRight);
+  EXPECT_EQ(structureProblem(dartOver), DartValue);
+
+  Puzzle viewpoint = test::board({"...", "..."}, rules::bit(OffByOne));
+  test::withViewpoint(viewpoint, 0, 0, 0);
+  EXPECT_EQ(structureProblem(viewpoint), None);
+  Puzzle bare = test::board({"...", "..."});
+  test::withViewpoint(bare, 0, 0, 0);
+  EXPECT_EQ(structureProblem(bare), ViewpointValue);
+  Puzzle high = test::board({"...", "..."}, rules::bit(OffByOne));
+  test::withViewpoint(high, 0, 0, 5);
+  EXPECT_EQ(structureProblem(high), None);
+  Puzzle over = test::board({"...", "..."}, rules::bit(OffByOne));
+  test::withViewpoint(over, 0, 0, 6);
+  EXPECT_EQ(structureProblem(over), ViewpointValue);
+}
+
+/// The contradiction checks read the WEAKEST candidate — and a displayed 0
+/// means a true 1, so such a dart on an empty line is unsolvable by name.
+TEST(OffByOne, ADisplayedZeroDartNeedsALine) {
+  Puzzle puzzle = test::board({"."}, rules::bit(Rule::OffByOne));
+  test::withDart(puzzle, 0, 0, 0, kDirRight);
+  EXPECT_EQ(contradiction(buildModel(puzzle)), Problem::DartExceedsLine);
+}
+
+/// A merged cell floors an area clue's candidates: displayed 1 on a 1x3 cell
+/// leaves nothing at all, while displayed 2 collapses to exactly 3.
+TEST(OffByOne, TheMergedCellFloorEmptiesOrCollapses) {
+  Puzzle empty = test::board({"..."}, rules::bit(Rule::OffByOne));
+  test::withShape(empty, {{0, 0}, {1, 0}, {2, 0}});
+  test::withClue(empty, 0, 0, 1);
+  EXPECT_EQ(contradiction(buildModel(empty)), Problem::AreaSmallerThanCell);
+
+  Puzzle fits = test::board({"..."}, rules::bit(Rule::OffByOne));
+  test::withShape(fits, {{0, 0}, {1, 0}, {2, 0}});
+  test::withClue(fits, 0, 0, 2);
+  const Model model = buildModel(fits);
+  EXPECT_EQ(contradiction(model), Problem::None);
+  const ClueCandidates candidates =
+      model.candidatesFor(model.puzzle.clues.front());
+  ASSERT_EQ(candidates.count, 1);
+  EXPECT_EQ(candidates.lo(), 3);
+}
+
+TEST(OffByOne, AViewpointBeyondItsOwnSightIsNamed) {
+  // Sight is two — itself plus the one square before the gap — so a displayed
+  // 4 (candidates 3 and 5) cannot fit while a displayed 3 (candidates 2 and
+  // 4) still can.
+  Puzzle over = test::board({"..#"}, rules::bit(Rule::OffByOne));
+  test::withViewpoint(over, 0, 0, 4);
+  EXPECT_EQ(contradiction(buildModel(over)), Problem::ViewpointExceedsSight);
+  Puzzle fits = test::board({"..#"}, rules::bit(Rule::OffByOne));
+  test::withViewpoint(fits, 0, 0, 3);
+  EXPECT_EQ(contradiction(buildModel(fits)), Problem::None);
 }
 
 } // namespace

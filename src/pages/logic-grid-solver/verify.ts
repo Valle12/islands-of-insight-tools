@@ -46,7 +46,15 @@ export type LogicGridViolation =
   | "symmetry"
   | "three-one"
   | "diagonal"
-  | "viewpoint";
+  | "viewpoint"
+  | "elbow"
+  | "ell"
+  | "distance-pair"
+  | "mixed-tee"
+  | "long-tee"
+  | "knight"
+  | "mixed-elbow"
+  | "galaxy";
 
 /**
  * A rule's position in the append-only catalogue, by its stable id.
@@ -76,9 +84,26 @@ const NO_THREE_DARK_ONE_LIGHT = ruleIndex("no-three-dark-one-light");
 const NO_THREE_LIGHT_ONE_DARK = ruleIndex("no-three-light-one-dark");
 const NO_DARK_DIAGONAL = ruleIndex("no-dark-diagonal");
 const NO_LIGHT_DIAGONAL = ruleIndex("no-light-diagonal");
+const NO_DARK_ELBOW = ruleIndex("no-dark-elbow");
+const NO_LIGHT_ELBOW = ruleIndex("no-light-elbow");
+const NO_DARK_ELL = ruleIndex("no-dark-l");
+const NO_LIGHT_ELL = ruleIndex("no-light-l");
+const NO_DARK_ANY_DARK = ruleIndex("no-dark-any-dark");
+const NO_LIGHT_ANY_LIGHT = ruleIndex("no-light-any-light");
+const NO_LIGHT_CROSSED_DARK_T = ruleIndex("no-light-crossed-dark-t");
+const NO_DARK_CROSSED_LIGHT_T = ruleIndex("no-dark-crossed-light-t");
+const NO_DARK_LONG_T = ruleIndex("no-dark-long-t");
+const NO_LIGHT_LONG_T = ruleIndex("no-light-long-t");
+const NO_DARK_KNIGHT = ruleIndex("no-dark-knight");
+const NO_LIGHT_KNIGHT = ruleIndex("no-light-knight");
+const NO_DARK_LIGHT_DARK_ELBOW = ruleIndex("no-dark-light-dark-elbow");
+const NO_LIGHT_DARK_LIGHT_ELBOW = ruleIndex("no-light-dark-light-elbow");
 const ONE_SYMBOL_DARK = ruleIndex("one-symbol-dark");
 const ONE_SYMBOL_LIGHT = ruleIndex("one-symbol-light");
 export const UNDERCLUED = ruleIndex("underclued");
+/** Exported like `UNDERCLUED`: the validator and the editor consult it to
+ * widen the numeric value bounds while the rule is active. */
+export const OFF_BY_ONE = ruleIndex("off-by-one");
 
 /**
  * Each run rule as the colour it forbids and the length it forbids it at. The
@@ -116,6 +141,12 @@ const AREA_RULES: readonly { index: number; color: number; area: number }[] = [
   { index: ruleIndex("area-five-light"), color: LIGHT, area: 5 },
   { index: ruleIndex("area-three-dark"), color: DARK, area: 3 },
   { index: ruleIndex("area-three-light"), color: LIGHT, area: 3 },
+  { index: ruleIndex("area-six-dark"), color: DARK, area: 6 },
+  { index: ruleIndex("area-six-light"), color: LIGHT, area: 6 },
+  { index: ruleIndex("area-seven-dark"), color: DARK, area: 7 },
+  { index: ruleIndex("area-seven-light"), color: LIGHT, area: 7 },
+  { index: ruleIndex("area-twenty-four-dark"), color: DARK, area: 24 },
+  { index: ruleIndex("area-twenty-four-light"), color: LIGHT, area: 24 },
 ];
 
 /**
@@ -136,6 +167,7 @@ const LETTER_SYMBOL = symbolIndex("letter");
 const DART_SYMBOL = symbolIndex("dart");
 const LOTUS_SYMBOL = symbolIndex("lotus");
 const VIEWPOINT_SYMBOL = symbolIndex("viewpoint");
+const GALAXY_SYMBOL = symbolIndex("galaxy");
 
 /** The two axes with no reflection on a grid-line seat. Resolved by id like
  * every other index here, so a reorder fails loudly at import. */
@@ -164,6 +196,22 @@ export function toGrid(config: LogicGridTest, flat: number[]): number[][] {
 
 function has(config: LogicGridTest, index: number): boolean {
   return config.rules.includes(index);
+}
+
+/**
+ * Whether an actual count satisfies a numeric clue's DISPLAYED value. Under
+ * `off-by-one` every numeric clue displays its true count ± 1 and never the
+ * truth, so the test is an exact distance of one — a displayed value EQUAL to
+ * the count is then a violation, not a near miss.
+ */
+function matchesCount(
+  config: LogicGridTest,
+  actual: number,
+  displayed: number | string | undefined,
+): boolean {
+  if (has(config, OFF_BY_ONE))
+    return typeof displayed === "number" && Math.abs(actual - displayed) === 1;
+  return actual === displayed;
 }
 
 function at(config: LogicGridTest, cells: number[], x: number, y: number) {
@@ -417,6 +465,248 @@ function diagonalProblem(
   return "none";
 }
 
+/** A bent tromino of `color`: a 2x2 window holding at least three of it —
+ * three is an elbow outright, four is a full square, which contains one. */
+function hasElbow(config: LogicGridTest, cells: number[], color: number) {
+  for (let y = 0; y + 1 < config.gridHeight; y++) {
+    for (let x = 0; x + 1 < config.gridWidth; x++) {
+      const corners = [
+        at(config, cells, x, y),
+        at(config, cells, x + 1, y),
+        at(config, cells, x, y + 1),
+        at(config, cells, x + 1, y + 1),
+      ];
+      if (corners.filter(held => held === color).length >= 3) return true;
+    }
+  }
+  return false;
+}
+
+function elbowProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  if (has(config, NO_DARK_ELBOW) && hasElbow(config, cells, DARK))
+    return "elbow";
+  if (has(config, NO_LIGHT_ELBOW) && hasElbow(config, cells, LIGHT))
+    return "elbow";
+  return "none";
+}
+
+/**
+ * An L-tetromino of `color`, either handedness: a straight three with a
+ * fourth cell perpendicular at one END. Scanned from the bar's middle like
+ * the T. Every diagonal neighbour of the middle is orthogonally adjacent to
+ * exactly one end of either bar, so "a bar plus any diagonal of its middle"
+ * is precisely an L — all eight orientations — while a foot at the middle
+ * itself would be a T, which this never matches.
+ */
+function hasEll(config: LogicGridTest, cells: number[], color: number) {
+  const held = holds(config, cells, color);
+  for (let y = 0; y < config.gridHeight; y++) {
+    for (let x = 0; x < config.gridWidth; x++) {
+      if (!held(x, y)) continue;
+      const corner =
+        held(x - 1, y - 1) ||
+        held(x - 1, y + 1) ||
+        held(x + 1, y - 1) ||
+        held(x + 1, y + 1);
+      if (!corner) continue;
+      if (held(x - 1, y) && held(x + 1, y)) return true;
+      if (held(x, y - 1) && held(x, y + 1)) return true;
+    }
+  }
+  return false;
+}
+
+function ellProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  if (has(config, NO_DARK_ELL) && hasEll(config, cells, DARK)) return "ell";
+  if (has(config, NO_LIGHT_ELL) && hasEll(config, cells, LIGHT)) return "ell";
+  return "none";
+}
+
+/**
+ * Two cells of `color` exactly two apart in a straight line. Only the two END
+ * squares are read — whatever lies between them, the other colour or even a
+ * gap, does not lift the ban, which is what "purely positional" means.
+ * Scanned rightward and downward only, so every pair is seen exactly once.
+ */
+function hasDistancePair(
+  config: LogicGridTest,
+  cells: number[],
+  color: number,
+) {
+  for (let y = 0; y < config.gridHeight; y++) {
+    for (let x = 0; x < config.gridWidth; x++) {
+      if (at(config, cells, x, y) !== color) continue;
+      if (x + 2 < config.gridWidth && at(config, cells, x + 2, y) === color)
+        return true;
+      if (y + 2 < config.gridHeight && at(config, cells, x, y + 2) === color)
+        return true;
+    }
+  }
+  return false;
+}
+
+function distancePairProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  if (has(config, NO_DARK_ANY_DARK) && hasDistancePair(config, cells, DARK))
+    return "distance-pair";
+  if (has(config, NO_LIGHT_ANY_LIGHT) && hasDistancePair(config, cells, LIGHT))
+    return "distance-pair";
+  return "none";
+}
+
+/**
+ * A T whose CROSSING — the bar's middle, where the stem attaches — holds the
+ * other colour while the bar's ends and the stem hold `color`. Scanned from
+ * the crossing, which sees all four rotations; every cell is named outright,
+ * so a gap can never stand in for the crossing.
+ */
+function hasMixedTee(config: LogicGridTest, cells: number[], color: number) {
+  const other = color === DARK ? LIGHT : DARK;
+  const held = holds(config, cells, color);
+  for (let y = 0; y < config.gridHeight; y++) {
+    for (let x = 0; x < config.gridWidth; x++) {
+      if (at(config, cells, x, y) !== other) continue;
+      if (held(x - 1, y) && held(x + 1, y) && (held(x, y - 1) || held(x, y + 1)))
+        return true;
+      if (held(x, y - 1) && held(x, y + 1) && (held(x - 1, y) || held(x + 1, y)))
+        return true;
+    }
+  }
+  return false;
+}
+
+function mixedTeeProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  // The rule's id names the ARMS' colour last: a "light-crossed dark T" is
+  // three dark cells around a light crossing.
+  if (has(config, NO_LIGHT_CROSSED_DARK_T) && hasMixedTee(config, cells, DARK))
+    return "mixed-tee";
+  if (has(config, NO_DARK_CROSSED_LIGHT_T) && hasMixedTee(config, cells, LIGHT))
+    return "mixed-tee";
+  return "none";
+}
+
+/** A T-pentomino of `color`: a bar of three with a stem of TWO from its
+ * middle. Scanned from the crossing like the T, with the stem asked to reach
+ * two deep on either side of the bar. */
+function hasLongTee(config: LogicGridTest, cells: number[], color: number) {
+  const held = holds(config, cells, color);
+  for (let y = 0; y < config.gridHeight; y++) {
+    for (let x = 0; x < config.gridWidth; x++) {
+      if (!held(x, y)) continue;
+      if (
+        held(x - 1, y) &&
+        held(x + 1, y) &&
+        ((held(x, y - 1) && held(x, y - 2)) ||
+          (held(x, y + 1) && held(x, y + 2)))
+      )
+        return true;
+      if (
+        held(x, y - 1) &&
+        held(x, y + 1) &&
+        ((held(x - 1, y) && held(x - 2, y)) ||
+          (held(x + 1, y) && held(x + 2, y)))
+      )
+        return true;
+    }
+  }
+  return false;
+}
+
+function longTeeProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  if (has(config, NO_DARK_LONG_T) && hasLongTee(config, cells, DARK))
+    return "long-tee";
+  if (has(config, NO_LIGHT_LONG_T) && hasLongTee(config, cells, LIGHT))
+    return "long-tee";
+  return "none";
+}
+
+/** Two cells of `color` a chess knight's move apart — two in one direction
+ * and one in the other; nothing between them is read. Scanned from each
+ * cell's four DOWNWARD offsets, so every pair is seen exactly once. */
+function hasKnight(config: LogicGridTest, cells: number[], color: number) {
+  const held = holds(config, cells, color);
+  for (let y = 0; y < config.gridHeight; y++) {
+    for (let x = 0; x < config.gridWidth; x++) {
+      if (!held(x, y)) continue;
+      if (
+        held(x + 1, y + 2) ||
+        held(x - 1, y + 2) ||
+        held(x + 2, y + 1) ||
+        held(x - 2, y + 1)
+      )
+        return true;
+    }
+  }
+  return false;
+}
+
+function knightProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  if (has(config, NO_DARK_KNIGHT) && hasKnight(config, cells, DARK))
+    return "knight";
+  if (has(config, NO_LIGHT_KNIGHT) && hasKnight(config, cells, LIGHT))
+    return "knight";
+  return "none";
+}
+
+/**
+ * A bent tromino whose CORNER — the square touching both others — holds the
+ * other colour while both ends hold `color`. Scanned from the corner: any
+ * vertical neighbour of it paired with any horizontal one is a right angle,
+ * which covers the four orientations — while a straight line through the
+ * corner has no such pair, so a mixed TRIPLE never matches.
+ */
+function hasMixedElbow(config: LogicGridTest, cells: number[], color: number) {
+  const other = color === DARK ? LIGHT : DARK;
+  const held = holds(config, cells, color);
+  for (let y = 0; y < config.gridHeight; y++) {
+    for (let x = 0; x < config.gridWidth; x++) {
+      if (at(config, cells, x, y) !== other) continue;
+      if (
+        (held(x, y - 1) || held(x, y + 1)) &&
+        (held(x - 1, y) || held(x + 1, y))
+      )
+        return true;
+    }
+  }
+  return false;
+}
+
+function mixedElbowProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  // The id reads the shape end-corner-end: `no-dark-light-dark-elbow` is two
+  // dark ends around a light corner.
+  if (
+    has(config, NO_DARK_LIGHT_DARK_ELBOW) &&
+    hasMixedElbow(config, cells, DARK)
+  )
+    return "mixed-elbow";
+  if (
+    has(config, NO_LIGHT_DARK_LIGHT_ELBOW) &&
+    hasMixedElbow(config, cells, LIGHT)
+  )
+    return "mixed-elbow";
+  return "none";
+}
+
 /** The cells of one colour orthogonally reachable from a starting index. */
 function region(config: LogicGridTest, cells: number[], start: number) {
   const color = cells[start];
@@ -471,7 +761,8 @@ function areaProblem(
   for (const symbol of config.symbols) {
     if (symbol.type !== AREA_SYMBOL) continue;
     const index = symbol.y * config.gridWidth + symbol.x;
-    if (region(config, cells, index).size !== symbol.value) return "area";
+    if (!matchesCount(config, region(config, cells, index).size, symbol.value))
+      return "area";
   }
   return "none";
 }
@@ -510,7 +801,7 @@ function dartProblem(
     ) {
       if (at(config, cells, x, y) === other) count++;
     }
-    if (count !== symbol.value) return "dart";
+    if (!matchesCount(config, count, symbol.value)) return "dart";
   }
   return "none";
 }
@@ -553,7 +844,35 @@ function viewpointProblem(
       )
         count++;
     }
-    if (count !== symbol.value) return "viewpoint";
+    if (!matchesCount(config, count, symbol.value)) return "viewpoint";
+  }
+  return "none";
+}
+
+/**
+ * Every galaxy's region maps to itself under a HALF TURN about the galaxy's
+ * own square: the point mirror of each square of the connected same-colour
+ * region holding it must be on the board, playable, and the same colour —
+ * which by the region's maximality puts the mirror in the region too. The
+ * geometry is one point reflection, worked out from the clue alone like
+ * everything in this file; a galaxy has no axis or seat that could be
+ * unreadable, so unlike the lotus it needs no readability net.
+ */
+function galaxyProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  for (const symbol of config.symbols) {
+    if (symbol.type !== GALAXY_SYMBOL) continue;
+    const start = symbol.y * config.gridWidth + symbol.x;
+    const color = cells[start];
+    for (const cell of region(config, cells, start)) {
+      const mx = 2 * symbol.x - (cell % config.gridWidth);
+      const my = 2 * symbol.y - Math.floor(cell / config.gridWidth);
+      if (mx < 0 || mx >= config.gridWidth) return "galaxy";
+      if (my < 0 || my >= config.gridHeight) return "galaxy";
+      if (at(config, cells, mx, my) !== color) return "galaxy";
+    }
   }
   return "none";
 }
@@ -797,6 +1116,13 @@ export function verifyLogicGrid(
     teeProblem,
     threeOneProblem,
     diagonalProblem,
+    elbowProblem,
+    ellProblem,
+    distancePairProblem,
+    mixedTeeProblem,
+    longTeeProblem,
+    knightProblem,
+    mixedElbowProblem,
     connectivityProblem,
     regionSizeProblem,
     areaProblem,
@@ -804,6 +1130,7 @@ export function verifyLogicGrid(
     letterProblem,
     dartProblem,
     lotusProblem,
+    galaxyProblem,
     viewpointProblem,
   ];
   for (const check of checks) {

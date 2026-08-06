@@ -252,6 +252,20 @@ describe("LogicGridSolverEditor", () => {
       setSize("3", "2");
       expect(valueField(4).getAttribute("max")).toBe("4");
     });
+
+    /** The galaxy is the first chip-only kind: valueless AND unaimed, so its
+     * control is the chip alone, and its miniature is `dressClue`'s icon
+     * rather than the sample text. */
+    test("gives the galaxy a chip and nothing else", () => {
+      const tool = document.querySelector<HTMLElement>(
+        '#symbol-row .symbol-tool[data-symbol="galaxy"]',
+      )!;
+      expect(tool.querySelector(".symbol-value")).toBeNull();
+      expect(tool.querySelector(".direction-toggle")).toBeNull();
+      const sample = tool.querySelector<HTMLElement>(".symbol-sample")!;
+      expect(sample.dataset.icon).toBe("");
+      expect(sample.querySelector("md-icon")?.textContent).toBe("cyclone");
+    });
   });
 
   describe("Tool selection", () => {
@@ -411,6 +425,40 @@ describe("LogicGridSolverEditor", () => {
       expect(valueField(DART).getAttribute("max")).toBe("5");
       setSize("3", "2");
       expect(valueField(DART).getAttribute("max")).toBe("2");
+    });
+  });
+
+  describe("Off-by-one bounds", () => {
+    /**
+     * The rule bends every numeric bound by one at both ends, and the row is
+     * NOT rebuilt for a chip toggle — `refreshSymbolRow` re-sets the
+     * attributes in place, which is exactly what these pin: the build-time
+     * min/max would otherwise go stale the moment the chip is clicked.
+     */
+    test("toggling the rule widens the fields and back", () => {
+      ruleChip("off-by-one").click();
+      expect(valueField(0).getAttribute("min")).toBe("0");
+      expect(valueField(0).getAttribute("max")).toBe("37");
+      expect(valueField(2).getAttribute("max")).toBe("6");
+      expect(valueField(4).getAttribute("min")).toBe("0");
+      expect(valueField(4).getAttribute("max")).toBe("12");
+
+      ruleChip("off-by-one").click();
+      expect(valueField(0).getAttribute("min")).toBe("1");
+      expect(valueField(0).getAttribute("max")).toBe("36");
+      expect(valueField(4).getAttribute("min")).toBe("1");
+      expect(valueField(4).getAttribute("max")).toBe("11");
+    });
+
+    /** A displayed zero is a value exactly while the rule is on, and the
+     * field's own validity says so either way round. */
+    test("a zero area value is usable only under the rule", () => {
+      setValue(0, "0");
+      expect(valueField(0).getAttribute("aria-invalid")).toBe("true");
+      ruleChip("off-by-one").click();
+      expect(valueField(0).getAttribute("aria-invalid")).toBeNull();
+      ruleChip("off-by-one").click();
+      expect(valueField(0).getAttribute("aria-invalid")).toBe("true");
     });
   });
 

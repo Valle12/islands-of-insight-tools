@@ -1,7 +1,8 @@
 // The colour layer of a logic grid cell is one number, so `cells` is a flat
-// index space with no strings mixed into it. Clues do NOT live here: a cell
+// index space with no strings mixed into it. Clues do NOT live here: a square
 // carries a colour and, independently, at most one clue, which is what lets a
-// clue be placed before its colour is known and coloured over afterwards.
+// clue be placed before its colour is known and coloured over afterwards — and
+// what lets a merged cell carry several clues, one per square.
 
 export const UNKNOWN = 0;
 export const DARK = 1;

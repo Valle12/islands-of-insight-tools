@@ -29,6 +29,10 @@ export function describeCell(
     const along = axis ? ` along the ${axis.label.toLowerCase()} axis` : "";
     return `${position}, ${kind.label}${along}`;
   }
+  // A valueless, axis-less kind — the galaxy — is its name alone: there is no
+  // value to say and nothing points anywhere. Without this branch the line
+  // below would read "Galaxy undefined".
+  if (kind.valueKind === "none") return `${position}, ${kind.label}`;
   const aim = clue.direction === undefined ? null : directionAt(clue.direction);
   const pointing = aim ? ` pointing ${aim.label.toLowerCase()}` : "";
   return `${position}, ${kind.label} ${clue.value}${pointing}`;
@@ -82,6 +86,7 @@ export function dressCell(
     delete element.dataset.axis;
     delete element.dataset.seat;
     delete element.dataset.viewpoint;
+    delete element.dataset.icon;
     element.textContent = "";
   }
 
@@ -115,6 +120,27 @@ export function dressClue(
   direction: number | undefined,
   seat = 0,
 ): void {
+  if (kind.icon) {
+    // An ICON kind's clue — the galaxy — is one glyph and nothing else: no
+    // value, no direction, no seat. Every other hook is shed and one is set;
+    // `data-icon` is presence-only, the stylesheet's centring hook, exactly
+    // as `data-viewpoint` is the ring's.
+    delete element.dataset.direction;
+    delete element.dataset.axis;
+    delete element.dataset.seat;
+    delete element.dataset.viewpoint;
+    element.dataset.icon = "";
+    const glyph = document.createElement("md-icon");
+    glyph.className = "cell-galaxy";
+    glyph.textContent = kind.icon;
+    element.replaceChildren(glyph);
+    return;
+  }
+  // Shed here once for every branch below, so a cell restamped from a galaxy
+  // to any other kind loses the hook — a stale `data-icon` would keep the
+  // icon centring on a clue that is text.
+  delete element.dataset.icon;
+
   if (kind.aims === "axis") {
     const axis = axisAt(direction ?? -1);
     delete element.dataset.direction;

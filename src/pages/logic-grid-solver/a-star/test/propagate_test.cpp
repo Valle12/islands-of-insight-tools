@@ -584,6 +584,224 @@ TEST(Propagate, LookAheadFindsWhatPlainDeductionCannot) {
   EXPECT_NE(plain, probed);
 }
 
+TEST(Propagate, AConnectedElbowFreeColourRulesOutOffAxisCells) {
+  // The collinearity lemma at the root: every dark pair shares a row or
+  // column, so one given rules out everything off its cross — the compiled
+  // off-axis pairs firing as plain unit-ish propagation, no probe needed.
+  Puzzle puzzle = test::board(
+      {"...", "...", "..."},
+      test::ruleSet({Rule::ConnectDark, Rule::NoDarkElbow}));
+  test::withGiven(puzzle, 1, 1, kDark);
+  EXPECT_EQ(deduce(puzzle), Rows({"L.L", ".D.", "L.L"}));
+}
+
+TEST(Propagate, TwoOffAxisCellsOfAConnectedElbowFreeColourAreRefused) {
+  Puzzle puzzle = test::board(
+      {"...", "...", "..."},
+      test::ruleSet({Rule::ConnectDark, Rule::NoDarkElbow}));
+  test::withGiven(puzzle, 0, 0, kDark);
+  test::withGiven(puzzle, 1, 1, kDark);
+  EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
+}
+
+TEST(Propagate, FourAlternatingBorderArcsAreRefused) {
+  // The two-arc lemma: D,L,D,L around the perimeter forces a dark and a light
+  // path between interleaved endpoints, which would have to cross. Plain
+  // `connectColor` cannot see it — every colour still reaches everything
+  // through the open middle — so this is `borderArcs`' own refutation.
+  Puzzle puzzle = test::board(
+      {"...", "...", "..."},
+      test::ruleSet({Rule::ConnectDark, Rule::ConnectLight}));
+  test::withGiven(puzzle, 0, 0, kDark);
+  test::withGiven(puzzle, 2, 0, kLight);
+  test::withGiven(puzzle, 2, 2, kDark);
+  test::withGiven(puzzle, 0, 2, kLight);
+  EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
+}
+
+TEST(Propagate, ABorderCellInsideAnArcTakesTheArcsColour) {
+  // Two arcs stand — dark down the left edge, light down the right — and the
+  // open square BETWEEN two light cells cannot go dark: a cyclic subsequence
+  // never has more transitions than the full cycle, so any completion would
+  // carry four arcs. The boundary squares between the arcs stay free.
+  Puzzle puzzle = test::board(
+      {"...", "...", "..."},
+      test::ruleSet({Rule::ConnectDark, Rule::ConnectLight}));
+  test::withGiven(puzzle, 0, 0, kDark);
+  test::withGiven(puzzle, 0, 1, kDark);
+  test::withGiven(puzzle, 2, 0, kLight);
+  test::withGiven(puzzle, 2, 2, kLight);
+  EXPECT_EQ(deduce(puzzle), Rows({"D.L", "D.L", "..L"}));
+}
+
+TEST(Propagate, AGapOnThePerimeterDoesNotBreakTheArcCount) {
+  // Gaps are skipped, not counted: the endpoints stay on the outer face, so
+  // two arcs across a gap are still two arcs and the inside-an-arc forcing
+  // works right through it.
+  const Puzzle puzzle = test::board(
+      {"D#L", "...", "..L"},
+      test::ruleSet({Rule::ConnectDark, Rule::ConnectLight}));
+  EXPECT_EQ(deduce(puzzle), Rows({"D#L", "..L", "..L"}));
+}
+
+/// The half turn moves BOTH offsets at once, which no single lotus axis
+/// reproduces: the bar's arm left of the centre forces the arm right of it
+/// one row the other way.
+TEST(Propagate, AGalaxyForcesThePointMirrorOfItsRegion) {
+  Puzzle puzzle = test::board({".D.", "DD.", "..."});
+  test::withGalaxy(puzzle, 1, 1);
+  EXPECT_EQ(deduce(puzzle), Rows({".D.", "DDD", ".D."}));
+}
+
+TEST(Propagate, ACellWhoseMirrorLeavesTheBoardCannotJoinAGalaxy) {
+  Puzzle puzzle = test::board({"D..", "..."});
+  test::withGalaxy(puzzle, 0, 0);
+  EXPECT_EQ(deduce(puzzle), Rows({"DL.", "L.."}));
+}
+
+TEST(Propagate, ACellMirroredOntoTheOtherColourCannotJoinAGalaxy) {
+  Puzzle puzzle = test::board({".DL"});
+  test::withGalaxy(puzzle, 1, 0);
+  EXPECT_EQ(deduce(puzzle), Rows({"LDL"}));
+}
+
+TEST(Propagate, ACellMirroredOntoAGapCannotJoinAGalaxy) {
+  Puzzle puzzle = test::board({".D#"});
+  test::withGalaxy(puzzle, 1, 0);
+  EXPECT_EQ(deduce(puzzle), Rows({"LD#"}));
+}
+
+/// The connect fold, shared with the lotus: with dark connected, its one
+/// region provably holds the galaxy, so a decided dark square ANYWHERE
+/// mirrors — and every cell whose mirror leaves the board folds away.
+TEST(Propagate, AConnectedGalaxyFoldsTheWholeBoard) {
+  Puzzle puzzle = test::board({"D....", ".....", "....."},
+                              test::ruleSet({Rule::ConnectDark}));
+  test::withGalaxy(puzzle, 2, 0);
+  test::withGiven(puzzle, 2, 0, kDark);
+  EXPECT_EQ(deduce(puzzle), Rows({"D.D.D", "LLLLL", "LLLLL"}));
+}
+
+/// The mirror is taken about the galaxy's own SQUARE, never its cell's
+/// middle: on the right square of a 1x2 cell the cell-mate turns two columns
+/// over, and the whole row below turns off the board.
+TEST(Propagate, AGalaxyOnAMergedCellMirrorsAboutItsOwnSquare) {
+  Puzzle puzzle = test::board({"...", "..."});
+  test::withShape(puzzle, {{0, 0}, {1, 0}});
+  test::withGalaxy(puzzle, 1, 0);
+  test::withGiven(puzzle, 0, 0, kDark);
+  test::withGiven(puzzle, 1, 0, kDark);
+  EXPECT_EQ(deduce(puzzle), Rows({"DDD", "LLL"}));
+}
+
+/// An uncoloured galaxy reasons through the probe, the lotus's own story:
+/// under DARK the given above it mirrors below; under LIGHT the given is the
+/// other colour at the mirror, so the cell below cannot take light either.
+TEST(Propagate, AnUncolouredGalaxyFallsOutOfTheProbe) {
+  Puzzle puzzle = test::board({".D.", "...", "..."});
+  test::withGalaxy(puzzle, 1, 1);
+  EXPECT_EQ(lookAhead(puzzle), Rows({".D.", "...", ".D."}));
+}
+
+/// Two galaxies can never share a region, and NO code names the case: the
+/// cell that would weld them mirrors off the board about the nearer centre,
+/// so the shared fold refuses it on its own.
+TEST(Propagate, TwoGalaxiesCannotBeWeldedTogether) {
+  Puzzle puzzle = test::board({"D.D"});
+  test::withGalaxy(puzzle, 0, 0);
+  test::withGalaxy(puzzle, 2, 0);
+  EXPECT_EQ(deduce(puzzle), Rows({"DLD"}));
+}
+
+/// A displayed 0 under `off-by-one` is a real dart whose one candidate is 1:
+/// its one-square line must hold the other colour.
+TEST(Propagate, OffByOneReadsADisplayedZeroDartAsOne) {
+  Puzzle puzzle = test::board({"D."}, test::ruleSet({Rule::OffByOne}));
+  test::withDart(puzzle, 0, 0, 0, kDirRight);
+  EXPECT_EQ(deduce(puzzle), Rows({"DL"}));
+}
+
+/// A displayed area 1 collapses to a true 2 — a region of zero cannot hold
+/// its own clue — while the same clue without the rule means exactly one.
+TEST(Propagate, OffByOneReadsADisplayedAreaOneAsTwo) {
+  Puzzle pair = test::board({"1."}, test::ruleSet({Rule::OffByOne}));
+  test::withGiven(pair, 0, 0, kDark);
+  EXPECT_EQ(deduce(pair), Rows({"DD"}));
+
+  Puzzle lone = test::board({"1."});
+  test::withGiven(lone, 0, 0, kDark);
+  EXPECT_EQ(deduce(lone), Rows({"DL"}));
+}
+
+/// With both candidates open nothing is forced: a displayed 2 could mean one
+/// or three, and a single given decides between them for no cell.
+TEST(Propagate, OffByOneWithBothCandidatesOpenForcesNothing) {
+  Puzzle puzzle = test::board({"2..."}, test::ruleSet({Rule::OffByOne}));
+  test::withGiven(puzzle, 0, 0, kDark);
+  EXPECT_EQ(deduce(puzzle), Rows({"D..."}));
+}
+
+/// The middle gap: a region walled in at exactly the displayed value
+/// satisfies NEITHER candidate — the case an interval reading would wave
+/// through, and the exact case the oracle refuses at a complete assignment.
+TEST(Propagate, OffByOneRefusesARegionClosedAtTheDisplayedValue) {
+  Puzzle closed = test::board({"2.#"}, test::ruleSet({Rule::OffByOne}));
+  test::withGiven(closed, 0, 0, kDark);
+  test::withGiven(closed, 1, 0, kDark);
+  EXPECT_EQ(deduce(closed), Rows({"CONFLICT"}));
+
+  Puzzle honest = test::board({"2.#"});
+  test::withGiven(honest, 0, 0, kDark);
+  test::withGiven(honest, 1, 0, kDark);
+  EXPECT_EQ(deduce(honest), Rows({"DD#"}));
+}
+
+/// The off-by-2 trick as set intersection: displayed 1 and 3 share the middle
+/// value and may share a region, 1 and 5 share nothing and cannot — on this
+/// board, cannot even coexist — while equal clues keep both candidates open.
+TEST(Propagate, TheOffByTwoTrickIntersectsCandidateSets) {
+  using enum Rule;
+  const Puzzle both = test::board({"13"}, test::ruleSet({OffByOne}));
+  EXPECT_NE(lookAhead(both), Rows({"CONFLICT"}));
+  const Puzzle apart = test::board({"15"}, test::ruleSet({OffByOne}));
+  EXPECT_EQ(lookAhead(apart), Rows({"CONFLICT"}));
+  const Puzzle equal = test::board({"22"}, test::ruleSet({OffByOne}));
+  EXPECT_NE(lookAhead(equal), Rows({"CONFLICT"}));
+}
+
+/// A displayed-0 viewpoint sees exactly itself, so every ray is capped at
+/// once — the bracket working from candidate counts rather than the value.
+TEST(Propagate, OffByOneReadsADisplayedZeroViewpointAsOne) {
+  Puzzle puzzle =
+      test::board({"...", "...", "..."}, test::ruleSet({Rule::OffByOne}));
+  test::withViewpoint(puzzle, 1, 1, 0);
+  test::withGiven(puzzle, 1, 1, kDark);
+  EXPECT_EQ(deduce(puzzle), Rows({".L.", "LDL", ".L."}));
+}
+
+/// At a complete assignment the per-candidate filter IS the oracle: an honest
+/// count refutes, either neighbour passes.
+TEST(Propagate, OffByOneMatchesTheOracleOnACompleteBoard) {
+  Puzzle honest = test::board({"DLLDD"}, test::ruleSet({Rule::OffByOne}));
+  test::withDart(honest, 0, 0, 2, kDirRight);
+  EXPECT_EQ(deduce(honest), Rows({"CONFLICT"}));
+
+  Puzzle offByOne = test::board({"DLDDD"}, test::ruleSet({Rule::OffByOne}));
+  test::withDart(offByOne, 0, 0, 2, kDirRight);
+  EXPECT_EQ(deduce(offByOne), Rows({"DLDDD"}));
+}
+
+/// The whole-colour cardinality under connect reads a displayed 0 as one dark
+/// cell in total — the old zero-means-no-clue sentinel would have read it as
+/// no constraint at all.
+TEST(Propagate, OffByOneCardinalityReadsADisplayedZero) {
+  Puzzle puzzle = test::board(
+      {"...."}, test::ruleSet({Rule::OffByOne, Rule::ConnectDark}));
+  test::withClue(puzzle, 0, 0, 0);
+  test::withGiven(puzzle, 0, 0, kDark);
+  EXPECT_EQ(deduce(puzzle), Rows({"DLLL"}));
+}
+
 TEST(Propagate, LookAheadThatRunsOutOfTimeProvesNothing) {
   const Model model = buildModel(test::board({"...", "...", "..."}));
   Domains domains(model);

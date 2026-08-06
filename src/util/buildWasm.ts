@@ -461,10 +461,22 @@ await Promise.all(
       needsBoost: false,
       memory64: variant.memory64 === true,
       maxMemory: variant.memory64 === true ? "8GB" : "4GB",
+      // A megabyte of stack per thread, matching what the native build gets
+      // from MSVC. Emscripten's 64 KB default is the margin this solver has
+      // already overflowed once (the iterative-DFS story in Search.cpp), and
+      // one propagation chain carries several KB of `Regions`/`Bits` locals —
+      // on the in-module race that is four pthreads worth of 5M-iteration
+      // chains, and a pthread stack overflow lands in the SHARED heap, which
+      // is how a tab dies with STATUS_ACCESS_VIOLATION instead of trapping.
       extraArgs:
         variant.threads === true
-          ? ["-pthread", "-sPTHREAD_POOL_SIZE=8"]
-          : [],
+          ? [
+              "-pthread",
+              "-sPTHREAD_POOL_SIZE=8",
+              "-sSTACK_SIZE=1048576",
+              "-sDEFAULT_PTHREAD_STACK_SIZE=1048576",
+            ]
+          : ["-sSTACK_SIZE=1048576"],
     }),
   ),
 );

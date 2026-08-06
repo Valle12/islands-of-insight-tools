@@ -78,8 +78,9 @@ test.describe("Logic Grid Solver tools", () => {
     // `.symbol-chip` means "the clue KINDS". The dart's arrows and the
     // symmetry symbol's axes sit inside their controls as `.direction-toggle`
     // and deliberately do not answer to that class — four toggles each. The
-    // viewpoint points nowhere, so the toggle count stays at eight.
-    await expect(page.locator("#symbol-row .symbol-chip")).toHaveCount(5);
+    // viewpoint and the galaxy point nowhere, so the toggle count stays at
+    // eight while the chips reach six.
+    await expect(page.locator("#symbol-row .symbol-chip")).toHaveCount(6);
     await expect(page.locator("#symbol-row .direction-toggle")).toHaveCount(8);
   });
 
@@ -331,14 +332,14 @@ test.describe("Logic Grid Solver tools", () => {
   });
 
   /**
-   * A merged cell carries ONE clue, on the square the player put it on. That
-   * matters most for a dart, whose line starts there — on a three-square bar
-   * the same dart on each square is three different puzzles, and an editor
-   * that re-homed it to a canonical middle square could only express one of
-   * them. Real pointer presses rather than the unit tests' synthetic ones,
-   * since the seam bridges and the arrow glyph are both in the way.
+   * Every square of a merged cell carries its own clue slot. That matters
+   * most for a dart, whose line starts on its own square — on a three-square
+   * bar the same dart on each square is three different puzzles, and the
+   * game's harder boards really do put several darts on one cell. Real
+   * pointer presses rather than the unit tests' synthetic ones, since the
+   * seam bridges and the arrow glyph are both in the way.
    */
-  test("a clue lands on the square of a merged cell it was pressed on", async ({
+  test("each square of a merged cell carries its own clue", async ({
     page,
   }) => {
     await tool(page, "merge").click();
@@ -351,20 +352,22 @@ test.describe("Logic Grid Solver tools", () => {
     await expect(cellAt(page, 0, 0)).toHaveText("");
     await expect(cellAt(page, 1, 0)).toHaveText("");
 
-    // Another square of the same cell MOVES it rather than adding a second or
-    // reading as "the same clue again" and lifting it.
+    // Another square of the same cell ADDS a second clue — the multi-dart
+    // boards — leaving the first where it was.
     await cellAt(page, 0, 0).click();
     await expect(cellAt(page, 0, 0)).toHaveText(/2/);
-    await expect(cellAt(page, 2, 0)).toHaveText("");
+    await expect(cellAt(page, 2, 0)).toHaveText(/2/);
 
-    // The same square again turns it, which is the directed kinds' re-click
-    // rule and is what makes the move above the only other outcome.
+    // The same square again turns its OWN dart, the directed kinds' re-click
+    // rule, and leaves the neighbour's alone.
     const aimed = await cellAt(page, 0, 0).getAttribute("data-direction");
+    const other = await cellAt(page, 2, 0).getAttribute("data-direction");
     await cellAt(page, 0, 0).click();
     await expect(cellAt(page, 0, 0)).not.toHaveAttribute(
       "data-direction",
       aimed!,
     );
+    await expect(cellAt(page, 2, 0)).toHaveAttribute("data-direction", other!);
     await expect(cellAt(page, 0, 0)).toHaveText(/2/);
   });
 
@@ -655,6 +658,39 @@ test.describe("Logic Grid Solver tools", () => {
       await cell.click({ position: seam });
       await expect(cell).toHaveAttribute("data-axis", "horizontal");
       await expect(cell).toHaveAttribute("data-seat", "1");
+    });
+  });
+
+  test.describe("galaxies", () => {
+    /** The first chip-only kind: no field, no toggles — the chip is the whole
+     * control, and the tile is one glyph. */
+    test("has a bare chip and stamps the icon", async ({ page }) => {
+      const control = page.locator(
+        '#symbol-row .symbol-tool[data-symbol="galaxy"]',
+      );
+      await expect(control.locator(".symbol-value")).toHaveCount(0);
+      await expect(control.locator(".direction-toggle")).toHaveCount(0);
+
+      await clueChip(page, "galaxy").click();
+      const cell = cellAt(page, 1, 1);
+      await cell.click();
+      await expect(cell).toHaveAttribute("data-symbol", "galaxy");
+      await expect(cell).toHaveAccessibleName(
+        "Column 2, Row 2, Unknown, Galaxy",
+      );
+      await expect(cell.locator("md-icon")).toHaveText("cyclone");
+    });
+
+    /** Nothing to turn, so the second press is a plain lift — the dart's
+     * turns-instead rule never fires for a kind with no direction. */
+    test("re-clicking lifts it", async ({ page }) => {
+      await clueChip(page, "galaxy").click();
+      const cell = cellAt(page, 2, 2);
+      await cell.click();
+      await expect(cell).toHaveAttribute("data-symbol", "galaxy");
+      await cell.click();
+      await expect(cell).not.toHaveAttribute("data-symbol", /.*/);
+      await expect(cell).toHaveAccessibleName("Column 3, Row 3, Unknown");
     });
   });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { LIGHT, UNKNOWN } from "../../src/pages/logic-grid-solver/cell";
+import { DARK, LIGHT, UNKNOWN } from "../../src/pages/logic-grid-solver/cell";
 import {
   PORTFOLIO,
   toPuzzle,
@@ -12,22 +12,36 @@ import type { LogicGridTest } from "../../src/util/types";
 import {
   areaFiveBoard,
   areaFourBoard,
+  areaSevenBoard,
+  areaSixBoard,
   areaThreeBoard,
+  areaTwentyFourBoard,
   areaTwoBoard,
   dartBoard,
   dartInMergedBoard,
   dartOverMergedBoard,
   deepSearchBoard,
   diagonalBoard,
+  distancePairBoard,
+  elbowBoard,
+  ellBoard,
   forbiddenTripleBoard,
+  galaxyBoard,
+  galaxyOverMergedBoard,
   impossibleBoard,
+  knightBoard,
+  longTeeBoard,
   lotusBoard,
   lotusOverMergedBoard,
   mergedCellBoard,
+  mixedElbowBoard,
+  mixedTeeBoard,
+  offByOneBoard,
   runFiveBoard,
   solvableBoard,
   teeBoard,
   threeOneBoard,
+  twoDartsOneCellBoard,
   undercluedBoard,
   viewpointBoard,
   viewpointOnMergedBoard,
@@ -166,6 +180,9 @@ const CASES: Case[] = [
   // it is the one board the whole "keep the square the file names" rule can be
   // read off the answer.
   ["dart-in-merged", dartInMergedBoard],
+  // TWO clues on one merged cell cross the boundary only from here — the
+  // game's multi-dart dominoes, refused on every layer until they landed.
+  ["two-darts-one-cell", twoDartsOneCellBoard],
   // The lotus rides the same argument as the darts, twice over: `direction`
   // as an AXIS and the new `seat` key cross the boundary nowhere else.
   ["lotus", lotusBoard],
@@ -175,6 +192,25 @@ const CASES: Case[] = [
   ["viewpoint", viewpointBoard],
   ["viewpoint-over-merged", viewpointOverMergedBoard],
   ["viewpoint-on-merged", viewpointOnMergedBoard],
+  // The galaxy rides the darts' argument again: hand-built senders of kind 5,
+  // which no captured board carries.
+  ["galaxy", galaxyBoard],
+  ["galaxy-over-merged", galaxyOverMergedBoard],
+  // Rules 32-52 cross the boundary only from here, the three-one precedent
+  // over again — including the widened displayed bounds (a dart and an area
+  // showing ZERO), the run-of-seven and run-of-eight clauses the bigger
+  // pattern table exists for, and an area far past the table entirely.
+  ["off-by-one", offByOneBoard],
+  ["elbow", elbowBoard],
+  ["ell", ellBoard],
+  ["distance-pair", distancePairBoard],
+  ["long-tee", longTeeBoard],
+  ["knight", knightBoard],
+  ["mixed-tee", mixedTeeBoard],
+  ["mixed-elbow", mixedElbowBoard],
+  ["area-six", areaSixBoard],
+  ["area-seven", areaSevenBoard],
+  ["area-twenty-four", areaTwentyFourBoard],
   ["merged-cells", mergedCellBoard],
   ["deep-search", deepSearchBoard],
   ...captured.map(
@@ -255,6 +291,32 @@ describe("logic-grid wasm", () => {
   }, 30_000);
 
   /**
+   * Two darts on ONE merged cell, each acting from its own square with its
+   * own value: the left one forces its column light, the right one forces its
+   * column DARK. Any one-clue collapse — the editor's old move-on-press, the
+   * validator's old refusal, or an engine reading "the cell's clue" — could
+   * not name the two columns differently.
+   */
+  test("two darts on one merged cell each act from their own square", async () => {
+    const wasm = await loadWasm();
+    const config = twoDartsOneCellBoard();
+    const result = wasm.solve(toPuzzle(config), {
+      engine: "cascade",
+      seed: 0,
+      maxMs: ARM_MS,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe("deduced");
+    expect(result.proven).toBeTrue();
+
+    const answer = flat(result.cells);
+    const at = (x: number, y: number) => answer[y * config.gridWidth + x];
+    expect([at(0, 1), at(0, 2)]).toEqual([LIGHT, LIGHT]);
+    expect([at(1, 1), at(1, 2)]).toEqual([DARK, DARK]);
+  }, 30_000);
+
+  /**
    * The viewpoint's counterpart: a merged cell counts once per square a ray
    * CROSSES, and an own-cell square off the rays does not count at all. The
    * two on the L-cell's end is satisfiable only under that reading — the cell
@@ -280,5 +342,60 @@ describe("logic-grid wasm", () => {
     expect([at(2, 0), at(1, 1)]).toEqual([LIGHT, LIGHT]);
     // Invisible behind the stops, so the count says nothing about them.
     expect([at(2, 1), at(1, 2)]).toEqual([UNKNOWN, UNKNOWN]);
+  }, 30_000);
+
+  /**
+   * The galaxy's counterpart to the dart's square-not-cell pin: the half turn
+   * is taken about the clue's own SQUARE. On the right square of the dark 1x2
+   * cell, the cell-mate turns onto the top-right corner — dark — and every
+   * square of the row below turns off the board — light. An arm mirroring
+   * about the cell's MIDDLE would leave the corner short and the row alive,
+   * so the forced set is the whole pin.
+   */
+  test("a galaxy turns about the square it sits on, not its cell's middle", async () => {
+    const wasm = await loadWasm();
+    const config = galaxyOverMergedBoard();
+    const result = wasm.solve(toPuzzle(config), {
+      engine: "cascade",
+      seed: 0,
+      maxMs: ARM_MS,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe("deduced");
+    expect(result.proven).toBeTrue();
+
+    const answer = flat(result.cells);
+    const at = (x: number, y: number) => answer[y * config.gridWidth + x];
+    expect([at(0, 0), at(1, 0), at(2, 0)]).toEqual([DARK, DARK, DARK]);
+    expect([at(0, 1), at(1, 1), at(2, 1)]).toEqual([LIGHT, LIGHT, LIGHT]);
+    // Out of the region's reach either way, so nothing is forced there.
+    expect([at(0, 2), at(1, 2), at(2, 2)]).toEqual([
+      UNKNOWN,
+      UNKNOWN,
+      UNKNOWN,
+    ]);
+  }, 30_000);
+
+  /**
+   * The distance rule's positional semantics, read off an answer: the two end
+   * squares of the row are two apart WHATEVER lies between them, so the far
+   * cell is forced light straight through the gap. A clause that named the
+   * middle square would have been dropped on it, and the cell would stay
+   * undecided.
+   */
+  test("a distance pair binds across a gap", async () => {
+    const wasm = await loadWasm();
+    const config = distancePairBoard();
+    const result = wasm.solve(toPuzzle(config), {
+      engine: "cascade",
+      seed: 0,
+      maxMs: ARM_MS,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe("deduced");
+    expect(result.proven).toBeTrue();
+    expect(flat(result.cells)[2]).toBe(LIGHT);
   }, 30_000);
 });

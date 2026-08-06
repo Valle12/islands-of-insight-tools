@@ -53,7 +53,10 @@ export class Board {
   }
 
   renderGrid() {
-    this.grid.style.gridTemplateColumns = `repeat(${this.gridWidth}, minmax(0, 1fr))`;
+    // Fixed-size tracks, never minmax(0, 1fr): the squares have a hard width,
+    // so a track allowed to shrink below it makes the cells overlap sideways
+    // at narrow viewports. Fixed tracks let #grid-shell scroll instead.
+    this.grid.style.gridTemplateColumns = `repeat(${this.gridWidth}, var(--rb-cell))`;
     this.grid.innerHTML = "";
 
     for (let y = 0; y < this.gridHeight; y++) {

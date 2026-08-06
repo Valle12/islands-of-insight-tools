@@ -86,17 +86,20 @@ export const PAGES: readonly PageMeta[] = SOURCE.map(
  * them, and logic-grid then arrived needing 951 px (a 903 px card plus the
  * body's 24 px padding top and bottom) and lost its rules and Solve button.
  *
- * 1920x1005 is the next size up that clears 951. Note that widening past
- * ~1000 px buys height and nothing else: `#editor-card` is capped at 960 px, so
- * a wider viewport does not reflow the content, it only adds empty margin
- * beside it. That is why this is 1920 and not more — measure the card, do not
+ * 1920x1005 was the next size up that cleared 951 — and then the galaxy-era
+ * rule batch grew logic-grid's rule row to 53 chips and the card to 1205 px,
+ * needing 1253. 2400x1257 clears it (exactly 1.5x the 1600x838 frame, so the
+ * ratio is unchanged). Note that widening past ~1000 px buys height and
+ * nothing else: `#editor-card` is capped at 960 px, so a wider viewport does
+ * not reflow the content, it only adds empty margin beside it. That is why
+ * the width follows the RATIO and nothing more — measure the card, do not
  * guess.
  *
  * Every page's og:image:width / og:image:height declares these two numbers, and
  * `test/siteMeta.test.ts` fails if they drift apart or from the committed PNGs.
  */
-export const OG_IMAGE_WIDTH = 1920;
-export const OG_IMAGE_HEIGHT = 1005;
+export const OG_IMAGE_WIDTH = 2400;
+export const OG_IMAGE_HEIGHT = 1257;
 
 /** Where the OG screenshots live in `dist/` and in the dev server. */
 export const OG_DIR = "og";

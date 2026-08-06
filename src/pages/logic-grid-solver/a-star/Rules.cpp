@@ -83,9 +83,65 @@ int impliedRun(const RuleMask mask, const uint8_t color) {
   return direct == 0 ? area + 1 : std::min(direct, area + 1);
 }
 
+/// Whether `color`'s distance rule — two of it exactly two apart in a straight
+/// line — is active. Asked by several builders below, since a straight three's
+/// END cells are exactly such a pair: any pattern containing one is subsumed.
+bool hasDistanceRule(const RuleMask mask, const uint8_t color) {
+  using enum Rule;
+  return has(mask, color == kDark ? NoDarkAnyDark : NoLightAnyLight);
+}
+
+/// Whether `color`'s elbow rule is active — the bent tromino as its own rule,
+/// the same four shapes an area of two contributes.
+bool hasElbowRule(const RuleMask mask, const uint8_t color) {
+  using enum Rule;
+  return has(mask, color == kDark ? NoDarkElbow : NoLightElbow);
+}
+
+/**
+ * Whether connect(color) and the colour's elbow ban are both on — the
+ * combination that pins every PAIR of the colour to one row or column.
+ *
+ * The lemma, in the checkerboard lemma's style: two cells of the colour lie in
+ * one region, so a simple 4-connected path of the colour joins them; if they
+ * differ in both coordinates the path turns somewhere, and the turn's three
+ * cells are a playable bent tromino of the colour — which the elbow rule
+ * forbids. Holds with gaps (the path routes around them and still turns on
+ * playable cells) and with merged cells (arrangement rules count squares, and
+ * a bent merged cell contains the same tromino).
+ */
+bool collinearColour(const RuleMask mask, const uint8_t color) {
+  using enum Rule;
+  return has(mask, color == kDark ? ConnectDark : ConnectLight) &&
+         hasElbowRule(mask, color);
+}
+
+/**
+ * The colour's corner-touch ban, direct or implied: `addCollinearPairs` lays
+ * the diagonal pairs among its off-axis family, so every subsumption gate that
+ * used to ask for the diagonal RULE asks this instead — under either source
+ * the two-cell clause exists and fires before the larger shape could.
+ */
+bool hasDiagonalBan(const RuleMask mask, const uint8_t color) {
+  using enum Rule;
+  return has(mask, color == kDark ? NoDarkDiagonal : NoLightDiagonal) ||
+         collinearColour(mask, color);
+}
+
 void addRuns(const RuleMask mask, const uint8_t color, Patterns &into) {
   const int length = impliedRun(mask, color);
   if (length == 0)
+    return;
+  // An implied run the table cannot hold — area twenty-four's 25 against
+  // `kMaxPatternCells` — is skipped rather than laid out: `runPattern` writes
+  // `cells[i]` with no bound of its own, and dropping a clause only
+  // under-prunes, since `regionArea` enforces every area size whole.
+  if (length > kMaxPatternCells)
+    return;
+  // A run of three or more contains its end cells two apart, so the distance
+  // rule's two-cell clause fires on every instance first. A domino does not —
+  // adjacent is distance one — so length two stays.
+  if (length >= 3 && hasDistanceRule(mask, color))
     return;
   into.emplace_back(runPattern(length, color, 1, 0));
   into.emplace_back(runPattern(length, color, 0, 1));
@@ -135,10 +191,11 @@ void addAreaShapes(const RuleMask mask, const uint8_t color, Patterns &into) {
   // pair — and then nothing of this colour can be coloured at all.
   if (impliedRun(mask, color) == 2)
     return;
-  // A bent tromino contains a corner touch, so the diagonal rule's two-cell
-  // clause fires before any tromino instance could — while the straight three
-  // stays with `addRuns`, which a diagonal pair says nothing about.
-  if (has(mask, color == kDark ? Rule::NoDarkDiagonal : Rule::NoLightDiagonal))
+  // A bent tromino contains a corner touch, so the corner-touch ban's
+  // two-cell clause fires before any tromino instance could — while the
+  // straight three stays with `addRuns`, which a diagonal pair says nothing
+  // about.
+  if (hasDiagonalBan(mask, color))
     return;
   for (const Pattern &pattern : bentPatterns(color))
     into.emplace_back(pattern);
@@ -181,6 +238,12 @@ void addTriples(const RuleMask mask, const uint8_t color, Patterns &into) {
   using enum Rule;
   if (!has(mask, color == kDark ? NoDarkLightDark : NoLightDarkLight))
     return;
+  // The triple's two ENDS are the colour, two apart, and the distance rule
+  // does not care what sits between them — its two-cell clause fires on every
+  // instance first. The first subsumer the triples ever had: nothing else
+  // names both colours at once.
+  if (hasDistanceRule(mask, color))
+    return;
   into.emplace_back(triplePattern(color, 1, 0));
   into.emplace_back(triplePattern(color, 0, 1));
 }
@@ -218,8 +281,12 @@ void addTees(const RuleMask mask, const uint8_t color, Patterns &into) {
   if (const int run = impliedRun(mask, color); run != 0 && run <= 3)
     return;
   // A T's stem touches both of the bar's end cells corner to corner, so the
-  // diagonal rule's two-cell clause fires before any T instance could.
-  if (has(mask, color == kDark ? NoDarkDiagonal : NoLightDiagonal))
+  // corner-touch ban's two-cell clause fires before any T instance could.
+  if (hasDiagonalBan(mask, color))
+    return;
+  // A T contains a bent tromino (a bar end, the middle and the stem) and its
+  // bar's ends sit two apart, so the elbow and distance rules subsume it too.
+  if (hasElbowRule(mask, color) || hasDistanceRule(mask, color))
     return;
   for (const Pattern &pattern : teePatterns(color))
     into.emplace_back(pattern);
@@ -267,7 +334,14 @@ void addThreeOnes(const RuleMask mask, const uint8_t color, Patterns &into) {
     return;
   if (smallestGlobalArea(mask, color) == 2)
     return;
-  if (has(mask, color == kDark ? NoDarkDiagonal : NoLightDiagonal))
+  if (hasDiagonalBan(mask, color))
+    return;
+  // The three majority cells ARE a bent tromino, so the colour's elbow rule
+  // fires first — and the odd cell is the corner of a majority-other-majority
+  // elbow, so that mixed rule does too. The OTHER mixed elbow does not: its
+  // ends would be the odd colour, of which this shape holds only one.
+  if (hasElbowRule(mask, color) ||
+      has(mask, color == kDark ? NoDarkLightDarkElbow : NoLightDarkLightElbow))
     return;
   for (const Pattern &pattern : threeOnePatterns(color))
     into.emplace_back(pattern);
@@ -299,6 +373,309 @@ void addDiagonals(const RuleMask mask, const uint8_t color, Patterns &into) {
     return;
   for (const Pattern &pattern : diagonalPatterns(color))
     into.emplace_back(pattern);
+}
+
+/**
+ * The elbow rules — the four bent trominoes standing alone. Subsumed exactly
+ * where `addAreaShapes`' trominoes are: a forbidden pair (every bent tromino
+ * contains one) and the colour's diagonal rule (its ends touch corner to
+ * corner). The third gate is the DEDUP: at a smallest area of exactly two,
+ * `addAreaShapes` lays out these identical four — and only at two, because an
+ * area of three leaves a bent region of three perfectly legal, which is what
+ * the elbow rule alone forbids.
+ */
+void addElbows(const RuleMask mask, const uint8_t color, Patterns &into) {
+  if (!hasElbowRule(mask, color))
+    return;
+  if (impliedRun(mask, color) == 2)
+    return;
+  // Direct diagonal rule OR the collinear family this very rule helps switch
+  // on: under connect(colour) the off-axis pairs subsume every bent tromino,
+  // so the elbow's own shapes would only double-score a broken pair.
+  if (hasDiagonalBan(mask, color))
+    return;
+  if (smallestGlobalArea(mask, color) == 2)
+    return;
+  for (const Pattern &pattern : bentPatterns(color))
+    into.emplace_back(pattern);
+}
+
+/// The eight fixed L-tetrominoes: a straight three with a foot perpendicular
+/// at one end — four rotations in BOTH handednesses, each anchored at its
+/// bounding box's top-left like every pattern here.
+std::array<Pattern, 8> ellPatterns(const uint8_t color) {
+  const auto cell = [color](const int dx, const int dy) {
+    return PatternCell{.dx = static_cast<int8_t>(dx),
+                       .dy = static_cast<int8_t>(dy),
+                       .color = color};
+  };
+  return {
+      fromCells(std::to_array({cell(0, 0), cell(0, 1), cell(0, 2), cell(1, 2)})),
+      fromCells(std::to_array({cell(1, 0), cell(1, 1), cell(1, 2), cell(0, 2)})),
+      fromCells(std::to_array({cell(0, 0), cell(1, 0), cell(0, 1), cell(0, 2)})),
+      fromCells(std::to_array({cell(0, 0), cell(1, 0), cell(1, 1), cell(1, 2)})),
+      fromCells(std::to_array({cell(0, 0), cell(1, 0), cell(2, 0), cell(2, 1)})),
+      fromCells(std::to_array({cell(0, 0), cell(1, 0), cell(2, 0), cell(0, 1)})),
+      fromCells(std::to_array({cell(2, 0), cell(0, 1), cell(1, 1), cell(2, 1)})),
+      fromCells(std::to_array({cell(0, 0), cell(0, 1), cell(1, 1), cell(2, 1)})),
+  };
+}
+
+/**
+ * The L rules. Every L contains a straight three (its bar), a bent tromino
+ * (its foot's corner), a corner touch, a pair two apart (the bar's ends) and a
+ * knight's move (the foot to the bar's far end) — so each of those rules
+ * subsumes it. A smallest area of three or less does too: an L is a connected
+ * FOUR, which `regionArea` refuses at every complete assignment. An area of
+ * four does not — an L-shaped region of exactly four is legal under it, and
+ * only this rule forbids the shape.
+ */
+void addElls(const RuleMask mask, const uint8_t color, Patterns &into) {
+  using enum Rule;
+  if (!has(mask, color == kDark ? NoDarkEll : NoLightEll))
+    return;
+  if (const int run = impliedRun(mask, color); run != 0 && run <= 3)
+    return;
+  if (hasElbowRule(mask, color))
+    return;
+  if (const int area = smallestGlobalArea(mask, color); area != 0 && area <= 3)
+    return;
+  if (hasDiagonalBan(mask, color))
+    return;
+  if (hasDistanceRule(mask, color))
+    return;
+  if (has(mask, color == kDark ? NoDarkKnight : NoLightKnight))
+    return;
+  for (const Pattern &pattern : ellPatterns(color))
+    into.emplace_back(pattern);
+}
+
+/// The two ways one colour can sit exactly two apart in a straight line. Only
+/// the END cells are named — whatever lies between, the other colour or even a
+/// gap, is no part of the pattern, which is what makes the ban purely
+/// positional and lets the clause fire ACROSS a gap.
+std::array<Pattern, 2> distancePatterns(const uint8_t color) {
+  const auto cell = [color](const int dx, const int dy) {
+    return PatternCell{.dx = static_cast<int8_t>(dx),
+                       .dy = static_cast<int8_t>(dy),
+                       .color = color};
+  };
+  return {
+      fromCells(std::to_array({cell(0, 0), cell(2, 0)})),
+      fromCells(std::to_array({cell(0, 0), cell(0, 2)})),
+  };
+}
+
+/// The distance rules — never subsumed, like the diagonals: the only other
+/// two-cell patterns name adjacent, diagonal or knight-offset cells, none of
+/// which is a straight two apart.
+void addDistancePairs(const RuleMask mask, const uint8_t color,
+                      Patterns &into) {
+  if (!hasDistanceRule(mask, color))
+    return;
+  for (const Pattern &pattern : distancePatterns(color))
+    into.emplace_back(pattern);
+}
+
+/// The four rotations of the T-pentomino: a bar of three with a stem of TWO
+/// from its middle.
+std::array<Pattern, 4> longTeePatterns(const uint8_t color) {
+  const auto cell = [color](const int dx, const int dy) {
+    return PatternCell{.dx = static_cast<int8_t>(dx),
+                       .dy = static_cast<int8_t>(dy),
+                       .color = color};
+  };
+  return {
+      fromCells(std::to_array(
+          {cell(0, 0), cell(1, 0), cell(2, 0), cell(1, 1), cell(1, 2)})),
+      fromCells(std::to_array(
+          {cell(1, 0), cell(1, 1), cell(0, 2), cell(1, 2), cell(2, 2)})),
+      fromCells(std::to_array(
+          {cell(0, 0), cell(0, 1), cell(0, 2), cell(1, 1), cell(2, 1)})),
+      fromCells(std::to_array(
+          {cell(2, 0), cell(0, 1), cell(1, 1), cell(2, 1), cell(2, 2)})),
+  };
+}
+
+/**
+ * The long-T rules. A long T contains a plain T (bar plus the stem's first
+ * cell), an L (its stem line plus one bar end), and everything an L contains —
+ * so every gate the L has applies, plus the T rule itself. The area gate
+ * reaches four here: a long T is a connected FIVE, which a smallest area of
+ * four or less refuses at every complete assignment through `regionArea`.
+ */
+void addLongTees(const RuleMask mask, const uint8_t color, Patterns &into) {
+  using enum Rule;
+  if (!has(mask, color == kDark ? NoDarkLongT : NoLightLongT))
+    return;
+  if (has(mask, color == kDark ? NoDarkT : NoLightT))
+    return;
+  if (const int run = impliedRun(mask, color); run != 0 && run <= 3)
+    return;
+  if (hasElbowRule(mask, color))
+    return;
+  if (has(mask, color == kDark ? NoDarkEll : NoLightEll))
+    return;
+  if (const int area = smallestGlobalArea(mask, color); area != 0 && area <= 4)
+    return;
+  if (hasDiagonalBan(mask, color))
+    return;
+  if (hasDistanceRule(mask, color))
+    return;
+  if (has(mask, color == kDark ? NoDarkKnight : NoLightKnight))
+    return;
+  for (const Pattern &pattern : longTeePatterns(color))
+    into.emplace_back(pattern);
+}
+
+/// The four ways one colour can sit a knight's move apart: four patterns cover
+/// all eight directions unordered, the diagonal pair's trick again. Two of
+/// them anchor with their FIRST cell off the bounding box's top-left corner,
+/// which `instantiate` has always supported — the rising diagonal is prior
+/// art — and the shape tests pin against a normalising refactor.
+std::array<Pattern, 4> knightPatterns(const uint8_t color) {
+  const auto cell = [color](const int dx, const int dy) {
+    return PatternCell{.dx = static_cast<int8_t>(dx),
+                       .dy = static_cast<int8_t>(dy),
+                       .color = color};
+  };
+  return {
+      fromCells(std::to_array({cell(0, 0), cell(1, 2)})),
+      fromCells(std::to_array({cell(1, 0), cell(0, 2)})),
+      fromCells(std::to_array({cell(0, 0), cell(2, 1)})),
+      fromCells(std::to_array({cell(2, 0), cell(0, 1)})),
+  };
+}
+
+/// The knight rules — never subsumed: no other pattern names two cells a
+/// knight's move apart and nothing smaller fits inside a two-cell pattern.
+void addKnights(const RuleMask mask, const uint8_t color, Patterns &into) {
+  using enum Rule;
+  if (!has(mask, color == kDark ? NoDarkKnight : NoLightKnight))
+    return;
+  for (const Pattern &pattern : knightPatterns(color))
+    into.emplace_back(pattern);
+}
+
+/// The four rotations of a T whose CROSSING — the bar's middle, where the stem
+/// attaches — holds the other colour while the three remaining cells hold
+/// `color`. The same cells as `teePatterns`, with one colour flipped.
+std::array<Pattern, 4> mixedTeePatterns(const uint8_t color) {
+  const uint8_t other = opposite(color);
+  const auto cell = [](const int dx, const int dy, const uint8_t held) {
+    return PatternCell{.dx = static_cast<int8_t>(dx),
+                       .dy = static_cast<int8_t>(dy),
+                       .color = held};
+  };
+  return {
+      fromCells(std::to_array({cell(0, 0, color), cell(1, 0, other),
+                               cell(2, 0, color), cell(1, 1, color)})),
+      fromCells(std::to_array({cell(1, 0, color), cell(0, 1, color),
+                               cell(1, 1, other), cell(2, 1, color)})),
+      fromCells(std::to_array({cell(0, 0, color), cell(0, 1, other),
+                               cell(1, 1, color), cell(0, 2, color)})),
+      fromCells(std::to_array({cell(1, 0, color), cell(0, 1, color),
+                               cell(1, 1, other), cell(1, 2, color)})),
+  };
+}
+
+/**
+ * The mixed-T rules — `color` is the ARMS' colour, the one the rule's id names
+ * last. Subsumed by the arms' triple rule (the bar IS colour-other-colour),
+ * the arms' distance rule (the bar's ends are two apart), the arms' diagonal
+ * rule (the stem touches both bar ends corner to corner), and the mixed elbow
+ * whose ends are the arms' colour (one bar end, the crossing and the stem are
+ * exactly that elbow).
+ */
+void addMixedTees(const RuleMask mask, const uint8_t color, Patterns &into) {
+  using enum Rule;
+  if (!has(mask, color == kDark ? NoLightCrossedDarkT : NoDarkCrossedLightT))
+    return;
+  if (has(mask, color == kDark ? NoDarkLightDark : NoLightDarkLight))
+    return;
+  if (hasDistanceRule(mask, color))
+    return;
+  if (hasDiagonalBan(mask, color))
+    return;
+  if (has(mask, color == kDark ? NoDarkLightDarkElbow : NoLightDarkLightElbow))
+    return;
+  for (const Pattern &pattern : mixedTeePatterns(color))
+    into.emplace_back(pattern);
+}
+
+/// The four orientations of a bent tromino whose CORNER — the square touching
+/// both others — holds the other colour while both ends hold `color`.
+std::array<Pattern, 4> mixedElbowPatterns(const uint8_t color) {
+  const uint8_t other = opposite(color);
+  const auto cell = [](const int dx, const int dy, const uint8_t held) {
+    return PatternCell{.dx = static_cast<int8_t>(dx),
+                       .dy = static_cast<int8_t>(dy),
+                       .color = held};
+  };
+  return {
+      fromCells(std::to_array(
+          {cell(0, 0, other), cell(1, 0, color), cell(0, 1, color)})),
+      fromCells(std::to_array(
+          {cell(0, 0, color), cell(1, 0, other), cell(1, 1, color)})),
+      fromCells(std::to_array(
+          {cell(0, 0, color), cell(0, 1, other), cell(1, 1, color)})),
+      fromCells(std::to_array(
+          {cell(1, 0, color), cell(0, 1, color), cell(1, 1, other)})),
+  };
+}
+
+/// The mixed-elbow rules — `color` is the ENDS' colour. Subsumed only by that
+/// colour's corner-touch ban: its two ends ARE a diagonal pair, and nothing
+/// else in the table fits inside three cells of two colours.
+void addMixedElbows(const RuleMask mask, const uint8_t color, Patterns &into) {
+  using enum Rule;
+  if (!has(mask, color == kDark ? NoDarkLightDarkElbow : NoLightDarkLightElbow))
+    return;
+  if (hasDiagonalBan(mask, color))
+    return;
+  for (const Pattern &pattern : mixedElbowPatterns(color))
+    into.emplace_back(pattern);
+}
+
+/**
+ * The collinearity lemma compiled — see `collinearColour` for the proof. Every
+ * OFF-AXIS pair of the colour is forbidden: {(0,0),(dx,dy)} for the falling
+ * orientations and {(dx,0),(0,dy)} for the rising ones, dx and dy positive.
+ * Like the distance pair, only the two END squares are named, so the clause is
+ * purely positional and fires across gaps — and two off-axis squares of one
+ * merged cell collapse to a unit clause, which is exactly right: a bent cell
+ * of the colour would contain the forbidden tromino all by itself.
+ *
+ * Dedup, not subsumption: the (1,1) members are the diagonal patterns and the
+ * (1,2)/(2,1) members the knight patterns, so where those RULES are on their
+ * own builders lay the pair and this one skips it — a clause laid twice would
+ * double-score one broken pair in `GenerateCommands::cost()`. Nothing subsumes
+ * the family: no other clause fits inside two cells.
+ */
+void addCollinearPairs(const RuleMask mask, const uint8_t color,
+                       Patterns &into) {
+  using enum Rule;
+  if (!collinearColour(mask, color))
+    return;
+  const bool diagonals =
+      has(mask, color == kDark ? NoDarkDiagonal : NoLightDiagonal);
+  const bool knights =
+      has(mask, color == kDark ? NoDarkKnight : NoLightKnight);
+  const auto cell = [color](const int dx, const int dy) {
+    return PatternCell{.dx = static_cast<int8_t>(dx),
+                       .dy = static_cast<int8_t>(dy),
+                       .color = color};
+  };
+  for (int dy = 1; dy < kMaxSide; dy++) {
+    for (int dx = 1; dx < kMaxSide; dx++) {
+      if (diagonals && dx == 1 && dy == 1)
+        continue;
+      if (knights && ((dx == 1 && dy == 2) || (dx == 2 && dy == 1)))
+        continue;
+      into.emplace_back(fromCells(std::to_array({cell(0, 0), cell(dx, dy)})));
+      into.emplace_back(fromCells(std::to_array({cell(dx, 0), cell(0, dy)})));
+    }
+  }
 }
 
 } // namespace
@@ -338,6 +715,27 @@ const char *name(const Rule rule) {
       "no-light-diagonal",
       "area-three-dark",
       "area-three-light",
+      "off-by-one",
+      "no-dark-elbow",
+      "no-light-elbow",
+      "no-dark-l",
+      "no-light-l",
+      "no-dark-any-dark",
+      "no-light-any-light",
+      "area-six-dark",
+      "area-six-light",
+      "area-seven-dark",
+      "area-seven-light",
+      "no-light-crossed-dark-t",
+      "no-dark-crossed-light-t",
+      "no-dark-long-t",
+      "no-light-long-t",
+      "area-twenty-four-dark",
+      "area-twenty-four-light",
+      "no-dark-knight",
+      "no-light-knight",
+      "no-dark-light-dark-elbow",
+      "no-light-dark-light-elbow",
   });
   static_assert(kNames.size() == kRuleCount,
                 "every rule needs its id, in index order");
@@ -358,11 +756,14 @@ int smallestGlobalArea(const RuleMask mask, const uint8_t color) {
 Patterns patternsFor(const RuleMask mask) {
   using enum Rule;
   Patterns patterns;
-  // A monochrome 2x2 contains a corner touch of its own colour, so under that
-  // colour's diagonal rule the two-cell clause always fires first.
-  if (has(mask, NoDark2x2) && !has(mask, NoDarkDiagonal))
+  // A monochrome 2x2 contains a corner touch of its own colour and any three
+  // of its squares are a bent tromino, so under that colour's corner-touch
+  // ban or elbow rule a smaller clause always fires first.
+  if (has(mask, NoDark2x2) && !hasDiagonalBan(mask, kDark) &&
+      !hasElbowRule(mask, kDark))
     patterns.emplace_back(squarePattern(kDark));
-  if (has(mask, NoLight2x2) && !has(mask, NoLightDiagonal))
+  if (has(mask, NoLight2x2) && !hasDiagonalBan(mask, kLight) &&
+      !hasElbowRule(mask, kLight))
     patterns.emplace_back(squarePattern(kLight));
 
   addRuns(mask, kDark, patterns);
@@ -383,6 +784,37 @@ Patterns patternsFor(const RuleMask mask) {
   addDiagonals(mask, kDark, patterns);
   addDiagonals(mask, kLight, patterns);
 
+  addElbows(mask, kDark, patterns);
+  addElbows(mask, kLight, patterns);
+
+  addElls(mask, kDark, patterns);
+  addElls(mask, kLight, patterns);
+
+  addDistancePairs(mask, kDark, patterns);
+  addDistancePairs(mask, kLight, patterns);
+
+  // The mixed pairs take the colour of what the shape holds THREE of — the
+  // arms, and the elbow's two ends.
+  addMixedTees(mask, kDark, patterns);
+  addMixedTees(mask, kLight, patterns);
+
+  addLongTees(mask, kDark, patterns);
+  addLongTees(mask, kLight, patterns);
+
+  addKnights(mask, kDark, patterns);
+  addKnights(mask, kLight, patterns);
+
+  addMixedElbows(mask, kDark, patterns);
+  addMixedElbows(mask, kLight, patterns);
+
+  // The collinearity lemma — connect(colour) + the colour's elbow ban pin the
+  // whole colour to one row or column, compiled as every off-axis pair. The
+  // second derived emission after the checkerboard below, and the reason the
+  // subsumption gates above ask `hasDiagonalBan` rather than the diagonal
+  // rule alone.
+  addCollinearPairs(mask, kDark, patterns);
+  addCollinearPairs(mask, kLight, patterns);
+
   // The checkerboard lemma, which is why BOTH connect rules together imply the
   // checkerboard patterns even when the board never asked for them. Suppose a
   // 2x2 held one; join its two dark corners by a dark path and its two light
@@ -392,12 +824,16 @@ Patterns patternsFor(const RuleMask mask) {
   // plane cannot cross an odd number of times, so one of the two paths does not
   // exist and one of the two rules is broken.
   //
-  // EITHER diagonal rule subsumes both patterns: a checkerboard is a dark
-  // corner touch and a light one in the same 2x2, so whichever colour's rule
-  // is on, its two-cell clause fires on every instance first.
+  // EITHER corner-touch ban subsumes both patterns: a checkerboard is a dark
+  // corner touch and a light one in the same 2x2, so whichever colour's ban
+  // is on — the rule or the collinear family — its two-cell clause fires on
+  // every instance first. Either MIXED elbow rule does the same — a
+  // checkerboard's 2x2 holds both mixed elbows, whichever diagonal carries
+  // the ends.
   if ((has(mask, NoCheckerboard) ||
        (has(mask, ConnectDark) && has(mask, ConnectLight))) &&
-      !has(mask, NoDarkDiagonal) && !has(mask, NoLightDiagonal)) {
+      !hasDiagonalBan(mask, kDark) && !hasDiagonalBan(mask, kLight) &&
+      !has(mask, NoDarkLightDarkElbow) && !has(mask, NoLightDarkLightElbow)) {
     patterns.emplace_back(checkerPattern(kDark));
     patterns.emplace_back(checkerPattern(kLight));
   }

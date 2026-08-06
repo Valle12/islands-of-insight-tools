@@ -196,7 +196,9 @@ export class SolutionView {
       destSet: landing ? SolutionView.footprintKeys(landing) : new Set(),
     };
 
-    this.grid.style.gridTemplateColumns = `repeat(${gridWidth}, minmax(0, 1fr))`;
+    // Fixed tracks for the same reason the editor's renderGrid uses them: a
+    // shrinkable track overlaps the fixed-width squares at narrow viewports.
+    this.grid.style.gridTemplateColumns = `repeat(${gridWidth}, var(--rb-cell))`;
     const fragment = document.createDocumentFragment();
     for (let y = 0; y < gridHeight; y++) {
       for (let x = 0; x < gridWidth; x++) {

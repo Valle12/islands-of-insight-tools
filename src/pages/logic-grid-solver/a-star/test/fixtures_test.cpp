@@ -185,6 +185,37 @@ TEST(LogicGridFixtureIo, WritesTheVersionItSaves) {
   EXPECT_EQ(written.at("version").get<int>(), fixtureio::kConfigVersion);
 }
 
+/// A galaxy serialises as position and kind alone — no value, direction or
+/// seat keys — and reads back identically. The writer sharing
+/// `isValuelessKind` with the reader is what a stray `"value": 0` here would
+/// have broken.
+TEST(LogicGridFixtureIo, RoundTripsAGalaxy) {
+  nlohmann::json document = oneCellDocument();
+  document["symbols"] = nlohmann::json::array(
+      {nlohmann::json{{"x", 0}, {"y", 0}, {"type", kClueGalaxy}}});
+  const TempFixture file(document);
+  const fixtureio::Fixture fixture = fixtureio::load(file.path());
+  ASSERT_EQ(fixture.puzzle.clues.size(), 1U);
+  EXPECT_EQ(fixture.puzzle.clues.front().kind, kClueGalaxy);
+  fixtureio::save(file.path(), fixture);
+  const nlohmann::json written = readJson(file.path());
+  const nlohmann::json &symbol = written.at("symbols").front();
+  EXPECT_EQ(symbol.at("type").get<int>(), kClueGalaxy);
+  EXPECT_FALSE(symbol.contains("value"));
+  EXPECT_FALSE(symbol.contains("direction"));
+  EXPECT_FALSE(symbol.contains("seat"));
+}
+
+/// Refused rather than dropped: a value on a valueless kind would look like
+/// part of the puzzle and change nothing about it.
+TEST(LogicGridFixtureIo, RefusesAGalaxyWithAValue) {
+  nlohmann::json document = oneCellDocument();
+  document["symbols"] = nlohmann::json::array({nlohmann::json{
+      {"x", 0}, {"y", 0}, {"type", kClueGalaxy}, {"value", 0}}});
+  const TempFixture file(document);
+  EXPECT_THROW((void)fixtureio::load(file.path()), fixtureio::FixtureError);
+}
+
 class LogicGridFixtureTest : public testing::TestWithParam<std::string> {};
 
 TEST_P(LogicGridFixtureTest, SolvesAndVerifies) {

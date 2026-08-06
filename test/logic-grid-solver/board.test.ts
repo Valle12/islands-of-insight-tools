@@ -113,8 +113,10 @@ describe("Board (logic grid)", () => {
 
     test("sets grid template columns from gridWidth", () => {
       makeBoard(4, 3);
+      // Fixed tracks, not minmax(0, 1fr): shrinkable tracks overlap the
+      // fixed-width squares at narrow viewports (the shell scrolls instead).
       expect(document.getElementById("grid")!.style.gridTemplateColumns).toBe(
-        "repeat(4, minmax(0, 1fr))",
+        "repeat(4, var(--logic-cell))",
       );
     });
   });
@@ -943,6 +945,88 @@ describe("Board (logic grid)", () => {
     });
   });
 
+  describe("Galaxies", () => {
+    const GALAXY = 5;
+
+    /** Position and kind alone: no value, no direction, no seat — the first
+     * clue whose whole geometry is the square it sits on. */
+    test("stamps with nothing but its position", () => {
+      const board = makeBoard(3, 3, "symbol", GALAXY, null);
+      press(1, 1);
+      expect(board.getSymbols()).toEqual([{ x: 1, y: 1, type: GALAXY }]);
+      expect(cellAt(1, 1).dataset.symbol).toBe("galaxy");
+      expect(cellAt(1, 1).dataset.icon).toBe("");
+      expect(cellAt(1, 1).getAttribute("aria-label")).toBe(
+        "Column 2, Row 2, Unknown, Galaxy",
+      );
+      const glyph = cellAt(1, 1).querySelector("md-icon");
+      expect(glyph?.className).toBe("cell-galaxy");
+      expect(glyph?.textContent).toBe("cyclone");
+    });
+
+    /** Nothing to turn, so the dart's turns-instead rule never fires and the
+     * second press is a plain lift. */
+    test("re-clicking lifts it", () => {
+      const board = makeBoard(3, 3, "symbol", GALAXY, null);
+      press(1, 1);
+      press(1, 1);
+      expect(board.getSymbols()).toEqual([]);
+      expect(cellAt(1, 1).dataset.symbol).toBeUndefined();
+      expect(cellAt(1, 1).dataset.icon).toBeUndefined();
+    });
+
+    test("the right button lifts it too", () => {
+      const board = makeBoard(3, 3, "symbol", GALAXY, null);
+      press(1, 1);
+      press(1, 1, RIGHT);
+      expect(board.getSymbols()).toEqual([]);
+    });
+
+    /** A valueless kind has nothing for a keystroke to edit — and it must not
+     * lose its clue to one either. */
+    test("digits neither edit nor replace it", () => {
+      const board = makeBoard(3, 3, "symbol", GALAXY, null);
+      press(1, 1);
+      type(1, 1, "3");
+      expect(board.getSymbols()).toEqual([{ x: 1, y: 1, type: GALAXY }]);
+    });
+
+    /** No axis to step either, so every arrow key keeps scrolling. */
+    test("arrow keys leave it alone", () => {
+      const board = makeBoard(3, 3, "symbol", GALAXY, null);
+      press(1, 1);
+      type(1, 1, "ArrowRight");
+      expect(board.getSymbols()).toEqual([{ x: 1, y: 1, type: GALAXY }]);
+    });
+
+    /** Restamping the cell with a value kind must shed the icon hook, or the
+     * number would keep the icon's centring. */
+    test("overwriting it with an area number sheds the icon", () => {
+      const board = makeBoard(3, 3, "symbol", GALAXY, null);
+      press(1, 1);
+      board.setSelectedSymbol(0);
+      board.setSymbolValue(4);
+      press(1, 1);
+      expect(board.getSymbols()).toEqual([{ x: 1, y: 1, type: 0, value: 4 }]);
+      expect(cellAt(1, 1).dataset.icon).toBeUndefined();
+      expect(cellAt(1, 1).textContent).toBe("4");
+    });
+  });
+
+  describe("Off-by-one typing", () => {
+    /** The editor pushes the flag in, and the keystroke floor follows it: a
+     * typed zero stamps nothing as the rules stand — zero is not an area —
+     * and stamps a real displayed zero the moment the rule is on. */
+    test("a typed zero is real exactly while the rule is active", () => {
+      const board = makeBoard(4, 3, "symbol", 0, 1);
+      type(1, 1, "0");
+      expect(board.getSymbols()).toEqual([]);
+      board.setOffByOne(true);
+      type(1, 1, "0");
+      expect(board.getSymbols()).toEqual([{ x: 1, y: 1, type: 0, value: 0 }]);
+    });
+  });
+
   describe("loadConfig", () => {
     test("fills both layers", () => {
       const board = makeBoard(2, 2);
@@ -1084,10 +1168,10 @@ describe("Board (logic grid)", () => {
     });
 
     /**
-     * A merged cell holds ONE clue, on whichever of its squares the player put
-     * it — the game draws a dart's line from its own square, and even an area
-     * number reads as a different board when it moves, so nothing is re-homed
-     * to a canonical middle square any more.
+     * A clue lands on whichever square the player pressed — the game draws a
+     * dart's line from its own square, and even an area number reads as a
+     * different board when it moves, so nothing is re-homed to a canonical
+     * middle square.
      */
     test("a merged cell carries its clue once, where it was pressed", () => {
       const board = makeBoard(4, 3, "merge");
@@ -1106,10 +1190,10 @@ describe("Board (logic grid)", () => {
       expect(cellAt(1, 0).textContent).toBe("");
     });
 
-    /** Pressing another square MOVES the cell's one clue rather than lifting
-     * it: two clues on one cell is what the model does not allow, and a press
-     * that reads as "the same clue again" would have erased this one. */
-    test("pressing another square of a clued cell moves the clue there", () => {
+    /** Pressing another square ADDS a second clue there — the game's harder
+     * boards carry several on one merged cell (two darts on one domino) — and
+     * only the clue's own square lifts it. */
+    test("pressing another square of a clued cell adds a second clue", () => {
       const board = makeBoard(4, 3, "merge");
       mergeAcross([
         [0, 0],
@@ -1123,15 +1207,17 @@ describe("Board (logic grid)", () => {
       release();
       press(0, 0, LEFT);
       release();
-      expect(board.getSymbols()).toEqual([{ x: 0, y: 0, type: 0, value: 3 }]);
+      expect(board.getSymbols()).toEqual([
+        { x: 0, y: 0, type: 0, value: 3 },
+        { x: 2, y: 0, type: 0, value: 3 },
+      ]);
       expect(cellAt(0, 0).textContent).toBe("3");
-      expect(cellAt(2, 0).textContent).toBe("");
+      expect(cellAt(2, 0).textContent).toBe("3");
 
-      // ...and the SAME square still erases, which is the only way a press
-      // lifts one.
+      // The SAME square still erases, and reaches only its own clue.
       press(0, 0, LEFT);
       release();
-      expect(board.getSymbols()).toEqual([]);
+      expect(board.getSymbols()).toEqual([{ x: 2, y: 0, type: 0, value: 3 }]);
     });
 
     /**
@@ -1155,12 +1241,11 @@ describe("Board (logic grid)", () => {
     });
 
     /**
-     * The cell carries one clue however many squares it spans, so typing on a
-     * DIFFERENT square edits the one already there rather than stamping a
-     * second beside it. It stays where it is: typing is an edit, and only a
-     * press moves a clue.
+     * Every square's slot is its own, so typing on a DIFFERENT square stamps a
+     * second clue beside the first — the keyboard's version of the pointer
+     * adding one — and each square's digits edit only its own clue.
      */
-    test("typing on another square edits the clue the cell already has", () => {
+    test("typing on another square stamps a second clue beside it", () => {
       const board = makeBoard(4, 3, "merge");
       mergeAcross([
         [0, 0],
@@ -1171,11 +1256,15 @@ describe("Board (logic grid)", () => {
       board.setSelectedTool("symbol");
       type(2, 0, "1");
       type(0, 0, "2");
-      expect(board.getSymbols()).toEqual([{ x: 2, y: 0, type: 0, value: 12 }]);
-      expect(cellAt(0, 0).textContent).toBe("");
+      expect(board.getSymbols()).toEqual([
+        { x: 0, y: 0, type: 0, value: 2 },
+        { x: 2, y: 0, type: 0, value: 1 },
+      ]);
+      expect(cellAt(0, 0).textContent).toBe("2");
+      expect(cellAt(2, 0).textContent).toBe("1");
     });
 
-    test("Backspace on any square of a merged cell lifts its clue", () => {
+    test("Backspace lifts only the focused square's own clue", () => {
       const board = makeBoard(4, 3, "merge");
       mergeAcross([
         [0, 0],
@@ -1189,15 +1278,19 @@ describe("Board (logic grid)", () => {
       release();
       expect(board.getSymbols()).toHaveLength(1);
 
-      // From the far end, which is not where the clue is stored.
+      // From the far end, whose slot is empty: nothing happens — a merged
+      // cell may carry a clue per square, so lifting reaches only the
+      // focused one.
       type(2, 0, "Backspace");
+      expect(board.getSymbols()).toHaveLength(1);
+      type(0, 0, "Backspace");
       expect(board.getSymbols()).toEqual([]);
     });
 
     /**
-     * A merged cell holds one colour and at most one clue, and the squares
-     * coming together may disagree about both — so restructuring clears rather
-     * than picking a winner nobody could predict.
+     * A merged cell holds one colour, and the squares coming together may
+     * disagree about colours and clues — so restructuring clears rather than
+     * picking a winner nobody could predict.
      */
     test("merging clears the colour and clue of everything it touches", () => {
       const board = makeBoard(4, 3, "dark");

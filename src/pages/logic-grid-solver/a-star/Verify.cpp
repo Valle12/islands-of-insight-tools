@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdlib>
 
 namespace lg::verify {
 namespace {
@@ -297,6 +298,236 @@ Violation diagonalProblem(const Model &model, const Colors &colors) {
   return None;
 }
 
+/// A bent tromino of `color`: a 2x2 window holding at least three of it.
+/// Three is an elbow outright; four is a full square, which contains one.
+bool hasElbow(const Model &model, const Colors &colors, const uint8_t color) {
+  for (int y = 0; y + 1 < model.height(); y++) {
+    for (int x = 0; x + 1 < model.width(); x++) {
+      const auto corners = std::to_array<uint8_t>(
+          {colors[slot(cellIndex(x, y))], colors[slot(cellIndex(x + 1, y))],
+           colors[slot(cellIndex(x, y + 1))],
+           colors[slot(cellIndex(x + 1, y + 1))]});
+      if (std::ranges::count(corners, color) >= 3)
+        return true;
+    }
+  }
+  return false;
+}
+
+Violation elbowProblem(const Model &model, const Colors &colors) {
+  using enum Violation;
+  if (model.hasRule(Rule::NoDarkElbow) && hasElbow(model, colors, kDark))
+    return Elbow;
+  if (model.hasRule(Rule::NoLightElbow) && hasElbow(model, colors, kLight))
+    return Elbow;
+  return None;
+}
+
+/// An L-tetromino of `color`, either handedness: a straight three with a
+/// fourth cell perpendicular at one END. Scanned from the bar's middle like
+/// the T. Every diagonal neighbour of the middle is orthogonally adjacent to
+/// exactly one end of either bar, so "a bar plus any diagonal of its middle"
+/// is precisely an L — all eight orientations — while a foot at the middle
+/// itself would be a T, which this never matches.
+bool hasEll(const Model &model, const Colors &colors, const uint8_t color) {
+  const auto held = [&model, &colors, color](const int x, const int y) {
+    return x >= 0 && x < model.width() && y >= 0 && y < model.height() &&
+           colors[slot(cellIndex(x, y))] == color;
+  };
+  for (int y = 0; y < model.height(); y++) {
+    for (int x = 0; x < model.width(); x++) {
+      if (!held(x, y))
+        continue;
+      if (const bool corner = held(x - 1, y - 1) || held(x - 1, y + 1) ||
+                              held(x + 1, y - 1) || held(x + 1, y + 1);
+          !corner)
+        continue;
+      if (held(x - 1, y) && held(x + 1, y))
+        return true;
+      if (held(x, y - 1) && held(x, y + 1))
+        return true;
+    }
+  }
+  return false;
+}
+
+Violation ellProblem(const Model &model, const Colors &colors) {
+  using enum Violation;
+  if (model.hasRule(Rule::NoDarkEll) && hasEll(model, colors, kDark))
+    return Ell;
+  if (model.hasRule(Rule::NoLightEll) && hasEll(model, colors, kLight))
+    return Ell;
+  return None;
+}
+
+/// Two cells of `color` exactly two apart in a straight line. Only the two END
+/// squares are read — whatever lies between them, the other colour or even a
+/// gap, does not lift the ban, which is what "purely positional" means.
+/// Scanned rightward and downward only, so every pair is seen exactly once.
+bool hasDistancePair(const Model &model, const Colors &colors,
+                     const uint8_t color) {
+  for (int y = 0; y < model.height(); y++) {
+    for (int x = 0; x < model.width(); x++) {
+      if (colors[slot(cellIndex(x, y))] != color)
+        continue;
+      if (x + 2 < model.width() && colors[slot(cellIndex(x + 2, y))] == color)
+        return true;
+      if (y + 2 < model.height() && colors[slot(cellIndex(x, y + 2))] == color)
+        return true;
+    }
+  }
+  return false;
+}
+
+Violation distancePairProblem(const Model &model, const Colors &colors) {
+  using enum Violation;
+  if (model.hasRule(Rule::NoDarkAnyDark) &&
+      hasDistancePair(model, colors, kDark))
+    return DistancePair;
+  if (model.hasRule(Rule::NoLightAnyLight) &&
+      hasDistancePair(model, colors, kLight))
+    return DistancePair;
+  return None;
+}
+
+/// A T whose CROSSING — the bar's middle, where the stem attaches — holds the
+/// other colour while the bar's ends and the stem hold `color`. Scanned from
+/// the crossing, which sees all four rotations; every cell is named outright,
+/// so a gap can never stand in for the crossing.
+bool hasMixedTee(const Model &model, const Colors &colors,
+                 const uint8_t color) {
+  const auto held = [&model, &colors, color](const int x, const int y) {
+    return x >= 0 && x < model.width() && y >= 0 && y < model.height() &&
+           colors[slot(cellIndex(x, y))] == color;
+  };
+  for (int y = 0; y < model.height(); y++) {
+    for (int x = 0; x < model.width(); x++) {
+      if (colors[slot(cellIndex(x, y))] != opposite(color))
+        continue;
+      if (held(x - 1, y) && held(x + 1, y) &&
+          (held(x, y - 1) || held(x, y + 1)))
+        return true;
+      if (held(x, y - 1) && held(x, y + 1) &&
+          (held(x - 1, y) || held(x + 1, y)))
+        return true;
+    }
+  }
+  return false;
+}
+
+Violation mixedTeeProblem(const Model &model, const Colors &colors) {
+  using enum Violation;
+  // The rule's id names the ARMS' colour last: a "light-crossed dark T" is
+  // three dark cells around a light crossing.
+  if (model.hasRule(Rule::NoLightCrossedDarkT) &&
+      hasMixedTee(model, colors, kDark))
+    return MixedTee;
+  if (model.hasRule(Rule::NoDarkCrossedLightT) &&
+      hasMixedTee(model, colors, kLight))
+    return MixedTee;
+  return None;
+}
+
+/// A T-pentomino of `color`: a bar of three with a stem of TWO from its
+/// middle. Scanned from the crossing like the T, with the stem asked to reach
+/// two deep on either side of the bar.
+bool hasLongTee(const Model &model, const Colors &colors,
+                const uint8_t color) {
+  const auto held = [&model, &colors, color](const int x, const int y) {
+    return x >= 0 && x < model.width() && y >= 0 && y < model.height() &&
+           colors[slot(cellIndex(x, y))] == color;
+  };
+  for (int y = 0; y < model.height(); y++) {
+    for (int x = 0; x < model.width(); x++) {
+      if (!held(x, y))
+        continue;
+      if (held(x - 1, y) && held(x + 1, y) &&
+          ((held(x, y - 1) && held(x, y - 2)) ||
+           (held(x, y + 1) && held(x, y + 2))))
+        return true;
+      if (held(x, y - 1) && held(x, y + 1) &&
+          ((held(x - 1, y) && held(x - 2, y)) ||
+           (held(x + 1, y) && held(x + 2, y))))
+        return true;
+    }
+  }
+  return false;
+}
+
+Violation longTeeProblem(const Model &model, const Colors &colors) {
+  using enum Violation;
+  if (model.hasRule(Rule::NoDarkLongT) && hasLongTee(model, colors, kDark))
+    return LongTee;
+  if (model.hasRule(Rule::NoLightLongT) && hasLongTee(model, colors, kLight))
+    return LongTee;
+  return None;
+}
+
+/// Two cells of `color` a chess knight's move apart — two in one direction and
+/// one in the other. Nothing between them is read. Scanned from each cell's
+/// four DOWNWARD offsets, so every pair is seen exactly once.
+bool hasKnight(const Model &model, const Colors &colors, const uint8_t color) {
+  const auto held = [&model, &colors, color](const int x, const int y) {
+    return x >= 0 && x < model.width() && y >= 0 && y < model.height() &&
+           colors[slot(cellIndex(x, y))] == color;
+  };
+  for (int y = 0; y < model.height(); y++) {
+    for (int x = 0; x < model.width(); x++) {
+      if (!held(x, y))
+        continue;
+      if (held(x + 1, y + 2) || held(x - 1, y + 2) || held(x + 2, y + 1) ||
+          held(x - 2, y + 1))
+        return true;
+    }
+  }
+  return false;
+}
+
+Violation knightProblem(const Model &model, const Colors &colors) {
+  using enum Violation;
+  if (model.hasRule(Rule::NoDarkKnight) && hasKnight(model, colors, kDark))
+    return Knight;
+  if (model.hasRule(Rule::NoLightKnight) && hasKnight(model, colors, kLight))
+    return Knight;
+  return None;
+}
+
+/// A bent tromino whose CORNER — the square touching both others — holds the
+/// other colour while both ends hold `color`. Scanned from the corner: any
+/// vertical neighbour of it paired with any horizontal one is a right angle,
+/// which covers the four orientations. A straight line through the corner has
+/// no such pair, so a mixed TRIPLE never matches.
+bool hasMixedElbow(const Model &model, const Colors &colors,
+                   const uint8_t color) {
+  const auto held = [&model, &colors, color](const int x, const int y) {
+    return x >= 0 && x < model.width() && y >= 0 && y < model.height() &&
+           colors[slot(cellIndex(x, y))] == color;
+  };
+  for (int y = 0; y < model.height(); y++) {
+    for (int x = 0; x < model.width(); x++) {
+      if (colors[slot(cellIndex(x, y))] != opposite(color))
+        continue;
+      if ((held(x, y - 1) || held(x, y + 1)) &&
+          (held(x - 1, y) || held(x + 1, y)))
+        return true;
+    }
+  }
+  return false;
+}
+
+Violation mixedElbowProblem(const Model &model, const Colors &colors) {
+  using enum Violation;
+  // The id reads the shape end-corner-end: `no-dark-light-dark-elbow` is two
+  // dark ends around a light corner.
+  if (model.hasRule(Rule::NoDarkLightDarkElbow) &&
+      hasMixedElbow(model, colors, kDark))
+    return MixedElbow;
+  if (model.hasRule(Rule::NoLightDarkLightElbow) &&
+      hasMixedElbow(model, colors, kLight))
+    return MixedElbow;
+  return None;
+}
+
 /// An empty colour is vacuously one region, which is what lets a board be
 /// legally all-dark while `connect-light` is switched on.
 bool isOneRegion(const Bits &cells) {
@@ -360,6 +591,12 @@ Violation regionSizeProblem(const Model &model, const Bits &dark,
       {.rule = AreaFiveLight, .color = kLight, .area = 5},
       {.rule = AreaThreeDark, .color = kDark, .area = 3},
       {.rule = AreaThreeLight, .color = kLight, .area = 3},
+      {.rule = AreaSixDark, .color = kDark, .area = 6},
+      {.rule = AreaSixLight, .color = kLight, .area = 6},
+      {.rule = AreaSevenDark, .color = kDark, .area = 7},
+      {.rule = AreaSevenLight, .color = kLight, .area = 7},
+      {.rule = AreaTwentyFourDark, .color = kDark, .area = 24},
+      {.rule = AreaTwentyFourLight, .color = kLight, .area = 24},
   });
   const bool wrong = std::ranges::any_of(
       kAreaRules, [&model, &dark, &light](const AreaRule &row) {
@@ -369,13 +606,24 @@ Violation regionSizeProblem(const Model &model, const Bits &dark,
   return wrong ? Violation::RegionSize : Violation::None;
 }
 
+/// Whether an actual count satisfies a numeric clue's DISPLAYED value. Under
+/// `off-by-one` every numeric clue displays its true count ± 1 and never the
+/// truth, so the test is an exact distance of one — a displayed value EQUAL to
+/// the count is then a violation, not a near miss.
+bool countMatches(const Model &model, const int actual, const int displayed) {
+  if (model.hasRule(Rule::OffByOne))
+    return std::abs(actual - displayed) == 1;
+  return actual == displayed;
+}
+
 Violation areaProblem(const Model &model, const Colors &colors,
                       const Bits &dark, const Bits &light) {
   const bool wrong = std::ranges::any_of(
       model.areaClues, [&model, &colors, &dark, &light](const int id) {
         const Clue &clue = model.puzzle.clues[slot(id)];
         const Bits &mask = colors[slot(clue.index)] == kDark ? dark : light;
-        return component(clue.index, mask).count() != clue.value;
+        return !countMatches(model, component(clue.index, mask).count(),
+                             clue.value);
       });
   return wrong ? Violation::AreaSize : Violation::None;
 }
@@ -449,7 +697,7 @@ Violation dartProblem(const Model &model, const Colors &colors) {
       if (colors[slot(cellIndex(x, y))] == other)
         count++;
     }
-    if (count != clue.value)
+    if (!countMatches(model, count, clue.value))
       return Violation::DartCount;
   }
   return Violation::None;
@@ -517,10 +765,40 @@ Violation viewpointProblem(const Model &model, const Colors &colors) {
            x += stepX, y += stepY)
         count++;
     }
-    if (count != clue.value)
+    if (!countMatches(model, count, clue.value))
       return Violation::ViewpointCount;
   }
   return Violation::None;
+}
+
+/**
+ * Every galaxy's region maps to itself under a HALF TURN about the galaxy's
+ * own square.
+ *
+ * The region is the connected same-colour set of squares holding the galaxy's
+ * cell, and symmetry means each square's point mirror is on the board,
+ * playable and the same colour — which by the region's maximality puts the
+ * mirror in the region too. Geometry is re-derived from the clue, the
+ * discipline `dartProblem` sets; unlike the lotus there is no readability net,
+ * because a galaxy carries no axis or seat that could be unreadable.
+ */
+Violation galaxyProblem(const Model &model, const Colors &colors) {
+  using enum Violation;
+  for (const int id : model.galaxyClues) {
+    const Clue &clue = model.puzzle.clues[slot(id)];
+    const int gx = columnOf(clue.index);
+    const int gy = rowOf(clue.index);
+    const uint8_t color = colors[slot(clue.index)];
+    const Bits region = component(clue.index, maskOf(model, colors, color));
+    for (int i = region.nextSet(0); i >= 0; i = region.nextSet(i + 1)) {
+      const auto [mx, my] = pointMirror(gx, gy, columnOf(i), rowOf(i));
+      if (mx < 0 || mx >= model.width() || my < 0 || my >= model.height())
+        return GalaxyAsymmetric;
+      if (colors[slot(cellIndex(mx, my))] != color)
+        return GalaxyAsymmetric;
+    }
+  }
+  return None;
 }
 
 /**
@@ -597,6 +875,22 @@ const char *describe(const Violation violation) {
     return "A forbidden corner touch of one colour";
   case ViewpointCount:
     return "A viewpoint's number does not match the squares it can see";
+  case Elbow:
+    return "A forbidden elbow of one colour";
+  case Ell:
+    return "A forbidden L of one colour";
+  case DistancePair:
+    return "A forbidden pair of one colour two apart";
+  case MixedTee:
+    return "A forbidden T whose crossing is the other colour";
+  case LongTee:
+    return "A forbidden long T of one colour";
+  case Knight:
+    return "A forbidden knight's move of one colour";
+  case MixedElbow:
+    return "A forbidden elbow whose corner is the other colour";
+  case GalaxyAsymmetric:
+    return "A galaxy symbol's region does not map to itself turned about it";
   }
   return "Unknown violation";
 }
@@ -629,6 +923,22 @@ Violation check(const Model &model, const Colors &colors) {
     return problem;
   if (const Violation problem = diagonalProblem(model, colors); problem != None)
     return problem;
+  if (const Violation problem = elbowProblem(model, colors); problem != None)
+    return problem;
+  if (const Violation problem = ellProblem(model, colors); problem != None)
+    return problem;
+  if (const Violation problem = distancePairProblem(model, colors);
+      problem != None)
+    return problem;
+  if (const Violation problem = mixedTeeProblem(model, colors); problem != None)
+    return problem;
+  if (const Violation problem = longTeeProblem(model, colors); problem != None)
+    return problem;
+  if (const Violation problem = knightProblem(model, colors); problem != None)
+    return problem;
+  if (const Violation problem = mixedElbowProblem(model, colors);
+      problem != None)
+    return problem;
 
   const Bits dark = maskOf(model, colors, kDark);
   const Bits light = maskOf(model, colors, kLight);
@@ -650,6 +960,8 @@ Violation check(const Model &model, const Colors &colors) {
   if (const Violation problem = dartProblem(model, colors); problem != None)
     return problem;
   if (const Violation problem = lotusProblem(model, colors); problem != None)
+    return problem;
+  if (const Violation problem = galaxyProblem(model, colors); problem != None)
     return problem;
   return viewpointProblem(model, colors);
 }

@@ -62,6 +62,13 @@ struct Options {
    * that is satisfiable by construction.
    */
   int viewpoints = 0;
+  /**
+   * And a fourth time for a galaxy, appended after the viewpoint roll with
+   * the same zero-skip contract. Like the lotus there is no value to derive:
+   * the clue lands only where the region really maps to itself under a half
+   * turn about the spot — the check reads the colouring and draws nothing.
+   */
+  int galaxies = 0;
 };
 
 /// 0 when a puzzle was written, 1 when no attempt produced one. Nothing is

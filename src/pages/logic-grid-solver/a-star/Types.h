@@ -14,9 +14,10 @@
 // renders with.
 //
 // A cell carries TWO independent layers, and only the first lives in the grid:
-// the colour here, and at most one clue in the puzzle's sparse clue list. That
-// is what makes the game's colourless clue representable — a clue on an unknown
-// cell is one whose colour has still to be deduced.
+// the colour here, and at most one clue PER SQUARE in the puzzle's sparse clue
+// list — a merged cell may carry several. That is what makes the game's
+// colourless clue representable — a clue on an unknown cell is one whose
+// colour has still to be deduced.
 namespace lg {
 
 /// Hard ceiling on either grid side, matching MAX_GRID_SIDE in config.ts.
@@ -75,7 +76,17 @@ inline constexpr uint8_t kClueLetter = 1;
 inline constexpr uint8_t kClueDart = 2;
 inline constexpr uint8_t kClueLotus = 3;
 inline constexpr uint8_t kClueViewpoint = 4;
-inline constexpr int kClueKindCount = 5;
+inline constexpr uint8_t kClueGalaxy = 5;
+inline constexpr int kClueKindCount = 6;
+
+/// The kinds that carry NO value at all — the lotus and the galaxy. This is
+/// the one named place `FixtureIo`'s reader and writer both consult, so "a
+/// value key on a valueless clue is an error" and "write no value key" cannot
+/// drift apart — and it is the list a "every remaining kind carries a number"
+/// branch has to mean by that.
+constexpr bool isValuelessKind(const uint8_t kind) {
+  return kind == kClueLotus || kind == kClueGalaxy;
+}
 
 /// Letters arrive as 0..25 rather than as characters: the search never needs
 /// the glyph, and the two boundaries that do convert once.
@@ -183,6 +194,16 @@ constexpr std::pair<int, int> mirrorSquare(const int axis, const int cx2,
   // that way.
   const int mid = std::midpoint(cx2, cy2);
   return {mid - y, mid - x};
+}
+
+/// Where the square (x, y) lands under a HALF TURN about the square (gx, gy)
+/// — the galaxy's geometry. Plain square coordinates: a galaxy sits at its
+/// home square's centre, never on a grid line, so the doubled-coordinate seat
+/// scheme above does not apply to it. Pure geometry with no bounds attached,
+/// like `mirrorSquare`, and shared at the same altitude for the same reason.
+constexpr std::pair<int, int> pointMirror(const int gx, const int gy,
+                                          const int x, const int y) {
+  return {2 * gx - x, 2 * gy - y};
 }
 
 /// A clue as the solver holds it: where it sits, what kind it is, and its

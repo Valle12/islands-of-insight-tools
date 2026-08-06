@@ -3,9 +3,10 @@
  *
  * In the game's harder logic puzzles the board is not a plain grid — several
  * grid squares can be fused into one irregular cell, any connected polyomino.
- * Such a cell is painted once and colours as a whole and carries at most one
- * clue, but it still contributes every square it is made of to an area number
- * and is adjacent to whatever any of its squares touches.
+ * Such a cell is painted once and colours as a whole, while each of its
+ * squares may carry its own clue — the game's harder boards put two darts on
+ * one domino — and it still contributes every square it is made of to an area
+ * number and is adjacent to whatever any of its squares touches.
  *
  * This lives apart from `board.ts` because merging is the one edit that is not
  * "write this value into that square": it moves squares between cells, and

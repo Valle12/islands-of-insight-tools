@@ -116,6 +116,16 @@ inline void withViewpoint(Puzzle &puzzle, const int x, const int y,
 }
 
 /**
+ * Puts a galaxy on a cell: a symmetry clue with no value, direction or seat at
+ * all — its region must map to itself under a half turn about this very
+ * square. The `Clue` default direction is left standing, exactly as the
+ * viewpoint's is.
+ */
+inline void withGalaxy(Puzzle &puzzle, const int x, const int y) {
+  puzzle.clues.push_back({.index = cellIndex(x, y), .kind = kClueGalaxy});
+}
+
+/**
  * Fuses squares into one merged cell. A second call rather than a glyph: the
  * picture's alphabet is entirely spoken for, and a shape needs to say which
  * squares go together rather than just that a square is in one.

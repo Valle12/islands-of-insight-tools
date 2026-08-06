@@ -98,6 +98,13 @@ function parseArgs(argv: string[]) {
      * give `--darts`-like yield. 0 draws nothing, as ever.
      */
     viewpoints: 0,
+    /**
+     * And for a GALAXY, which only lands where its region really maps to
+     * itself under a half turn about the spot — like `--lotus`, raise it well
+     * above `--darts` to see a comparable number, since most random regions
+     * are not point-symmetric. 0 draws nothing, as ever.
+     */
+    galaxies: 0,
   };
   /**
    * A flag's value as a number, or a hard stop.
@@ -127,6 +134,7 @@ function parseArgs(argv: string[]) {
     "--lotus": next => (opts.lotus = number("--lotus", next())),
     "--viewpoints": next =>
       (opts.viewpoints = number("--viewpoints", next())),
+    "--galaxies": next => (opts.galaxies = number("--galaxies", next())),
     "--width": next => (opts.width = number("--width", next())),
     "--height": next => (opts.height = number("--height", next())),
     "--exe": next => {
@@ -161,6 +169,7 @@ async function generate(opts: Options, path: string, seed: number) {
   if (opts.darts > 0) args.push("--darts", String(opts.darts));
   if (opts.lotus > 0) args.push("--lotus", String(opts.lotus));
   if (opts.viewpoints > 0) args.push("--viewpoints", String(opts.viewpoints));
+  if (opts.galaxies > 0) args.push("--galaxies", String(opts.galaxies));
   const { exitCode } = await runCli(opts.exe, args, 120_000);
   return exitCode === 0;
 }
