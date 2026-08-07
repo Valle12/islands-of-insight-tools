@@ -174,6 +174,13 @@ bool borderArcs(const Model &model, Domains &domains) {
   const auto n = static_cast<int>(cycle.size());
   if (n == 0)
     return true;
+  // A legal board's perimeter tops out at 2(kMaxSide + kMaxSide) - 4 = 124,
+  // inside the fixed arrays below. A puzzle built PAST kMaxSide could only
+  // reach here unvalidated — the generator clamps and `structureProblem`
+  // refuses — so this is a guard, not a path: deducing nothing only
+  // under-prunes, while indexing on would overrun the stack.
+  if (n > 4 * kMaxSide)
+    return true;
 
   // The decided colour per cycle slot, kUnknown where the square is open.
   std::array<uint8_t, 4 * kMaxSide> state{};

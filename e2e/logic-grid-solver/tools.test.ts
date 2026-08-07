@@ -359,7 +359,11 @@ test.describe("Logic Grid Solver tools", () => {
     await expect(cellAt(page, 2, 0)).toHaveText(/2/);
 
     // The same square again turns its OWN dart, the directed kinds' re-click
-    // rule, and leaves the neighbour's alone.
+    // rule, and leaves the neighbour's alone. Presence is asserted BEFORE the
+    // values are captured: with the attribute missing, both reads would be
+    // null and the not-that-value assertion below would pass vacuously.
+    await expect(cellAt(page, 0, 0)).toHaveAttribute("data-direction", /./);
+    await expect(cellAt(page, 2, 0)).toHaveAttribute("data-direction", /./);
     const aimed = await cellAt(page, 0, 0).getAttribute("data-direction");
     const other = await cellAt(page, 2, 0).getAttribute("data-direction");
     await cellAt(page, 0, 0).click();

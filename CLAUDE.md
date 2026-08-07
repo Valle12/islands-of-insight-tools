@@ -132,21 +132,27 @@ bunx playwright test e2e/phasic-dial-solver
 bunx playwright test e2e/shifting-mosaic-solver/config.test.ts:60
 ```
 
-The expensive unit suites are opt-**out**, never opt-in. Four files carry
+The expensive unit suites are opt-**out**, never opt-in. Five files carry
 `.slow.test.ts`, and they run by default — including in CI, which sets nothing:
 
 | File | Measured |
 | --- | --- |
 | `test/shifting-mosaic-solver/wasm.slow.test.ts` | ~244s |
+| `test/logic-grid-solver/wasm.slow.test.ts` | ~99s |
 | `test/match-three-solver/wasm.slow.test.ts` | ~75s |
 | `test/rolling-blocks-solver/aStar.slow.test.ts` | ~60s |
 | `test/match-three-solver/engine.solve.slow.test.ts` | ~22s |
 
 Every other file under `test/` measures 300–780ms, except
 `test/phasic-dial-solver/turnSolver.test.ts` at ~3.9s — still inside bun's 5 s
-default, so it stays in the fast lane.
+default, so it stays in the fast lane. The logic-grid file joined the slow set
+when its captured corpus outgrew the fast lane (579 ms at 36 boards, ~99 s at
+436); the HAND-BUILT boundary boards stayed behind in `wasm.test.ts` (~1.2 s)
+via the shared `wasmHarness.ts`, so the fast lane keeps the deep-search stack
+pin and every format-key-crosses-the-boundary case, and the slow file keeps a
+corpus-is-non-empty test OUTSIDE its gate.
 
-- `IOI_SKIP_SLOW=1` (what `bun run test:fast` sets) skips those four. They are
+- `IOI_SKIP_SLOW=1` (what `bun run test:fast` sets) skips those five. They are
   `describe.skipIf`, so they **report as skipped**. This replaced
   `ROLLING_BLOCKS_TEST`, which was a `describe.if`: unset, it registered
   **nothing at all** and a 48-fixture sweep sat disabled behind a green run.
@@ -945,6 +951,7 @@ The engine's load-bearing pieces:
   (`TheDiagonalAndKnightMembersAreNotLaidTwice`). A deliberately ABSENT third
   lever: probe-first refutation in the underclued loop was designed and then
   skipped, because after these two nothing measurable needed it.
+- **`off-by-one` (rule 32) bends every NUMERIC clue — area, dart, viewpoint —
   to display its true count ± 1 and never the truth.** The engine holds each
   clue's allowed true counts as `Model::candidatesFor`'s exact SET of at most
   two values, floor-filtered per kind so the game's "one true value" cases
@@ -1368,7 +1375,7 @@ Unlike before, **the page keeps a real model** (`maxValues` / `values` / `button
 
 **`test/resources/logic-grid-solver/` holds boards captured from the game and NOTHING else** — 436 of them (`logicGridTest.json`, then `logicGridTest1..435.json`), 3×2 to 26×19. No two are the same puzzle: every pair checked under all eight square symmetries, exactly, over the whole corpus; the first 111 were additionally compared by cell distance with zero pairs inside 12%. That exact check is the one worth re-running when boards land, and it is worth running at all because a captured board's `cells` is usually all-unknown — what identifies these puzzles is the gaps, the clues and the rule set, so two same-sized boards with the same rules and no clues really are the same puzzle. `logicGridTest111..138` were captured for the area rules and 18 of them carry `area-two-dark`; nothing yet carries `area-two-light`. `logicGridTest139..156` were captured for the merged cells, and **6 of them carry `shapes`** — up to 30 merged cells on an 11×8 and 25 on a 15×15. `logicGridTest157..166` were captured for the darts: 81 of them across ten boards, 14 merged cells between two of them, and one board carrying `area-four-dark`. **`logicGridTest167..250` were captured for the LOTUS and its six rules** — 84 boards up to 14×11, carrying 160 symmetry symbols, 100 merged cells across 17 of them, 18 more darts, and between them rules 18, 21, 22 and 24 (`area-four-dark`, `area-five-light`, `no-dark-light-dark`, `no-dark-t`). Nothing in that batch is underclued. **`logicGridTest251..350` were captured for the VIEWPOINT** and are now the largest batch — 100 boards up to 13×13 carrying **682 viewpoints**, plus 24 darts, 12 symmetry symbols, 74 merged cells across 5 boards, 774 painted givens, 25 underclued boards, and the first captures of rules 27, 28 and 30 (`no-three-light-one-dark`, `no-dark-diagonal`, `area-three-dark`); rules 26, 29, 31 still ride on the hand-built boards alone. All 100 answer in 148 ms combined, the slowest at 71 ms — `logicGridTest325` among them only since `lotusSymmetry` (now the shared `mirrorSymmetry`) learned the connect fold, whose measurement lives with the `propagateLotuses` bullet. **`logicGridTest351..434` are the GALAXY-era captures** — 84 boards, 4×4 to 26×19, carrying the first 15 real galaxies, 182 more darts, 136 viewpoints, 32 lotuses, 84 letters, 192 merged cells across 10 boards, 855 givens, 17 underclued boards, and the first captures of rules 32–35, 37–41, 44, 45, 48, 49 and 51 — the whole galaxy-era rule batch minus 36, 42/43, 46/47, 50 and 52. Four of them (`366..369`, connect + underclued + one forbidden-shape rule with 1–3 givens) are what forced the collinearity emission and the border-arc propagator, whose story lives with the engine bullets. **`logicGridTest435` is the first MULTI-CLUE capture** — a 10×7 brick board of 31 two-square cells, seven of them carrying TWO darts each, the board the one-clue-per-cell rule made unrepresentable; it answers by pure deduction in 0 ms. `logicGridTest68` is a fully painted board, which is a real capture and the one that exercises handing a FINISHED grid back for checking. Anything a test invents lives in `test/logic-grid-solver/boards.ts` — a picture parser plus the named boards (solvable, underclued, impossible, the 1x5 runs, the area sizes, darts, lotuses, viewpoints, galaxies, the off-by-one board with its displayed ZERO, one per elbow-era rule family, the deep search, merged cells, TWO darts on one merged cell, and one using every part of the download format), imported by the unit suites **and** the e2e ones so a board cannot drift between them. The split is the point: a sweep over the corpus measures the solver against real puzzles, and a made-up board in that directory would quietly pad the number. `wasm.test.ts` runs its hand-built boards *before* the captured ones for the same reason — so the sweep still means something if the directory is ever empty.
 
-**The two sweeps over the corpus ask different questions, and their budgets follow from that.** `wasm.test.ts` checks AGREEMENT — the shipped module never errors, its oracle never rejects its own propagators, any complete answer passes `verify.ts`, no two arms disagree about solvability — and races all four arms, so it keeps a short 2 s per-arm budget and lets the slow boards report `unsolved` (which is already left out of the vote). The C++ `fixtures_test.cpp` is where **"the corpus still answers"** is asserted, one engine per board at 90 s (`logicGridTest67` needs 26–38 s of that depending on the machine; everything else is milliseconds). Do not move that claim into the TS sweep: four arms × the slowest board is four times the cost for the same fact. Do keep a deep board in the TS sweep — `deepSearchBoard` — because the stack overflow below was wasm-only and the native lane could never have caught it.
+**The two sweeps over the corpus ask different questions, and their budgets follow from that.** `wasm.slow.test.ts` (its own CI shard; the hand-built boundary boards stay in `wasm.test.ts`, both driven through the shared `wasmHarness.ts`) checks AGREEMENT — the shipped module never errors, its oracle never rejects its own propagators, any complete answer passes `verify.ts`, no two arms disagree about solvability — and races all four arms, so it keeps a short 2 s per-arm budget and lets the slow boards report `unsolved` (which is already left out of the vote). The C++ `fixtures_test.cpp` is where **"the corpus still answers"** is asserted, one engine per board at 90 s (`logicGridTest67` needs 26–38 s of that depending on the machine; everything else is milliseconds). Do not move that claim into the TS sweep: four arms × the slowest board is four times the cost for the same fact. Do keep a deep board in the TS sweep — `deepSearchBoard` — because the stack overflow below was wasm-only and the native lane could never have caught it.
 
 **All 436 answer** — measured over the whole corpus: 93 s of total search, of which three boards are 74 s — `logicGridTest368` (connect + no-dark-l + underclued, ~30 s of refutation searches), `logicGridTest67` (~25 s) and `logicGridTest377` (the first captured galaxy board, a ~18 s letters DFS the profile declines because of the galaxy); then `logicGridTest367` at ~5 s and a 3 s tier of galaxy-era captures. Of the original 167: 111 of 111 plain boards solved and verified, and **56 of 56 underclued boards `deduced` AND `proven`** — that mode is no longer covered only by `reference_test.cpp` and `fuzz:lg`. 93 never branch at all (`cascade:deduce`), 27 come out of the profile sweep, 33 out of the underclued refutation loop, 14 out of the DFS. Total search across the corpus measures 30.4 s, of which 28.8 s is `logicGridTest67` alone; only two other boards pass 200 ms (`logicGridTest96` at 1.2 s and `logicGridTest79` at 219 ms). (Board 67 was 37 s when first measured and is the one number here that moves with the machine — everything else is milliseconds, so the total is really just that board.) `fixtures_test.cpp` asserts every board answers, with **no exception list**: a captured board that does not come out is either a mis-entry or a hole in the engine, and both deserve a red test rather than an entry on a list.
 
@@ -1549,9 +1556,11 @@ wasm ──┬──▶ bun-test [5 shards]
   list is **per solver and explicit** — a new solver needs three lines there and
   three in `deploy.yml`, even though the cache KEY's `src/pages/*/a-star/*`
   glob and the artifact globs pick it up automatically.
-- **`bun-test` fans out over five shards** — one per `*.slow.test.ts` suite plus
+- **`bun-test` fans out over six shards** — one per `*.slow.test.ts` suite plus
   one running everything else under `IOI_SKIP_SLOW=1`. Between them they run
-  **every** test, which is why no env gate can leave a suite unregistered.
+  **every** test, which is why no env gate can leave a suite unregistered —
+  and why gating a suite with `skipIf` WITHOUT adding its shard would make it
+  run nowhere: the shard list and the slow-file set must move together.
 - **`mem64` names every `mem64.node.test.mjs` explicitly.** A solver whose file
   is missing from that one `run:` line is a MEMORY64 build nothing ever
   instantiates — which is exactly what happened to rolling-blocks once.

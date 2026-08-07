@@ -618,12 +618,14 @@ TEST(Galaxies, AnOwnCellMirrorOffTheBoardIsNamed) {
   Puzzle off = test::board({"..."});
   test::withShape(off, {{0, 0}, {1, 0}});
   test::withGalaxy(off, 0, 0);
+  ASSERT_EQ(structureProblem(off), Problem::None);
   EXPECT_EQ(contradiction(buildModel(off)),
             Problem::GalaxyMirrorLeavesBoard);
 
   Puzzle fits = test::board({"..."});
   test::withShape(fits, {{0, 0}, {1, 0}});
   test::withGalaxy(fits, 1, 0);
+  ASSERT_EQ(structureProblem(fits), Problem::None);
   EXPECT_EQ(contradiction(buildModel(fits)), Problem::None);
 }
 
@@ -715,6 +717,7 @@ TEST(OffByOne, WidensTheDartAndViewpointBounds) {
 TEST(OffByOne, ADisplayedZeroDartNeedsALine) {
   Puzzle puzzle = test::board({"."}, rules::bit(Rule::OffByOne));
   test::withDart(puzzle, 0, 0, 0, kDirRight);
+  ASSERT_EQ(structureProblem(puzzle), Problem::None);
   EXPECT_EQ(contradiction(buildModel(puzzle)), Problem::DartExceedsLine);
 }
 
@@ -724,11 +727,13 @@ TEST(OffByOne, TheMergedCellFloorEmptiesOrCollapses) {
   Puzzle empty = test::board({"..."}, rules::bit(Rule::OffByOne));
   test::withShape(empty, {{0, 0}, {1, 0}, {2, 0}});
   test::withClue(empty, 0, 0, 1);
+  ASSERT_EQ(structureProblem(empty), Problem::None);
   EXPECT_EQ(contradiction(buildModel(empty)), Problem::AreaSmallerThanCell);
 
   Puzzle fits = test::board({"..."}, rules::bit(Rule::OffByOne));
   test::withShape(fits, {{0, 0}, {1, 0}, {2, 0}});
   test::withClue(fits, 0, 0, 2);
+  ASSERT_EQ(structureProblem(fits), Problem::None);
   const Model model = buildModel(fits);
   EXPECT_EQ(contradiction(model), Problem::None);
   const ClueCandidates candidates =
@@ -743,9 +748,11 @@ TEST(OffByOne, AViewpointBeyondItsOwnSightIsNamed) {
   // 4) still can.
   Puzzle over = test::board({"..#"}, rules::bit(Rule::OffByOne));
   test::withViewpoint(over, 0, 0, 4);
+  ASSERT_EQ(structureProblem(over), Problem::None);
   EXPECT_EQ(contradiction(buildModel(over)), Problem::ViewpointExceedsSight);
   Puzzle fits = test::board({"..#"}, rules::bit(Rule::OffByOne));
   test::withViewpoint(fits, 0, 0, 3);
+  ASSERT_EQ(structureProblem(fits), Problem::None);
   EXPECT_EQ(contradiction(buildModel(fits)), Problem::None);
 }
 

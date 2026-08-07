@@ -9,6 +9,7 @@
 #include "Types.h"
 #include "Verify.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <iostream>
@@ -298,8 +299,15 @@ bool paintLegal(const Model &model, SeededRng &rng, Colors &colors) {
 
 Puzzle emptyBoard(SeededRng &rng, const Options &options) {
   Puzzle puzzle;
-  puzzle.width = options.width > 0 ? options.width : rng.uniform(4, 8);
-  puzzle.height = options.height > 0 ? options.height : rng.uniform(4, 8);
+  // Clamped rather than refused, the match-three generator's rule: `Bits`
+  // wraps a wider row into the next one (`cellIndex` is y * 32 + x) and the
+  // border-arc arrays are sized for kMaxSide, so an oversized request must
+  // never reach the model — and clamping keeps every rng draw where it was,
+  // so a pinned dimension still consumes no random number.
+  puzzle.width =
+      options.width > 0 ? std::min(options.width, kMaxSide) : rng.uniform(4, 8);
+  puzzle.height = options.height > 0 ? std::min(options.height, kMaxSide)
+                                     : rng.uniform(4, 8);
   puzzle.givens.fill(kUnplayable);
   for (int y = 0; y < puzzle.height; y++) {
     for (int x = 0; x < puzzle.width; x++) {
