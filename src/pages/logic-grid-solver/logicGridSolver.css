@@ -104,7 +104,9 @@ h2 {
 
 #grid-shell {
   display: flex;
-  justify-content: center;
+  /* `safe` because the grid can be wider than the shell: plain `center` puts
+     the overflow half off the LEFT edge, where no scrollbar can reach it. */
+  justify-content: safe center;
   padding: 14px;
   border-radius: 14px;
   background: var(--md-sys-color-surface-container);
@@ -119,6 +121,10 @@ h2 {
   gap: var(--logic-seam);
   user-select: none;
   touch-action: none;
+  /* Never squeezed by the shell: the tracks are exactly --logic-cell wide
+     (renderGrid), so shrinking the grid overlaps the fixed-width squares
+     instead of scrolling. The shell scrolls; the grid keeps its size. */
+  flex: none;
 }
 
 /* The merged cells' outlines, one path each, behind the squares — see
@@ -611,6 +617,37 @@ h2 {
   font-size: 15px;
 }
 
+/* -------------------------------------------------------------- galaxies --
+ *
+ * A galaxy is ONE glyph and nothing else — `cyclone`, centred on the tile by
+ * the `data-icon` presence hook at the axis glyph's size: the same
+ * one-glyph-fills-the-tile situation, with no number sharing the room and no
+ * rotation or seat to compose. Keyed on the class and the bare attribute
+ * because the same three places draw one: the board, the answer's read-only
+ * grid, and the miniature on the clue kind's own chip.
+ */
+.cell-galaxy {
+  --galaxy-size: 30px;
+  --md-icon-size: var(--galaxy-size);
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  overflow: visible;
+  pointer-events: none;
+}
+
+[data-icon] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.symbol-sample .cell-galaxy {
+  --galaxy-size: 20px;
+}
+
 .grid-cell[data-color="unknown"] {
   background: transparent;
   border-style: dashed;
@@ -1037,7 +1074,9 @@ h2 {
 
 #solution-grid-shell {
   display: flex;
-  justify-content: center;
+  /* `safe` for the same reason as #grid-shell: centred overflow hides its
+     left half beyond the scrollbar's reach. */
+  justify-content: safe center;
   padding: 14px;
   border-radius: 14px;
   background: var(--md-sys-color-surface-container);
@@ -1056,6 +1095,8 @@ h2 {
   position: relative;
   gap: var(--logic-seam);
   user-select: none;
+  /* Like #grid: fixed-size tracks must not be squeezed below the squares. */
+  flex: none;
 }
 
 /* The answer is read, not painted: nothing in this grid is interactive. */
@@ -1135,9 +1176,13 @@ h2 {
     font-size: 16px;
   }
 
-  /* The axis glyph follows the smaller square. */
+  /* The axis glyph follows the smaller square, and the galaxy's with it. */
   .grid-cell .cell-axis {
     --axis-size: 25px;
+  }
+
+  .grid-cell .cell-galaxy {
+    --galaxy-size: 25px;
   }
 
   .grid-cell[data-direction][data-label-length="2"] {

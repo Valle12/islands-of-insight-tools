@@ -26,7 +26,7 @@ import {
   type SolveHandle,
 } from "./solver";
 import { SolutionView } from "./solutionView";
-import { UNDERCLUED } from "./verify";
+import { OFF_BY_ONE, UNDERCLUED } from "./verify";
 import { dressClue } from "./cellView";
 import {
   AXES,
@@ -42,6 +42,7 @@ import {
   SYMBOL_KINDS,
   symbolKindAt,
   symbolValueMax,
+  symbolValueMin,
   type LogicGridSymbolKind,
 } from "./symbols";
 
@@ -169,7 +170,7 @@ export class LogicGridSolverEditor {
   }
 
   private createBoard() {
-    return new Board(
+    const board = new Board(
       this,
       this.gridWidth,
       this.gridHeight,
@@ -178,11 +179,20 @@ export class LogicGridSolverEditor {
       this.currentSymbolValue(),
       this.currentSymbolDirection(),
     );
+    // The board cannot see `activeRules`, so the off-by-one flag is pushed in
+    // here — every path that replaces the board settles the rules first.
+    board.setOffByOne(this.gridSize().offByOne);
+    return board;
   }
 
-  /** The board a clue's value is measured against. */
+  /** The board a clue's value is measured against — and whether the
+   * off-by-one rule is bending every numeric bound by one right now. */
   private gridSize() {
-    return { gridWidth: this.gridWidth, gridHeight: this.gridHeight };
+    return {
+      gridWidth: this.gridWidth,
+      gridHeight: this.gridHeight,
+      offByOne: this.activeRules.has(OFF_BY_ONE),
+    };
   }
 
   /** What clue kind `index` would stamp, or null while its field is unusable. */
@@ -369,6 +379,13 @@ export class LogicGridSolverEditor {
     }
     this.hideSolution();
     this.refreshRuleRow();
+    // Off-by-one moves every numeric bound, and the board checks keystrokes
+    // against its own copy of the flag — while the value fields' min/max were
+    // written at build time, so the clue row is refreshed too. A placed value
+    // the narrowed bounds no longer allow is left standing on purpose: Solve
+    // names it, which beats silently editing the player's board.
+    this.board.setOffByOne(this.gridSize().offByOne);
+    this.refreshSymbolRow();
   }
 
   private handleSizeUpdate() {
@@ -502,7 +519,7 @@ export class LogicGridSolverEditor {
     const numeric = kind.valueKind === "number";
     const max = symbolValueMax(kind, this.gridSize());
     const limits = numeric
-      ? `type="number" min="${kind.minValue}" max="${max}"`
+      ? `type="number" min="${symbolValueMin(kind, this.gridSize())}" max="${max}"`
       : 'type="text" maxlength="1"';
     // The field is sized to the longest value its own kind could hold, rather
     // than every kind paying for the widest: an area on a 32x32 board runs to
@@ -620,6 +637,19 @@ export class LogicGridSolverEditor {
 
       const field = tool.querySelector<HTMLInputElement>(".symbol-value");
       if (field) {
+        // The numeric bounds move when the off-by-one chip is toggled, and
+        // the row is not rebuilt for that — so the attributes written at
+        // build time are refreshed here, idempotently, beside the validity.
+        if (kind.valueKind === "number") {
+          const min = String(symbolValueMin(kind, this.gridSize()));
+          const max = String(symbolValueMax(kind, this.gridSize()));
+          if (field.min !== min) field.min = min;
+          if (field.max !== max) field.max = max;
+          const chars = String(max.length);
+          if (field.style.getPropertyValue("--value-chars") !== chars)
+            field.style.setProperty("--value-chars", chars);
+        }
+
         const raw = this.symbolValues[index] ?? "";
         // Never write what is already there: assigning `value` moves the caret
         // to the end, and this runs while the user is typing into the field.

@@ -13,7 +13,9 @@ import {
 import {
   board,
   painted,
+  withArea,
   withDart,
+  withGalaxy,
   withLotus,
   withShape,
   withViewpoint,
@@ -796,6 +798,435 @@ describe("verifyLogicGrid", () => {
           ["connect-dark"],
         ),
       ).toBe("none");
+    });
+  });
+
+  describe("elbows", () => {
+    test("catches a forbidden elbow in all four orientations", () => {
+      expect(judge(["..", ".."], ["DD", "DL"], ["no-dark-elbow"])).toBe(
+        "elbow",
+      );
+      expect(judge(["..", ".."], ["DD", "LD"], ["no-dark-elbow"])).toBe(
+        "elbow",
+      );
+      expect(judge(["..", ".."], ["DL", "DD"], ["no-dark-elbow"])).toBe(
+        "elbow",
+      );
+      expect(judge(["..", ".."], ["LD", "DD"], ["no-dark-elbow"])).toBe(
+        "elbow",
+      );
+    });
+
+    test("a full square contains one; a domino and a corner touch do not", () => {
+      expect(judge(["..", ".."], ["DD", "DD"], ["no-dark-elbow"])).toBe(
+        "elbow",
+      );
+      expect(judge(["..", ".."], ["DD", "LL"], ["no-dark-elbow"])).toBe("none");
+      expect(judge(["..", ".."], ["DL", "LD"], ["no-dark-elbow"])).toBe("none");
+    });
+
+    test("the two elbow rules are separate switches", () => {
+      expect(judge(["..", ".."], ["DD", "DL"], ["no-light-elbow"])).toBe(
+        "none",
+      );
+      expect(judge(["..", ".."], ["LL", "LD"], ["no-light-elbow"])).toBe(
+        "elbow",
+      );
+    });
+
+    test("a gap never stands in for an elbow cell", () => {
+      expect(judge(["..", ".#"], ["DD", "L#"], ["no-dark-elbow"])).toBe("none");
+      expect(judge(["..", ".#"], ["DD", "D#"], ["no-dark-elbow"])).toBe(
+        "elbow",
+      );
+    });
+  });
+
+  describe("ells", () => {
+    test("catches a forbidden L in either handedness", () => {
+      expect(
+        judge(["...", "...", "..."], ["DLL", "DLL", "DDL"], ["no-dark-l"]),
+      ).toBe("ell");
+      expect(
+        judge(["...", "...", "..."], ["LLD", "LLD", "LDD"], ["no-dark-l"]),
+      ).toBe("ell");
+      expect(
+        judge(["...", "...", "..."], ["DDD", "DLL", "LLL"], ["no-dark-l"]),
+      ).toBe("ell");
+      expect(
+        judge(["...", "...", "..."], ["DLL", "DDD", "LLL"], ["no-dark-l"]),
+      ).toBe("ell");
+    });
+
+    test("the two L rules are separate switches", () => {
+      // A board whose LIGHT cells hold no L of their own — on a 3x3 the
+      // complement of an L contains one.
+      expect(judge(["....", "...."], ["DDDL", "LLDL"], ["no-dark-l"])).toBe(
+        "ell",
+      );
+      expect(judge(["....", "...."], ["DDDL", "LLDL"], ["no-light-l"])).toBe(
+        "none",
+      );
+    });
+
+    test("the near shapes are not an L", () => {
+      expect(judge(["...", "..."], ["DDD", "LLL"], ["no-dark-l"])).toBe("none");
+      expect(
+        judge(["...", "...", "..."], ["LDL", "DDD", "LLL"], ["no-dark-l"]),
+      ).toBe("none");
+      expect(
+        judge(["...", "...", "..."], ["LDL", "DDD", "LDL"], ["no-dark-l"]),
+      ).toBe("none");
+    });
+  });
+
+  describe("distance pairs", () => {
+    test("catches a pair two apart whatever lies between", () => {
+      expect(judge(["..."], ["DLD"], ["no-dark-any-dark"])).toBe(
+        "distance-pair",
+      );
+      // The middle being the SAME colour does not excuse the ends: the ban is
+      // positional, so a straight three breaks it too.
+      expect(judge(["..."], ["DDD"], ["no-dark-any-dark"])).toBe(
+        "distance-pair",
+      );
+      expect(judge([".", ".", "."], ["D", "L", "D"], ["no-dark-any-dark"])).toBe(
+        "distance-pair",
+      );
+    });
+
+    test("adjacent and knight-offset pairs are not two apart", () => {
+      expect(judge(["..."], ["DDL"], ["no-dark-any-dark"])).toBe("none");
+      expect(judge(["...", "..."], ["DLL", "LLD"], ["no-dark-any-dark"])).toBe(
+        "none",
+      );
+    });
+
+    /** The user-confirmed semantics, pinned in both oracles: the two end
+     * squares alone matter, so even a GAP between them does not lift the ban. */
+    test("a gap between does not lift the ban", () => {
+      expect(judge([".#."], ["D#D"], ["no-dark-any-dark"])).toBe(
+        "distance-pair",
+      );
+      expect(judge([".#."], ["D#L"], ["no-dark-any-dark"])).toBe("none");
+    });
+
+    test("the two distance rules are separate switches", () => {
+      expect(judge(["..."], ["LDL"], ["no-dark-any-dark"])).toBe("none");
+      expect(judge(["..."], ["LDL"], ["no-light-any-light"])).toBe(
+        "distance-pair",
+      );
+    });
+  });
+
+  describe("mixed tees", () => {
+    test("catches a light-crossed dark T", () => {
+      expect(
+        judge(["...", "..."], ["DLD", "LDL"], ["no-light-crossed-dark-t"]),
+      ).toBe("mixed-tee");
+      expect(
+        judge(["..", "..", ".."], ["DL", "LD", "DL"], [
+          "no-light-crossed-dark-t",
+        ]),
+      ).toBe("mixed-tee");
+    });
+
+    test("a monochrome T is not a mixed one, and a gap never crosses", () => {
+      expect(
+        judge(["...", "..."], ["DDD", "LDL"], ["no-light-crossed-dark-t"]),
+      ).toBe("none");
+      expect(
+        judge([".#.", "..."], ["D#D", "LDL"], ["no-light-crossed-dark-t"]),
+      ).toBe("none");
+    });
+
+    test("the two mixed-T rules are separate switches", () => {
+      expect(
+        judge(["...", "..."], ["DLD", "DDL"], ["no-light-crossed-dark-t"]),
+      ).toBe("mixed-tee");
+      expect(
+        judge(["...", "..."], ["DLD", "DDL"], ["no-dark-crossed-light-t"]),
+      ).toBe("none");
+      expect(
+        judge(["...", "..."], ["LDL", "LLD"], ["no-dark-crossed-light-t"]),
+      ).toBe("mixed-tee");
+    });
+  });
+
+  describe("long tees", () => {
+    test("catches a long T", () => {
+      expect(
+        judge(["...", "...", "..."], ["DDD", "LDL", "LDL"], ["no-dark-long-t"]),
+      ).toBe("long-tee");
+      expect(
+        judge(["...", "...", "..."], ["DLL", "DDD", "DLL"], ["no-dark-long-t"]),
+      ).toBe("long-tee");
+    });
+
+    test("a plain T and a plus are not a long T", () => {
+      expect(
+        judge(["...", "...", "..."], ["DDD", "LDL", "LLL"], ["no-dark-long-t"]),
+      ).toBe("none");
+      expect(
+        judge(["...", "...", "..."], ["LDL", "DDD", "LDL"], ["no-dark-long-t"]),
+      ).toBe("none");
+    });
+
+    test("the two long-T rules are separate switches", () => {
+      expect(
+        judge(["...", "...", "..."], ["DDD", "LDL", "LDL"], [
+          "no-light-long-t",
+        ]),
+      ).toBe("none");
+    });
+  });
+
+  describe("knights", () => {
+    test("catches a knight's-move pair in all four geometries", () => {
+      expect(
+        judge(["...", "...", "..."], ["DLL", "LLL", "LDL"], ["no-dark-knight"]),
+      ).toBe("knight");
+      expect(
+        judge(["...", "...", "..."], ["LLD", "LLL", "LDL"], ["no-dark-knight"]),
+      ).toBe("knight");
+      expect(
+        judge(["...", "...", "..."], ["DLL", "LLD", "LLL"], ["no-dark-knight"]),
+      ).toBe("knight");
+      expect(
+        judge(["...", "...", "..."], ["LLD", "DLL", "LLL"], ["no-dark-knight"]),
+      ).toBe("knight");
+    });
+
+    test("a diagonal touch is not a knight's move", () => {
+      expect(
+        judge(["...", "...", "..."], ["DLL", "LDL", "LLL"], ["no-dark-knight"]),
+      ).toBe("none");
+    });
+
+    /** Nothing between the two squares is read — the distance pair's
+     * positional reading again. */
+    test("a knight pair across a gap still counts", () => {
+      expect(
+        judge([".#.", "...", "..."], ["D#L", "LLL", "LDL"], [
+          "no-dark-knight",
+        ]),
+      ).toBe("knight");
+    });
+
+    test("the two knight rules are separate switches", () => {
+      // A gap thins the board so the LIGHT cells hold no knight pair of their
+      // own, which on a full 3x3 they would.
+      expect(
+        judge(["..", "..", ".#"], ["LD", "LL", "D#"], ["no-dark-knight"]),
+      ).toBe("knight");
+      expect(
+        judge(["..", "..", ".#"], ["LD", "LL", "D#"], ["no-light-knight"]),
+      ).toBe("none");
+    });
+  });
+
+  describe("mixed elbows", () => {
+    test("catches a mixed elbow", () => {
+      expect(
+        judge(["..", ".."], ["DL", "LD"], ["no-dark-light-dark-elbow"]),
+      ).toBe("mixed-elbow");
+      expect(
+        judge(["..", ".."], ["LD", "DL"], ["no-dark-light-dark-elbow"]),
+      ).toBe("mixed-elbow");
+      // A STRAIGHT dark-light-dark is the triple rule's shape, not this one's.
+      expect(judge(["..."], ["DLD"], ["no-dark-light-dark-elbow"])).toBe(
+        "none",
+      );
+      // A 2x2 checkerboard contains BOTH mixed elbows.
+      expect(
+        judge(["..", ".."], ["DL", "LD"], ["no-light-dark-light-elbow"]),
+      ).toBe("mixed-elbow");
+    });
+
+    test("the two mixed-elbow rules are separate switches", () => {
+      expect(
+        judge(["...", "..."], ["DLD", "DDD"], ["no-dark-light-dark-elbow"]),
+      ).toBe("mixed-elbow");
+      expect(
+        judge(["...", "..."], ["DLD", "DDD"], ["no-light-dark-light-elbow"]),
+      ).toBe("none");
+    });
+
+    test("a gap never stands in for the corner", () => {
+      expect(
+        judge([".#", ".."], ["D#", "DL"], ["no-dark-light-dark-elbow"]),
+      ).toBe("none");
+    });
+  });
+
+  describe("larger areas", () => {
+    test("catches an area-six region of the wrong size", () => {
+      expect(
+        judge([".......", "......."], ["DDDDDDL", "LLLLLLL"], [
+          "area-six-dark",
+        ]),
+      ).toBe("none");
+      // The straight seven an area of six implies.
+      expect(
+        judge([".......", "......."], ["DDDDDDD", "LLLLLLL"], [
+          "area-six-dark",
+        ]),
+      ).toBe("region-size");
+      expect(
+        judge([".......", "......."], ["DDDDDLL", "LLLLLLL"], [
+          "area-six-dark",
+        ]),
+      ).toBe("region-size");
+    });
+
+    test("catches an area-seven region of the wrong size", () => {
+      expect(
+        judge(["........", "........"], ["DDDDDDDL", "LLLLLLLL"], [
+          "area-seven-dark",
+        ]),
+      ).toBe("none");
+      expect(
+        judge(["........", "........"], ["DDDDDDDD", "LLLLLLLL"], [
+          "area-seven-dark",
+        ]),
+      ).toBe("region-size");
+    });
+
+    /** Far past anything the pattern table lays out — the whole rule rides
+     * the region propagator and the family row. */
+    test("catches an area-twenty-four region of the wrong size", () => {
+      const rows = [".....", ".....", ".....", ".....", "....."];
+      expect(
+        judge(rows, ["DDDDD", "DDDDD", "DDLDD", "DDDDD", "DDDDD"], [
+          "area-twenty-four-dark",
+        ]),
+      ).toBe("none");
+      expect(
+        judge(rows, ["DDDDD", "DDDDD", "DDDDD", "DDDDD", "DDDDD"], [
+          "area-twenty-four-dark",
+        ]),
+      ).toBe("region-size");
+    });
+  });
+
+  describe("off-by-one", () => {
+    test("accepts one off and refuses the honest count", () => {
+      expect(judge(["3...", "...."], ["DDLL", "LLLL"], ["off-by-one"])).toBe(
+        "none",
+      );
+      expect(judge(["3...", "...."], ["DDDD", "LLLL"], ["off-by-one"])).toBe(
+        "none",
+      );
+      expect(judge(["3...", "...."], ["DDDL", "LLLL"], ["off-by-one"])).toBe(
+        "area",
+      );
+      expect(judge(["3...", "...."], ["DLLL", "LLLL"], ["off-by-one"])).toBe(
+        "area",
+      );
+      // Rule off, the honest three is exactly right.
+      expect(judge(["3...", "...."], ["DDDL", "LLLL"])).toBe("none");
+    });
+
+    test("bends the dart count", () => {
+      const dart = (answer: string[]) =>
+        verifyLogicGrid(
+          withDart(board(["....."], ["off-by-one"]), 0, 0, 2, 1),
+          painted(answer),
+        );
+      expect(dart(["DLLDD"])).toBe("dart");
+      expect(dart(["DLDDD"])).toBe("none");
+      expect(dart(["DLLLD"])).toBe("none");
+      expect(dart(["DLLLL"])).toBe("dart");
+    });
+
+    test("bends the viewpoint count", () => {
+      const viewpoint = (answer: string[]) =>
+        verifyLogicGrid(
+          withViewpoint(board(["....."], ["off-by-one"]), 0, 0, 2),
+          painted(answer),
+        );
+      expect(viewpoint(["DDLLL"])).toBe("viewpoint");
+      expect(viewpoint(["DLLLL"])).toBe("none");
+      expect(viewpoint(["DDDLL"])).toBe("none");
+    });
+
+    /** Zero is displayable under the rule, and its one legal true count is
+     * one — minus one being no count at all. */
+    test("reads a displayed zero as one", () => {
+      const dart = (answer: string[]) =>
+        verifyLogicGrid(
+          withDart(board(["..."], ["off-by-one"]), 0, 0, 0, 1),
+          painted(answer),
+        );
+      expect(dart(["DLD"])).toBe("none");
+      expect(dart(["DDD"])).toBe("dart");
+      const area = (answer: string[]) =>
+        verifyLogicGrid(
+          withArea(board(["..."], ["off-by-one"]), 0, 0, 0),
+          painted(answer),
+        );
+      expect(area(["DLL"])).toBe("none");
+      expect(area(["DDL"])).toBe("area");
+    });
+
+    test("leaves letters alone", () => {
+      expect(judge(["a.a", "..."], ["DDD", "LLL"], ["off-by-one"])).toBe(
+        "none",
+      );
+      expect(judge(["a.a", "..."], ["DLD", "LLL"], ["off-by-one"])).toBe(
+        "letter-split",
+      );
+    });
+  });
+
+  describe("galaxy", () => {
+    const judgeGalaxy = (answer: string[]) =>
+      verifyLogicGrid(
+        withGalaxy(board(["...", "...", "..."]), 1, 1),
+        painted(answer),
+      );
+
+    /** The accepted colouring is 180-degree symmetric but symmetric across NO
+     * single axis — the shape that tells a half turn apart from every mirror
+     * a lotus could ask for. */
+    test("a galaxy region must map to itself turned halfway", () => {
+      expect(judgeGalaxy(["DLL", "DDD", "LLD"])).toBe("none");
+      expect(judgeGalaxy(["DLL", "DDD", "LLL"])).toBe("galaxy");
+    });
+
+    test("only the region holding the galaxy is mirrored", () => {
+      expect(
+        verifyLogicGrid(withGalaxy(board(["....."]), 1, 0), painted(["LDLDD"])),
+      ).toBe("none");
+    });
+
+    test("a galaxy region may not reflect off the board", () => {
+      const corner = withGalaxy(board(["..."]), 0, 0);
+      expect(verifyLogicGrid(corner, painted(["DDL"]))).toBe("galaxy");
+      expect(verifyLogicGrid(corner, painted(["DLL"]))).toBe("none");
+    });
+
+    test("a galaxy region may not reflect onto a gap", () => {
+      const beside = withGalaxy(board(["..#"]), 1, 0);
+      expect(verifyLogicGrid(beside, painted(["DD#"]))).toBe("galaxy");
+      expect(verifyLogicGrid(beside, painted(["LD#"]))).toBe("none");
+    });
+
+    /** Two half turns compose to a translation, which no finite region
+     * survives — the oracle needs no code for that: the far galaxy's square
+     * turns off the board about the near one's centre. */
+    test("two galaxies cannot share a region", () => {
+      const config = withGalaxy(
+        withGalaxy(board(["...", "...", "..."]), 1, 0),
+        1,
+        2,
+      );
+      expect(verifyLogicGrid(config, painted(["DDD", "LLL", "DDD"]))).toBe(
+        "none",
+      );
+      expect(verifyLogicGrid(config, painted(["DDD", "LDL", "DDD"]))).toBe(
+        "galaxy",
+      );
     });
   });
 

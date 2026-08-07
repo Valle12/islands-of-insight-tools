@@ -100,8 +100,10 @@ describe("Board (match-three)", () => {
 
     test("sets grid template columns from gridWidth", () => {
       makeBoard(4, 3).renderGrid();
+      // Fixed tracks, not minmax(0, 1fr): shrinkable tracks overlap the
+      // fixed-width squares at narrow viewports (the shell scrolls instead).
       expect(document.getElementById("grid")!.style.gridTemplateColumns).toBe(
-        "repeat(4, minmax(0, 1fr))",
+        "repeat(4, var(--mt-cell))",
       );
     });
 

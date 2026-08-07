@@ -149,7 +149,7 @@ jobs:
       - name: tsc --noEmit
         run: bun run typecheck
 
-  # Between them these five shards run EVERY test under test/ — there is no env
+  # Between them these six shards run EVERY test under test/ — there is no env
   # gate that can leave a suite silently unregistered.
   bun-test:
     name: bun test (${{ matrix.name }})
@@ -161,10 +161,10 @@ jobs:
       matrix:
         include:
           # One shard per slow suite, sized by measured wall clock
-          # (~244s / ~60s / ~75s / ~22s), and a fifth for everything else.
-          # Logic-grid's wasm sweep is deliberately NOT one of these: at 617 ms
-          # it belongs in the fast shard, and a whole job's setup for it would
-          # cost more than the suite does.
+          # (~244s / ~60s / ~75s / ~22s / ~90s), and a sixth for everything
+          # else. Logic-grid's corpus sweep lived in the fast shard while it
+          # measured 617 ms for 36 boards; at 436 captured boards it passed
+          # 90 s and became `wasm.slow.test.ts` with a shard of its own.
           - name: sm-wasm
             filter: test/shifting-mosaic-solver/wasm.slow.test.ts
           - name: rb-astar
@@ -173,6 +173,8 @@ jobs:
             filter: test/match-three-solver/wasm.slow.test.ts
           - name: match-three-solve
             filter: test/match-three-solver/engine.solve.slow.test.ts
+          - name: lg-wasm
+            filter: test/logic-grid-solver/wasm.slow.test.ts
           - name: fast
             filter: ""
             skip-slow: "1"

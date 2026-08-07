@@ -155,6 +155,151 @@ export const RULES: readonly LogicGridRule[] = [
     group: "region",
     order: 17.5,
   },
+  // The first rule about the CLUES rather than the colouring: every numeric
+  // clue — area number, dart, viewpoint — displays a value exactly one off
+  // its true count, and never the truth. Drawn in the symbol band because
+  // what it changes is what the symbols' numbers mean; the editor widens its
+  // value bounds while this is on, which is how a displayed 0 becomes legal.
+  {
+    id: "off-by-one",
+    label: "Numbers are off by one",
+    group: "symbol",
+  },
+  // The bent tromino — a 2x2 with one square left out, any orientation.
+  // Drawn between the triples and the T pair so the monochrome shapes read
+  // elbow, L, T, long T. From here on a PAIR shares one `order` value:
+  // stability keeps dark before light, the area-three precedent above.
+  {
+    id: "no-dark-elbow",
+    label: "No dark elbow",
+    group: "arrangement",
+    order: 23.1,
+  },
+  {
+    id: "no-light-elbow",
+    label: "No light elbow",
+    group: "arrangement",
+    order: 23.1,
+  },
+  // The L-tetromino: three in a row with a fourth on one END, in BOTH mirror
+  // forms — eight orientations per colour.
+  {
+    id: "no-dark-l",
+    label: "No dark L",
+    group: "arrangement",
+    order: 23.2,
+  },
+  {
+    id: "no-light-l",
+    label: "No light L",
+    group: "arrangement",
+    order: 23.2,
+  },
+  // Two squares of the colour exactly two apart in a straight line, whatever
+  // sits between them — the other colour, undecided, or even a gap. Drawn at
+  // the end of the arrangement band beside the diagonal and knight rules,
+  // the other relative-position bans.
+  {
+    id: "no-dark-any-dark",
+    label: "No dark-any-dark",
+    group: "arrangement",
+    order: 29.2,
+  },
+  {
+    id: "no-light-any-light",
+    label: "No light-any-light",
+    group: "arrangement",
+    order: 29.2,
+  },
+  // Region sizes again, appended like every pair since the reorder. No
+  // `order` needed: six, seven and twenty-four land after area-five in the
+  // region band by index, which is already size order.
+  { id: "area-six-dark", label: "Dark regions have area 6", group: "region" },
+  {
+    id: "area-six-light",
+    label: "Light regions have area 6",
+    group: "region",
+  },
+  {
+    id: "area-seven-dark",
+    label: "Dark regions have area 7",
+    group: "region",
+  },
+  {
+    id: "area-seven-light",
+    label: "Light regions have area 7",
+    group: "region",
+  },
+  // The T-tetromino again, with its CROSSING — the bar's middle, where the
+  // stem attaches — the OTHER colour and the three remaining cells the named
+  // one. Drawn after the mixed elbows, closing the mixed stretch before the
+  // 3+1 pair.
+  {
+    id: "no-light-crossed-dark-t",
+    label: "No light-crossed dark T",
+    group: "arrangement",
+    order: 25.3,
+  },
+  {
+    id: "no-dark-crossed-light-t",
+    label: "No dark-crossed light T",
+    group: "arrangement",
+    order: 25.3,
+  },
+  // The T-pentomino: the same bar with a stem of TWO from its middle. Drawn
+  // right after the T pair it extends.
+  {
+    id: "no-dark-long-t",
+    label: "No long dark T",
+    group: "arrangement",
+    order: 25.1,
+  },
+  {
+    id: "no-light-long-t",
+    label: "No long light T",
+    group: "arrangement",
+    order: 25.1,
+  },
+  {
+    id: "area-twenty-four-dark",
+    label: "Dark regions have area 24",
+    group: "region",
+  },
+  {
+    id: "area-twenty-four-light",
+    label: "Light regions have area 24",
+    group: "region",
+  },
+  // Two squares of the colour a chess knight's move apart — two in one
+  // direction and one in the other. Positional like the diagonal rules, and
+  // drawn beside them.
+  {
+    id: "no-dark-knight",
+    label: "No dark knight's move",
+    group: "arrangement",
+    order: 29.1,
+  },
+  {
+    id: "no-light-knight",
+    label: "No light knight's move",
+    group: "arrangement",
+    order: 29.1,
+  },
+  // The bent tromino again, with its CORNER — the square touching both
+  // others — the OTHER colour and both ends the named one. Drawn after the
+  // long T, opening the mixed stretch: mixed elbow, mixed T, 3+1.
+  {
+    id: "no-dark-light-dark-elbow",
+    label: "No dark-light-dark elbow",
+    group: "arrangement",
+    order: 25.2,
+  },
+  {
+    id: "no-light-dark-light-elbow",
+    label: "No light-dark-light elbow",
+    group: "arrangement",
+    order: 25.2,
+  },
 ];
 
 /** How many rules a puzzle can draw from — every known one. */

@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "gridWidth": 6,
+  "gridHeight": 6,
+  "rules": [
+    2,
+    12
+  ],
+  "cells": [
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  ],
+  "symbols": [
+    {
+      "x": 3,
+      "y": 0,
+      "type": 2,
+      "value": 2,
+      "direction": 3
+    },
+    {
+      "x": 5,
+      "y": 0,
+      "type": 2,
+      "value": 3,
+      "direction": 3
+    },
+    {
+      "x": 3,
+      "y": 1,
+      "type": 2,
+      "value": 1,
+      "direction": 3
+    },
+    {
+      "x": 2,
+      "y": 2,
+      "type": 2,
+      "value": 2,
+      "direction": 3
+    },
+    {
+      "x": 5,
+      "y": 3,
+      "type": 2,
+      "value": 1,
+      "direction": 3
+    },
+    {
+      "x": 4,
+      "y": 4,
+      "type": 2,
+      "value": 2,
+      "direction": 3
+    },
+    {
+      "x": 1,
+      "y": 5,
+      "type": 2,
+      "value": 1,
+      "direction": 3
+    },
+    {
+      "x": 4,
+      "y": 5,
+      "type": 2,
+      "value": 3,
+      "direction": 3
+    }
+  ]
+}

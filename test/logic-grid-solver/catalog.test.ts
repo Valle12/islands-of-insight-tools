@@ -20,6 +20,7 @@ import {
   symbolSeatError,
   symbolValueError,
   symbolValueMax,
+  symbolValueMin,
 } from "../../src/pages/logic-grid-solver/symbols";
 
 /** A 5x5 board: 25 cells, and a longest line of 4 squares. */
@@ -64,6 +65,27 @@ const RULE_ORDER: [number, string][] = [
   [29, "no-light-diagonal"],
   [30, "area-three-dark"],
   [31, "area-three-light"],
+  [32, "off-by-one"],
+  [33, "no-dark-elbow"],
+  [34, "no-light-elbow"],
+  [35, "no-dark-l"],
+  [36, "no-light-l"],
+  [37, "no-dark-any-dark"],
+  [38, "no-light-any-light"],
+  [39, "area-six-dark"],
+  [40, "area-six-light"],
+  [41, "area-seven-dark"],
+  [42, "area-seven-light"],
+  [43, "no-light-crossed-dark-t"],
+  [44, "no-dark-crossed-light-t"],
+  [45, "no-dark-long-t"],
+  [46, "no-light-long-t"],
+  [47, "area-twenty-four-dark"],
+  [48, "area-twenty-four-light"],
+  [49, "no-dark-knight"],
+  [50, "no-light-knight"],
+  [51, "no-dark-light-dark-elbow"],
+  [52, "no-light-dark-light-elbow"],
 ];
 
 /**
@@ -85,12 +107,26 @@ const ROW_ORDER: string[] = [
   "no-checkerboard",
   "no-dark-light-dark",
   "no-light-dark-light",
+  "no-dark-elbow",
+  "no-light-elbow",
+  "no-dark-l",
+  "no-light-l",
   "no-dark-t",
   "no-light-t",
+  "no-dark-long-t",
+  "no-light-long-t",
+  "no-dark-light-dark-elbow",
+  "no-light-dark-light-elbow",
+  "no-light-crossed-dark-t",
+  "no-dark-crossed-light-t",
   "no-three-dark-one-light",
   "no-three-light-one-dark",
   "no-dark-diagonal",
   "no-light-diagonal",
+  "no-dark-knight",
+  "no-light-knight",
+  "no-dark-any-dark",
+  "no-light-any-light",
   "connect-dark",
   "connect-light",
   "area-two-dark",
@@ -101,8 +137,15 @@ const ROW_ORDER: string[] = [
   "area-four-light",
   "area-five-dark",
   "area-five-light",
+  "area-six-dark",
+  "area-six-light",
+  "area-seven-dark",
+  "area-seven-light",
+  "area-twenty-four-dark",
+  "area-twenty-four-light",
   "one-symbol-dark",
   "one-symbol-light",
+  "off-by-one",
   "underclued",
 ];
 
@@ -112,6 +155,7 @@ const SYMBOL_ORDER: [number, string][] = [
   [2, "dart"],
   [3, "lotus"],
   [4, "viewpoint"],
+  [5, "galaxy"],
 ];
 
 /** The four axes reuse the `direction` key, so their order is frozen too. */
@@ -251,6 +295,22 @@ describe("symbolValueMax", () => {
 
   test("a valueless kind has no number to bound", () => {
     expect(symbolValueMax(symbolKindAt(3)!, SIZE)).toBe(0);
+    expect(symbolValueMax(symbolKindAt(5)!, SIZE)).toBe(0);
+  });
+
+  /** Off-by-one widens every numeric bound by one at BOTH ends — the floor
+   * never below zero, the game showing no negatives — and leaves the
+   * valueless kinds' nothing alone. */
+  test("off-by-one widens every numeric bound by one", () => {
+    const bent = { ...SIZE, offByOne: true };
+    expect(symbolValueMax(symbolKindAt(0)!, bent)).toBe(26);
+    expect(symbolValueMax(symbolKindAt(2)!, bent)).toBe(5);
+    expect(symbolValueMax(symbolKindAt(4)!, bent)).toBe(10);
+    expect(symbolValueMin(symbolKindAt(0)!, bent)).toBe(0);
+    expect(symbolValueMin(symbolKindAt(2)!, bent)).toBe(0);
+    expect(symbolValueMin(symbolKindAt(4)!, bent)).toBe(0);
+    expect(symbolValueMin(symbolKindAt(0)!, SIZE)).toBe(1);
+    expect(symbolValueMax(symbolKindAt(3)!, bent)).toBe(0);
   });
 });
 
@@ -324,6 +384,38 @@ describe("symbolValueError", () => {
     expect(symbolValueError(lotus, 0, SIZE)).toBe(
       "Symmetry symbols carry no value.",
     );
+  });
+
+  /** The widened message names the widened bounds, so a file refused under
+   * the rule says the range that really applied. */
+  test("off-by-one widens the bounds and the message with them", () => {
+    const bent = { ...SIZE, offByOne: true };
+    expect(symbolValueError(area, 0, bent)).toBeNull();
+    expect(symbolValueError(area, 26, bent)).toBeNull();
+    expect(symbolValueError(area, 27, bent)).toBe(
+      "Area number values must be integers between 0 and 26.",
+    );
+    expect(symbolValueError(symbolKindAt(4)!, 0, bent)).toBeNull();
+    expect(symbolValueError(dart, 5, bent)).toBeNull();
+  });
+
+  /** The galaxy is valueless like the lotus, and every refusal derives from
+   * its own fields — no validator branch names it. */
+  test("a galaxy refuses value, direction and seat alike", () => {
+    const galaxy = symbolKindAt(5)!;
+    expect(symbolValueError(galaxy, undefined, SIZE)).toBeNull();
+    expect(symbolValueError(galaxy, 0, SIZE)).toBe(
+      "Galaxy symbols carry no value.",
+    );
+    expect(symbolDirectionError(galaxy, undefined)).toBeNull();
+    expect(symbolDirectionError(galaxy, 0)).toBe(
+      "Only a directed symbol carries a direction, and Galaxy is not one.",
+    );
+    expect(symbolSeatError(galaxy, undefined)).toBeNull();
+    expect(symbolSeatError(galaxy, 1)).toBe(
+      "Only a symmetry symbol carries a seat, and Galaxy is not one.",
+    );
+    expect(parseSymbolValue(galaxy, "3", SIZE)).toBeNull();
   });
 });
 

@@ -116,6 +116,58 @@ struct Viewpoint {
   std::array<std::vector<int16_t>, kDirectionCount> rays;
 };
 
+/// One galaxy's geometry, worked out once like a lotus's mirrors: where every
+/// square of the board lands under a HALF TURN about the galaxy's own square.
+/// Plain square coordinates — a galaxy has no seat, so no doubled scheme.
+/// See `Model::galaxies`.
+struct Galaxy {
+  int clueId = 0;
+  int index = 0;
+  /// The strided index each square reflects to, or -1 for off the board.
+  std::array<int16_t, kMaxCells> mirror{};
+};
+
+/**
+ * The TRUE counts a numeric clue's displayed value allows, as an exact SET of
+ * at most two values.
+ *
+ * With the rules as they stand that is the displayed value alone. Under
+ * `off-by-one` it is the displayed value ± 1 — never the value itself —
+ * filtered against the kind's structural floor, which is how a displayed 0
+ * means exactly 1 and a displayed area 1 exactly 2. Everything reading it must
+ * treat it as the SET it is, never as the interval between its ends: a count
+ * equal to the displayed value sits between the two candidates and satisfies
+ * neither.
+ */
+struct ClueCandidates {
+  std::array<int, 2> values{};
+  int count = 0;
+
+  [[nodiscard]] bool empty() const { return count == 0; }
+  [[nodiscard]] int lo() const { return values[0]; }
+  [[nodiscard]] int hi() const { return values[slot(count - 1)]; }
+
+  void add(const int value) {
+    values[slot(count)] = value;
+    count++;
+  }
+
+  /// The candidates a count between `atLeast` and `atMost` could still reach —
+  /// asked PER CANDIDATE, which is what makes the middle gap real: with
+  /// everything decided at the displayed value itself, both candidates fail
+  /// here while an interval test would pass.
+  [[nodiscard]] ClueCandidates feasible(const int atLeast,
+                                        const int atMost) const {
+    ClueCandidates kept;
+    for (int i = 0; i < count; i++) {
+      if (const int value = values[slot(i)];
+          value >= atLeast && value <= atMost)
+        kept.add(value);
+    }
+    return kept;
+  }
+};
+
 /// Every clue carrying one letter. All of them share a region, so they share a
 /// colour too — which is the whole of "letter colour deduction".
 struct LetterGroup {
@@ -159,6 +211,9 @@ struct Model {
   std::vector<int> lotusClues;
   /// ...and of every viewpoint, which `viewpoints` below carries the rays for.
   std::vector<int> viewpointClues;
+  /// ...and of every galaxy. Its geometry is one point reflection about its
+  /// own square, precomputed in `galaxies` below.
+  std::vector<int> galaxyClues;
   std::vector<LetterGroup> letters;
   /// Index into `letters` for each cell, or -1.
   std::vector<int> letterAt;
@@ -199,6 +254,28 @@ struct Model {
   std::vector<Viewpoint> viewpoints;
 
   /**
+   * Every galaxy's point-reflection map, precomputed like a lotus's mirrors.
+   * No net either, for the viewpoint's reason: a galaxy carries no value,
+   * direction or seat that could be unreadable, so every clue
+   * `structureProblem` accepts gets its geometry.
+   */
+  std::vector<Galaxy> galaxies;
+
+  /**
+   * The playable squares of the board's outer perimeter in cyclic order —
+   * built only when BOTH connect rules are on, and empty otherwise, which is
+   * the switch `borderArcs` in Propagate.cpp runs on.
+   *
+   * The two-arc lemma it exists for: with dark and light each one region, the
+   * decided colours around this cycle can hold no D,L,D,L subsequence. Four
+   * such cells would force a dark path and a light path between interleaved
+   * endpoints on the outer face of a planar graph — the paths would have to
+   * share a cell. Gaps are simply skipped: the endpoints stay on the outer
+   * face, so the argument never needed the perimeter to be contiguous.
+   */
+  std::vector<int16_t> borderCycle;
+
+  /**
    * The merged cells as masks, in `puzzle.shapes` order, and which one each
    * square belongs to (-1 where the square is its own cell).
    *
@@ -236,6 +313,11 @@ struct Model {
   }
   /// The area clue's value for a cell carrying one, 0 otherwise.
   [[nodiscard]] int areaValueAt(int index) const;
+  /// The true counts this NUMERIC clue's displayed value allows — see
+  /// `ClueCandidates`. Only meaningful for the number-carrying kinds: an area
+  /// number, a dart or a viewpoint. A letter's value is not a count, and the
+  /// valueless kinds have nothing to ask about.
+  [[nodiscard]] ClueCandidates candidatesFor(const Clue &clue) const;
 
   /// Every square this square's CELL occupies — just itself for a plain
   /// square, the whole polyomino for a merged one.
@@ -272,7 +354,6 @@ enum class Problem : uint8_t {
   ShapeOverlaps,
   ShapeTooSmall,
   ShapeSplit,
-  ShapeCluesDisagree,
   ShapeGivensDisagree,
   AreaExceedsRegion,
   AreaSmallerThanCell,
@@ -280,6 +361,8 @@ enum class Problem : uint8_t {
   TooManyLettersForConnected,
   ViewpointValue,
   ViewpointExceedsSight,
+  GalaxyValue,
+  GalaxyMirrorLeavesBoard,
   /// Not a problem — the count, which `describe`'s table asserts itself
   /// against so an enumerator appended above without a message stops
   /// compiling. Keep it last, and never return it.

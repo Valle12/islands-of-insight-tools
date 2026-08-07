@@ -26,9 +26,17 @@ struct Regions {
   /// Region id per cell, -1 for a cell outside the set.
   std::array<int, kMaxCells> id{};
   std::vector<int> size;
-  /// What the region's area clues agree on: 0 for none, kAreaConflict when two
-  /// of them disagree.
-  std::vector<int> areaValue;
+  /**
+   * What the region's area clues agree the region's TRUE size could be, as
+   * the exact candidate set's two ends: both 0 for no clue, `kAreaConflict`
+   * in `areaHi` when the clues' sets intersect to nothing. With the rules as
+   * they stand each clue offers one value and the ends coincide; under
+   * `off-by-one` a clue offers its displayed value ± 1, and intersecting the
+   * SETS is what makes two clues differing by exactly two share a region —
+   * the game's off-by-2 trick — while equal clues keep both candidates open.
+   */
+  std::vector<int> areaLo;
+  std::vector<int> areaHi;
   /// One bit per letter the region carries; more than one is a contradiction.
   std::vector<uint32_t> letters;
   /// How many clues of any kind sit in the region — what "one symbol per area"

@@ -49,6 +49,9 @@ struct CliOptions {
   /// And for a viewpoint, whose count is read off the colouring. 0 draws
   /// nothing, so every old seed reproduces.
   int viewpoints = 0;
+  /// And for a galaxy, placed only where its region really turns onto itself.
+  /// 0 draws nothing, so every old seed reproduces.
+  int galaxies = 0;
   /// 64-bit because a plain `int` cannot name bit 31, the 32nd rule's.
   int64_t rules = -1;
   bool quiet = false;
@@ -97,7 +100,8 @@ void printUsage() {
                "                  [--width N] [--height N] [--rules MASK]\n"
                "                  [--shapes PERCENT] [--darts PERCENT] "
                "[--lotus PERCENT]\n"
-               "                  [--viewpoints PERCENT]\n";
+               "                  [--viewpoints PERCENT] [--galaxies "
+               "PERCENT]\n";
 }
 
 /**
@@ -162,6 +166,8 @@ bool assignValue(CliOptions &opts, const std::string_view flag,
     return readFlag(flag, value, opts.lotus);
   else if (flag == "--viewpoints")
     return readFlag(flag, value, opts.viewpoints);
+  else if (flag == "--galaxies")
+    return readFlag(flag, value, opts.galaxies);
   else {
     std::cerr << "Unknown argument: " << flag << "\n";
     return false;
@@ -336,7 +342,8 @@ int main(const int argc, char **argv) {
                                     .shapes = opts.shapes,
                                     .darts = opts.darts,
                                     .lotus = opts.lotus,
-                                    .viewpoints = opts.viewpoints};
+                                    .viewpoints = opts.viewpoints,
+                                    .galaxies = opts.galaxies};
     return generate::run(genOpts);
   }
 

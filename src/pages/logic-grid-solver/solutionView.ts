@@ -58,7 +58,9 @@ export class SolutionView {
 
   private render(data: SolutionViewData) {
     const { config, cells } = data;
-    this.grid.style.gridTemplateColumns = `repeat(${config.gridWidth}, minmax(0, 1fr))`;
+    // Fixed tracks for the same reason the editor's renderGrid uses them: a
+    // shrinkable track overlaps the fixed-width squares under the outline SVG.
+    this.grid.style.gridTemplateColumns = `repeat(${config.gridWidth}, var(--logic-cell))`;
 
     const clues = cluesByPosition(config);
 

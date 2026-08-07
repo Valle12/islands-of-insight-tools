@@ -21,6 +21,7 @@ import {
   isDiagonalAxis,
   symbolKindAt,
   symbolValueMax,
+  symbolValueMin,
   type LogicGridSymbolKind,
 } from "./symbols";
 
@@ -223,6 +224,13 @@ export class Board {
   /** The stroke in progress, or null when the pointer is up. */
   private stroke: Stroke | null = null;
   /**
+   * Whether "Numbers are off by one" is active, which widens the numeric
+   * bounds a keystroke is checked against — a displayed 0 is real exactly
+   * while it is. The board cannot see the editor's rule set, so the editor
+   * pushes the flag in: at construction and on every toggle of the chip.
+   */
+  private offByOne = false;
+  /**
    * The cell the current run of digits is typing into. Area numbers run past
    * nine, so consecutive digits on one cell accumulate; anything else ends the
    * run and the next digit starts a fresh number.
@@ -259,6 +267,10 @@ export class Board {
     this.shapes = new ShapeLayer(gridWidth, gridHeight);
     this.resetBoardData();
     this.addListeners();
+  }
+
+  setOffByOne(active: boolean) {
+    this.offByOne = active;
   }
 
   /**
@@ -321,7 +333,13 @@ export class Board {
   }
 
   renderGrid() {
-    this.grid.style.gridTemplateColumns = `repeat(${this.gridWidth}, minmax(0, 1fr))`;
+    // Fixed-size tracks, never minmax(0, 1fr): the squares have a hard
+    // width, so a track allowed to shrink below it makes the cells OVERLAP
+    // while the absolutely-positioned outline SVG keeps its natural size —
+    // a squeezed grid under a full-width overlay, i.e. a scrollbar into
+    // blank space. Fixed tracks keep grid, cells and SVG the same width and
+    // let #grid-shell do the scrolling.
+    this.grid.style.gridTemplateColumns = `repeat(${this.gridWidth}, var(--logic-cell))`;
 
     // One fragment, one insertion: appending cell by cell to a live #grid
     // makes the browser lay out the whole grid on every one of them.
@@ -693,9 +711,9 @@ export class Board {
     }
     if (stroke.kind === "clue" && stroke.clue) {
       // This SQUARE's own clue, not the cell's. A press on a different square
-      // of a clued cell is a request to move the clue there, so it must not
-      // read as "the same clue again" and lift it — and on a merged cell wide
-      // enough to seat two symmetry symbols the same way, it used to.
+      // of a clued cell ADDS a clue there — the game's harder boards carry
+      // several on one merged cell — so it must not read as "the same clue
+      // again" and lift it.
       const held = this.clueAt(position);
       // A DIRECTED clue turns rather than lifting — see `turnsInstead`. The
       // turned clue is what the whole stroke then writes, so a drag over a row
@@ -710,30 +728,15 @@ export class Board {
   }
 
   /**
-   * The cell's one clue and the square it lives on — any member square, since
-   * where a clue sits inside a merged cell is the player's own choice, so the
-   * whole cell is searched rather than one slot read.
-   */
-  private cellClue(
-    position: Position,
-  ): { clue: LogicGridClue; home: Position } | null {
-    for (const square of this.shapes.cellSquares(this.shapes.flat(position))) {
-      const at = this.shapes.position(square);
-      const clue = this.clueAt(at);
-      if (clue) return { clue, home: at };
-    }
-    return null;
-  }
-
-  /**
    * Writes one stroke onto one CELL. Takes the stroke rather than reading the
    * one in progress, so the keyboard path can apply a single-cell stroke
    * without touching the drag state.
    *
    * A merged cell takes one colour for all of its squares, so the colour
    * branches below work on the whole cell rather than on the square the pointer
-   * happens to be over. Its ONE clue is the other way round: which square holds
-   * it is the player's choice, so a clue lands exactly where the press did.
+   * happens to be over. Clues are the other way round: every SQUARE carries its
+   * own — a merged cell may hold several, one per square — so a clue lands, and
+   * lifts, exactly where the press did.
    */
   private applyStroke(stroke: Stroke, position: Position) {
     if (stroke.kind === "merge") {
@@ -761,7 +764,11 @@ export class Board {
 
     // A clue cannot be placed on a gap; lifting one always may.
     if (stroke.clue && !isPlayable(this.colorAt(position))) return;
-    this.placeCellClue(position, this.seated(stroke.clue, position));
+    this.writeCell(
+      position,
+      this.colorAt(position),
+      this.seated(stroke.clue, position),
+    );
   }
 
   /**
@@ -786,42 +793,19 @@ export class Board {
     );
   }
 
-  /**
-   * Writes a cell's ONE clue onto one square of it, clearing whichever square
-   * held the old one first — the two need not be the same square, since moving
-   * a clue within its cell is exactly what a press on another square means.
-   * Lifting writes the null where the clue really is.
-   */
-  private placeCellClue(position: Position, clue: LogicGridClue | null) {
-    const existing = this.cellClue(position);
-    if (
-      existing &&
-      (existing.home.x !== position.x || existing.home.y !== position.y)
-    ) {
-      this.writeCell(existing.home, this.colorAt(existing.home), null);
-    }
-    const target = clue === null && existing ? existing.home : position;
-    this.writeCell(target, this.colorAt(target), clue);
-  }
-
-  /** One colour across every square of a cell, with its clue left on whichever
-   * square of it the player put it on. */
+  /** One colour across every square of a cell, with every clue left on
+   * whichever square of it the player put it on. */
   private paintCell(value: number, squares: number[]) {
     // A gap in the board is not a cell the puzzle clues, so painting one drops
-    // whatever clue was there — and it is not part of a merged cell either, so
-    // painting a merged cell away dissolves it back into loose squares.
-    const held =
-      value === UNPLAYABLE
-        ? null
-        : this.cellClue(this.shapes.position(squares[0]!));
+    // whatever clues were there — and it is not part of a merged cell either,
+    // so painting a merged cell away dissolves it back into loose squares.
     const dissolving = value === UNPLAYABLE && squares.length > 1;
     if (dissolving) this.shapes.dissolve(this.shapes.idAt(squares[0]!));
 
     for (const square of squares) {
       const at = this.shapes.position(square);
-      const keeps =
-        held !== null && at.x === held.home.x && at.y === held.home.y;
-      this.writeCell(at, value, keeps ? held.clue : null);
+      const keeps = value === UNPLAYABLE ? null : this.clueAt(at);
+      this.writeCell(at, value, keeps);
     }
     // Only after the writes: the seams these squares no longer share depend on
     // membership the loop above was still changing.
@@ -1015,26 +999,21 @@ export class Board {
         this.splitSquare(position);
         return;
       }
-      // The null lands where the clue really lives, which on a merged cell is
-      // whichever of its squares the player put it on.
-      const lift = this.cellClue(position)?.home ?? position;
-      this.writeCell(lift, this.colorAt(lift), null);
+      // The focused SQUARE's own clue: a merged cell may carry one per
+      // square, so lifting reaches exactly the one under focus.
+      this.writeCell(position, this.colorAt(position), null);
       return;
     }
 
     if (this.handleArrowKey(event, position)) return;
 
-    // A merged cell carries ONE clue, so typing on any square of one edits the
-    // clue it already has wherever that sits — reading only the focused
-    // square's own slot would stamp a second one beside it. A cell with none
-    // takes its first on the square being typed on, which is the keyboard's
-    // version of placing it where the press landed.
-    const held = this.cellClue(position);
-    const home = held?.home ?? position;
-    const clue = this.nextClue(home, held?.clue ?? null, event.key);
+    // The focused SQUARE's own slot: a merged cell may carry a clue per
+    // square, so typing edits the clue under focus and an empty square takes
+    // a fresh one — the keyboard's version of placing where the press landed.
+    const clue = this.nextClue(position, this.clueAt(position), event.key);
     if (!clue) return;
     event.preventDefault();
-    this.writeCell(home, this.colorAt(home), clue);
+    this.writeCell(position, this.colorAt(position), clue);
   }
 
   /**
@@ -1047,23 +1026,25 @@ export class Board {
    */
   private handleArrowKey(event: KeyboardEvent, position: Position): boolean {
     if (directionForKey(event.key) === null) return false;
-    const held = this.cellClue(position);
-    if (held?.clue.direction === undefined) return false;
+    // The focused SQUARE's own clue — a merged cell may carry one per square,
+    // so the keys aim exactly the one under focus.
+    const held = this.clueAt(position);
+    if (held?.direction === undefined) return false;
 
-    if (symbolKindAt(held.clue.type)?.aims === "axis") {
+    if (symbolKindAt(held.type)?.aims === "axis") {
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return false;
       event.preventDefault();
       this.digitCell = null;
       const write =
-        event.key === "ArrowRight" ? turned(held.clue) : turnedBack(held.clue);
-      this.writeCell(held.home, this.colorAt(held.home), write);
+        event.key === "ArrowRight" ? turned(held) : turnedBack(held);
+      this.writeCell(position, this.colorAt(position), write);
       return true;
     }
 
     event.preventDefault();
     this.digitCell = null;
-    this.writeCell(held.home, this.colorAt(held.home), {
-      ...held.clue,
+    this.writeCell(position, this.colorAt(position), {
+      ...held,
       direction: directionForKey(event.key)!,
     });
     return true;
@@ -1116,7 +1097,9 @@ export class Board {
    * already overshoot, since a 1x1 board's area tops out at 1 and its dart at
    * 0. Zero is not an area, so a leading zero is ignored there — but zero is a
    * real dart, and refusing it would leave one of the two cases that fill in
-   * immediately impossible to type.
+   * immediately impossible to type. Under "Numbers are off by one" the floor
+   * drops by one, which is exactly when a displayed zero becomes real for
+   * every numeric kind.
    */
   private nextNumberValue(
     position: Position,
@@ -1131,12 +1114,14 @@ export class Board {
       existing && typeof existing.value === "number" ? existing.value : null;
     this.digitCell = { x: position.x, y: position.y };
 
-    const max = symbolValueMax(kind, {
+    const size = {
       gridWidth: this.gridWidth,
       gridHeight: this.gridHeight,
-    });
+      offByOne: this.offByOne,
+    };
+    const max = symbolValueMax(kind, size);
     if (!continuing || current === null) {
-      return digit < kind.minValue || digit > max ? null : digit;
+      return digit < symbolValueMin(kind, size) || digit > max ? null : digit;
     }
 
     const grown = current * 10 + digit;

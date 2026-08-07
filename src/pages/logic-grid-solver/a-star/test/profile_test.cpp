@@ -154,6 +154,17 @@ TEST(Profile, DeclinesViewpoints) {
   EXPECT_FALSE(profile::applicable(buildModel(viewed)));
 }
 
+/// And for the galaxy, whose half turn mirrors rows the frontier has long
+/// dropped — the whitelist declines it with no code knowing it exists.
+TEST(Profile, DeclinesGalaxies) {
+  const Puzzle plain = test::board({"a..", "...", "..a"});
+  ASSERT_TRUE(profile::applicable(buildModel(plain)));
+
+  Puzzle galaxied = plain;
+  test::withGalaxy(galaxied, 1, 1);
+  EXPECT_FALSE(profile::applicable(buildModel(galaxied)));
+}
+
 /**
  * And the whitelist itself: every rule the sweep does not name is refused,
  * whatever it is. Without this a rule appended to the catalogue tomorrow would

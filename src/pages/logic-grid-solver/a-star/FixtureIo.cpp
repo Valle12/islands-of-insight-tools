@@ -72,17 +72,19 @@ void readClues(const nlohmann::json &document, Puzzle &puzzle,
       throw FixtureError("A clue sits outside the board in " + path);
     if (kind < 0 || kind >= kClueKindCount)
       throw FixtureError("Unknown clue kind in " + path);
-    // A lotus carries no number at all, and a file that gives it one is
-    // refused rather than the key being dropped — dropping it would load a
+    // The valueless kinds — the lotus and the galaxy, listed by
+    // `isValuelessKind` so this reader and the writer below cannot drift —
+    // carry no number at all, and a file that gives one a value is refused
+    // rather than the key being dropped: dropping it would load a
     // different-looking puzzle under the same name. The trailing branch is
     // every NUMBER-carrying kind — area, dart and viewpoint — which all store
     // a plain integer.
     int value = 0;
     if (kind == kClueLetter)
       value = letterFrom(entry.at("value"), path);
-    else if (kind == kClueLotus) {
+    else if (isValuelessKind(static_cast<uint8_t>(kind))) {
       if (entry.contains("value"))
-        throw FixtureError("A symmetry symbol carries no value in " + path);
+        throw FixtureError("A valueless clue kind carries no value in " + path);
     } else {
       value = entry.at("value").get<int>();
     }
@@ -164,10 +166,13 @@ nlohmann::json cluesToJson(const Puzzle &puzzle) {
     entry["x"] = columnOf(index);
     entry["y"] = rowOf(index);
     entry["type"] = kind;
-    // A lotus writes no value key at all; every other kind requires one.
+    // A valueless kind — the lotus or the galaxy — writes no value key at
+    // all; every other kind requires one. Writing a stray `"value": 0` onto a
+    // galaxy would break the byte-identical round trip AND be refused on the
+    // way back in, which is why reader and writer share `isValuelessKind`.
     if (kind == kClueLetter)
       entry["value"] = std::string(1, static_cast<char>('A' + value));
-    else if (kind != kClueLotus)
+    else if (!isValuelessKind(kind))
       entry["value"] = value;
     // Written only where there is one, so a board with no directed clues
     // round-trips byte-identically to what the page downloads — the rule

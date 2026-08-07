@@ -45,12 +45,30 @@ export interface LogicGridSymbolKind {
    * the tile.
    */
   readonly reach: LogicGridReach;
+  /**
+   * The one Material glyph the clue is drawn AS, for a kind whose tile shows
+   * an icon rather than text — `dressClue` branches on it, which is what
+   * keeps that dispatch on capability fields rather than on ids. Absent
+   * everywhere the tile shows a value, an arrow or an axis instead. A name
+   * outside the `icon_names` subset in common.css renders as its own text,
+   * so any glyph named here must be listed there.
+   */
+  readonly icon?: string;
 }
 
 /** An area of zero cells is not a region, so the smallest area clue is 1. */
 export const MIN_AREA_VALUE = 1;
 
 const LETTER_PATTERN = /^[A-Z]$/;
+
+/**
+ * The one glyph a galaxy is drawn as — a swirl, the closest Material Symbols
+ * ships to the game's rotational-symmetry mark. Declared ahead of the kind
+ * list because the galaxy's entry names it, and exported so the icon subset
+ * and the tests read the same spelling. A name outside the `icon_names`
+ * subset in common.css renders as its own text, so this one is listed there.
+ */
+export const GALAXY_ICON = "cyclone";
 
 /**
  * The clue kinds a puzzle can place, in a FIXED order. A config stores the
@@ -127,6 +145,26 @@ export const SYMBOL_KINDS: readonly LogicGridSymbolKind[] = [
     // since the area number, so its control is chip + field and nothing else.
     aims: "none",
     reach: "cross",
+  },
+  {
+    id: "galaxy",
+    label: "Galaxy",
+    // Unused twice over, like the lotus's: an icon kind's chip is a
+    // `dressClue` miniature, and a valueless kind has no field to seed —
+    // non-empty only because every kind must bring a sample.
+    sample: "G",
+    // Valueless like the lotus, and the first kind with no direction either:
+    // a half turn needs no orientation. Chip-only control — no field, no
+    // toggles — falls out of these two fields alone.
+    valueKind: "none",
+    minValue: 0,
+    aims: "none",
+    // Inert: a valueless kind has no number for any reach to bound.
+    reach: "board",
+    // The centre of 180-degree rotational symmetry for the region holding
+    // it. Always its home square's CENTRE — no seat, even inside a merged
+    // cell — so the whole geometry is one point reflection.
+    icon: GALAXY_ICON,
   },
 ];
 
@@ -259,10 +297,18 @@ export function isDiagonalAxis(index: number | undefined): boolean {
  */
 export const SEAT_COUNT = 4;
 
-/** The board a value is measured against. */
+/** The board a value is measured against — and, while "Numbers are off by
+ * one" is active, the flag that widens every numeric bound by one. */
 export interface LogicGridSize {
   gridWidth: number;
   gridHeight: number;
+  /**
+   * Whether the off-by-one rule is active: every numeric clue then DISPLAYS
+   * its true count ± 1 and never the truth, so a displayed 0 — and a
+   * displayed maximum-plus-one — becomes legal. Optional, and absent means
+   * off, so every caller that predates the rule keeps meaning what it meant.
+   */
+  offByOne?: boolean;
 }
 
 /**
@@ -281,10 +327,26 @@ export function symbolValueMax(
   size: LogicGridSize,
 ): number {
   if (kind.valueKind === "none") return 0;
+  const slack = size.offByOne ? 1 : 0;
   if (kind.reach === "line")
-    return Math.max(size.gridWidth, size.gridHeight) - 1;
-  if (kind.reach === "cross") return size.gridWidth + size.gridHeight - 1;
-  return size.gridWidth * size.gridHeight;
+    return Math.max(size.gridWidth, size.gridHeight) - 1 + slack;
+  if (kind.reach === "cross")
+    return size.gridWidth + size.gridHeight - 1 + slack;
+  return size.gridWidth * size.gridHeight + slack;
+}
+
+/**
+ * The smallest value `kind` accepts on this board: its own floor as the rules
+ * stand, one less — to zero at the least, the game never displaying a
+ * negative — under off-by-one. That drop is how a displayed 0 becomes typable
+ * exactly while the rule is on, and only then.
+ */
+export function symbolValueMin(
+  kind: LogicGridSymbolKind,
+  size: LogicGridSize,
+): number {
+  if (kind.valueKind !== "number") return kind.minValue;
+  return size.offByOne ? Math.max(0, kind.minValue - 1) : kind.minValue;
 }
 
 /**
@@ -309,14 +371,15 @@ export function symbolValueError(
       : `${kind.label} symbols carry no value.`;
   }
   if (kind.valueKind === "number") {
+    const min = symbolValueMin(kind, size);
     const max = symbolValueMax(kind, size);
     const ok =
       Number.isInteger(value) &&
-      (value as number) >= kind.minValue &&
+      (value as number) >= min &&
       (value as number) <= max;
     return ok
       ? null
-      : `${kind.label} values must be integers between ${kind.minValue} and ${max}.`;
+      : `${kind.label} values must be integers between ${min} and ${max}.`;
   }
 
   return typeof value === "string" && LETTER_PATTERN.test(value)

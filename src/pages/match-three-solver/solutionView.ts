@@ -123,7 +123,9 @@ export class SolutionView {
     const step = this.steps[this.viewIndex] ?? null;
     const board = step?.board ?? this.finalBoard;
 
-    this.grid.style.gridTemplateColumns = `repeat(${board.width}, minmax(0, 1fr))`;
+    // Fixed tracks for the same reason the editor's renderGrid uses them: a
+    // shrinkable track overlaps the fixed-width squares at narrow viewports.
+    this.grid.style.gridTemplateColumns = `repeat(${board.width}, var(--mt-cell))`;
 
     const fragment = document.createDocumentFragment();
     for (let y = 0; y < board.height; y++) {

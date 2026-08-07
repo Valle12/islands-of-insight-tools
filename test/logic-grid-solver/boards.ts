@@ -41,6 +41,7 @@ const LETTER_SYMBOL = symbolIndex("letter");
 const DART_SYMBOL = symbolIndex("dart");
 const LOTUS_SYMBOL = symbolIndex("lotus");
 const VIEWPOINT_SYMBOL = symbolIndex("viewpoint");
+const GALAXY_SYMBOL = symbolIndex("galaxy");
 
 /**
  * A puzzle from a picture, one string per row:
@@ -168,6 +169,38 @@ export function withViewpoint(
   value: number,
 ): LogicGridTest {
   config.symbols.push({ x, y, type: VIEWPOINT_SYMBOL, value });
+  config.symbols.sort((a, b) => a.y - b.y || a.x - b.x);
+  return config;
+}
+
+/**
+ * Puts a galaxy on a cell. A second call like the others: a symmetry symbol
+ * with no value, direction or seat at all — its region must map to itself
+ * under a half turn about this very square. Mirrors `withGalaxy` in the C++
+ * `TestBoards.h`.
+ */
+export function withGalaxy(
+  config: LogicGridTest,
+  x: number,
+  y: number,
+): LogicGridTest {
+  config.symbols.push({ x, y, type: GALAXY_SYMBOL });
+  config.symbols.sort((a, b) => a.y - b.y || a.x - b.x);
+  return config;
+}
+
+/**
+ * Puts an area number the picture cannot spell on a cell — one past nine, or
+ * the displayed ZERO that only the off-by-one rule makes legal. Mirrors
+ * `withClue` in the C++ `TestBoards.h`.
+ */
+export function withArea(
+  config: LogicGridTest,
+  x: number,
+  y: number,
+  value: number,
+): LogicGridTest {
+  config.symbols.push({ x, y, type: AREA_SYMBOL, value });
   config.symbols.sort((a, b) => a.y - b.y || a.x - b.x);
   return config;
 }
@@ -387,6 +420,29 @@ export const dartInMergedBoard = (): LogicGridTest => {
 };
 
 /**
+ * TWO darts on one merged cell — the game's harder boards do exactly this,
+ * and it used to be refused on every layer.
+ *
+ * Each dart acts from its own square with its own value: the left one says
+ * the two squares below it are light, the right one says its own two are
+ * dark, so the forced set names the two columns DIFFERENTLY. Any re-homing or
+ * one-clue collapse would make that impossible. Underclued, so the answer IS
+ * the forced set.
+ */
+export const twoDartsOneCellBoard = (): LogicGridTest => {
+  const config = board(["...", "...", "..."], ["underclued"]);
+  withGiven(config, 0, 0, DARK);
+  withGiven(config, 1, 0, DARK);
+  withDart(config, 0, 0, 2, 2);
+  withDart(config, 1, 0, 0, 2);
+  withShape(config, [
+    [0, 0],
+    [1, 0],
+  ]);
+  return config;
+};
+
+/**
  * A board with merged cells: a 1x3 bar across the top row and an L below it,
  * with "no dark 1x3" on.
  *
@@ -526,6 +582,110 @@ export const viewpointOnMergedBoard = (): LogicGridTest => {
  * A real capture, but a mis-entered one — the game's board had gaps in the
  * corners — so it lives here rather than in the captured corpus.
  */
+/**
+ * A galaxy on the centre with its column's top already dark: the half turn
+ * forces the square below it dark. Kind 5 crosses the wasm boundary nowhere
+ * else — every captured board predates it.
+ */
+export const galaxyBoard = (): LogicGridTest => {
+  const config = board(["...", "...", "..."]);
+  withGiven(config, 1, 0, DARK);
+  withGiven(config, 1, 1, DARK);
+  withGalaxy(config, 1, 1);
+  return config;
+};
+
+/**
+ * A galaxy on the RIGHT square of a dark 1x2 merged cell, underclued. The
+ * mirror is taken about the SQUARE, never the cell's middle: the cell-mate
+ * turns onto the top-right corner, and the whole row below turns off the
+ * board — so the forced set is the top row dark and the middle row light,
+ * which an arm mirroring about the cell's centre could not produce.
+ */
+export const galaxyOverMergedBoard = (): LogicGridTest => {
+  const config = board(["...", "...", "..."], ["underclued"]);
+  withShape(config, [
+    [0, 0],
+    [1, 0],
+  ]);
+  withGiven(config, 0, 0, DARK);
+  withGiven(config, 1, 0, DARK);
+  withGalaxy(config, 1, 0);
+  return config;
+};
+
+/**
+ * All three numeric kinds under "Numbers are off by one", each DISPLAYING a
+ * zero or a value one off its true count — the displayed 0 is the value this
+ * board exists to push across the boundary, since no captured fixture can
+ * carry one and the valueless kinds' default is the same number.
+ */
+export const offByOneBoard = (): LogicGridTest => {
+  const config = board(["...", "...", "..2"], ["off-by-one"]);
+  withArea(config, 0, 0, 0);
+  withDart(config, 2, 0, 0, 3);
+  withViewpoint(config, 1, 1, 0);
+  return config;
+};
+
+/** Two dark givens in a 2x2 under the elbow rule: any third dark square would
+ * bend, so both remaining squares are forced light. */
+export const elbowBoard = (): LogicGridTest =>
+  board(["DD", ".."], ["no-dark-elbow"]);
+
+/** A dark bar of three under the L rule: a foot at either END would make an
+ * L, while one at the middle would only make a T, which stays legal. */
+export const ellBoard = (): LogicGridTest =>
+  board(["D.", "D.", "D."], ["no-dark-l"]);
+
+/**
+ * The distance rule ACROSS a gap, underclued: the two ends of the row are two
+ * apart whatever sits between them, so the far cell is forced light straight
+ * through the hole — the user-confirmed positional semantics, pinned where
+ * only the wasm lane can see it.
+ */
+export const distancePairBoard = (): LogicGridTest =>
+  board(["D#."], ["no-dark-any-dark", "underclued"]);
+
+/** A dark T with its stem's first square given: growing the stem one deeper
+ * would make the long T, so that square is forced light. */
+export const longTeeBoard = (): LogicGridTest =>
+  board(["DDD", ".D.", "..."], ["no-dark-long-t"]);
+
+/** One dark given mid-board under the knight rule: both on-board knight
+ * targets are forced light, nothing between them read. */
+export const knightBoard = (): LogicGridTest =>
+  board(["....", ".D..", "...."], ["no-dark-knight"]);
+
+/** Dark bar ends and stem given: a light crossing would be the forbidden
+ * mixed T, so the crossing is forced dark. */
+export const mixedTeeBoard = (): LogicGridTest =>
+  board(["D.D", ".D."], ["no-light-crossed-dark-t"]);
+
+/** Two dark givens corner to corner: either square between them would be the
+ * corner of a dark-light-dark elbow if it went light, so both go dark. */
+export const mixedElbowBoard = (): LogicGridTest =>
+  board(["D.", ".D"], ["no-dark-light-dark-elbow"]);
+
+/** Six dark in a row on the first board wide enough for the implied run of
+ * SEVEN to instantiate — the clause the widened pattern table exists for. */
+export const areaSixBoard = (): LogicGridTest =>
+  board(["DDDDDD.", "......."], ["area-six-dark"]);
+
+/** And seven on an eight-wide board: the run of EIGHT, the table's new
+ * ceiling, firing across the boundary — no reference board has this room. */
+export const areaSevenBoard = (): LogicGridTest =>
+  board(["DDDDDDD.", "........"], ["area-seven-dark"]);
+
+/** One dark given under area twenty-four: far past the table, the whole rule
+ * rides the region walk, and the answer must grow the region to 24 of the 25
+ * squares. */
+export const areaTwentyFourBoard = (): LogicGridTest =>
+  board(
+    ["D....", ".....", ".....", ".....", "....."],
+    ["area-twenty-four-dark"],
+  );
+
 export const deepSearchBoard = (): LogicGridTest => {
   const config = board([
     "......a...",
