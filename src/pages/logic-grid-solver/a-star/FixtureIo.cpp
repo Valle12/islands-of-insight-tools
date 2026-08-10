@@ -111,12 +111,14 @@ void readSized(const nlohmann::json &document, const SizedFamily &family,
     const auto &valueTag = entry.at(family.valueKey);
     if (!valueTag.is_number_integer())
       throw outOfRange();
-    const int value = valueTag.get<int>();
-    if (value < family.lo || value > family.hi)
+    // Bounded at full width BEFORE narrowing: `get<int>()` on a value past
+    // int wraps, so 4294967298 would land inside the gate as an area-2 rule.
+    const auto wide = valueTag.get<int64_t>();
+    if (wide < family.lo || wide > family.hi)
       throw outOfRange();
     const rules::SizedRule rule{
         .color = colorTag.get<std::string>() == "dark" ? kDark : kLight,
-        .value = value};
+        .value = static_cast<int>(wide)};
     if (!into.empty()) {
       if (into.back() == rule)
         throw FixtureError("A sized rule is duplicated in " + path);

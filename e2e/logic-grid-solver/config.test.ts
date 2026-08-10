@@ -200,8 +200,12 @@ test.describe("Logic Grid Solver config", () => {
     const config = JSON.parse(raw);
     // The tag leads the file, so a reader knows which shape it is in before it
     // has parsed anything that shape could have changed. Checked on the TEXT,
-    // since key order is the one thing a parsed object cannot show.
-    expect(raw).toMatch(/^\{\n {2}"version": 2,/);
+    // since key order is the one thing a parsed object cannot show — and
+    // against `CONFIG_VERSION`, so the next migration does not fail this line
+    // on a stale literal.
+    expect(raw).toMatch(
+      new RegExp(`^\\{\\n {2}"version": ${CONFIG_VERSION},`),
+    );
     expect(config.gridWidth).toBe(6);
     expect(config.gridHeight).toBe(6);
     expect(config.cells[0][0]).toBe(1);

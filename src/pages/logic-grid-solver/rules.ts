@@ -380,10 +380,11 @@ export function ruleAt(index: number): LogicGridRule | undefined {
  * editor's value fields and the migration's outputs.
  *
  * The area cap is a FORMAT limit — it keeps the value field four digits wide —
- * not a board one: an area larger than the board is still enforceable, it just
- * means the colour cannot appear at all, so such a file loads and Solve
- * answers Unsolvable like every other well-formed contradiction. The floor of
- * 1 is real; singleton regions are a size the engine enforces.
+ * not a board one: an area larger than the board is still enforceable, it
+ * just means the colour cannot appear at all. Absent the colour the rule
+ * holds vacuously, so such a file loads and Solve empties that colour —
+ * answering Unsolvable only where a given or clue demands it anyway. The
+ * floor of 1 is real; singleton regions are a size the engine enforces.
  *
  * The run cap is an ENGINE limit and moves with `kMaxPatternCells` in
  * a-star/Rules.h: a forbidden run is enforced only by its compiled pattern,

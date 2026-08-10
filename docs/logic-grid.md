@@ -54,11 +54,13 @@ list. A current file stores the number beside the colour instead:
 before light then values ascending, duplicates refused. Several instances per
 family and colour are legal and conjunctive — both areas 2 AND 3 on one colour
 is satisfied exactly where the colour is absent. The bounds are deliberate:
-the area cap is a FORMAT limit (an area larger than the board loads fine and
-Solve answers Unsolvable — the honesty rule), while the run cap is the
-ENGINE's `kMaxRunLength = kMaxPatternCells` — a forbidden run is enforced only
-by its compiled pattern, so a length the table cannot hold is refused by name
-rather than accepted and silently not enforced. The 22 retired entries stay in
+the area cap is a FORMAT limit, NOT capped by board size — an area larger
+than the board loads fine and simply forces its colour ABSENT (all zero of
+its regions are the right size); Solve answers Unsolvable only where a given
+or clue demands that colour anyway, the honesty rule — while the run cap is
+the ENGINE's `kMaxRunLength = kMaxPatternCells` — a forbidden run is enforced
+only by its compiled pattern, so a length the table cannot hold is refused by
+name rather than accepted and silently not enforced. The 22 retired entries stay in
 `RULES` (each carrying its `sized` origin marker) and in the C++ `Rule` enum
 (with `kLegacyAreas`/`kLegacyRuns`/`kSizedRuleBits` beside it) because they
 are v1 bit positions: the migration, the CLI's v1-style `--rules` mask and the

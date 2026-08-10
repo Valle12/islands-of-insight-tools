@@ -295,7 +295,9 @@ inline constexpr int kMaxPatternCells = 8;
  * answer (`smallestArea` here, `shortestRun` in Rules.cpp), so a stored 0
  * would read as absence rather than as a rule. The area cap is a FORMAT limit
  * shared with the page's validator — an area larger than the board is still
- * enforceable and merely unsatisfiable, so it is NOT capped by board size.
+ * enforceable, so it is NOT capped by board size: it forces the colour to be
+ * ABSENT (all zero of its regions are the right size), and refutes only a
+ * board whose givens or clues demand that colour anyway.
  * The run cap is this ENGINE's: a forbidden run is enforced only by its
  * compiled pattern, a pattern holds at most `kMaxPatternCells` cells, and a
  * run intake cannot enforce must be refused by name rather than accepted and

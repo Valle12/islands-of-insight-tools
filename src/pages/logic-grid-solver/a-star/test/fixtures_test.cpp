@@ -7,6 +7,7 @@
 #include "Verify.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
@@ -274,9 +275,10 @@ TEST(LogicGridFixtureIo, RefusesASizedRuleWithABadColor) {
 /// One out-of-range number for one sized family. A helper rather than the
 /// loop body it used to be: gtest's assertion macros expand to a labelled
 /// `goto`, so an EXPECT_THROW written straight inside a `for` reads to a C++
-/// analyser as nested gotos.
+/// analyser as nested gotos. Wide on purpose: the values past int are the
+/// point of the last two rows below.
 void expectSizedValueRefused(const char *key, const char *valueKey,
-                             const int value) {
+                             const int64_t value) {
   nlohmann::json document = oneCellDocument();
   document[key] = nlohmann::json::array(
       {nlohmann::json{{"color", "dark"}, {valueKey, value}}});
@@ -286,11 +288,16 @@ void expectSizedValueRefused(const char *key, const char *valueKey,
 }
 
 TEST(LogicGridFixtureIo, RefusesASizedValueOutOfRange) {
-  const std::vector<std::tuple<const char *, const char *, int>> bad = {
+  const std::vector<std::tuple<const char *, const char *, int64_t>> bad = {
       {"areas", "size", 0},
       {"areas", "size", 10000},
       {"runs", "length", 1},
-      {"runs", "length", 9}};
+      {"runs", "length", 9},
+      // Past int, so a gate that narrows BEFORE it bounds never sees them:
+      // 2^32 + 2 wrapped to a perfectly legal area of 2, and 2^32 + 4 to a
+      // run of 4. The bound has to run at full width.
+      {"areas", "size", int64_t{4294967298}},
+      {"runs", "length", int64_t{4294967300}}};
   for (const auto &[key, valueKey, value] : bad)
     expectSizedValueRefused(key, valueKey, value);
 }

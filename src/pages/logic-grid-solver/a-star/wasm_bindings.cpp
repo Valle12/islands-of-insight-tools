@@ -116,10 +116,18 @@ bool readSized(const val &puzzleVal, const char *key, const char *valueKey,
       error = "A sized rule's color must be dark or light";
       return false;
     }
-    // Read as a double so 2.5 is refused rather than silently truncated.
+    // Read as a double so 2.5 is refused rather than silently truncated —
+    // and bounded BEFORE narrowing, spelled so NaN fails too: casting an
+    // out-of-range (or NaN) double to int is undefined behaviour, so the
+    // gate has to run first. In range the cast is exact, so the integrality
+    // test below still catches fractions.
     const double raw = opt(entry, valueKey, 0.0);
+    if (!(raw >= lo && raw <= hi)) {
+      error = rangeError;
+      return false;
+    }
     const int value = static_cast<int>(raw);
-    if (raw != static_cast<double>(value) || value < lo || value > hi) {
+    if (raw != static_cast<double>(value)) {
       error = rangeError;
       return false;
     }
