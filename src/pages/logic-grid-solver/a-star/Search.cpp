@@ -251,7 +251,7 @@ private:
   bool descend() {
     std::vector<Frame> stack;
     // One frame per guessed CELL, which is the real depth bound.
-    stack.reserve(static_cast<size_t>(model_.cellCount) + 1);
+    stack.reserve(static_cast<std::size_t>(model_.cellCount) + 1);
     bool fresh = true;
 
     for (;;) {

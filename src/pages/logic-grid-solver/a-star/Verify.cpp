@@ -120,34 +120,19 @@ int longestRun(const Model &model, const Colors &colors, const uint8_t color) {
   return best;
 }
 
-struct RunRule {
-  Rule rule = Rule::NoDark1x2;
-  uint8_t color = kDark;
-  int length = 2;
-};
-
 Violation runProblem(const Model &model, const Colors &colors) {
-  // Every run rule is listed. This is one of the three places that mean "the
-  // family of run rules" — with `shortestRun` in Rules.cpp and RUN_RULES in
-  // verify.ts — and a rule appended to the catalogue has to be added to all
-  // three by hand, because none of them may compute its members.
-  using enum Rule;
-  constexpr auto kRunRules = std::to_array<RunRule>({
-      {.rule = NoDark1x2, .color = kDark, .length = 2},
-      {.rule = NoLight1x2, .color = kLight, .length = 2},
-      {.rule = NoDark1x3, .color = kDark, .length = 3},
-      {.rule = NoLight1x3, .color = kLight, .length = 3},
-      {.rule = NoDark1x4, .color = kDark, .length = 4},
-      {.rule = NoLight1x4, .color = kLight, .length = 4},
-      {.rule = NoDark1x5, .color = kDark, .length = 5},
-      {.rule = NoLight1x5, .color = kLight, .length = 5},
-  });
+  // The puzzle's OWN `runs` instances, walked in full. The oracle shares the
+  // puzzle with the search and nothing else — not the reducers, not the
+  // compiled table — which is what keeps its verdicts independent. Its two
+  // mirrors walk the same lists: `shortestRun` in Rules.cpp and `runProblem`
+  // in verify.ts.
+  if (model.puzzle.runs.empty())
+    return Violation::None;
   const int dark = longestRun(model, colors, kDark);
   const int light = longestRun(model, colors, kLight);
-  const bool broken =
-      std::ranges::any_of(kRunRules, [&model, dark, light](const RunRule &row) {
-        const int found = row.color == kDark ? dark : light;
-        return model.hasRule(row.rule) && found >= row.length;
+  const bool broken = std::ranges::any_of(
+      model.puzzle.runs, [dark, light](const rules::SizedRule &rule) {
+        return (rule.color == kDark ? dark : light) >= rule.value;
       });
   return broken ? Violation::Run : Violation::None;
 }
@@ -547,12 +532,6 @@ Violation connectivityProblem(const Model &model, const Bits &dark,
   return None;
 }
 
-struct AreaRule {
-  Rule rule = Rule::AreaTwoDark;
-  uint8_t color = kDark;
-  int area = 2;
-};
-
 /**
  * Every region of `held` holds exactly `area` cells.
  *
@@ -577,31 +556,14 @@ bool everyRegionIs(const Bits &held, const int area) {
 
 Violation regionSizeProblem(const Model &model, const Bits &dark,
                             const Bits &light) {
-  // Listed, like `kRunRules` above and `AREA_RULES` in verify.ts. The oracle
-  // does not ask `rules::globalArea`, for the same reason it does not read the
+  // The puzzle's OWN `areas` instances, like `runProblem` above — the oracle
+  // does not ask the reducers, for the same reason it does not read the
   // compiled clause list: it is meant to agree with the search by arriving
-  // separately, never by sharing its tables.
-  using enum Rule;
-  constexpr auto kAreaRules = std::to_array<AreaRule>({
-      {.rule = AreaTwoDark, .color = kDark, .area = 2},
-      {.rule = AreaTwoLight, .color = kLight, .area = 2},
-      {.rule = AreaFourDark, .color = kDark, .area = 4},
-      {.rule = AreaFourLight, .color = kLight, .area = 4},
-      {.rule = AreaFiveDark, .color = kDark, .area = 5},
-      {.rule = AreaFiveLight, .color = kLight, .area = 5},
-      {.rule = AreaThreeDark, .color = kDark, .area = 3},
-      {.rule = AreaThreeLight, .color = kLight, .area = 3},
-      {.rule = AreaSixDark, .color = kDark, .area = 6},
-      {.rule = AreaSixLight, .color = kLight, .area = 6},
-      {.rule = AreaSevenDark, .color = kDark, .area = 7},
-      {.rule = AreaSevenLight, .color = kLight, .area = 7},
-      {.rule = AreaTwentyFourDark, .color = kDark, .area = 24},
-      {.rule = AreaTwentyFourLight, .color = kLight, .area = 24},
-  });
+  // separately, never by sharing its tables. Every instance runs, so both
+  // sizes on one colour are satisfied only by an absent colour.
   const bool wrong = std::ranges::any_of(
-      kAreaRules, [&model, &dark, &light](const AreaRule &row) {
-        return model.hasRule(row.rule) &&
-               !everyRegionIs(row.color == kDark ? dark : light, row.area);
+      model.puzzle.areas, [&dark, &light](const rules::SizedRule &rule) {
+        return !everyRegionIs(rule.color == kDark ? dark : light, rule.value);
       });
   return wrong ? Violation::RegionSize : Violation::None;
 }

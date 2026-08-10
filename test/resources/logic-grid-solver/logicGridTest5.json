@@ -1,10 +1,15 @@
 {
-  "version": 1,
+  "version": 2,
   "gridWidth": 6,
   "gridHeight": 6,
   "rules": [
-    0,
-    3
+    0
+  ],
+  "runs": [
+    {
+      "color": "light",
+      "length": 2
+    }
   ],
   "cells": [
     [

@@ -120,6 +120,18 @@ export type LogicGridSymbol = LogicGridClue & {
   y: number;
 };
 
+/** One regions-have-area-N rule — see `LogicGridTest.areas`. */
+export type LogicGridAreaRule = {
+  color: "dark" | "light";
+  size: number;
+};
+
+/** One no-1xN rule — see `LogicGridTest.runs`. */
+export type LogicGridRunRule = {
+  color: "dark" | "light";
+  length: number;
+};
+
 export type LogicGridTest = {
   /**
    * Which shape of this format the file is in — see `src/util/configVersion.ts`
@@ -130,8 +142,37 @@ export type LogicGridTest = {
   version: number;
   gridWidth: number;
   gridHeight: number;
-  /** Indices into `RULES`, which is append-only. Ascending and unique. */
+  /**
+   * Indices into `RULES`, which is append-only. Ascending and unique, and
+   * since format version 2 FLAG rules only: the sized families — regions-
+   * have-area-N and no-1xN — live in `areas` and `runs` below, and their 22
+   * retired indices are rejected by name rather than read.
+   */
   rules: number[];
+  /**
+   * The regions-have-area-N rules, one entry per active size and colour:
+   * every region of `color` has exactly `size` cells. Several entries per
+   * colour are legal and conjunctive — satisfiable exactly where the colour
+   * is absent. Canonical order (what `validateConfig` returns and every
+   * writer emits): dark before light, then size ascending; duplicates are
+   * rejected. `size` is 1..9999 — a format cap, deliberately NOT the board
+   * area, since an oversized area is still enforceable (the colour cannot
+   * appear) and belongs to Solve, not the validator.
+   *
+   * OPTIONAL, and omitted rather than written `[]` when a board has none —
+   * the same byte-identical round-trip discipline as `shapes`. This is also
+   * exactly the shape the solver's wasm boundary takes.
+   */
+  areas?: LogicGridAreaRule[];
+  /**
+   * The no-1xN rules, one entry per active length and colour: no straight
+   * run of `length` cells of `color`, in either orientation. Same canonical
+   * order, duplicate rule and omit-when-empty discipline as `areas`. `length`
+   * is 2..8 — the cap is the engine's `kMaxPatternCells`, because a run rule
+   * is enforced only by its compiled pattern, so a longer one is refused by
+   * name rather than accepted and silently not enforced.
+   */
+  runs?: LogicGridRunRule[];
   /**
    * The colour layer alone, column-major, one index per cell — see
    * `src/pages/logic-grid-solver/cell.ts` for the constants. 0 is uncoloured,

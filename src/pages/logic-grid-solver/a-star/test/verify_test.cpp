@@ -15,10 +15,31 @@ using namespace lg;
 using rules::Rule;
 using verify::Violation;
 
+/**
+ * The board a rule list describes. The cases below predate format version 2
+ * and still SAY rule names, sized ones included; those become `areas`/`runs`
+ * instances through the same translation the CLI's `--rules` speaks, so every
+ * historical pin keeps exercising exactly the constraint it always did —
+ * through the intake path a legacy mask really takes — rather than a bit the
+ * oracle no longer reads. Cases about the NEW sizes build their instances
+ * directly with `withAreaRule`/`withRunRule`.
+ */
+Puzzle boardWithRules(const std::vector<std::string> &picture,
+                      const std::vector<Rule> &active) {
+  rules::RuleMask legacy = 0;
+  for (const Rule rule : active)
+    legacy |= rules::bit(rule);
+  auto [flags, areas, runs] = rules::splitLegacyMask(legacy);
+  Puzzle puzzle = test::board(picture, flags);
+  puzzle.areas = std::move(areas);
+  puzzle.runs = std::move(runs);
+  return puzzle;
+}
+
 Violation judge(const std::vector<std::string> &picture,
                 const std::vector<std::string> &painted,
                 const std::vector<Rule> &active) {
-  const Model model = buildModel(test::board(picture, test::ruleSet(active)));
+  const Model model = buildModel(boardWithRules(picture, active));
   return verify::check(model, test::colors(painted));
 }
 
@@ -152,6 +173,78 @@ TEST(Verify, BothSizesOnOneColourLeaveOnlyTheEmptyColouring) {
             Violation::RegionSize);
   EXPECT_EQ(judge({"....", "...."}, {"DDLL", "LLLL"}, both),
             Violation::RegionSize);
+}
+
+/// A run instance of SIX — the first length past the v1 catalogue. The oracle
+/// walks the instance list, so a new length is a new value, not a new row.
+TEST(Verify, CatchesARunOfSixByInstance) {
+  Puzzle six = test::board({"......", "......"});
+  test::withRunRule(six, kDark, 6);
+  EXPECT_EQ(verify::check(buildModel(six), test::colors({"DDDDDD", "LLLLLL"})),
+            Violation::Run);
+  Puzzle five = test::board({"......", "......"});
+  test::withRunRule(five, kDark, 6);
+  EXPECT_EQ(
+      verify::check(buildModel(five), test::colors({"DDDDDL", "LLLLLL"})),
+      Violation::None);
+}
+
+/// And of EIGHT, the intake cap: seven in a row survives, eight does not.
+TEST(Verify, CatchesARunOfEightByInstance) {
+  Puzzle eight = test::board({".........", "........."});
+  test::withRunRule(eight, kDark, 8);
+  EXPECT_EQ(verify::check(buildModel(eight),
+                          test::colors({"DDDDDDDDL", "LLLLLLLLL"})),
+            Violation::Run);
+  Puzzle seven = test::board({".........", "........."});
+  test::withRunRule(seven, kDark, 8);
+  EXPECT_EQ(verify::check(buildModel(seven),
+                          test::colors({"DDDDDDDLL", "LLLLLLLLL"})),
+            Violation::None);
+}
+
+/// An area of ONE: singletons are the legal shape, a domino is the violation
+/// — the polarity a "no region smaller than" reading would get exactly wrong.
+TEST(Verify, AnAreaOfOneWantsSingletons) {
+  Puzzle singles = test::board({"..."});
+  test::withAreaRule(singles, kDark, 1);
+  EXPECT_EQ(verify::check(buildModel(singles), test::colors({"DLD"})),
+            Violation::None);
+  Puzzle domino = test::board({"..."});
+  test::withAreaRule(domino, kDark, 1);
+  EXPECT_EQ(verify::check(buildModel(domino), test::colors({"DDL"})),
+            Violation::RegionSize);
+}
+
+/// An area of EIGHT — past the pattern table's reach, so the oracle and
+/// `regionArea` are the whole of the rule at this size.
+TEST(Verify, CatchesAnAreaEightRegionOfTheWrongSize) {
+  Puzzle right = test::board({"........", "........"});
+  test::withAreaRule(right, kDark, 8);
+  EXPECT_EQ(verify::check(buildModel(right),
+                          test::colors({"DDDDLLLL", "DDDDLLLL"})),
+            Violation::None);
+  Puzzle wrong = test::board({"........", "........"});
+  test::withAreaRule(wrong, kDark, 8);
+  EXPECT_EQ(verify::check(buildModel(wrong),
+                          test::colors({"DDDDLLLL", "DDDLLLLL"})),
+            Violation::RegionSize);
+}
+
+/// Two DIRECT instances on one colour — the legacy pair above spelled as
+/// values. Every instance runs: a domino satisfies area two and still breaks
+/// area three.
+TEST(Verify, TwoAreaInstancesOnOneColourBothRun) {
+  Puzzle domino = test::board({"...."});
+  test::withAreaRule(domino, kDark, 2);
+  test::withAreaRule(domino, kDark, 3);
+  EXPECT_EQ(verify::check(buildModel(domino), test::colors({"DDLL"})),
+            Violation::RegionSize);
+  Puzzle empty = test::board({"...."});
+  test::withAreaRule(empty, kDark, 2);
+  test::withAreaRule(empty, kDark, 3);
+  EXPECT_EQ(verify::check(buildModel(empty), test::colors({"LLLL"})),
+            Violation::None);
 }
 
 /// "Exactly one" is two failures, and the empty half is the easy one to miss:
@@ -629,7 +722,7 @@ Violation judgeMerged(const std::vector<std::string> &picture,
                       const std::vector<std::pair<int, int>> &squares,
                       const std::vector<std::string> &painted,
                       const std::vector<Rule> &active) {
-  Puzzle puzzle = test::board(picture, test::ruleSet(active));
+  Puzzle puzzle = boardWithRules(picture, active);
   test::withShape(puzzle, squares);
   return verify::check(buildModel(puzzle), test::colors(painted));
 }

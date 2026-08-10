@@ -16,12 +16,33 @@
 #include "Rules.h"
 #include "Types.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace lg::test {
+
+/**
+ * Aborts on a mask naming a sized bit. Since format version 2 those rules are
+ * instances (`withAreaRule` / `withRunRule` below), and the engine no longer
+ * reads their mask bits at all — so a test that smuggled one in would compile,
+ * constrain nothing, and stay green forever. Louder than `assert` on purpose:
+ * Release defines NDEBUG, which compiles an assert out, and this header also
+ * builds under em++'s -fno-exceptions, which rules a `throw` out.
+ */
+inline rules::RuleMask flagsOnly(const rules::RuleMask mask) {
+  if ((mask & rules::kSizedRuleBits) != 0) {
+    std::fputs("TestBoards: a sized rule has no mask bit any more — use "
+               "withAreaRule / withRunRule\n",
+               stderr);
+    std::abort();
+  }
+  return mask;
+}
 
 /**
  * A puzzle from a picture, one string per row:
@@ -38,7 +59,7 @@ inline Puzzle board(const std::vector<std::string> &rows,
   Puzzle puzzle;
   puzzle.height = static_cast<int>(rows.size());
   puzzle.width = rows.empty() ? 0 : static_cast<int>(rows.front().size());
-  puzzle.ruleMask = mask;
+  puzzle.ruleMask = flagsOnly(mask);
   puzzle.givens.fill(kUnplayable);
 
   for (int y = 0; y < puzzle.height; y++) {
@@ -145,6 +166,23 @@ inline void withGiven(Puzzle &puzzle, const int x, const int y,
   puzzle.givens[slot(cellIndex(x, y))] = color;
 }
 
+/// Adds one area instance — every region of `color` has exactly `size` cells.
+/// Inserted in canonical order the way intake demands, so calls may layer in
+/// any order a test finds readable.
+inline void withAreaRule(Puzzle &puzzle, const uint8_t color, const int size) {
+  const rules::SizedRule rule{.color = color, .value = size};
+  puzzle.areas.insert(
+      std::ranges::lower_bound(puzzle.areas, rule, rules::sizedLess), rule);
+}
+
+/// Adds one run instance — no straight run of `length` cells of `color`.
+inline void withRunRule(Puzzle &puzzle, const uint8_t color,
+                        const int length) {
+  const rules::SizedRule rule{.color = color, .value = length};
+  puzzle.runs.insert(
+      std::ranges::lower_bound(puzzle.runs, rule, rules::sizedLess), rule);
+}
+
 /// A colouring as a picture: 'D' dark, 'L' light, '.' undecided, '#' a gap.
 inline std::vector<std::string> draw(const Model &model,
                                      const Colors &colors) {
@@ -191,12 +229,13 @@ inline Colors colors(const std::vector<std::string> &rows) {
 }
 
 /// The rule mask for a list of rules, which reads better than shifting bits in
-/// every test.
+/// every test. Flags only — a sized rule aborts via `flagsOnly`, because its
+/// bit would otherwise ride along constraining nothing.
 inline rules::RuleMask ruleSet(const std::vector<rules::Rule> &active) {
   rules::RuleMask mask = 0;
   for (const rules::Rule rule : active)
     mask |= rules::bit(rule);
-  return mask;
+  return flagsOnly(mask);
 }
 
 } // namespace lg::test

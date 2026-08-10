@@ -157,6 +157,41 @@ bool cardinality(const Model &model, Domains &domains, const uint8_t color) {
   return true;
 }
 
+/// One pass over the perimeter: the decided colour per cycle slot (kUnknown
+/// where the square is open), how many cyclic transitions those colours make,
+/// and the first and last decided slots. `first`/`last` stay -1 while NOTHING
+/// is decided — safe to index unchecked wherever `transitions` reached two,
+/// which takes at least two decided squares.
+struct BorderScan {
+  std::array<uint8_t, 4 * kMaxSide> state{};
+  int transitions = 0;
+  int first = -1;
+  int last = -1;
+};
+
+BorderScan scanBorder(const Domains &domains, const std::vector<int16_t> &cycle,
+                      const int n) {
+  BorderScan scan;
+  int decided = 0;
+  for (int i = 0; i < n; i++) {
+    const uint8_t color = domains.colorOf(cycle[slot(i)]);
+    scan.state[slot(i)] = color;
+    if (color == kUnknown)
+      continue;
+    decided++;
+    if (scan.last >= 0 && scan.state[slot(scan.last)] != color)
+      scan.transitions++;
+    if (scan.first < 0)
+      scan.first = i;
+    scan.last = i;
+  }
+  // The cycle closes, so the last decided square's colour meets the first's.
+  if (decided >= 2 &&
+      scan.state[slot(scan.first)] != scan.state[slot(scan.last)])
+    scan.transitions++;
+  return scan;
+}
+
 /**
  * The two-arc lemma, `Model::borderCycle`'s comment carries the proof: with
  * both colours connected, the decided colours around the outer perimeter form
@@ -182,43 +217,25 @@ bool borderArcs(const Model &model, Domains &domains) {
   if (n > 4 * kMaxSide)
     return true;
 
-  // The decided colour per cycle slot, kUnknown where the square is open.
-  std::array<uint8_t, 4 * kMaxSide> state{};
-  int decided = 0;
-  int transitions = 0;
-  int previous = -1;
-  int first = -1;
-  for (int i = 0; i < n; i++) {
-    const uint8_t color = domains.colorOf(cycle[slot(i)]);
-    state[slot(i)] = color;
-    if (color == kUnknown)
-      continue;
-    decided++;
-    if (previous >= 0 && state[slot(previous)] != color)
-      transitions++;
-    if (first < 0)
-      first = i;
-    previous = i;
-  }
-  if (decided >= 2 && state[slot(first)] != state[slot(previous)])
-    transitions++;
-  if (transitions > 2)
+  const BorderScan scan = scanBorder(domains, cycle, n);
+  if (scan.transitions > 2)
     return false;
-  if (transitions < 2)
+  if (scan.transitions < 2)
     return true;
 
   // Exactly two arcs: an open square whose decided neighbours (cyclically)
   // agree sits inside one of them, and taking the other colour would start a
   // third. Both directions' nearest decided colour, then one pass.
+  const std::array<uint8_t, 4 * kMaxSide> &state = scan.state;
   std::array<uint8_t, 4 * kMaxSide> before{};
   std::array<uint8_t, 4 * kMaxSide> after{};
-  uint8_t running = state[slot(previous)];
+  uint8_t running = state[slot(scan.last)];
   for (int i = 0; i < n; i++) {
     before[slot(i)] = running;
     if (state[slot(i)] != kUnknown)
       running = state[slot(i)];
   }
-  running = state[slot(first)];
+  running = state[slot(scan.first)];
   for (int i = n - 1; i >= 0; i--) {
     after[slot(i)] = running;
     if (state[slot(i)] != kUnknown)
@@ -392,12 +409,18 @@ bool regionArea(const Model &model, Domains &domains, const uint8_t color,
   // A cell that MAY hold the colour with nothing beside it that could ever
   // join it is a region of one. Four shifts find every such cell at once, so
   // the common case never reaches a flood fill below. Sound for any area of
-  // two or more, which is every area rule there is.
-  const Bits possible = domains.possible(color);
-  if (const Bits touching = possible.shiftUp() | possible.shiftDown() |
-                            possible.shiftLeft() | possible.shiftRight();
-      !excludeAll(domains, possible.without(touching), color))
-    return false;
+  // two or more — and ONLY those: at area one the isolated singleton IS the
+  // legal shape, and this sweep would exclude the colour from exactly the
+  // cells the rule wants it on. Everything below the gate is area-1-sound:
+  // an oversized region fails `size > area`, a definite singleton's outline
+  // is excluded, and the undersized branches cannot fire at one.
+  if (area >= 2) {
+    const Bits possible = domains.possible(color);
+    if (const Bits touching = possible.shiftUp() | possible.shiftDown() |
+                              possible.shiftLeft() | possible.shiftRight();
+        !excludeAll(domains, possible.without(touching), color))
+      return false;
+  }
 
   Bits seen;
   const Bits definite = domains.definite(color);
@@ -438,11 +461,11 @@ bool regionArea(const Model &model, Domains &domains, const uint8_t color,
 }
 
 bool propagateRegionAreas(const Model &model, Domains &domains) {
-  // Walked as a family, so BOTH sizes on for one colour run both — which is
+  // Every instance runs, so BOTH sizes on for one colour run both — which is
   // right: the only colourings that survive are the ones with none of that
   // colour at all, and a single "the area is N" number could not say that.
-  for (const auto &[rule, color, area] : rules::kAreaFamily) {
-    if (model.hasRule(rule) && !regionArea(model, domains, color, area))
+  for (const auto &[color, area] : model.puzzle.areas) {
+    if (!regionArea(model, domains, color, area))
       return false;
   }
   return true;
@@ -1079,8 +1102,7 @@ bool mergeLimits(const Model &model, Domains &domains, const Regions &regions,
   // two clued pieces of this colour into one is a cell that cannot take it.
   const bool oneSymbol = model.hasRule(
       color == kDark ? Rule::OneSymbolDark : Rule::OneSymbolLight);
-  const int ruleArea =
-      rules::smallestGlobalArea(model.puzzle.ruleMask, color);
+  const int ruleArea = rules::smallestArea(model.puzzle.areas, color);
   // One candidate per CELL: every square of a merged one would give the same
   // answer, and excluding any of them excludes all of them anyway.
   const Bits candidates = domains.undecided() & model.representatives;
@@ -1119,13 +1141,10 @@ bool propagateMerges(const Model &model, Domains &domains) {
 
 // ----------------------------------------------------------------- driver --
 
-/// Whether any area rule at all is on. Asked as a family, so an area rule
-/// appended to the catalogue cannot go unpropagated because this line was not
-/// updated with it.
+/// Whether any area rule at all is on. Instance data since format version 2,
+/// so an instance can never go unpropagated behind a stale family list.
 bool hasAreaRule(const Model &model) {
-  return std::ranges::any_of(rules::kAreaFamily, [&model](const auto &row) {
-    return model.hasRule(row.rule);
-  });
+  return !model.puzzle.areas.empty();
 }
 
 bool propagateGlobal(const Model &model, Domains &domains) {

@@ -65,6 +65,12 @@ struct Case {
   std::string name;
   std::vector<std::string> picture;
   std::vector<Rule> rules;
+  /// Sized instances stated directly — the sizes the v1 enum never had. The
+  /// legacy `rules` lists keep saying names like `AreaTwoDark`; `puzzleFor`
+  /// translates those into instances too, so both spellings referee the same
+  /// machinery.
+  std::vector<rules::SizedRule> areas;
+  std::vector<rules::SizedRule> runs;
   std::vector<Merge> merges;
   std::vector<DartSpec> darts;
   std::vector<LotusSpec> lotuses;
@@ -96,6 +102,8 @@ struct Board {
 struct RuleSet {
   const char *name;
   std::vector<Rule> rules;
+  std::vector<rules::SizedRule> areas;
+  std::vector<rules::SizedRule> runs;
 };
 
 std::vector<Case> allCases() {
@@ -511,15 +519,41 @@ std::vector<Case> allCases() {
        .rules = {NoDarkElbow, ConnectDark, ConnectLight}},
       {.name = "teeAndConnectBoth",
        .rules = {NoDarkT, ConnectDark, ConnectLight}},
+      // Area ONE — the size the v1 catalogue never had, and the reason
+      // `regionArea` grew a gate: its isolated-singleton sweep would exclude
+      // the very shape this rule wants, and ONLY brute force can tell that
+      // over-pruning from correct propagation. Both colours at once forces a
+      // perfect checkerboard on an open board — two solutions, an empty
+      // forced set — and on the `givens` board it is unsolvable outright,
+      // its two given corners sharing a parity class. The connect pairing
+      // runs the singleton against `mergeLimits`' smallest-area bound.
+      {.name = "areaOneDark", .areas = {{.color = kDark, .value = 1}}},
+      {.name = "areaOneBoth",
+       .areas = {{.color = kDark, .value = 1},
+                 {.color = kLight, .value = 1}}},
+      {.name = "areaOneAndConnect",
+       .rules = {ConnectLight},
+       .areas = {{.color = kDark, .value = 1}}},
+      // A run instance of SIX — past the v1 ladder, spelled directly as a
+      // value. Only the wide7 board can even instantiate it; everywhere else
+      // it must be a proven no-op, which is exactly a referee's question.
+      {.name = "runSixDark", .runs = {{.color = kDark, .value = 6}}},
+      // An area-one/area-two mix on ONE colour: satisfied only where dark is
+      // absent, like every same-colour pair, but reached through the area-one
+      // gate rather than around it.
+      {.name = "areaOneAndTwoDark",
+       .areas = {{.color = kDark, .value = 1}, {.color = kDark, .value = 2}}},
   };
 
   std::vector<Case> cases;
   for (const auto &[boardName, picture, merges, darts, lotuses, viewpoints,
                     galaxies] : boards) {
-    for (const auto &[ruleSetName, ruleList] : ruleSets)
+    for (const auto &[ruleSetName, ruleList, areaList, runList] : ruleSets)
       cases.push_back({.name = std::string(boardName) + "_" + ruleSetName,
                        .picture = picture,
                        .rules = ruleList,
+                       .areas = areaList,
+                       .runs = runList,
                        .merges = merges,
                        .darts = darts,
                        .lotuses = lotuses,
@@ -530,7 +564,24 @@ std::vector<Case> allCases() {
 }
 
 Puzzle puzzleFor(const Case &one) {
-  Puzzle puzzle = test::board(one.picture, test::ruleSet(one.rules));
+  // The legacy rule lists still say names like `AreaTwoDark`; the sized ones
+  // become `areas`/`runs` instances through the same translation the CLI's
+  // `--rules` speaks, so every historical sweep keeps refereeing exactly the
+  // constraint it always did. Direct instances are layered on top through the
+  // canonical-insert helpers.
+  rules::RuleMask legacy = 0;
+  for (const Rule rule : one.rules)
+    legacy |= rules::bit(rule);
+  // Named apart from `one.areas`/`one.runs`, which are the DIRECT instances
+  // layered on next and mean something else.
+  auto [splitFlags, splitAreas, splitRuns] = rules::splitLegacyMask(legacy);
+  Puzzle puzzle = test::board(one.picture, splitFlags);
+  puzzle.areas = std::move(splitAreas);
+  puzzle.runs = std::move(splitRuns);
+  for (const auto &[color, value] : one.areas)
+    test::withAreaRule(puzzle, color, value);
+  for (const auto &[color, value] : one.runs)
+    test::withRunRule(puzzle, color, value);
   for (const Merge &merge : one.merges)
     test::withShape(puzzle, merge);
   for (const auto &[x, y, value, direction] : one.darts)
@@ -634,8 +685,8 @@ INSTANTIATE_TEST_SUITE_P(
  * that split a cell; get `cellMask` wrong and the two counts part company.
  */
 TEST(Reference, CellEnumerationMatchesSquareEnumeration) {
-  Puzzle puzzle = test::board({"..", "..", ".."},
-                              test::ruleSet({Rule::NoDark1x2}));
+  Puzzle puzzle = test::board({"..", "..", ".."});
+  test::withRunRule(puzzle, kDark, 2);
   test::withShape(puzzle, {{0, 0}, {1, 0}});
   const Model model = buildModel(puzzle);
 
@@ -649,7 +700,7 @@ TEST(Reference, CellEnumerationMatchesSquareEnumeration) {
   Colors colors{};
   colors.fill(kUnplayable);
   for (unsigned code = 0; code < 1U << 6U; code++) {
-    for (size_t bit = 0; bit < squares.size(); bit++)
+    for (std::size_t bit = 0; bit < squares.size(); bit++)
       colors[slot(squares[bit])] = (code >> bit & 1U) != 0 ? kLight : kDark;
     if (verify::check(model, colors) == verify::Violation::None)
       bySquare.push_back(colors);

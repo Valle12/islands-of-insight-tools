@@ -5,9 +5,16 @@ import {
   UNPLAYABLE,
 } from "../../src/pages/logic-grid-solver/cell";
 import { CONFIG_VERSION } from "../../src/pages/logic-grid-solver/config";
-import { RULES } from "../../src/pages/logic-grid-solver/rules";
+import {
+  RULES,
+  type SizedRuleColor,
+} from "../../src/pages/logic-grid-solver/rules";
 import { SYMBOL_KINDS } from "../../src/pages/logic-grid-solver/symbols";
-import type { LogicGridTest } from "../../src/util/types";
+import type {
+  LogicGridAreaRule,
+  LogicGridRunRule,
+  LogicGridTest,
+} from "../../src/util/types";
 
 /**
  * Hand-built boards, written as pictures.
@@ -28,6 +35,10 @@ const ruleIndex = (id: string) => {
   if (index < 0) throw new Error(`boards.ts asks for an unknown rule: ${id}`);
   return index;
 };
+
+/** Canonical order for a sized list: dark before light, then value rising —
+ * what `validateConfig` returns, so a board here matches a real download. */
+const colorRank = (color: SizedRuleColor) => (color === "dark" ? 0 : 1);
 
 /** Same discipline for the clue catalogue, which is append-only too. */
 const symbolIndex = (id: string) => {
@@ -73,16 +84,63 @@ export function board(rows: string[], ruleIds: string[] = []): LogicGridTest {
         symbols.push({ x, y, type: LETTER_SYMBOL, value: glyph.toUpperCase() });
     }
   }
+  // A caller still names every rule by its catalogue id; the sized ones leave
+  // for their family lists here, exactly as the migration rewrites a v1 file.
+  const flags: number[] = [];
+  const areas: LogicGridAreaRule[] = [];
+  const runs: LogicGridRunRule[] = [];
+  for (const id of ruleIds) {
+    const index = ruleIndex(id);
+    const sized = RULES[index]!.sized;
+    if (!sized) flags.push(index);
+    else if (sized.family === "areas") {
+      areas.push({ color: sized.color, size: sized.value });
+    } else runs.push({ color: sized.color, length: sized.value });
+  }
+  areas.sort((a, b) => colorRank(a.color) - colorRank(b.color) || a.size - b.size);
+  runs.sort(
+    (a, b) => colorRank(a.color) - colorRank(b.color) || a.length - b.length,
+  );
   return {
     // Current by construction: these boards stand in for files the editor
     // itself could have written, and every one of those carries the tag.
     version: CONFIG_VERSION,
     gridWidth,
     gridHeight,
-    rules: ruleIds.map(ruleIndex).sort((a, b) => a - b),
+    rules: flags.sort((a, b) => a - b),
+    ...(areas.length > 0 ? { areas } : {}),
+    ...(runs.length > 0 ? { runs } : {}),
     cells,
     symbols,
   };
+}
+
+/**
+ * Adds a regions-have-area rule directly — the road to sizes the catalogue
+ * never had a chip for, like 1 or 8. Keeps the list canonical, so the board
+ * still reads like a real download.
+ */
+export function withAreaRule(
+  config: LogicGridTest,
+  color: SizedRuleColor,
+  size: number,
+): LogicGridTest {
+  config.areas = [...(config.areas ?? []), { color, size }].sort(
+    (a, b) => colorRank(a.color) - colorRank(b.color) || a.size - b.size,
+  );
+  return config;
+}
+
+/** The `withAreaRule` of the no-1xN family. */
+export function withRunRule(
+  config: LogicGridTest,
+  color: SizedRuleColor,
+  length: number,
+): LogicGridTest {
+  config.runs = [...(config.runs ?? []), { color, length }].sort(
+    (a, b) => colorRank(a.color) - colorRank(b.color) || a.length - b.length,
+  );
+  return config;
 }
 
 /** Paints a cell the picture could not, because it already carries a clue. */
@@ -685,6 +743,31 @@ export const areaTwentyFourBoard = (): LogicGridTest =>
     ["D....", ".....", ".....", ".....", "....."],
     ["area-twenty-four-dark"],
   );
+
+/**
+ * An area of ONE — a size the catalogue never had a chip for, legal since the
+ * format stores the number itself. Every dark region is a singleton, so the
+ * given's neighbour is forced light while the far cell stays free either way;
+ * underclued, so the answer IS that forced set. This is the board that fails
+ * loudly if the engine's isolated-singleton sweep ever runs at size one,
+ * where the singleton is the only legal shape rather than a refutation.
+ */
+export const areaOneBoard = (): LogicGridTest => {
+  const config = board(["D.."], ["underclued"]);
+  return withAreaRule(config, "dark", 1);
+};
+
+/**
+ * A forbidden run of EIGHT, past every catalogued length: seven dark givens
+ * in a nine-wide row force the eighth cell light — the first time an
+ * eight-cell clause fires as a DIRECT run rule rather than an area's implied
+ * one — and the ninth stays free; underclued, so the answer says exactly
+ * that.
+ */
+export const runEightBoard = (): LogicGridTest => {
+  const config = board(["DDDDDDD.."], ["underclued"]);
+  return withRunRule(config, "dark", 8);
+};
 
 export const deepSearchBoard = (): LogicGridTest => {
   const config = board([

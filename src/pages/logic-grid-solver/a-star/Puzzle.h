@@ -37,6 +37,23 @@ struct Puzzle {
   Clues clues;
   rules::RuleMask ruleMask = 0;
   /**
+   * The sized rule instances — the config's `areas` and `runs` keys: every
+   * region of `color` has exactly `value` cells, and no straight run of
+   * `value` cells of `color`. Conjunctive: several instances per family and
+   * colour all hold at once, and both areas 2 AND 3 on one colour is not a
+   * contradiction — it is satisfied exactly when the colour is absent, every
+   * one of its zero regions being both sizes.
+   *
+   * Always in canonical order (dark before light, values ascending) with no
+   * duplicates. Intake REFUSES anything else rather than sorting, and the
+   * asymmetry with the page's validator — which accepts any order and
+   * canonicalises on output — is deliberate: this side reads only committed
+   * fixtures and already-validated payloads, so a disordered list means a
+   * hand-edited file, and repair would hide that.
+   */
+  std::vector<rules::SizedRule> areas;
+  std::vector<rules::SizedRule> runs;
+  /**
    * The merged cells: each one the squares it fuses, in the order they were
    * entered. Empty on a plain board, and the config's `shapes` key is then
    * omitted entirely.

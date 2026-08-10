@@ -8,9 +8,22 @@ import {
   migrateConfig,
   type ConfigMigration,
 } from "../../util/configVersion";
-import type { LogicGridSymbol, LogicGridTest } from "../../util/types";
+import type {
+  LogicGridAreaRule,
+  LogicGridRunRule,
+  LogicGridSymbol,
+  LogicGridTest,
+} from "../../util/types";
 import { CELL_LIMIT, UNPLAYABLE } from "./cell";
-import { RULE_COUNT } from "./rules";
+import {
+  MAX_AREA_SIZE,
+  MAX_RUN_LENGTH,
+  MIN_AREA_SIZE,
+  MIN_RUN_LENGTH,
+  RULE_COUNT,
+  RULES,
+  type SizedRuleColor,
+} from "./rules";
 import { OFF_BY_ONE } from "./verify";
 import {
   axisIndex,
@@ -32,8 +45,8 @@ export const MAX_GRID_SIDE = 32;
  * How long the solver may run before it gives up.
  *
  * A properly clued board is usually finished by deduction alone, in
- * milliseconds — 108 of the 111 captured boards total well under a second
- * between them. The budget exists for the two cases that are not like that: the
+ * milliseconds — nearly all of the 436 captured boards land well under a
+ * second. The budget exists for the two cases that are not like that: the
  * underclued mode, where every cell the deduction could not settle costs a search
  * of its own to prove, and the profile sweep on a wide connectivity board.
  *
@@ -47,16 +60,72 @@ export const MAX_GRID_SIDE = 32;
  */
 export const SOLVE_BUDGET_MS = 120_000;
 
+/** Canonical order for a sized list: dark before light, then value rising. */
+function canonicalSized<T extends { color: SizedRuleColor }>(
+  entries: readonly T[],
+  valueOf: (entry: T) => number,
+): T[] {
+  const colorRank = (color: SizedRuleColor) => (color === "dark" ? 0 : 1);
+  return [...entries].sort(
+    (a, b) =>
+      colorRank(a.color) - colorRank(b.color) || valueOf(a) - valueOf(b),
+  );
+}
+
+/**
+ * v1 -> v2: the 22 sized rule indices leave `rules` for the `areas`/`runs`
+ * lists, the number stored beside the colour instead of spelled by position.
+ *
+ * Only members the catalogue marks as sized move; a migration runs BEFORE any
+ * structural check, so anything else — garbage members, unknown indices, a
+ * `rules` that is not an array — stays exactly where it was for the validator
+ * to name. One message does shift: a hand-written v1 `[16, 16]` is now two
+ * identical areas entries, so the refusal names the dark area 2 rule rather
+ * than "Rule 16". A v1 file carrying its own `areas`/`runs` keys was legal —
+ * v1 dropped keys it did not know — so they are discarded here the same way
+ * rather than merged into real data.
+ */
+const sizedRulesIntoFamilies: ConfigMigration = data => {
+  const rest = Object.fromEntries(
+    Object.entries(data).filter(([key]) => key !== "areas" && key !== "runs"),
+  );
+  const { rules } = rest;
+  if (!Array.isArray(rules)) return rest;
+  const flags: unknown[] = [];
+  const areas: LogicGridAreaRule[] = [];
+  const runs: LogicGridRunRule[] = [];
+  for (const rule of rules) {
+    const sized = typeof rule === "number" ? RULES[rule]?.sized : undefined;
+    if (!sized) {
+      flags.push(rule);
+    } else if (sized.family === "areas") {
+      areas.push({ color: sized.color, size: sized.value });
+    } else {
+      runs.push({ color: sized.color, length: sized.value });
+    }
+  }
+  return {
+    ...rest,
+    rules: flags,
+    ...(areas.length > 0
+      ? { areas: canonicalSized(areas, one => one.size) }
+      : {}),
+    ...(runs.length > 0
+      ? { runs: canonicalSized(runs, one => one.length) }
+      : {}),
+  };
+};
+
 /**
  * How to read each older shape of this page's download format, newest step
  * last — see `configVersion.ts` for the whole contract.
  *
- * Empty because the format has never had a breaking change: `shapes`,
- * `direction` and `seat` all arrived as OPTIONAL keys, which every earlier file
- * satisfies by not having them. The first change that cannot be expressed that
- * way appends its step here, which is what takes `CONFIG_VERSION` to 2.
+ * The optional keys — `shapes`, `direction`, `seat` — never needed a step
+ * here, since every earlier file satisfies them by not having them. The sized
+ * rule families could not be expressed that way: version 1 spelled their
+ * numbers as catalogue positions, so reading it takes the rewrite above.
  */
-const MIGRATIONS: readonly ConfigMigration[] = [];
+const MIGRATIONS: readonly ConfigMigration[] = [sizedRulesIntoFamilies];
 
 /**
  * The format version this build writes, derived from the list above so the two
@@ -66,13 +135,10 @@ const MIGRATIONS: readonly ConfigMigration[] = [];
 export const CONFIG_VERSION = configVersion(MIGRATIONS);
 
 /**
- * What the page tells a player whose file was written in an older version.
- *
- * A function here rather than a string built at the call site, because the
- * branch that shows it CANNOT RUN while `MIGRATIONS` is empty — no file is
- * ever old — and a message nothing can reach is a message nothing checks. This
- * way its wording is pinned like every other string in this file, and the part
- * left untested is one `if`.
+ * What the page tells a player whose file was written in an older version:
+ * the board loaded fine, but the copy on disk is out of date and should be
+ * downloaded again. A function here rather than a string at the call site so
+ * its wording is pinned like every other string in this file.
  */
 export function migrationNotice(from: number): string {
   return (
@@ -106,11 +172,14 @@ function cellsError(
 }
 
 /**
- * Returns the first problem with the active rule list, or null.
+ * Returns the first problem with the active flag-rule list, or null.
  *
  * An index this build does not know is REJECTED rather than ignored: a config
  * written by a later build carries a rule this one cannot show, and silently
- * dropping it would load a different puzzle under the same name.
+ * dropping it would load a different puzzle under the same name. A sized
+ * index is rejected by name too — the migration rewrote every version 1 file,
+ * so one here was written by hand, and pointing at the list it belongs in
+ * beats a bare refusal.
  */
 function rulesError(rules: unknown): string | null {
   if (!Array.isArray(rules)) {
@@ -121,10 +190,113 @@ function rulesError(rules: unknown): string | null {
     if (!intInRange(rule, 0, RULE_COUNT - 1)) {
       return `Rules must be integers between 0 and ${RULE_COUNT - 1}.`;
     }
+    const sized = RULES[rule as number]?.sized;
+    if (sized) {
+      return `Rule ${rule} is stored in the ${sized.family} list in this format version.`;
+    }
     if (seen.has(rule)) return `Rule ${rule} is listed more than once.`;
     seen.add(rule);
   }
   return null;
+}
+
+/** What `sizedListError` needs to know to speak for one sized family. */
+interface SizedListSpec {
+  /** The config key, exactly as the error messages spell it. */
+  readonly key: "areas" | "runs";
+  /** What the list holds, for the not-an-array message. */
+  readonly noun: string;
+  /** The subject of the per-entry messages. */
+  readonly subject: string;
+  readonly valueKey: "size" | "length";
+  /** The value's plural, for the bounds message. */
+  readonly valueNoun: string;
+  readonly min: number;
+  readonly max: number;
+  readonly duplicate: (color: string, value: number) => string;
+}
+
+const AREAS_SPEC: SizedListSpec = {
+  key: "areas",
+  noun: "area rules",
+  subject: "Area rule",
+  valueKey: "size",
+  valueNoun: "sizes",
+  min: MIN_AREA_SIZE,
+  max: MAX_AREA_SIZE,
+  duplicate: (color, size) =>
+    `The ${color} area ${size} rule is listed more than once.`,
+};
+
+const RUNS_SPEC: SizedListSpec = {
+  key: "runs",
+  noun: "run rules",
+  subject: "Run rule",
+  valueKey: "length",
+  valueNoun: "lengths",
+  min: MIN_RUN_LENGTH,
+  max: MAX_RUN_LENGTH,
+  duplicate: (color, length) =>
+    `The ${color} 1x${length} rule is listed more than once.`,
+};
+
+/**
+ * Returns the first problem with one sized-rule list, or null. Both families
+ * are validated by this one walk so their messages cannot drift apart; the
+ * bounds are the format's — the run cap is the engine's `kMaxPatternCells`,
+ * see `rules.ts`. An ABSENT key is fine (it means no rules of that family)
+ * but is checked when present even if empty, like `shapes`.
+ */
+function sizedListError(value: unknown, spec: SizedListSpec): string | null {
+  if (value === undefined) return null;
+  if (!Array.isArray(value)) {
+    return `${spec.key} must be an array of ${spec.noun}.`;
+  }
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      return `Every ${spec.key} entry must be a JSON object.`;
+    }
+    const { color } = entry as Record<string, unknown>;
+    if (color !== "dark" && color !== "light") {
+      return `${spec.subject} colors must be "dark" or "light".`;
+    }
+    const carried = (entry as Record<string, unknown>)[spec.valueKey];
+    if (!intInRange(carried, spec.min, spec.max)) {
+      return `${spec.subject} ${spec.valueNoun} must be integers between ${spec.min} and ${spec.max}.`;
+    }
+    const stamp = `${color} ${carried}`;
+    if (seen.has(stamp)) return spec.duplicate(color, carried as number);
+    seen.add(stamp);
+  }
+  return null;
+}
+
+/**
+ * The validated sized lists, rebuilt for the outgoing config: canonically
+ * ordered, stripped to their own keys, and OMITTED rather than written empty —
+ * a board without a family has no key at all, the `shapes` discipline, so the
+ * corpus keeps round-tripping byte-identically.
+ */
+function rebuiltSized(raw: Record<string, unknown>): Partial<LogicGridTest> {
+  const areas = canonicalSized(
+    ((raw.areas as LogicGridAreaRule[] | undefined) ?? []).map(entry => ({
+      color: entry.color,
+      size: entry.size,
+    })),
+    one => one.size,
+  );
+  const runs = canonicalSized(
+    ((raw.runs as LogicGridRunRule[] | undefined) ?? []).map(entry => ({
+      color: entry.color,
+      length: entry.length,
+    })),
+    one => one.length,
+  );
+  const rebuilt: Partial<LogicGridTest> = {};
+  if (areas.length > 0) rebuilt.areas = areas;
+  if (runs.length > 0) rebuilt.runs = runs;
+  return rebuilt;
 }
 
 /** Returns the first problem with one clue, or null when it is valid. */
@@ -400,6 +572,10 @@ export function validateConfig(data: unknown): ConfigParseResult {
 
   const rulesProblem = rulesError(raw.rules);
   if (rulesProblem !== null) return { ok: false, error: rulesProblem };
+  const areasProblem = sizedListError(raw.areas, AREAS_SPEC);
+  if (areasProblem !== null) return { ok: false, error: areasProblem };
+  const runsProblem = sizedListError(raw.runs, RUNS_SPEC);
+  if (runsProblem !== null) return { ok: false, error: runsProblem };
   // Read AFTER `rulesError`, so the list is known to be well formed: a file
   // with rule 32 on may carry a displayed 0 — and one without it may not,
   // whatever build wrote it.
@@ -430,12 +606,14 @@ export function validateConfig(data: unknown): ConfigParseResult {
   }));
 
   // `version` FIRST, and always the current one — whatever the file said, what
-  // comes out of here is the shape this build stores.
+  // comes out of here is the shape this build stores. The sized lists sit
+  // between `rules` and `cells`, rule-layer data beside the flag list.
   const config: LogicGridTest = {
     version: CONFIG_VERSION,
     gridWidth,
     gridHeight,
     rules,
+    ...rebuiltSized(raw),
     cells,
     symbols,
   };

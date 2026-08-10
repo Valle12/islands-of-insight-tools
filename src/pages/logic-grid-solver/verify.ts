@@ -106,48 +106,14 @@ export const UNDERCLUED = ruleIndex("underclued");
 export const OFF_BY_ONE = ruleIndex("off-by-one");
 
 /**
- * Each run rule as the colour it forbids and the length it forbids it at. The
- * lengths are listed here rather than parsed out of the ids, and the pairs are
- * not contiguous in the catalogue — 1x5 was appended after 1x2..1x4, because
- * the catalogue's order is the saved file format.
+ * The sized families — no-1xN and regions-have-area-N — appear as no
+ * constants here at all: since format version 2 they are read straight off
+ * the config's own `runs` and `areas` lists in `runProblem` and
+ * `regionSizeProblem` below. That is still the independence this file is
+ * built on — the lists ARE the puzzle statement, not anything the search
+ * derived — and it is what lets a size the catalogue never named verify
+ * exactly like one it did.
  */
-const RUN_RULES: readonly { index: number; color: number; length: number }[] = [
-  { index: ruleIndex("no-dark-1x2"), color: DARK, length: 2 },
-  { index: ruleIndex("no-light-1x2"), color: LIGHT, length: 2 },
-  { index: ruleIndex("no-dark-1x3"), color: DARK, length: 3 },
-  { index: ruleIndex("no-light-1x3"), color: LIGHT, length: 3 },
-  { index: ruleIndex("no-dark-1x4"), color: DARK, length: 4 },
-  { index: ruleIndex("no-light-1x4"), color: LIGHT, length: 4 },
-  { index: ruleIndex("no-dark-1x5"), color: DARK, length: 5 },
-  { index: ruleIndex("no-light-1x5"), color: LIGHT, length: 5 },
-];
-
-/**
- * Each area rule as the colour it constrains and the area it holds EVERY region
- * of that colour to — the global form of an area number, which names one region
- * only.
- *
- * Listed rather than parsed out of the ids, for the same reason `RUN_RULES` is:
- * a family that computes its members quietly stops covering the next one
- * appended. An "area 3" rule would be another row here rather than a number
- * stored on the board.
- */
-const AREA_RULES: readonly { index: number; color: number; area: number }[] = [
-  { index: ruleIndex("area-two-dark"), color: DARK, area: 2 },
-  { index: ruleIndex("area-two-light"), color: LIGHT, area: 2 },
-  { index: ruleIndex("area-four-dark"), color: DARK, area: 4 },
-  { index: ruleIndex("area-four-light"), color: LIGHT, area: 4 },
-  { index: ruleIndex("area-five-dark"), color: DARK, area: 5 },
-  { index: ruleIndex("area-five-light"), color: LIGHT, area: 5 },
-  { index: ruleIndex("area-three-dark"), color: DARK, area: 3 },
-  { index: ruleIndex("area-three-light"), color: LIGHT, area: 3 },
-  { index: ruleIndex("area-six-dark"), color: DARK, area: 6 },
-  { index: ruleIndex("area-six-light"), color: LIGHT, area: 6 },
-  { index: ruleIndex("area-seven-dark"), color: DARK, area: 7 },
-  { index: ruleIndex("area-seven-light"), color: LIGHT, area: 7 },
-  { index: ruleIndex("area-twenty-four-dark"), color: DARK, area: 24 },
-  { index: ruleIndex("area-twenty-four-light"), color: LIGHT, area: 24 },
-];
 
 /**
  * A clue kind's position in its own append-only catalogue, by its stable id —
@@ -1016,9 +982,9 @@ function regionSizeProblem(
   config: LogicGridTest,
   cells: number[],
 ): LogicGridViolation {
-  for (const rule of AREA_RULES) {
-    if (!has(config, rule.index)) continue;
-    const problem = regionAreaProblem(config, cells, rule.color, rule.area);
+  for (const rule of config.areas ?? []) {
+    const color = rule.color === "dark" ? DARK : LIGHT;
+    const problem = regionAreaProblem(config, cells, color, rule.size);
     if (problem !== "none") return problem;
   }
   return "none";
@@ -1090,9 +1056,9 @@ function runProblem(
 ): LogicGridViolation {
   const darkRun = longestRun(config, cells, DARK);
   const lightRun = longestRun(config, cells, LIGHT);
-  for (const rule of RUN_RULES) {
-    const found = rule.color === DARK ? darkRun : lightRun;
-    if (has(config, rule.index) && found >= rule.length) return "run";
+  for (const rule of config.runs ?? []) {
+    const found = rule.color === "dark" ? darkRun : lightRun;
+    if (found >= rule.length) return "run";
   }
   return "none";
 }

@@ -19,7 +19,14 @@ import {
   migrationNotice,
   validateConfig,
 } from "./config";
-import { RULE_DISPLAY_ORDER, RULES } from "./rules";
+import {
+  RULE_ROW,
+  RULES,
+  type RuleRowEntry,
+  type RuleRowPair,
+  type SizedControlKey,
+  type SizedControlSpec,
+} from "./rules";
 import {
   solveLogicGrid,
   type LogicGridSolveResult,
@@ -55,8 +62,9 @@ function defaultValues(): string[] {
   });
 }
 
-/** Which way each directed kind starts out aimed — compass kinds point right,
- * axis kinds lie horizontal. */
+/** Which way each directed kind starts out aimed — its picker's FIRST entry
+ * (up, or the horizontal axis), the one the row will light when the kind is
+ * first armed with nothing picked yet. */
 function defaultDirections(): number[] {
   return SYMBOL_KINDS.map(kind =>
     kind.aims === "axis" ? DEFAULT_AXIS : DEFAULT_DIRECTION,
@@ -69,6 +77,62 @@ function defaultDirections(): number[] {
 function defaultAimOf(kind: LogicGridSymbolKind): number | undefined {
   if (kind.aims === "compass") return DEFAULT_DIRECTION;
   return kind.aims === "axis" ? DEFAULT_AXIS : undefined;
+}
+
+/** Every sized control starts with no value fields: a family is off until a
+ * number is typed into it. */
+function defaultSizedValues(): Record<SizedControlKey, string[]> {
+  return { "run-dark": [], "run-light": [], "area-dark": [], "area-light": [] };
+}
+
+/** The four sized controls, in row order — the row catalogue owns them. */
+const SIZED_CONTROLS: readonly SizedControlSpec[] = RULE_ROW.flatMap(band =>
+  band.entries.flatMap(entry =>
+    entry.kind === "sized" ? [entry.control] : [],
+  ),
+);
+
+function sizedControlOf(key: SizedControlKey): SizedControlSpec {
+  return SIZED_CONTROLS.find(control => control.key === key)!;
+}
+
+/**
+ * A rule's storage index by its id, resolved once. Throws like `verify.ts`'s
+ * resolver and for the same reason: a `RULE_ROW` id that names nothing would
+ * otherwise render a dead segment that silently toggles no rule at all.
+ */
+const RULE_INDEX_BY_ID = new Map(RULES.map((rule, index) => [rule.id, index]));
+function ruleIndexOf(id: string): number {
+  const index = RULE_INDEX_BY_ID.get(id);
+  if (index === undefined) {
+    throw new Error(`the rule row names an unknown rule: ${id}`);
+  }
+  return index;
+}
+
+/** One slot's number, or null while its text is unusable — empty, not a plain
+ * whole number, or outside the control's bounds. */
+function parsedSizedValue(spec: SizedControlSpec, raw: string): number | null {
+  const text = raw.trim();
+  if (!/^\d+$/.test(text)) return null;
+  const value = Number(text);
+  return value >= spec.min && value <= spec.max ? value : null;
+}
+
+/** The slot texts a loaded config fills the sized controls with. */
+function sizedValuesFrom(
+  config: LogicGridTest,
+): Record<SizedControlKey, string[]> {
+  const slots = defaultSizedValues();
+  for (const rule of config.areas ?? []) {
+    const key = rule.color === "dark" ? "area-dark" : "area-light";
+    slots[key].push(String(rule.size));
+  }
+  for (const rule of config.runs ?? []) {
+    const key = rule.color === "dark" ? "run-dark" : "run-light";
+    slots[key].push(String(rule.length));
+  }
+  return slots;
 }
 
 export class LogicGridSolverEditor {
@@ -139,6 +203,12 @@ export class LogicGridSolverEditor {
   private selectedTool: LogicGridTool = "dark";
   private selectedSymbol = 0;
   private readonly activeRules = new Set<number>();
+  /**
+   * What the sized rule controls' value fields hold, raw and per slot — kept
+   * like `symbolValues` below so a refresh never eats a half-typed number. A
+   * family is active exactly while it holds at least one usable value.
+   */
+  private sizedValues = defaultSizedValues();
   /**
    * What the value field holds, per clue kind — kept per kind so switching
    * chips does not throw away the number you were part way through typing.
@@ -275,10 +345,38 @@ export class LogicGridSolverEditor {
     });
 
     this.ruleRow.addEventListener("click", event => {
+      // The add button first: it is not a `.tool-button`, so `chipFrom` would
+      // ignore it — asked here anyway so the two kinds of click read together.
+      const add = this.addButtonFrom(event.target);
+      if (add) {
+        this.addSizedSlot(add.dataset.sizedControl as SizedControlKey);
+        return;
+      }
       const chip = this.chipFrom(event.target);
       if (!chip) return;
       const index = Number(chip.dataset.ruleIndex);
       if (Number.isInteger(index)) this.toggleRule(index);
+    });
+
+    // The sized value fields live INSIDE the row, like the clue row's — so
+    // this cannot rebuild it either. See `refreshSizedControls`.
+    this.ruleRow.addEventListener("input", event => {
+      const field = event.target;
+      if (!(field instanceof HTMLInputElement)) return;
+      const key = field.dataset.sizedControl as SizedControlKey | undefined;
+      const slot = Number(field.dataset.slot);
+      if (key && Number.isInteger(slot)) {
+        this.handleSizeRuleInput(key, slot, field.value);
+      }
+    });
+
+    // An EMPTIED field disappears when it is left, never mid-typing: clearing
+    // a value while focused keeps the field for the next digits.
+    this.ruleRow.addEventListener("focusout", event => {
+      const field = event.target;
+      if (!(field instanceof HTMLInputElement)) return;
+      const key = field.dataset.sizedControl as SizedControlKey | undefined;
+      if (key && field.value.trim() === "") this.dropSizedSlot(field, key);
     });
 
     wireResetDialog(() => {
@@ -309,6 +407,13 @@ export class LogicGridSolverEditor {
   private chipFrom(target: EventTarget | null): HTMLElement | null {
     if (!(target instanceof HTMLElement)) return null;
     return target.closest(".tool-button");
+  }
+
+  /** Deliberately NOT a `.tool-button`: `chipFrom` means "a rule or clue
+   * chip", and the add button toggles nothing. */
+  private addButtonFrom(target: EventTarget | null): HTMLElement | null {
+    if (!(target instanceof HTMLElement)) return null;
+    return target.closest(".rule-size-add");
   }
 
   private arrowFrom(target: EventTarget | null): HTMLElement | null {
@@ -405,6 +510,7 @@ export class LogicGridSolverEditor {
     // be the worse default — a new board is entered from a fresh screen in the
     // game, and carrying over a rule silently solves a puzzle nobody set.
     this.activeRules.clear();
+    this.sizedValues = defaultSizedValues();
     this.replaceBoard();
     this.hideSolution();
     this.render();
@@ -418,6 +524,7 @@ export class LogicGridSolverEditor {
     this.selectedTool = "dark";
     this.selectedSymbol = 0;
     this.activeRules.clear();
+    this.sizedValues = defaultSizedValues();
     this.symbolValues = defaultValues();
     this.symbolDirections = defaultDirections();
     this.replaceBoard();
@@ -604,7 +711,7 @@ export class LogicGridSolverEditor {
     // `dressClue` is what draws one. A chip that spelled its own arrow out
     // would be a second drawing of the same thing, free to drift from it.
     //
-    // Always shown in its DEFAULT aim — right, or the horizontal axis —
+    // Always shown in its DEFAULT aim — up, or the horizontal axis —
     // whatever is currently armed: the chip says which KIND of clue this is,
     // and the toggles beside it are what say where the next one will point.
     SYMBOL_KINDS.forEach(kind => {
@@ -636,68 +743,241 @@ export class LogicGridSolverEditor {
       tool.classList.toggle("selected", selected);
 
       const field = tool.querySelector<HTMLInputElement>(".symbol-value");
-      if (field) {
-        // The numeric bounds move when the off-by-one chip is toggled, and
-        // the row is not rebuilt for that — so the attributes written at
-        // build time are refreshed here, idempotently, beside the validity.
-        if (kind.valueKind === "number") {
-          const min = String(symbolValueMin(kind, this.gridSize()));
-          const max = String(symbolValueMax(kind, this.gridSize()));
-          if (field.min !== min) field.min = min;
-          if (field.max !== max) field.max = max;
-          const chars = String(max.length);
-          if (field.style.getPropertyValue("--value-chars") !== chars)
-            field.style.setProperty("--value-chars", chars);
-        }
+      if (field) this.refreshSymbolField(kind, index, field);
 
-        const raw = this.symbolValues[index] ?? "";
-        // Never write what is already there: assigning `value` moves the caret
-        // to the end, and this runs while the user is typing into the field.
-        if (field.value !== raw) field.value = raw;
+      // An aim shows only while ITS kind is the armed tool — a lit arrow
+      // beside an idle chip reads as "this tool is active" when it is not.
+      // The choice itself survives in `symbolDirections`, so re-arming the
+      // kind lights whatever was picked last (or the first entry, untouched).
+      this.refreshAimToggles(tool, selected ? this.directionOf(index) : null);
+    });
+  }
 
-        if (this.valueOf(index) === null) {
-          field.setAttribute("aria-invalid", "true");
-        } else {
-          field.removeAttribute("aria-invalid");
-        }
-      }
+  /** One kind's value field, refreshed in place: bounds, text and validity. */
+  private refreshSymbolField(
+    kind: LogicGridSymbolKind,
+    index: number,
+    field: HTMLInputElement,
+  ) {
+    // The numeric bounds move when the off-by-one chip is toggled, and the
+    // row is not rebuilt for that — so the attributes written at build time
+    // are refreshed here, idempotently, beside the validity.
+    if (kind.valueKind === "number") {
+      const min = String(symbolValueMin(kind, this.gridSize()));
+      const max = String(symbolValueMax(kind, this.gridSize()));
+      if (field.min !== min) field.min = min;
+      if (field.max !== max) field.max = max;
+      const chars = String(max.length);
+      if (field.style.getPropertyValue("--value-chars") !== chars)
+        field.style.setProperty("--value-chars", chars);
+    }
 
-      const aimed = this.directionOf(index);
-      tool.querySelectorAll<HTMLElement>(".direction-toggle").forEach(arrow => {
-        const target =
-          arrow.dataset.axis === undefined
-            ? directionIndex(arrow.dataset.direction)
-            : axisIndex(arrow.dataset.axis);
-        const on = target === aimed;
-        arrow.classList.toggle("selected", on);
-        arrow.setAttribute("aria-pressed", String(on));
-      });
+    const raw = this.symbolValues[index] ?? "";
+    // Never write what is already there: assigning `value` moves the caret
+    // to the end, and this runs while the user is typing into the field.
+    if (field.value !== raw) field.value = raw;
+
+    if (this.valueOf(index) === null) {
+      field.setAttribute("aria-invalid", "true");
+    } else {
+      field.removeAttribute("aria-invalid");
+    }
+  }
+
+  /** One control's aim toggles: exactly the `aimed` entry lit, or none at
+   * all for `null` — the idle state every unarmed kind shows. */
+  private refreshAimToggles(tool: HTMLElement, aimed: number | null) {
+    tool.querySelectorAll<HTMLElement>(".direction-toggle").forEach(arrow => {
+      const target =
+        arrow.dataset.axis === undefined
+          ? directionIndex(arrow.dataset.direction)
+          : axisIndex(arrow.dataset.axis);
+      const on = target === aimed;
+      arrow.classList.toggle("selected", on);
+      arrow.setAttribute("aria-pressed", String(on));
     });
   }
 
   /**
-   * Same reasoning as the clue row: `RULES` is append-only.
-   *
-   * Which is why the row is drawn in `RULE_DISPLAY_ORDER` and not in catalogue
-   * order — a rule appended to keep saved puzzles working still belongs beside
-   * its family on screen. The index written into the chip is the STORED one, so
-   * everything downstream keeps reading that attribute rather than counting
-   * chips.
+   * The rule row, drawn from `RULE_ROW`: bands of folded controls — a pair's
+   * two segments toggling independently, a single as its own chip, and one
+   * value control per sized family and colour. The index written into a
+   * segment is the STORED one, so everything downstream keeps reading that
+   * attribute rather than counting chips. Called only from `render()`; the
+   * slot values are written afterwards by `fillSizedSlots`, so user-typed
+   * text never lands inside an HTML string.
    */
   private buildRuleRow() {
-    this.ruleRow.innerHTML = RULE_DISPLAY_ORDER.map(index => {
-      const rule = RULES[index]!;
-      return `
+    this.ruleRow.innerHTML = RULE_ROW.map(
+      band => `
+      <section class="rule-band" data-band="${band.band}">
+        <h3 class="rule-band-heading">${band.heading}</h3>
+        <div class="rule-band-chips tool-row">${band.entries
+          .map(entry => this.ruleControl(entry))
+          .join("")}</div>
+      </section>
+    `,
+    ).join("");
+    this.fillSizedSlots();
+  }
+
+  private ruleControl(entry: RuleRowEntry): string {
+    if (entry.kind === "single") return this.singleRuleChip(entry.id);
+    if (entry.kind === "pair") return this.rulePair(entry);
+    return this.sizedControlShell(entry.control);
+  }
+
+  /** A rule with no partner keeps the plain full-label chip. */
+  private singleRuleChip(id: string): string {
+    const index = ruleIndexOf(id);
+    return `
       <button class="tool-button rule-chip" type="button"
-        data-rule-index="${index}" data-rule="${rule.id}"
-      >${rule.label}</button>
+        data-rule-index="${index}" data-rule="${id}"
+      >${RULES[index]!.label}</button>
     `;
-    }).join("");
+  }
+
+  /** One segment of a folded pair: the same button a chip always was — same
+   * classes, same data attributes, `aria-pressed` — wearing the colour as a
+   * SWATCH, the paint tools' own visual, and the full rule name as its
+   * accessible one. */
+  private pairSegment(id: string, color: "dark" | "light"): string {
+    const index = ruleIndexOf(id);
+    const label = RULES[index]!.label;
+    return `
+      <button class="tool-button rule-chip" type="button"
+        data-rule-index="${index}" data-rule="${id}"
+        title="${label}" aria-label="${label}"
+      ><span class="swatch" data-swatch="${color}"></span></button>
+    `;
+  }
+
+  /** A dark/light pair as one control: a shared label and two INDEPENDENT
+   * segments, so both colours can be on at once — exactly the two chips it
+   * replaces. The dark segment comes first, whatever the ids spell. */
+  private rulePair(pair: RuleRowPair): string {
+    return `
+      <div class="rule-pair" role="group" aria-label="${pair.label}">
+        <span class="rule-pair-label">${pair.label}</span>
+        <span class="symbol-divider" aria-hidden="true"></span>
+        ${this.pairSegment(pair.dark, "dark")}
+        ${this.pairSegment(pair.light, "light")}
+      </div>
+    `;
+  }
+
+  /** A sized control's shell: label and add button. The value fields between
+   * them are appended by `fillSizedSlots`/`addSizedSlot`, which have the one
+   * spelling of what a slot field is. */
+  private sizedControlShell(spec: SizedControlSpec): string {
+    return `
+      <div class="rule-sized" role="group" aria-label="${spec.label}"
+        data-sized-control="${spec.key}">
+        <span class="rule-sized-label">${spec.label}</span>
+        <span class="symbol-divider" aria-hidden="true"></span>
+        <button class="rule-size-add" type="button"
+          data-sized-control="${spec.key}"
+          title="Add a value" aria-label="${spec.label}: add a value"
+        >+</button>
+      </div>
+    `;
+  }
+
+  /** The one place a slot field is spelled — markup building and the add
+   * button go through it alike, so the two cannot drift. */
+  private createSizedField(
+    spec: SizedControlSpec,
+    slot: number,
+  ): HTMLInputElement {
+    const field = document.createElement("input");
+    field.className = "rule-size";
+    field.type = "number";
+    field.min = String(spec.min);
+    field.max = String(spec.max);
+    field.dataset.sizedControl = spec.key;
+    field.dataset.slot = String(slot);
+    LogicGridSolverEditor.fitSizedField(field);
+    field.setAttribute("aria-label", `${spec.label} value ${slot + 1}`);
+    return field;
   }
 
   /**
-   * Toggles the rule chips in place. Rebuilding the row would replace the chip
-   * that was just clicked, which drops the focus a keyboard user was holding.
+   * Sizes a slot to what it HOLDS, not to the widest number its control
+   * could take: an area field is four digits at most but one or two nearly
+   * always, and a field padded for 9999 leaves a gap around a lone 4. The
+   * floor keeps an empty field clickable; growth happens as digits arrive,
+   * since `refreshSizedControls` runs on every keystroke.
+   */
+  private static fitSizedField(field: HTMLInputElement) {
+    const chars = String(Math.max(1, field.value.length));
+    if (field.style.getPropertyValue("--value-chars") !== chars)
+      field.style.setProperty("--value-chars", chars);
+  }
+
+  private fillSizedSlots() {
+    for (const spec of SIZED_CONTROLS) {
+      const add = this.ruleRow.querySelector<HTMLButtonElement>(
+        `.rule-size-add[data-sized-control="${spec.key}"]`,
+      );
+      if (!add) continue;
+      this.sizedValues[spec.key].forEach((raw, slot) => {
+        const field = this.createSizedField(spec, slot);
+        field.value = raw;
+        LogicGridSolverEditor.fitSizedField(field);
+        add.before(field);
+      });
+    }
+  }
+
+  /** The + button: one more empty field, focused, in place — a rebuild would
+   * drop the very focus this exists to hand over. The empty slot changes no
+   * config until something is typed, so nothing else moves yet. */
+  private addSizedSlot(key: SizedControlKey) {
+    const add = this.ruleRow.querySelector<HTMLButtonElement>(
+      `.rule-size-add[data-sized-control="${key}"]`,
+    );
+    if (!add) return;
+    const field = this.createSizedField(
+      sizedControlOf(key),
+      this.sizedValues[key].length,
+    );
+    this.sizedValues[key].push("");
+    add.before(field);
+    field.focus();
+  }
+
+  private handleSizeRuleInput(key: SizedControlKey, slot: number, raw: string) {
+    const slots = this.sizedValues[key];
+    if (slot < 0 || slot >= slots.length) return;
+    slots[slot] = raw;
+    this.hideSolution();
+    this.refreshRuleRow();
+  }
+
+  /** Removes a slot the player emptied and left. Dropping an EMPTY slot never
+   * changes the config — it was contributing nothing — so no solution is
+   * invalidated here; the emptying keystroke already did that. */
+  private dropSizedSlot(field: HTMLInputElement, key: SizedControlKey) {
+    const slot = Number(field.dataset.slot);
+    const slots = this.sizedValues[key];
+    if (!Number.isInteger(slot) || slot < 0 || slot >= slots.length) return;
+    slots.splice(slot, 1);
+    field.remove();
+    const spec = sizedControlOf(key);
+    this.ruleRow
+      .querySelectorAll<HTMLInputElement>(
+        `.rule-size[data-sized-control="${key}"]`,
+      )
+      .forEach((survivor, index) => {
+        survivor.dataset.slot = String(index);
+        survivor.setAttribute("aria-label", `${spec.label} value ${index + 1}`);
+      });
+  }
+
+  /**
+   * Toggles the rule controls in place. Rebuilding the row would replace the
+   * chip that was just clicked — dropping the focus a keyboard user was
+   * holding — and eat the caret of whichever value field is being typed into.
    */
   private refreshRuleRow() {
     RULES.forEach((rule, index) => {
@@ -709,6 +989,88 @@ export class LogicGridSolverEditor {
       chip.classList.toggle("selected", active);
       chip.setAttribute("aria-pressed", String(active));
     });
+    this.refreshSizedControls();
+  }
+
+  /** A sized control is lit while it holds at least one usable value — active
+   * exactly when it will reach the download — and each slot says on itself
+   * whether its text is usable. Empty is merely pending, not marked. */
+  private refreshSizedControls() {
+    for (const spec of SIZED_CONTROLS) {
+      const control = this.ruleRow.querySelector<HTMLElement>(
+        `.rule-sized[data-sized-control="${spec.key}"]`,
+      );
+      if (!control) continue;
+      control.classList.toggle(
+        "selected",
+        this.sizedRuleValues(spec.key).length > 0,
+      );
+      const seen = new Set<number>();
+      this.sizedValues[spec.key].forEach((raw, slot) => {
+        const field = this.sizedField(spec.key, slot);
+        if (!field) return;
+        // Never write what is already there: assigning `value` moves the
+        // caret to the end, and this runs while the user is typing.
+        if (field.value !== raw) field.value = raw;
+        LogicGridSolverEditor.fitSizedField(field);
+        const value = parsedSizedValue(spec, raw);
+        const duplicate = value !== null && seen.has(value);
+        if (value !== null) seen.add(value);
+        if (raw.trim() !== "" && (value === null || duplicate)) {
+          field.setAttribute("aria-invalid", "true");
+        } else {
+          field.removeAttribute("aria-invalid");
+        }
+      });
+    }
+  }
+
+  private sizedField(key: SizedControlKey, slot: number) {
+    return this.ruleRow.querySelector<HTMLInputElement>(
+      `.rule-size[data-sized-control="${key}"][data-slot="${slot}"]`,
+    );
+  }
+
+  /** The values one control contributes to the config: parsed, in bounds,
+   * de-duplicated, ascending. */
+  private sizedRuleValues(key: SizedControlKey): number[] {
+    const spec = sizedControlOf(key);
+    const values = new Set<number>();
+    for (const raw of this.sizedValues[key]) {
+      const value = parsedSizedValue(spec, raw);
+      if (value !== null) values.add(value);
+    }
+    return [...values].sort((a, b) => a - b);
+  }
+
+  /** The sized lists as the download stores them: dark before light, values
+   * ascending — `validateConfig`'s canonical order — and omitted when empty,
+   * the `shapes` discipline. */
+  private sizedConfigLists(): Partial<LogicGridTest> {
+    const areas = [
+      ...this.sizedRuleValues("area-dark").map(size => ({
+        color: "dark" as const,
+        size,
+      })),
+      ...this.sizedRuleValues("area-light").map(size => ({
+        color: "light" as const,
+        size,
+      })),
+    ];
+    const runs = [
+      ...this.sizedRuleValues("run-dark").map(length => ({
+        color: "dark" as const,
+        length,
+      })),
+      ...this.sizedRuleValues("run-light").map(length => ({
+        color: "light" as const,
+        length,
+      })),
+    ];
+    const lists: Partial<LogicGridTest> = {};
+    if (areas.length > 0) lists.areas = areas;
+    if (runs.length > 0) lists.runs = runs;
+    return lists;
   }
 
   private currentConfig(): LogicGridTest {
@@ -721,6 +1083,7 @@ export class LogicGridSolverEditor {
       gridWidth: this.gridWidth,
       gridHeight: this.gridHeight,
       rules: [...this.activeRules].sort((a, b) => a - b),
+      ...this.sizedConfigLists(),
       cells: this.board.getCells(),
       symbols: this.board.getSymbols(),
       // Omitted rather than written empty: every captured fixture predates the
@@ -876,6 +1239,7 @@ export class LogicGridSolverEditor {
     this.heightField.value = String(this.gridHeight);
     this.activeRules.clear();
     for (const rule of config.rules) this.activeRules.add(rule);
+    this.sizedValues = sizedValuesFrom(config);
     this.replaceBoard();
     this.board.loadConfig(config);
     this.render();

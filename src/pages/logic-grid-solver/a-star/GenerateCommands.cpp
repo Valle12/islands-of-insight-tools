@@ -106,9 +106,7 @@ int piecesBeyondOne(const Model &model, const Colors &colors,
  */
 int regionsOffSize(const Model &model, const Colors &colors) {
   int bad = 0;
-  for (const auto &[rule, color, area] : rules::kAreaFamily) {
-    if (!model.hasRule(rule))
-      continue;
+  for (const auto &[color, area] : model.puzzle.areas) {
     const Bits held = heldBy(model, colors, color);
     Bits seen;
     for (int i = held.nextSet(0); i >= 0; i = held.nextSet(i + 1)) {
@@ -146,9 +144,7 @@ int regionsOffSize(const Model &model, const Colors &colors) {
  */
 std::vector<Bits> offSizeRegions(const Model &model, const Colors &colors) {
   std::vector<Bits> regions;
-  for (const auto &[rule, color, area] : rules::kAreaFamily) {
-    if (!model.hasRule(rule))
-      continue;
+  for (const auto &[color, area] : model.puzzle.areas) {
     const Bits held = heldBy(model, colors, color);
     Bits seen;
     for (int i = held.nextSet(0); i >= 0; i = held.nextSet(i + 1)) {
@@ -297,6 +293,17 @@ bool paintLegal(const Model &model, SeededRng &rng, Colors &colors) {
   return false;
 }
 
+/// Tears a v1-style mask into the puzzle's modern fields: flags stay in the
+/// mask, sized bits become canonical `areas`/`runs` instances. Runs strictly
+/// AFTER every rng decision and draws nothing — which is what keeps every
+/// seed's board byte-identical across the format change.
+void applyLegacyMask(Puzzle &puzzle, const rules::RuleMask mask) {
+  auto [flags, areas, runs] = rules::splitLegacyMask(mask);
+  puzzle.ruleMask = flags;
+  puzzle.areas = std::move(areas);
+  puzzle.runs = std::move(runs);
+}
+
 Puzzle emptyBoard(SeededRng &rng, const Options &options) {
   Puzzle puzzle;
   // Clamped rather than refused, the match-three generator's rule: `Bits`
@@ -315,8 +322,12 @@ Puzzle emptyBoard(SeededRng &rng, const Options &options) {
       puzzle.givens[slot(cellIndex(x, y))] = gap ? kUnplayable : kUnknown;
     }
   }
+  // Both paths below still SPEAK v1: `--rules` takes the 53-bit mask it always
+  // did, and the rule table keeps one draw per entry — sized entries included,
+  // so no seed's rng stream moves. The translation into instances happens once
+  // the mask is complete.
   if (options.rules >= 0) {
-    puzzle.ruleMask = static_cast<rules::RuleMask>(options.rules);
+    applyLegacyMask(puzzle, static_cast<rules::RuleMask>(options.rules));
     return puzzle;
   }
   // One in SIX per entry, recalibrated when the elbow-era batch grew the list
@@ -325,10 +336,12 @@ Puzzle emptyBoard(SeededRng &rng, const Options &options) {
   // One in six keeps the expected count where the campaigns were measured —
   // about eight — and shifts every seed's mask, which the append had already
   // done.
+  rules::RuleMask mask = 0;
   for (const Rule rule : kColorRules) {
     if (rng.uniform(0, 5) == 0)
-      puzzle.ruleMask |= rules::bit(rule);
+      mask |= rules::bit(rule);
   }
+  applyLegacyMask(puzzle, mask);
   return puzzle;
 }
 

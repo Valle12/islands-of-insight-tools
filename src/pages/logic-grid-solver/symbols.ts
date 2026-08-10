@@ -223,8 +223,10 @@ export const DIRECTIONS: readonly LogicGridDirection[] = [
 
 export const DIRECTION_COUNT = DIRECTIONS.length;
 
-/** Right, because these boards read left to right like everything else. */
-export const DEFAULT_DIRECTION = 1;
+/** Up — the FIRST toggle in the row, which is what an armed dart offers
+ * before any aim has been picked: the row shows no aim at all until the kind
+ * is armed, so the default has to be the entry the eye lands on first. */
+export const DEFAULT_DIRECTION = 0;
 
 export function directionAt(index: number): LogicGridDirection | undefined {
   return DIRECTIONS[index];

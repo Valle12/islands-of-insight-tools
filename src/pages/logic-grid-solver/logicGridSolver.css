@@ -732,6 +732,204 @@ h2 {
   }
 }
 
+/* The rule row is a COLUMN of bands — arrangement, region, symbol, answer —
+   each its own wrapping `.tool-row`, the `#paint-tools` argument over again:
+   one long line reflows unrelated controls into each other. */
+#rule-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rule-band {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rule-band-heading {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* A folded control — a pair's label with its two segments, or a sized
+   family's label with its value fields — is the `.symbol-tool` split-pill
+   recipe over again, and shares its divider element. */
+.rule-pair,
+.rule-sized {
+  --tool-radius: 12px;
+
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--tool-radius);
+  background: var(--md-sys-color-surface-container-highest);
+  overflow: hidden;
+}
+
+.rule-pair > *,
+.rule-sized > * {
+  --tool-inner-radius: calc(var(--tool-radius) - 1px);
+}
+
+/* Vertical padding here is what gives BOTH pills their height: a pair's
+   segments carry swatches and a sized control's children are bare fields, so
+   without it the sized pill collapses to its line box and sits visibly
+   shorter than every chip beside it. */
+.rule-pair-label,
+.rule-sized-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--md-sys-color-on-surface);
+}
+
+/* A segment gives up its own pill — the unit around it is the pill now — and
+   lights up ALONE when its rule is on: the two segments are independent
+   switches, deliberately unlike the `.direction-toggle` radio look. Its
+   content is a colour SWATCH, the paint tools' own visual, smaller than
+   theirs so the segment stays chip-height. */
+.rule-pair .rule-chip {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  border-radius: 0;
+  padding: 8px 10px;
+  background: transparent;
+}
+
+.rule-pair .swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+}
+
+/* The tinted fill alone is too quiet behind a colour chip, so a selected
+   segment also RINGS its swatch in primary — unmistakable on the dark and
+   the light swatch alike, and it fits inside the segment's own padding. */
+.rule-pair .rule-chip.selected .swatch {
+  border-color: var(--md-sys-color-primary);
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 1px;
+}
+
+.rule-pair .rule-chip:last-child {
+  border-radius: 0 var(--tool-inner-radius) var(--tool-inner-radius) 0;
+}
+
+.rule-pair .rule-chip.selected {
+  border-color: transparent;
+}
+
+.rule-pair .rule-chip:focus-visible,
+.rule-size-add:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+}
+
+/* A sized control holding at least one usable value is an active rule, and
+   reads like any other selected control. */
+.rule-sized.selected {
+  border-color: var(--md-sys-color-primary);
+  background: var(--md-sys-color-primary-container);
+}
+
+.rule-sized.selected .rule-sized-label,
+.rule-sized.selected .rule-size {
+  color: var(--md-sys-color-on-primary-container);
+}
+
+/* The between-value bars fade with the divider on a selected control. */
+.rule-sized.selected .rule-size {
+  border-right-color: color-mix(
+    in srgb,
+    var(--md-sys-color-on-primary-container) 30%,
+    transparent
+  );
+}
+
+.rule-sized.selected .symbol-divider {
+  background: color-mix(
+    in srgb,
+    var(--md-sys-color-on-primary-container) 30%,
+    transparent
+  );
+}
+
+/* One value field per active size — the `.symbol-value` recipe, spinners and
+   all, sized to the digits it currently HOLDS (`fitSizedField` keeps
+   `--value-chars` tracking the text, so a lone 4 is not padded out to
+   9999's width). The right-hand hairline is the bar between consecutive
+   values and before the add button, so the control reads
+   "No dark 1x | 5 | 8 | +"; it matches the `.symbol-divider` after the
+   label, and the fields stretch to the pill's full height so the bars run
+   edge to edge. */
+.rule-size {
+  width: max(28px, calc(12px + var(--value-chars, 4) * 9px));
+  padding: 0 2px;
+  border: none;
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  border-right: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.rule-size:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+}
+
+.rule-size[aria-invalid="true"],
+.rule-sized.selected .rule-size[aria-invalid="true"] {
+  color: var(--md-sys-color-error);
+}
+
+.rule-sized:has(.rule-size[aria-invalid="true"]) {
+  border-color: var(--md-sys-color-error);
+}
+
+.rule-size[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.rule-size::-webkit-outer-spin-button,
+.rule-size::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+/* The add button is the pill's right-hand end — and deliberately NOT a
+   `.tool-button`, which the row's click handler reads as "a rule chip". */
+.rule-size-add {
+  width: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 0 var(--tool-inner-radius) var(--tool-inner-radius) 0;
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 16px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.rule-sized.selected .rule-size-add {
+  color: color-mix(
+    in srgb,
+    var(--md-sys-color-on-primary-container) 65%,
+    transparent
+  );
+}
+
 .tool-button {
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: 999px;

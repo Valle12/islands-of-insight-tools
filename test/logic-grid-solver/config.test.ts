@@ -13,12 +13,13 @@ import type { LogicGridTest } from "../../src/util/types";
 const RESOURCE_DIR = `${import.meta.dir}/../resources/logic-grid-solver`;
 
 describe("validateConfig (logic grid)", () => {
-  /** 3x2, one clue of each kind, one gap. */
+  /** 3x2, one clue of each kind, one gap, one rule of each shape. */
   const validConfig: LogicGridTest = {
     version: CONFIG_VERSION,
     gridWidth: 3,
     gridHeight: 2,
-    rules: [0, 2],
+    rules: [0],
+    runs: [{ color: "dark", length: 2 }],
     cells: [
       [1, 0],
       [2, 0],
@@ -106,6 +107,7 @@ describe("validateConfig (logic grid)", () => {
       "gridHeight",
       "gridWidth",
       "rules",
+      "runs",
       "symbols",
       "version",
     ]);
@@ -122,18 +124,28 @@ describe("validateConfig (logic grid)", () => {
 
   /**
    * Every board captured before the tag existed has no `version` key, and a
-   * player's downloads folder is full of them. Absent means the first version,
-   * which is the current one — so such a file is not "old", and nothing is
-   * reported as migrated.
+   * player's downloads folder is full of them. Absent means the FIRST version
+   * — so such a file is old now, and comes back migrated and stamped with the
+   * current tag.
    */
-  test("accepts a file with no version and calls it current", () => {
-    const { version, ...withoutVersion } = clone();
-    expect(version).toBe(CONFIG_VERSION);
-    const result = validateConfig(withoutVersion);
+  test("reads a file with no version as version 1 and migrates it", () => {
+    const result = validateConfig({
+      gridWidth: 3,
+      gridHeight: 2,
+      rules: [0, 2],
+      cells: [
+        [1, 0],
+        [2, 0],
+        [0, 3],
+      ],
+      symbols: [],
+    });
     expect(result.ok).toBeTrue();
     if (!result.ok) return;
     expect(result.config.version).toBe(CONFIG_VERSION);
-    expect(result.migratedFrom).toBeUndefined();
+    expect(result.migratedFrom).toBe(1);
+    expect(result.config.rules).toEqual([0]);
+    expect(result.config.runs).toEqual([{ color: "dark", length: 2 }]);
   });
 
   test("reports nothing migrated for a file already current", () => {
@@ -167,10 +179,8 @@ describe("validateConfig (logic grid)", () => {
   });
 
   /**
-   * The banner an out-of-date file gets. Pinned here rather than through the
-   * editor because no file can BE out of date until `MIGRATIONS` has an entry
-   * — so the page's one `if` is all this cannot reach, and whoever writes the
-   * first migration should cover it there.
+   * The banner an out-of-date file gets — the editor's own test shows it on a
+   * real upload; this pins the wording.
    */
   test("names both versions in the notice an out-of-date file gets", () => {
     expect(migrationNotice(1)).toBe(
@@ -182,10 +192,92 @@ describe("validateConfig (logic grid)", () => {
 
   /** A canonical file, whatever order the rules were written in. */
   test("returns the rules sorted", () => {
-    const result = validateConfig({ ...clone(), rules: [5, 1, 3] });
+    const result = validateConfig({ ...clone(), rules: [12, 1, 10] });
     expect(result.ok).toBeTrue();
     if (!result.ok) return;
-    expect(result.config.rules).toEqual([1, 3, 5]);
+    expect(result.config.rules).toEqual([1, 10, 12]);
+  });
+
+  /** The sized lists come back canonical too: dark first, then value rising —
+   * whatever order they were written in. */
+  test("returns the sized lists in canonical order", () => {
+    const result = validateConfig({
+      ...clone(),
+      areas: [
+        { color: "light", size: 3 },
+        { color: "dark", size: 24 },
+        { color: "dark", size: 2 },
+      ],
+      runs: [
+        { color: "light", length: 4 },
+        { color: "dark", length: 5 },
+        { color: "dark", length: 2 },
+      ],
+    });
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.config.areas).toEqual([
+      { color: "dark", size: 2 },
+      { color: "dark", size: 24 },
+      { color: "light", size: 3 },
+    ]);
+    expect(result.config.runs).toEqual([
+      { color: "dark", length: 2 },
+      { color: "dark", length: 5 },
+      { color: "light", length: 4 },
+    ]);
+  });
+
+  /** Two sizes on one colour is not a contradiction to the FORMAT: it is
+   * satisfied exactly when the colour is absent, and the solver is what says
+   * so — the same honesty rule impossible clue combinations follow. */
+  test("accepts several sizes on one colour", () => {
+    const result = validateConfig({
+      ...clone(),
+      areas: [
+        { color: "dark", size: 2 },
+        { color: "dark", size: 3 },
+      ],
+    });
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.config.areas).toEqual([
+      { color: "dark", size: 2 },
+      { color: "dark", size: 3 },
+    ]);
+  });
+
+  /** An area bigger than the board still loads: it is enforceable — the
+   * colour simply cannot appear — so refusing it here would make the
+   * validator claim what only Solve can honestly say. */
+  test("accepts an area larger than the board", () => {
+    const result = validateConfig({
+      ...clone(),
+      areas: [{ color: "light", size: 9999 }],
+    });
+    expect(result.ok).toBeTrue();
+  });
+
+  /** The entry shape is exactly `{color, size}` / `{color, length}`: anything
+   * else a hand-edited file carries is dropped, like unknown top-level keys. */
+  test("strips unknown keys from sized entries", () => {
+    const result = validateConfig({
+      ...clone(),
+      areas: [{ color: "dark", size: 2, notes: "hello" }],
+    });
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.config.areas).toEqual([{ color: "dark", size: 2 }]);
+  });
+
+  /** Absent, not `[]` — the `shapes` discipline, and the corpus round-trip
+   * below is what holds it. */
+  test("omits an empty sized list", () => {
+    const result = validateConfig({ ...clone(), areas: [], runs: [] });
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect("areas" in result.config).toBeFalse();
+    expect("runs" in result.config).toBeFalse();
   });
 
   const rejections: [string, unknown, string][] = [
@@ -227,6 +319,81 @@ describe("validateConfig (logic grid)", () => {
       "the same rule twice",
       { ...validConfig, rules: [1, 1] },
       "Rule 1 is listed more than once.",
+    ],
+    [
+      // Reachable only from a hand-edited file: the migration rewrote every
+      // version 1 download, so the refusal points at the list it belongs in.
+      "a sized rule index left in the flag list",
+      { ...validConfig, rules: [16] },
+      "Rule 16 is stored in the areas list in this format version.",
+    ],
+    [
+      "a run rule spelled as its version 1 index",
+      { ...validConfig, rules: [2] },
+      "Rule 2 is stored in the runs list in this format version.",
+    ],
+    ["areas that are not a list", { ...validConfig, areas: 3 },
+      "areas must be an array of area rules."],
+    [
+      "an area entry that is not an object",
+      { ...validConfig, areas: ["dark"] },
+      "Every areas entry must be a JSON object.",
+    ],
+    [
+      "an area colour outside the two",
+      { ...validConfig, areas: [{ color: "red", size: 2 }] },
+      'Area rule colors must be "dark" or "light".',
+    ],
+    [
+      "an area of zero",
+      { ...validConfig, areas: [{ color: "dark", size: 0 }] },
+      "Area rule sizes must be integers between 1 and 9999.",
+    ],
+    [
+      "a fractional area",
+      { ...validConfig, areas: [{ color: "dark", size: 2.5 }] },
+      "Area rule sizes must be integers between 1 and 9999.",
+    ],
+    [
+      "an area past the format cap",
+      { ...validConfig, areas: [{ color: "dark", size: 10000 }] },
+      "Area rule sizes must be integers between 1 and 9999.",
+    ],
+    [
+      "the same area rule twice",
+      {
+        ...validConfig,
+        areas: [
+          { color: "dark", size: 2 },
+          { color: "dark", size: 2 },
+        ],
+      },
+      "The dark area 2 rule is listed more than once.",
+    ],
+    ["runs that are not a list", { ...validConfig, runs: 3 },
+      "runs must be an array of run rules."],
+    [
+      "a run of one",
+      { ...validConfig, runs: [{ color: "dark", length: 1 }] },
+      "Run rule lengths must be integers between 2 and 8.",
+    ],
+    [
+      // Nine is the first length the engine cannot compile into a pattern,
+      // and a rule it cannot enforce is refused rather than carried inertly.
+      "a run past the engine's pattern cap",
+      { ...validConfig, runs: [{ color: "light", length: 9 }] },
+      "Run rule lengths must be integers between 2 and 8.",
+    ],
+    [
+      "the same run rule twice",
+      {
+        ...validConfig,
+        runs: [
+          { color: "light", length: 3 },
+          { color: "light", length: 3 },
+        ],
+      },
+      "The light 1x3 rule is listed more than once.",
     ],
     ["symbols that are not a list", { ...validConfig, symbols: {} },
       "symbols must be an array."],
@@ -556,6 +723,103 @@ describe("validateConfig (logic grid)", () => {
     expect(empty.ok).toBeTrue();
     if (!empty.ok) return;
     expect("shapes" in empty.config).toBeFalse();
+  });
+});
+
+describe("The v1 migration", () => {
+  /** A version 1 file, as `currentConfig` wrote one back then. */
+  const v1 = (rules: unknown) => ({
+    version: 1,
+    gridWidth: 3,
+    gridHeight: 2,
+    rules,
+    cells: [
+      [1, 0],
+      [2, 0],
+      [0, 3],
+    ],
+    symbols: [],
+  });
+
+  test("moves every sized index into its family, canonically", () => {
+    // 16 dark area 2, 47 dark area 24, 31 light area 3; 4 dark 1x3,
+    // 3 light 1x2 — written shuffled, read back dark-first and rising.
+    const result = validateConfig(v1([0, 16, 4, 31, 47, 11, 3]));
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.migratedFrom).toBe(1);
+    expect(result.config.version).toBe(CONFIG_VERSION);
+    expect(result.config.rules).toEqual([0, 11]);
+    expect(result.config.areas).toEqual([
+      { color: "dark", size: 2 },
+      { color: "dark", size: 24 },
+      { color: "light", size: 3 },
+    ]);
+    expect(result.config.runs).toEqual([
+      { color: "dark", length: 3 },
+      { color: "light", length: 2 },
+    ]);
+  });
+
+  test("converts all 22 sized indices to the full family lists", () => {
+    const sizedIndices = RULES.flatMap((rule, index) =>
+      rule.sized ? [index] : [],
+    );
+    expect(sizedIndices).toHaveLength(22);
+    const result = validateConfig(v1(sizedIndices));
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.config.rules).toEqual([]);
+    const sizes = [2, 3, 4, 5, 6, 7, 24];
+    expect(result.config.areas).toEqual([
+      ...sizes.map(size => ({ color: "dark" as const, size })),
+      ...sizes.map(size => ({ color: "light" as const, size })),
+    ]);
+    const lengths = [2, 3, 4, 5];
+    expect(result.config.runs).toEqual([
+      ...lengths.map(length => ({ color: "dark" as const, length })),
+      ...lengths.map(length => ({ color: "light" as const, length })),
+    ]);
+  });
+
+  /** A migration runs before any structural check and must not guess: the
+   * broken parts stay put, and the validator names them as it always did. */
+  test("leaves a garbage rules value for the validator to name", () => {
+    expect(validateConfig(v1("nope"))).toEqual({
+      ok: false,
+      error: "rules must be an array of rule indices.",
+    });
+  });
+
+  test("leaves an unknown index beside the moved ones", () => {
+    expect(validateConfig(v1([16, 99]))).toEqual({
+      ok: false,
+      error: `Rules must be integers between 0 and ${RULE_COUNT - 1}.`,
+    });
+  });
+
+  /** Impossible from any writer, so the refusal only has to be honest — it
+   * now names the family entry the index became, not the index. */
+  test("a doubled sized index becomes a doubled family entry", () => {
+    expect(validateConfig(v1([16, 16]))).toEqual({
+      ok: false,
+      error: "The dark area 2 rule is listed more than once.",
+    });
+  });
+
+  /** v1 dropped keys it did not know, so a v1 file carrying `areas` was legal
+   * and its value meant nothing — the migration discards it the same way
+   * rather than merging junk into real data. */
+  test("discards a version 1 file's own sized keys", () => {
+    const result = validateConfig({
+      ...v1([0]),
+      areas: "junk",
+      runs: [{ color: "dark", length: 9 }],
+    });
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect("areas" in result.config).toBeFalse();
+    expect("runs" in result.config).toBeFalse();
   });
 });
 

@@ -52,7 +52,9 @@ struct CliOptions {
   /// And for a galaxy, placed only where its region really turns onto itself.
   /// 0 draws nothing, so every old seed reproduces.
   int galaxies = 0;
-  /// 64-bit because a plain `int` cannot name bit 31, the 32nd rule's.
+  /// 64-bit because a plain `int` cannot name bit 31, the 32nd rule's. Speaks
+  /// v1: a sized bit (a no-1xN or regions-have-area-N index) is translated
+  /// into its `areas`/`runs` instance once the mask is complete.
   int64_t rules = -1;
   bool quiet = false;
   bool brute = false;
