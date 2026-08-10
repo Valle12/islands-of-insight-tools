@@ -40,44 +40,58 @@ Pattern runPattern(const int length, const uint8_t color, const int stepX,
   return pattern;
 }
 
-/// The shortest run of `color` this rule set forbids, or 0 when runs of that
+/// The smallest value among `color`'s instances, or 0 when it has none — the
+/// one reducer both sized families share. Sound because instances are
+/// conjunctive: the smallest area caps growth hardest, and the shortest
+/// forbidden run subsumes every longer one.
+int smallestValue(const std::vector<SizedRule> &instances,
+                  const uint8_t color) {
+  int smallest = 0;
+  for (const auto &[ruleColor, value] : instances) {
+    if (ruleColor != color)
+      continue;
+    if (smallest == 0 || value < smallest)
+      smallest = value;
+  }
+  return smallest;
+}
+
+/// The shortest run of `color` these instances forbid, or 0 when runs of that
 /// colour are unconstrained. A board that forbids dark pairs already forbids
 /// every longer dark run, so only the shortest one is worth laying out.
-int shortestRun(const RuleMask mask, const uint8_t color) {
-  // Every run rule is spelled out. This means "the family of run rules", and a
-  // family that computes its members instead of listing them silently stops
-  // covering the next one appended to the catalogue.
-  using enum Rule;
-  if (has(mask, color == kDark ? NoDark1x2 : NoLight1x2))
-    return 2;
-  if (has(mask, color == kDark ? NoDark1x3 : NoLight1x3))
-    return 3;
-  if (has(mask, color == kDark ? NoDark1x4 : NoLight1x4))
-    return 4;
-  if (has(mask, color == kDark ? NoDark1x5 : NoLight1x5))
-    return 5;
-  return 0;
+int shortestRun(const std::vector<SizedRule> &runs, const uint8_t color) {
+  return smallestValue(runs, color);
 }
+
+/// The rule inputs the sized-aware builders read together. The flag mask
+/// alone no longer describes a puzzle's rules, and threading three arguments
+/// through every gate is how one of them gets dropped.
+struct Active {
+  RuleMask mask = 0;
+  const std::vector<SizedRule> &areas;
+  const std::vector<SizedRule> &runs;
+};
 
 /**
  * The shortest run of `color` that is forbidden once IMPLICATIONS are folded in.
  *
- * An area rule forbids a run one longer than its number, since a line of N+1
- * cells is one region of N+1. So the straight shapes an area rule rules out come
+ * An area instance forbids a run one longer than its number, since a line of
+ * N+1 cells is one region of N+1. So the straight shapes an area rules out come
  * out of `addRuns` rather than being laid out a second time beside the bent
  * ones — and a duplicate clause would not merely be dead weight, it would make
  * `GenerateCommands::cost()` score one broken straight as two.
  *
- * Kept OUT of `shortestRun` deliberately: that ladder means "the family of run
- * rules", and it has two mirrors — `kRunRules` in Verify.cpp and `RUN_RULES` in
- * verify.ts — which have to keep meaning the same thing. This is a derived fact,
- * like the checkerboard lemma below, and derived facts live on this side.
+ * Kept OUT of `shortestRun` deliberately: that reducer means "the run family
+ * itself", whose two mirrors — `runProblem` in Verify.cpp and in verify.ts —
+ * walk the same instance lists and have to keep meaning the same thing. This
+ * is a derived fact, like the checkerboard lemma below, and derived facts live
+ * on this side.
  */
-int impliedRun(const RuleMask mask, const uint8_t color) {
-  const int direct = shortestRun(mask, color);
-  // The SMALLEST active area, because the rules are conjunctive: with both
+int impliedRun(const Active &active, const uint8_t color) {
+  const int direct = shortestRun(active.runs, color);
+  // The SMALLEST active area, because the instances are conjunctive: with both
   // sizes on, the shorter forbidden run wins and subsumes the longer one.
-  const int area = smallestGlobalArea(mask, color);
+  const int area = smallestArea(active.areas, color);
   if (area == 0)
     return direct;
   return direct == 0 ? area + 1 : std::min(direct, area + 1);
@@ -128,20 +142,23 @@ bool hasDiagonalBan(const RuleMask mask, const uint8_t color) {
          collinearColour(mask, color);
 }
 
-void addRuns(const RuleMask mask, const uint8_t color, Patterns &into) {
-  const int length = impliedRun(mask, color);
+void addRuns(const Active &active, const uint8_t color, Patterns &into) {
+  const int length = impliedRun(active, color);
   if (length == 0)
     return;
-  // An implied run the table cannot hold — area twenty-four's 25 against
-  // `kMaxPatternCells` — is skipped rather than laid out: `runPattern` writes
-  // `cells[i]` with no bound of its own, and dropping a clause only
-  // under-prunes, since `regionArea` enforces every area size whole.
+  // An implied run the table cannot hold — any area of eight or more, whose
+  // implied run outgrows `kMaxPatternCells` — is skipped rather than laid
+  // out: `runPattern` writes `cells[i]` with no bound of its own, and
+  // dropping a clause only under-prunes, since `regionArea` enforces every
+  // area size whole. A DIRECT run instance can never take this branch — the
+  // intake cap is `kMaxRunLength = kMaxPatternCells` precisely because this
+  // table is the only thing enforcing a run.
   if (length > kMaxPatternCells)
     return;
   // A run of three or more contains its end cells two apart, so the distance
   // rule's two-cell clause fires on every instance first. A domino does not —
   // adjacent is distance one — so length two stays.
-  if (length >= 3 && hasDistanceRule(mask, color))
+  if (length >= 3 && hasDistanceRule(active.mask, color))
     return;
   into.emplace_back(runPattern(length, color, 1, 0));
   into.emplace_back(runPattern(length, color, 0, 1));
@@ -181,21 +198,24 @@ std::array<Pattern, 4> bentPatterns(const uint8_t color) {
  * `Propagate.cpp` enforces both halves at any size for the cost of a component
  * walk, so four is left entirely to it while two keeps the cheap table it was
  * measured with. What neither size gets from this table is the other half of
- * the rule, that no region is SMALLER than the number.
+ * the rule, that no region is SMALLER than the number. The SMALLEST instance
+ * is the right one to ask about: any smaller cap forbids trominoes just as
+ * hard, and an area of ONE forbids pairs outright — its implied run of two,
+ * which subsumes the trominoes below.
  */
-void addAreaShapes(const RuleMask mask, const uint8_t color, Patterns &into) {
-  if (smallestGlobalArea(mask, color) != 2)
+void addAreaShapes(const Active &active, const uint8_t color, Patterns &into) {
+  if (smallestArea(active.areas, color) != 2)
     return;
   // The straight pair came from `addRuns`. The bent four go the same way when
   // pairs of this colour are forbidden outright, since every one contains a
   // pair — and then nothing of this colour can be coloured at all.
-  if (impliedRun(mask, color) == 2)
+  if (impliedRun(active, color) == 2)
     return;
   // A bent tromino contains a corner touch, so the corner-touch ban's
   // two-cell clause fires before any tromino instance could — while the
   // straight three stays with `addRuns`, which a diagonal pair says nothing
   // about.
-  if (hasDiagonalBan(mask, color))
+  if (hasDiagonalBan(active.mask, color))
     return;
   for (const Pattern &pattern : bentPatterns(color))
     into.emplace_back(pattern);
@@ -274,11 +294,12 @@ std::array<Pattern, 4> teePatterns(const uint8_t color) {
  * area of two in (it implies a run of three), so one comparison covers both
  * subsumers. Nothing subsumes the triples: they name both colours.
  */
-void addTees(const RuleMask mask, const uint8_t color, Patterns &into) {
+void addTees(const Active &active, const uint8_t color, Patterns &into) {
   using enum Rule;
+  const RuleMask mask = active.mask;
   if (!has(mask, color == kDark ? NoDarkT : NoLightT))
     return;
-  if (const int run = impliedRun(mask, color); run != 0 && run <= 3)
+  if (const int run = impliedRun(active, color); run != 0 && run <= 3)
     return;
   // A T's stem touches both of the bar's end cells corner to corner, so the
   // corner-touch ban's two-cell clause fires before any T instance could.
@@ -326,13 +347,14 @@ std::array<Pattern, 4> threeOnePatterns(const uint8_t color) {
  * which only this rule forbids. As with the T, an instance that cannot fire
  * first would double-score one broken shape in `GenerateCommands::cost()`.
  */
-void addThreeOnes(const RuleMask mask, const uint8_t color, Patterns &into) {
+void addThreeOnes(const Active &active, const uint8_t color, Patterns &into) {
   using enum Rule;
+  const RuleMask mask = active.mask;
   if (!has(mask, color == kDark ? NoThreeDarkOneLight : NoThreeLightOneDark))
     return;
-  if (impliedRun(mask, color) == 2)
+  if (impliedRun(active, color) == 2)
     return;
-  if (smallestGlobalArea(mask, color) == 2)
+  if (smallestArea(active.areas, color) == 2)
     return;
   if (hasDiagonalBan(mask, color))
     return;
@@ -384,17 +406,18 @@ void addDiagonals(const RuleMask mask, const uint8_t color, Patterns &into) {
  * area of three leaves a bent region of three perfectly legal, which is what
  * the elbow rule alone forbids.
  */
-void addElbows(const RuleMask mask, const uint8_t color, Patterns &into) {
+void addElbows(const Active &active, const uint8_t color, Patterns &into) {
+  const RuleMask mask = active.mask;
   if (!hasElbowRule(mask, color))
     return;
-  if (impliedRun(mask, color) == 2)
+  if (impliedRun(active, color) == 2)
     return;
   // Direct diagonal rule OR the collinear family this very rule helps switch
   // on: under connect(colour) the off-axis pairs subsume every bent tromino,
   // so the elbow's own shapes would only double-score a broken pair.
   if (hasDiagonalBan(mask, color))
     return;
-  if (smallestGlobalArea(mask, color) == 2)
+  if (smallestArea(active.areas, color) == 2)
     return;
   for (const Pattern &pattern : bentPatterns(color))
     into.emplace_back(pattern);
@@ -430,15 +453,17 @@ std::array<Pattern, 8> ellPatterns(const uint8_t color) {
  * four does not — an L-shaped region of exactly four is legal under it, and
  * only this rule forbids the shape.
  */
-void addElls(const RuleMask mask, const uint8_t color, Patterns &into) {
+void addElls(const Active &active, const uint8_t color, Patterns &into) {
   using enum Rule;
+  const RuleMask mask = active.mask;
   if (!has(mask, color == kDark ? NoDarkEll : NoLightEll))
     return;
-  if (const int run = impliedRun(mask, color); run != 0 && run <= 3)
+  if (const int run = impliedRun(active, color); run != 0 && run <= 3)
     return;
   if (hasElbowRule(mask, color))
     return;
-  if (const int area = smallestGlobalArea(mask, color); area != 0 && area <= 3)
+  if (const int area = smallestArea(active.areas, color);
+      area != 0 && area <= 3)
     return;
   if (hasDiagonalBan(mask, color))
     return;
@@ -504,19 +529,21 @@ std::array<Pattern, 4> longTeePatterns(const uint8_t color) {
  * reaches four here: a long T is a connected FIVE, which a smallest area of
  * four or less refuses at every complete assignment through `regionArea`.
  */
-void addLongTees(const RuleMask mask, const uint8_t color, Patterns &into) {
+void addLongTees(const Active &active, const uint8_t color, Patterns &into) {
   using enum Rule;
+  const RuleMask mask = active.mask;
   if (!has(mask, color == kDark ? NoDarkLongT : NoLightLongT))
     return;
   if (has(mask, color == kDark ? NoDarkT : NoLightT))
     return;
-  if (const int run = impliedRun(mask, color); run != 0 && run <= 3)
+  if (const int run = impliedRun(active, color); run != 0 && run <= 3)
     return;
   if (hasElbowRule(mask, color))
     return;
   if (has(mask, color == kDark ? NoDarkEll : NoLightEll))
     return;
-  if (const int area = smallestGlobalArea(mask, color); area != 0 && area <= 4)
+  if (const int area = smallestArea(active.areas, color);
+      area != 0 && area <= 4)
     return;
   if (hasDiagonalBan(mask, color))
     return;
@@ -742,19 +769,34 @@ const char *name(const Rule rule) {
   return kNames[slot(std::to_underlying(rule))];
 }
 
-int smallestGlobalArea(const RuleMask mask, const uint8_t color) {
-  int smallest = 0;
-  for (const auto &[rule, ruleColor, area] : kAreaFamily) {
-    if (ruleColor != color || !has(mask, rule))
-      continue;
-    if (smallest == 0 || area < smallest)
-      smallest = area;
-  }
-  return smallest;
+int smallestArea(const std::vector<SizedRule> &areas, const uint8_t color) {
+  return smallestValue(areas, color);
 }
 
-Patterns patternsFor(const RuleMask mask) {
+SplitRules splitLegacyMask(const RuleMask mask) {
+  SplitRules split;
+  split.flags = mask & ~kSizedRuleBits;
+  for (const auto &[rule, sized] : kLegacyAreas) {
+    if (has(mask, rule))
+      split.areas.push_back(sized);
+  }
+  for (const auto &[rule, sized] : kLegacyRuns) {
+    if (has(mask, rule))
+      split.runs.push_back(sized);
+  }
+  // The tables run dark,light per size in ENUM order, so a straight collection
+  // is deduplicated (each bit appears once) but not sorted. Sorting draws no
+  // randomness, which is what lets the generator canonicalise after its rng
+  // decisions without moving a single seed.
+  std::ranges::sort(split.areas, sizedLess);
+  std::ranges::sort(split.runs, sizedLess);
+  return split;
+}
+
+Patterns patternsFor(const RuleMask mask, const std::vector<SizedRule> &areas,
+                     const std::vector<SizedRule> &runs) {
   using enum Rule;
+  const Active active{.mask = mask, .areas = areas, .runs = runs};
   Patterns patterns;
   // A monochrome 2x2 contains a corner touch of its own colour and any three
   // of its squares are a bent tromino, so under that colour's corner-touch
@@ -766,29 +808,29 @@ Patterns patternsFor(const RuleMask mask) {
       !hasElbowRule(mask, kLight))
     patterns.emplace_back(squarePattern(kLight));
 
-  addRuns(mask, kDark, patterns);
-  addRuns(mask, kLight, patterns);
+  addRuns(active, kDark, patterns);
+  addRuns(active, kLight, patterns);
 
-  addAreaShapes(mask, kDark, patterns);
-  addAreaShapes(mask, kLight, patterns);
+  addAreaShapes(active, kDark, patterns);
+  addAreaShapes(active, kLight, patterns);
 
   addTriples(mask, kDark, patterns);
   addTriples(mask, kLight, patterns);
 
-  addTees(mask, kDark, patterns);
-  addTees(mask, kLight, patterns);
+  addTees(active, kDark, patterns);
+  addTees(active, kLight, patterns);
 
-  addThreeOnes(mask, kDark, patterns);
-  addThreeOnes(mask, kLight, patterns);
+  addThreeOnes(active, kDark, patterns);
+  addThreeOnes(active, kLight, patterns);
 
   addDiagonals(mask, kDark, patterns);
   addDiagonals(mask, kLight, patterns);
 
-  addElbows(mask, kDark, patterns);
-  addElbows(mask, kLight, patterns);
+  addElbows(active, kDark, patterns);
+  addElbows(active, kLight, patterns);
 
-  addElls(mask, kDark, patterns);
-  addElls(mask, kLight, patterns);
+  addElls(active, kDark, patterns);
+  addElls(active, kLight, patterns);
 
   addDistancePairs(mask, kDark, patterns);
   addDistancePairs(mask, kLight, patterns);
@@ -798,8 +840,8 @@ Patterns patternsFor(const RuleMask mask) {
   addMixedTees(mask, kDark, patterns);
   addMixedTees(mask, kLight, patterns);
 
-  addLongTees(mask, kDark, patterns);
-  addLongTees(mask, kLight, patterns);
+  addLongTees(active, kDark, patterns);
+  addLongTees(active, kLight, patterns);
 
   addKnights(mask, kDark, patterns);
   addKnights(mask, kLight, patterns);

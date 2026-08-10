@@ -261,6 +261,89 @@ test.describe("Logic Grid Solver tools", () => {
     );
   });
 
+  /** The rule row is a column of headed bands, not one long list. */
+  test("groups the rules into headed bands", async ({ page }) => {
+    await expect(page.locator("#rule-row .rule-band")).toHaveCount(4);
+    await expect(page.locator("#rule-row .rule-band-heading")).toHaveText([
+      "Arrangement",
+      "Region",
+      "Symbol",
+      "Answer",
+    ]);
+  });
+
+  /** A folded pair is layout, not linkage: its Dark and Light segments are two
+   * independent switches, and both can be on at once. */
+  test("a pair's segments toggle independently", async ({ page }) => {
+    await ruleChip(page, "no-dark-2x2").click();
+    await expect(ruleChip(page, "no-light-2x2")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    await ruleChip(page, "no-light-2x2").click();
+    await expect(ruleChip(page, "no-dark-2x2")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(ruleChip(page, "no-light-2x2")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  /**
+   * The sized families: a value field per instance, appended by the control's
+   * own "+" — the flow that replaced the per-size chips, driven through a real
+   * browser so focus hand-off and the number field's behaviour are the real
+   * things.
+   */
+  test("a sized rule takes its number in the row", async ({ page }) => {
+    const control = page.locator(
+      '#rule-row .rule-sized[data-sized-control="area-dark"]',
+    );
+    await expect(control.locator(".rule-size")).toHaveCount(0);
+
+    await control.locator(".rule-size-add").click();
+    const field = page.getByRole("spinbutton", {
+      name: "Dark regions have area value 1",
+    });
+    // The new slot takes focus, so the number can be typed straight away.
+    await expect(field).toBeFocused();
+    await field.fill("3");
+    await expect(control).toHaveClass(/selected/);
+
+    // A second instance of the same family and colour is one more "+".
+    await control.locator(".rule-size-add").click();
+    await page
+      .getByRole("spinbutton", { name: "Dark regions have area value 2" })
+      .fill("5");
+    await expect(control.locator(".rule-size")).toHaveCount(2);
+
+    // An emptied slot disappears when it is left.
+    await field.fill("");
+    await field.blur();
+    await expect(control.locator(".rule-size")).toHaveCount(1);
+    await expect(control.locator(".rule-size")).toHaveValue("5");
+    await expect(control).toHaveClass(/selected/);
+  });
+
+  /** An out-of-range value marks its own field and arms nothing. */
+  test("a sized value outside its bounds reads as invalid", async ({
+    page,
+  }) => {
+    const control = page.locator(
+      '#rule-row .rule-sized[data-sized-control="run-dark"]',
+    );
+    await control.locator(".rule-size-add").click();
+    const field = page.getByRole("spinbutton", { name: "No dark 1x value 1" });
+    await field.fill("9");
+    await expect(field).toHaveAttribute("aria-invalid", "true");
+    await expect(control).not.toHaveClass(/selected/);
+    await field.fill("8");
+    await expect(field).not.toHaveAttribute("aria-invalid");
+    await expect(control).toHaveClass(/selected/);
+  });
+
   /** A different size is a different puzzle, and it brings its own rules. */
   test("resizing redraws an empty board and drops the rules", async ({
     page,

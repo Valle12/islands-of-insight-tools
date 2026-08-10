@@ -2,6 +2,10 @@ import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "fs";
 import { gotoIsolated, LOGIC_GRID_URL } from "../coi";
 import { formatSample } from "../../test/logic-grid-solver/boards";
+import {
+  CONFIG_VERSION,
+  migrationNotice,
+} from "../../src/pages/logic-grid-solver/config";
 // Read rather than restated: the catalogue's upper bound moves every time a
 // rule lands, and its INDICES moved once when the list was regrouped. A literal
 // here survives neither.
@@ -16,8 +20,10 @@ const URL = LOGIC_GRID_URL;
 
 // A small, structurally valid config in the editor's download format. `cells`
 // carries the colour layer only — 0 unknown, 1 dark, 2 light, 3 unplayable —
-// and the clues are a sparse list beside it.
+// and the clues are a sparse list beside it. Current version, so no migration
+// banner joins the assertions below.
 const SAMPLE_CONFIG = {
+  version: CONFIG_VERSION,
   gridWidth: 3,
   gridHeight: 2,
   rules: [ruleIndex("no-dark-2x2"), ruleIndex("underclued")].sort(
@@ -194,8 +200,12 @@ test.describe("Logic Grid Solver config", () => {
     const config = JSON.parse(raw);
     // The tag leads the file, so a reader knows which shape it is in before it
     // has parsed anything that shape could have changed. Checked on the TEXT,
-    // since key order is the one thing a parsed object cannot show.
-    expect(raw).toMatch(/^\{\n {2}"version": 1,/);
+    // since key order is the one thing a parsed object cannot show — and
+    // against `CONFIG_VERSION`, so the next migration does not fail this line
+    // on a stale literal.
+    expect(raw).toMatch(
+      new RegExp(`^\\{\\n {2}"version": ${CONFIG_VERSION},`),
+    );
     expect(config.gridWidth).toBe(6);
     expect(config.gridHeight).toBe(6);
     expect(config.cells[0][0]).toBe(1);
@@ -216,11 +226,19 @@ test.describe("Logic Grid Solver config", () => {
       .click();
     await page.getByRole("textbox", { name: "Letter value" }).fill("Q");
     await cellAt(page, 4, 1).click();
-    await page.locator('#rule-row .tool-button[data-rule="no-light-1x3"]').click();
+    // A sized rule rides along: "no light 1x3" is a value in the run control
+    // now, stored under `runs` rather than as an index.
+    await page
+      .locator('#rule-row .rule-size-add[data-sized-control="run-light"]')
+      .click();
+    await page
+      .getByRole("spinbutton", { name: "No light 1x value 1" })
+      .fill("3");
 
     const downloadPromise = page.waitForEvent("download");
     await page.locator("#download-config").click();
     const json = readFileSync(await (await downloadPromise).path(), "utf8");
+    expect(JSON.parse(json).runs).toEqual([{ color: "light", length: 3 }]);
 
     await page.locator('#paint-tools [data-tool="reset"]').click();
     await page
@@ -228,6 +246,9 @@ test.describe("Logic Grid Solver config", () => {
       .getByRole("button", { name: "Reset" })
       .click();
     await expect(cellAt(page, 2, 3)).toHaveAttribute("data-color", "unknown");
+    await expect(
+      page.locator('#rule-row .rule-size[data-sized-control="run-light"]'),
+    ).toHaveCount(0);
 
     await page.locator("#config-file-input").setInputFiles({
       name: "roundtrip.json",
@@ -237,11 +258,38 @@ test.describe("Logic Grid Solver config", () => {
 
     await expect(cellAt(page, 2, 3)).toHaveAttribute("data-color", "dark");
     await expect(cellAt(page, 4, 1)).toHaveText("Q");
-    await expect(ruleChip(page, "no-light-1x3")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    await expect(
+      page.locator('#rule-row .rule-size[data-sized-control="run-light"]'),
+    ).toHaveValue("3");
+    await expect(
+      page.locator('#rule-row .rule-sized[data-sized-control="run-light"]'),
+    ).toHaveClass(/selected/);
     await expect(page.locator("#warning-banner")).toBeHidden();
+  });
+
+  /**
+   * An older file loads in full and then warns about the copy on disk — its
+   * sized index landing as a value in the run control, not as a flag. The
+   * banner auto-hides after a few seconds, so it is asserted first.
+   */
+  test("migrates a version 1 file and says so", async ({ page }) => {
+    await gotoIsolated(page, URL);
+    const v1 = { ...SAMPLE_CONFIG, rules: [ruleIndex("no-dark-1x2")] } as {
+      version?: number;
+    };
+    delete v1.version;
+    await upload(page, v1, "old.json");
+
+    await expect(page.locator("#warning-banner")).toHaveText(
+      migrationNotice(1),
+    );
+    await expect(page.locator("#grid .grid-cell")).toHaveCount(6);
+    await expect(
+      page.locator('#rule-row .rule-size[data-sized-control="run-dark"]'),
+    ).toHaveValue("2");
+    await expect(
+      page.locator('#rule-row .rule-sized[data-sized-control="run-dark"]'),
+    ).toHaveClass(/selected/);
   });
 
   test("ignores grid sizes beyond the 32 cap", async ({ page }) => {

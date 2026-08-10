@@ -10,12 +10,11 @@ import {
  * The version machinery on its own, driven by migration lists this file makes
  * up.
  *
- * That is the point of testing it here rather than only through a page: no
- * page's format has changed yet, so every list that ships is empty and the
- * chain that runs on a real load is the empty one. A fake chain is the only
- * way to prove the steps run, run in order, and run only the ones a given file
- * still needs — before there is a real migration whose own correctness would
- * be tangled up with the plumbing's.
+ * That is the point of testing it here rather than only through a page: a fake
+ * chain proves the steps run, run in order, and run only the ones a given file
+ * still needs — without tangling the plumbing up with any real migration's own
+ * correctness. The one real chain (logic-grid's sized-rules step) is covered
+ * in `logic-grid-solver/config.test.ts` beside the format it rewrites.
  */
 
 /** Appends its own name, so a chain records the order it ran in. */

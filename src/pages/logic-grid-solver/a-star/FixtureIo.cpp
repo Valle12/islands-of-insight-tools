@@ -4,6 +4,7 @@
 #include "Rules.h"
 #include "Types.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <format>
 #include <fstream>
@@ -49,7 +50,83 @@ void readRules(const nlohmann::json &document, Puzzle &puzzle,
     const auto index = entry.get<int>();
     if (index < 0 || index >= rules::kRuleCount)
       throw FixtureError("Unknown rule index in " + path);
+    // Since format version 2 the sized indices are not legal here — their
+    // families live under `areas`/`runs`, and a bit the engine no longer
+    // reads must be refused rather than carried inert.
+    if (rules::has(rules::kSizedRuleBits, static_cast<rules::Rule>(index)))
+      throw FixtureError("A sized rule belongs in areas or runs, not rules, "
+                         "in " +
+                         path);
     puzzle.ruleMask |= rules::RuleMask{1} << index;
+  }
+}
+
+/// Everything that tells the two sized families apart at intake: the object
+/// key each lives under, the key its number carries, and the bounds and
+/// message that number is checked against. The reading is otherwise identical,
+/// so it is one function taking one of these rather than two near-copies.
+struct SizedFamily {
+  const char *key = "";
+  const char *valueKey = "";
+  int lo = 0;
+  int hi = 0;
+  const char *rangeError = "";
+};
+
+inline constexpr SizedFamily kAreaFamily{
+    .key = "areas",
+    .valueKey = "size",
+    .lo = rules::kMinAreaSize,
+    .hi = rules::kMaxAreaSize,
+    .rangeError = "An area size is out of range in "};
+
+inline constexpr SizedFamily kRunFamily{
+    .key = "runs",
+    .valueKey = "length",
+    .lo = rules::kMinRunLength,
+    .hi = rules::kMaxRunLength,
+    .rangeError = "A run length is out of range in "};
+
+/**
+ * One sized family list, `areas` or `runs`. Absent means empty — the writers
+ * omit an empty list — and what arrives must already be CANONICAL: dark
+ * before light, values ascending, no duplicates. `save` below writes that
+ * order and the page's validator sorts on output, so a disordered list means
+ * a hand-edited file, refused rather than repaired — the deliberate asymmetry
+ * with the TS validator, which accepts any order.
+ */
+void readSized(const nlohmann::json &document, const SizedFamily &family,
+               std::vector<rules::SizedRule> &into, const std::string &path) {
+  const auto outOfRange = [&family, &path] {
+    return FixtureError(std::string(family.rangeError) + path);
+  };
+  if (!document.contains(family.key))
+    return;
+  for (const auto &entry : document.at(family.key)) {
+    const auto &colorTag = entry.at("color");
+    if (!colorTag.is_string() || (colorTag.get<std::string>() != "dark" &&
+                                  colorTag.get<std::string>() != "light"))
+      throw FixtureError("A sized rule's color must be dark or light in " +
+                         path);
+    const auto &valueTag = entry.at(family.valueKey);
+    if (!valueTag.is_number_integer())
+      throw outOfRange();
+    // Bounded at full width BEFORE narrowing: `get<int>()` on a value past
+    // int wraps, so 4294967298 would land inside the gate as an area-2 rule.
+    const auto wide = valueTag.get<int64_t>();
+    if (wide < family.lo || wide > family.hi)
+      throw outOfRange();
+    const rules::SizedRule rule{
+        .color = colorTag.get<std::string>() == "dark" ? kDark : kLight,
+        .value = static_cast<int>(wide)};
+    if (!into.empty()) {
+      if (into.back() == rule)
+        throw FixtureError("A sized rule is duplicated in " + path);
+      if (!rules::sizedLess(into.back(), rule))
+        throw FixtureError("Sized rules are out of canonical order in " +
+                           path);
+    }
+    into.push_back(rule);
   }
 }
 
@@ -187,6 +264,22 @@ nlohmann::json cluesToJson(const Puzzle &puzzle) {
   return symbols;
 }
 
+nlohmann::json sizedToJson(const std::vector<rules::SizedRule> &instances,
+                           const char *valueKey) {
+  // Sorted on the way out even though every in-repo producer is canonical
+  // already: the file IS the canonical form, whatever a caller assembled.
+  auto sorted = instances;
+  std::ranges::sort(sorted, rules::sizedLess);
+  auto list = nlohmann::json::array();
+  for (const auto &[color, value] : sorted) {
+    nlohmann::json entry;
+    entry["color"] = color == kDark ? "dark" : "light";
+    entry[valueKey] = value;
+    list.push_back(entry);
+  }
+  return list;
+}
+
 nlohmann::json shapesToJson(const Puzzle &puzzle) {
   auto shapes = nlohmann::json::array();
   for (const std::vector<int> &shape : puzzle.shapes) {
@@ -199,8 +292,9 @@ nlohmann::json shapesToJson(const Puzzle &puzzle) {
 }
 
 /**
- * The format version the file claims, defaulting to 1 where the key is absent
- * — which every fixture captured before the tag existed relies on.
+ * The format version the file claims. A file with no key at all IS version 1
+ * — the format as it stood before the tag existed — and is refused like any
+ * other stale version now that the current one is past it.
  *
  * Anything this build does not read is refused by name. A LATER version is a
  * file from a newer build, whose additions this one has never heard of; an
@@ -208,12 +302,14 @@ nlohmann::json shapesToJson(const Puzzle &puzzle) {
  * bump, since migrating is the page's job and not this side's.
  */
 void checkVersion(const nlohmann::json &document, const std::string &path) {
-  if (!document.contains("version"))
-    return;
-  const auto &tag = document.at("version");
-  if (!tag.is_number_integer())
-    throw FixtureError("version must be an integer in " + path);
-  if (const auto version = tag.get<int>(); version != kConfigVersion)
+  int version = 1;
+  if (document.contains("version")) {
+    const auto &tag = document.at("version");
+    if (!tag.is_number_integer())
+      throw FixtureError("version must be an integer in " + path);
+    version = tag.get<int>();
+  }
+  if (version != kConfigVersion)
     throw FixtureError(
         std::format("Unsupported config version {} (this build reads {}) in {}",
                     version, kConfigVersion, path));
@@ -233,6 +329,8 @@ Fixture load(const std::string &path) {
     throw FixtureError("Grid size out of range in " + path);
   readCells(document, puzzle, path);
   readRules(document, puzzle, path);
+  readSized(document, kAreaFamily, puzzle.areas, path);
+  readSized(document, kRunFamily, puzzle.runs, path);
   readClues(document, puzzle, path);
   readShapes(document, puzzle, path);
   readSolution(document, fixture, path);
@@ -255,6 +353,12 @@ void save(const std::string &path, const Fixture &fixture) {
       ruleList.push_back(index);
   }
   document["rules"] = ruleList;
+  // Omitted when empty, the `shapes` discipline: a board with no sized rules
+  // must keep round-tripping byte-identically to what the page downloads.
+  if (!puzzle.areas.empty())
+    document["areas"] = sizedToJson(puzzle.areas, "size");
+  if (!puzzle.runs.empty())
+    document["runs"] = sizedToJson(puzzle.runs, "length");
   document["cells"] = columnMajor(puzzle, puzzle.givens);
   document["symbols"] = cluesToJson(puzzle);
   // Written only when there is something to write: a plain board's file must

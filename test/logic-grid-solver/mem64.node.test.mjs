@@ -41,7 +41,9 @@ const wasmPath = join(wasmDir, "astar.mem64.wasm");
 const BOARD = {
   gridWidth: 5,
   gridHeight: 5,
-  // no-dark-2x2, connect-dark, connect-light
+  // no-dark-2x2, connect-dark, connect-light — all FLAGS, which since format
+  // v2 is the only thing `rules` may hold: a sized index here would be
+  // refused at the wasm boundary (those cross as `areas`/`runs` instances).
   rules: [0, 11, 12],
   cells: Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => 0)),
   symbols: [

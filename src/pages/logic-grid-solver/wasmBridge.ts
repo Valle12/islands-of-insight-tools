@@ -111,6 +111,12 @@ export function toPuzzle(config: LogicGridTest) {
       // The lotus's half-square offsets; the centre for everything else.
       seat: symbol.seat ?? 0,
     })),
+    // The sized rules cross in the config's own shape — string colours and
+    // all — because the module reads the identical JSON from a fixture file,
+    // and two encodings of one key is how the readers drift. Omitted rather
+    // than sent empty, like `shapes` below.
+    ...(config.areas ? { areas: config.areas.map(rule => ({ ...rule })) } : {}),
+    ...(config.runs ? { runs: config.runs.map(rule => ({ ...rule })) } : {}),
     // Already flat row-major, the same layout `cells` crosses in, so this one
     // passes straight through. Omitted rather than sent empty, matching the
     // config format the module also reads from a fixture file.

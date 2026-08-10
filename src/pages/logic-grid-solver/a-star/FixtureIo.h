@@ -26,9 +26,9 @@ public:
  * number `CONFIG_VERSION` holds in `src/pages/logic-grid-solver/config.ts`,
  * and the two have to move together.
  *
- * A file with no `version` key is version 1, the format as it stood before the
- * tag existed, which is what lets every fixture captured before it load
- * unchanged.
+ * A file with no `version` key at all IS version 1, the format as it stood
+ * before the tag existed — which since version 2 means it is refused here
+ * like any other stale version.
  *
  * There are deliberately NO migrations here. The page migrates, because it is
  * the only side that reads files a stranger wrote; these tools read this
@@ -36,7 +36,7 @@ public:
  * that raises the version. An older file reaching them means that rewrite was
  * missed, so it is refused rather than guessed at.
  */
-inline constexpr int kConfigVersion = 1;
+inline constexpr int kConfigVersion = 2;
 
 struct Fixture {
   Puzzle puzzle;

@@ -297,8 +297,8 @@ void addClausesFor(Model &model, const rules::Pattern &pattern) {
 }
 
 void buildClauses(Model &model) {
-  for (const rules::Patterns patterns =
-           rules::patternsFor(model.puzzle.ruleMask);
+  for (const rules::Patterns patterns = rules::patternsFor(
+           model.puzzle.ruleMask, model.puzzle.areas, model.puzzle.runs);
        const rules::Pattern &pattern : patterns)
     addClausesFor(model, pattern);
 }

@@ -9,10 +9,12 @@
 import { setupDragAndDrop } from "./configFile";
 
 /**
- * How long a warning stays up. Long enough to read a sentence, short enough
- * that it does not sit over the board while the mistake is being corrected.
+ * How long a warning stays up. Long enough to read TWO sentences at an
+ * unhurried pace — the migration notice is the longest message shown, and at
+ * half this it disappeared mid-read — while still clearing itself so it does
+ * not sit over the board once the mistake is being corrected.
  */
-const WARNING_MS = 3500;
+const WARNING_MS = 7000;
 
 /**
  * Wraps a banner element and returns the function that shows a message on it.

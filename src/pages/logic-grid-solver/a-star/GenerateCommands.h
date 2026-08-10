@@ -26,6 +26,9 @@ struct Options {
   int height = 0;
   /// -1 for a random subset of the colouring rules; otherwise a literal mask.
   /// 64-bit because a plain `int` cannot name bit 31, the 32nd rule's.
+  /// Still the v1-style 53-bit encoding: a sized bit means its legacy
+  /// instance, translated through `rules::splitLegacyMask` after the mask is
+  /// complete, so old campaign masks keep meaning what they meant.
   int64_t rules = -1;
   /// "clued" for a board with plenty of clues, "underclued" for a sparse one
   /// with the underclued rule switched on.

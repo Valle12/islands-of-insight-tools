@@ -7,12 +7,14 @@
 #include "Verify.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <system_error>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -74,8 +76,9 @@ TEST(LogicGridCorpus, EveryBoardIsTheCurrentFormatVersion) {
   for (const std::string &name : allTestFiles()) {
     const nlohmann::json document =
         readJson(std::string(TEST_RESOURCES_DIR) + "/" + name);
-    // Absent means the first version — every board captured before the tag
-    // existed relies on that, so it is a legal answer and not a hole.
+    // Absent means the FIRST version — the format as it stood before the tag
+    // existed — which since version 2 is exactly the stale state this sweep
+    // exists to catch.
     const int version = document.contains("version")
                             ? document.at("version").get<int>()
                             : 1;
@@ -146,13 +149,14 @@ TEST(LogicGridFixtureIo, ReadsTheCurrentVersion) {
   EXPECT_NO_THROW({ (void)fixtureio::load(file.path()); });
 }
 
-/** The same default the page applies, and what every board captured before the
- * tag existed depends on. */
-TEST(LogicGridFixtureIo, TreatsAMissingVersionAsTheFirst) {
+/** The same default the page applies — no tag at all IS version 1 — but this
+ * side refuses it rather than migrating: a v1 file inside the repo means the
+ * fixture rewrite that came with the bump was missed. */
+TEST(LogicGridFixtureIo, RefusesAMissingVersionAsTheFirst) {
   nlohmann::json document = oneCellDocument();
   document.erase("version");
   const TempFixture file(document);
-  EXPECT_NO_THROW({ (void)fixtureio::load(file.path()); });
+  EXPECT_THROW((void)fixtureio::load(file.path()), fixtureio::FixtureError);
 }
 
 /**
@@ -212,6 +216,108 @@ TEST(LogicGridFixtureIo, RefusesAGalaxyWithAValue) {
   nlohmann::json document = oneCellDocument();
   document["symbols"] = nlohmann::json::array({nlohmann::json{
       {"x", 0}, {"y", 0}, {"type", kClueGalaxy}, {"value", 0}}});
+  const TempFixture file(document);
+  EXPECT_THROW((void)fixtureio::load(file.path()), fixtureio::FixtureError);
+}
+
+/// The sized families round-trip: canonical in, identical out.
+TEST(LogicGridFixtureIo, RoundTripsSizedRules) {
+  nlohmann::json document = oneCellDocument();
+  document["areas"] =
+      nlohmann::json::array({nlohmann::json{{"color", "dark"}, {"size", 2}},
+                             nlohmann::json{{"color", "light"}, {"size", 3}}});
+  document["runs"] =
+      nlohmann::json::array({nlohmann::json{{"color", "dark"}, {"length", 4}}});
+  const TempFixture file(document);
+  const fixtureio::Fixture fixture = fixtureio::load(file.path());
+  ASSERT_EQ(fixture.puzzle.areas.size(), 2U);
+  EXPECT_EQ(fixture.puzzle.areas.front(),
+            (rules::SizedRule{.color = kDark, .value = 2}));
+  EXPECT_EQ(fixture.puzzle.areas.back(),
+            (rules::SizedRule{.color = kLight, .value = 3}));
+  ASSERT_EQ(fixture.puzzle.runs.size(), 1U);
+  EXPECT_EQ(fixture.puzzle.runs.front(),
+            (rules::SizedRule{.color = kDark, .value = 4}));
+  fixtureio::save(file.path(), fixture);
+  const nlohmann::json written = readJson(file.path());
+  EXPECT_EQ(written.at("areas"), document.at("areas"));
+  EXPECT_EQ(written.at("runs"), document.at("runs"));
+}
+
+/// Omitted when empty, the `shapes` discipline — a board with no sized rules
+/// keeps round-tripping byte-identically to what the page downloads.
+TEST(LogicGridFixtureIo, OmitsEmptySizedLists) {
+  const TempFixture file(oneCellDocument());
+  const fixtureio::Fixture fixture = fixtureio::load(file.path());
+  fixtureio::save(file.path(), fixture);
+  const nlohmann::json written = readJson(file.path());
+  EXPECT_FALSE(written.contains("areas"));
+  EXPECT_FALSE(written.contains("runs"));
+}
+
+/// A sized index in `rules` is the v1 spelling, and this side does not
+/// migrate — refused by name, like a stale version tag.
+TEST(LogicGridFixtureIo, RefusesASizedIndexInRules) {
+  nlohmann::json document = oneCellDocument();
+  document["rules"] = nlohmann::json::array({16});
+  const TempFixture file(document);
+  EXPECT_THROW((void)fixtureio::load(file.path()), fixtureio::FixtureError);
+}
+
+TEST(LogicGridFixtureIo, RefusesASizedRuleWithABadColor) {
+  nlohmann::json document = oneCellDocument();
+  document["areas"] =
+      nlohmann::json::array({nlohmann::json{{"color", "green"}, {"size", 2}}});
+  const TempFixture file(document);
+  EXPECT_THROW((void)fixtureio::load(file.path()), fixtureio::FixtureError);
+}
+
+/// One out-of-range number for one sized family. A helper rather than the
+/// loop body it used to be: gtest's assertion macros expand to a labelled
+/// `goto`, so an EXPECT_THROW written straight inside a `for` reads to a C++
+/// analyser as nested gotos. Wide on purpose: the values past int are the
+/// point of the last two rows below.
+void expectSizedValueRefused(const char *key, const char *valueKey,
+                             const int64_t value) {
+  nlohmann::json document = oneCellDocument();
+  document[key] = nlohmann::json::array(
+      {nlohmann::json{{"color", "dark"}, {valueKey, value}}});
+  const TempFixture file(document);
+  EXPECT_THROW((void)fixtureio::load(file.path()), fixtureio::FixtureError)
+      << key << " " << value;
+}
+
+TEST(LogicGridFixtureIo, RefusesASizedValueOutOfRange) {
+  const std::vector<std::tuple<const char *, const char *, int64_t>> bad = {
+      {"areas", "size", 0},
+      {"areas", "size", 10000},
+      {"runs", "length", 1},
+      {"runs", "length", 9},
+      // Past int, so a gate that narrows BEFORE it bounds never sees them:
+      // 2^32 + 2 wrapped to a perfectly legal area of 2, and 2^32 + 4 to a
+      // run of 4. The bound has to run at full width.
+      {"areas", "size", int64_t{4294967298}},
+      {"runs", "length", int64_t{4294967300}}};
+  for (const auto &[key, valueKey, value] : bad)
+    expectSizedValueRefused(key, valueKey, value);
+}
+
+/// Canonical order is the file format on this side — the writers all sort, so
+/// disorder means a hand edit, refused rather than repaired.
+TEST(LogicGridFixtureIo, RefusesSizedRulesOutOfCanonicalOrder) {
+  nlohmann::json document = oneCellDocument();
+  document["areas"] =
+      nlohmann::json::array({nlohmann::json{{"color", "light"}, {"size", 2}},
+                             nlohmann::json{{"color", "dark"}, {"size", 2}}});
+  const TempFixture file(document);
+  EXPECT_THROW((void)fixtureio::load(file.path()), fixtureio::FixtureError);
+}
+
+TEST(LogicGridFixtureIo, RefusesADuplicatedSizedRule) {
+  nlohmann::json document = oneCellDocument();
+  document["runs"] =
+      nlohmann::json::array({nlohmann::json{{"color", "dark"}, {"length", 2}},
+                             nlohmann::json{{"color", "dark"}, {"length", 2}}});
   const TempFixture file(document);
   EXPECT_THROW((void)fixtureio::load(file.path()), fixtureio::FixtureError);
 }

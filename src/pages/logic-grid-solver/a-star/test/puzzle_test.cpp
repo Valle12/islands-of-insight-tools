@@ -145,8 +145,8 @@ TEST(Shapes, TwoSquaresOfOneCellCollapseToOneLiteral) {
   // A merged 1x3 bar under "no dark 1x3" is a clause in ONE variable: the whole
   // cell is dark or it is not. Left as three literals it could never fire as a
   // unit, because the second and third copies read as more free cells.
-  Puzzle puzzle = test::board({"...", "..."},
-                              test::ruleSet({Rule::NoDark1x3}));
+  Puzzle puzzle = test::board({"...", "..."});
+  test::withRunRule(puzzle, kDark, 3);
   test::withShape(puzzle, {{0, 0}, {1, 0}, {2, 0}});
   const Model model = buildModel(puzzle);
 

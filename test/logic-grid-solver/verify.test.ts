@@ -14,9 +14,11 @@ import {
   board,
   painted,
   withArea,
+  withAreaRule,
   withDart,
   withGalaxy,
   withLotus,
+  withRunRule,
   withShape,
   withViewpoint,
 } from "./boards";
@@ -275,6 +277,56 @@ describe("verifyLogicGrid", () => {
     });
   });
 
+  describe("sized instances beyond the old catalogue", () => {
+    /**
+     * Since format version 2 the number is data, so sizes no chip ever named
+     * go through the very same walk as the familiar ones — these cases are
+     * what say so.
+     */
+    test("a run of eight is caught at eight cells and not at seven", () => {
+      const nine = board(["........."]);
+      withRunRule(nine, "dark", 8);
+      expect(verifyLogicGrid(nine, painted(["DDDDDDDDL"]))).toBe("run");
+      expect(verifyLogicGrid(nine, painted(["DDDDDDDLL"]))).toBe("none");
+    });
+
+    test("a run of six verifies the same way", () => {
+      const six = board(["......"]);
+      withRunRule(six, "light", 6);
+      expect(verifyLogicGrid(six, painted(["LLLLLL"]))).toBe("run");
+      expect(verifyLogicGrid(six, painted(["LLLLLD"]))).toBe("none");
+    });
+
+    test("an area of one keeps singletons and refuses a domino", () => {
+      const strip = board(["..."]);
+      withAreaRule(strip, "dark", 1);
+      expect(verifyLogicGrid(strip, painted(["DLD"]))).toBe("none");
+      expect(verifyLogicGrid(strip, painted(["DDL"]))).toBe("region-size");
+    });
+
+    test("an area of eight binds exactly", () => {
+      const wide = board(["........", "........"]);
+      withAreaRule(wide, "dark", 8);
+      expect(
+        verifyLogicGrid(wide, painted(["DDDDDDDD", "LLLLLLLL"])),
+      ).toBe("none");
+      expect(
+        verifyLogicGrid(wide, painted(["DDDDDDDL", "LLLLLLLL"])),
+      ).toBe("region-size");
+    });
+
+    test("two sizes on one colour both bind", () => {
+      const strip = board(["...."]);
+      withAreaRule(strip, "dark", 2);
+      withAreaRule(strip, "dark", 3);
+      // A dark domino satisfies size 2 and breaks size 3.
+      expect(verifyLogicGrid(strip, painted(["DDLL"]))).toBe("region-size");
+      // No dark at all satisfies both: every one of its zero regions is both
+      // sizes at once.
+      expect(verifyLogicGrid(strip, painted(["LLLL"]))).toBe("none");
+    });
+  });
+
   describe("region areas", () => {
     /**
      * The two halves of "exactly two" fail differently and are caught by
@@ -371,9 +423,9 @@ describe("verifyLogicGrid", () => {
     });
 
     /**
-     * The area-THREE pair, appended after five and drawn beside its family.
-     * `regionAreaProblem` was already generic in the number, so what is pinned
-     * is the two new rows in `AREA_RULES`.
+     * The area-THREE pair. `regionAreaProblem` was already generic in the
+     * number, so what is pinned is that a legacy id translates into the
+     * instance the oracle walks.
      */
     test("catches an area-three region that is too big or too small", () => {
       expect(judge(["...", "..."], ["DDD", "LLL"], ["area-three-dark"])).toBe(

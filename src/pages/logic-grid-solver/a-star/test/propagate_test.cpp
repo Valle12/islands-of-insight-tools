@@ -51,8 +51,8 @@ TEST(Propagate, AForbiddenSquareForcesItsLastCell) {
 }
 
 TEST(Propagate, AForbiddenRunForcesTheCellPastIt) {
-  const Puzzle puzzle =
-      test::board({"DD."}, test::ruleSet({Rule::NoDark1x3}));
+  Puzzle puzzle = test::board({"DD."});
+  test::withRunRule(puzzle, kDark, 3);
   EXPECT_EQ(deduce(puzzle), Rows({"DDL"}));
 }
 
@@ -65,8 +65,8 @@ TEST(Propagate, ContradictoryGivensAreRefused) {
 /// One cell wide below the given, so the only way its region reaches two is
 /// downwards. This is the half of an area rule the pattern table cannot state.
 TEST(Propagate, AnAreaOfTwoForcesItsOnlyPartner) {
-  const Puzzle puzzle =
-      test::board({"D#", ".#"}, test::ruleSet({Rule::AreaTwoDark}));
+  Puzzle puzzle = test::board({"D#", ".#"});
+  test::withAreaRule(puzzle, kDark, 2);
   EXPECT_EQ(deduce(puzzle), Rows({"D#", "D#"}));
 }
 
@@ -74,22 +74,22 @@ TEST(Propagate, AnAreaOfTwoForcesItsOnlyPartner) {
 /// neighbours" only ever has instances where all four neighbours exist, and a
 /// cell walled in by gaps has none.
 TEST(Propagate, ACellWithNoRoomToPairCannotTakeTheColour) {
-  const Puzzle puzzle =
-      test::board({".#", "##"}, test::ruleSet({Rule::AreaTwoDark}));
+  Puzzle puzzle = test::board({".#", "##"});
+  test::withAreaRule(puzzle, kDark, 2);
   EXPECT_EQ(deduce(puzzle), Rows({"L#", "##"}));
 }
 
 TEST(Propagate, ACellThatCannotPairAtAllIsRefused) {
-  const Puzzle puzzle =
-      test::board({"D#", "##"}, test::ruleSet({Rule::AreaTwoDark}));
+  Puzzle puzzle = test::board({"D#", "##"});
+  test::withAreaRule(puzzle, kDark, 2);
   EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
 }
 
 /// Both halves working together. The trominoes outline the finished pair, and
 /// the cell left in the corner is then one nothing could ever pair with.
 TEST(Propagate, AFinishedAreaOfTwoIsOutlined) {
-  const Puzzle puzzle =
-      test::board({"DD.", "..."}, test::ruleSet({Rule::AreaTwoDark}));
+  Puzzle puzzle = test::board({"DD.", "..."});
+  test::withAreaRule(puzzle, kDark, 2);
   EXPECT_EQ(deduce(puzzle), Rows({"DDL", "LLL"}));
 }
 
@@ -97,48 +97,48 @@ TEST(Propagate, AFinishedAreaOfTwoIsOutlined) {
 /// shapes behind it — 61 pentominoes was the wrong trade — so both halves of
 /// "exactly four" are this one function's work.
 TEST(Propagate, AnAreaOfFourFillsItsOnlyRoom) {
-  const Puzzle puzzle =
-      test::board({"D...", "####"}, test::ruleSet({Rule::AreaFourDark}));
+  Puzzle puzzle = test::board({"D...", "####"});
+  test::withAreaRule(puzzle, kDark, 4);
   EXPECT_EQ(deduce(puzzle), Rows({"DDDD", "####"}));
 }
 
 TEST(Propagate, ARegionWithNoRoomToReachFourIsRefused) {
-  const Puzzle puzzle =
-      test::board({"D..#", "####"}, test::ruleSet({Rule::AreaFourDark}));
+  Puzzle puzzle = test::board({"D..#", "####"});
+  test::withAreaRule(puzzle, kDark, 4);
   EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
 }
 
 /// The "too big" half, which for four exists only here.
 TEST(Propagate, ARegionAlreadyBiggerThanFourIsRefused) {
-  const Puzzle puzzle =
-      test::board({"DDDDD", "#####"}, test::ruleSet({Rule::AreaFourDark}));
+  Puzzle puzzle = test::board({"DDDDD", "#####"});
+  test::withAreaRule(puzzle, kDark, 4);
   EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
 }
 
 /// A finished region of four is outlined, so nothing may join it.
 TEST(Propagate, AFinishedAreaOfFourIsOutlined) {
-  const Puzzle puzzle =
-      test::board({"DDDD.", "#####"}, test::ruleSet({Rule::AreaFourDark}));
+  Puzzle puzzle = test::board({"DDDD.", "#####"});
+  test::withAreaRule(puzzle, kDark, 4);
   EXPECT_EQ(deduce(puzzle), Rows({"DDDDL", "#####"}));
 }
 
-/// And at FIVE, appended after four and enforced by the same walk — the only
-/// thing the pattern table sees of this size is the straight run of six.
+/// And at FIVE, enforced by the same walk — the only thing the pattern table
+/// sees of this size is the straight run of six.
 TEST(Propagate, AnAreaOfFiveFillsItsOnlyRoom) {
-  const Puzzle puzzle =
-      test::board({"D....", "#####"}, test::ruleSet({Rule::AreaFiveDark}));
+  Puzzle puzzle = test::board({"D....", "#####"});
+  test::withAreaRule(puzzle, kDark, 5);
   EXPECT_EQ(deduce(puzzle), Rows({"DDDDD", "#####"}));
 }
 
 TEST(Propagate, ARegionWithNoRoomToReachFiveIsRefused) {
-  const Puzzle puzzle =
-      test::board({"D...#", "#####"}, test::ruleSet({Rule::AreaFiveDark}));
+  Puzzle puzzle = test::board({"D...#", "#####"});
+  test::withAreaRule(puzzle, kDark, 5);
   EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
 }
 
 TEST(Propagate, AFinishedAreaOfFiveIsOutlined) {
-  const Puzzle puzzle =
-      test::board({"DDDDD.", "######"}, test::ruleSet({Rule::AreaFiveDark}));
+  Puzzle puzzle = test::board({"DDDDD.", "######"});
+  test::withAreaRule(puzzle, kDark, 5);
   EXPECT_EQ(deduce(puzzle), Rows({"DDDDDL", "######"}));
 }
 
@@ -150,10 +150,48 @@ TEST(Propagate, AFinishedAreaOfFiveIsOutlined) {
  * because the pair rule fills the space and the four rule then finds no room.
  */
 TEST(Propagate, BothAreaSizesOnOneColourEmptyTheSpaceTheyShare) {
-  const rules::RuleMask both =
-      test::ruleSet({Rule::AreaTwoDark, Rule::AreaFourDark});
-  EXPECT_EQ(deduce(test::board({"..#"}, both)), Rows({"LL#"}));
-  EXPECT_EQ(deduce(test::board({"D.#"}, both)), Rows({"CONFLICT"}));
+  Puzzle open = test::board({"..#"});
+  test::withAreaRule(open, kDark, 2);
+  test::withAreaRule(open, kDark, 4);
+  EXPECT_EQ(deduce(open), Rows({"LL#"}));
+  Puzzle given = test::board({"D.#"});
+  test::withAreaRule(given, kDark, 2);
+  test::withAreaRule(given, kDark, 4);
+  EXPECT_EQ(deduce(given), Rows({"CONFLICT"}));
+}
+
+/**
+ * Area ONE, the size whose isolated-singleton sweep must NOT run. A decided
+ * singleton outlines exactly as any finished region does — the given forces
+ * its neighbour light — while a merely POSSIBLE isolated cell stays open,
+ * because the singleton is the very shape the rule wants: `L.L`'s middle can
+ * still go dark, and excluding it would poison underclued's forced set.
+ */
+TEST(Propagate, AnAreaOfOneOutlinesItsSingletons) {
+  Puzzle puzzle = test::board({"D."});
+  test::withAreaRule(puzzle, kDark, 1);
+  EXPECT_EQ(deduce(puzzle), Rows({"DL"}));
+}
+
+TEST(Propagate, AnAreaOfOneLeavesAnIsolatedPossibleCellOpen) {
+  Puzzle puzzle = test::board({"L.L"});
+  test::withAreaRule(puzzle, kDark, 1);
+  EXPECT_EQ(deduce(puzzle), Rows({"L.L"}));
+}
+
+TEST(Propagate, ADominoUnderAreaOneIsRefused) {
+  Puzzle puzzle = test::board({"DD"});
+  test::withAreaRule(puzzle, kDark, 1);
+  EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
+}
+
+/// An area far past the board is enforceable and simply unsatisfiable the
+/// moment the colour appears — the honesty rule's engine half: the file
+/// loads, and the root refutes it.
+TEST(Propagate, AnAreaLargerThanTheBoardRefusesTheColour) {
+  Puzzle puzzle = test::board({"D.", ".."});
+  test::withAreaRule(puzzle, kDark, 9999);
+  EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
 }
 
 // --- Darts ----------------------------------------------------------------
@@ -452,8 +490,8 @@ TEST(Domains, RestoringUndoesAWholeMergedCell) {
 /// The collapsed clause firing: one literal, so unit propagation settles the
 /// whole cell before anything has to guess.
 TEST(Propagate, AMergedBarLongerThanARunRuleIsForcedTheOtherColour) {
-  Puzzle puzzle = test::board({"...", "..."},
-                              test::ruleSet({Rule::NoDark1x3}));
+  Puzzle puzzle = test::board({"...", "..."});
+  test::withRunRule(puzzle, kDark, 3);
   test::withShape(puzzle, {{0, 0}, {1, 0}, {2, 0}});
   EXPECT_EQ(deduce(puzzle), Rows({"LLL", "..."}));
 }
@@ -461,8 +499,8 @@ TEST(Propagate, AMergedBarLongerThanARunRuleIsForcedTheOtherColour) {
 /// A merged domino IS a region of two, so the rule that forbids anything else
 /// is content with it — while the square below has nothing left to pair with.
 TEST(Propagate, AMergedDominoSatisfiesAnAreaOfTwoByItself) {
-  Puzzle puzzle = test::board({"DD", ".#"},
-                              test::ruleSet({Rule::AreaTwoDark}));
+  Puzzle puzzle = test::board({"DD", ".#"});
+  test::withAreaRule(puzzle, kDark, 2);
   test::withShape(puzzle, {{0, 0}, {1, 0}});
   EXPECT_EQ(deduce(puzzle), Rows({"DD", "L#"}));
 }

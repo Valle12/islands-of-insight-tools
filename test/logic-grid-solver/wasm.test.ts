@@ -12,6 +12,7 @@ import {
 import {
   areaFiveBoard,
   areaFourBoard,
+  areaOneBoard,
   areaSevenBoard,
   areaSixBoard,
   areaThreeBoard,
@@ -37,6 +38,7 @@ import {
   mixedElbowBoard,
   mixedTeeBoard,
   offByOneBoard,
+  runEightBoard,
   runFiveBoard,
   solvableBoard,
   teeBoard,
@@ -132,6 +134,12 @@ const CASES: Case[] = [
   ["area-six", areaSixBoard],
   ["area-seven", areaSevenBoard],
   ["area-twenty-four", areaTwentyFourBoard],
+  // The format 2 sized keys cross the boundary only from here: an area and a
+  // run the retired catalogue never spelled — `areas`/`runs` entries with the
+  // number as data — so a module that quietly dropped either key would answer
+  // something `verify.ts` throws out rather than answering nothing.
+  ["area-one", areaOneBoard],
+  ["run-eight", runEightBoard],
   ["merged-cells", mergedCellBoard],
   ["deep-search", deepSearchBoard],
 ];
@@ -230,6 +238,58 @@ describe("logic-grid wasm", () => {
     expect([at(2, 0), at(1, 1)]).toEqual([LIGHT, LIGHT]);
     // Invisible behind the stops, so the count says nothing about them.
     expect([at(2, 1), at(1, 2)]).toEqual([UNKNOWN, UNKNOWN]);
+  }, 30_000);
+
+  /**
+   * An area of ONE — a size no catalogue chip could spell, legal since the
+   * format stores the number. The given's neighbour is forced light while the
+   * far cell stays free. This is the pin on the engine's isolated-singleton
+   * sweep, a REFUTATION at every size but one: run at one, it deletes the
+   * only legal region shape and the board reads unsolvable instead.
+   */
+  test("an area of one forces the neighbour and keeps its singleton", async () => {
+    const wasm = await loadWasm();
+    const config = areaOneBoard();
+    const result = wasm.solve(toPuzzle(config), {
+      engine: "cascade",
+      seed: 0,
+      maxMs: ARM_MS,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe("deduced");
+    expect(result.proven).toBeTrue();
+    expect(flat(result.cells)).toEqual([DARK, LIGHT, UNKNOWN]);
+  }, 30_000);
+
+  /**
+   * A forbidden run of EIGHT as a DIRECT rule — every eight-cell clause
+   * before this one was an area's implied run. Seven dark givens force the
+   * eighth cell light; the ninth is out of every run's reach and stays free.
+   */
+  test("a run of eight stops the eighth cell and no other", async () => {
+    const wasm = await loadWasm();
+    const config = runEightBoard();
+    const result = wasm.solve(toPuzzle(config), {
+      engine: "cascade",
+      seed: 0,
+      maxMs: ARM_MS,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe("deduced");
+    expect(result.proven).toBeTrue();
+    expect(flat(result.cells)).toEqual([
+      DARK,
+      DARK,
+      DARK,
+      DARK,
+      DARK,
+      DARK,
+      DARK,
+      LIGHT,
+      UNKNOWN,
+    ]);
   }, 30_000);
 
   /**

@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   RULE_COUNT,
-  RULE_DISPLAY_ORDER,
+  RULE_ROW,
   RULES,
   ruleAt,
+  type LogicGridRuleGroup,
+  type SizedRuleColor,
+  type SizedRuleFamily,
 } from "../../src/pages/logic-grid-solver/rules";
 import {
   AXES,
@@ -89,64 +92,105 @@ const RULE_ORDER: [number, string][] = [
 ];
 
 /**
- * And what the ROW looks like, which is a different question with a different
- * answer — `area-two-dark` is stored at 16 and drawn at 13. This table may be
- * rewritten whenever the row should read differently; the one above may not.
+ * The v1 -> v2 translation, pinned like the order above: which `areas`/`runs`
+ * entry each retired sized index turns into. The migration rewrites saved
+ * files through these markers, so changing one silently rewrites every
+ * version 1 puzzle ever downloaded — appending a FLAG rule is still the only
+ * edit the catalogue should ever need.
  */
-const ROW_ORDER: string[] = [
-  "no-dark-2x2",
-  "no-light-2x2",
-  "no-dark-1x2",
-  "no-light-1x2",
-  "no-dark-1x3",
-  "no-light-1x3",
-  "no-dark-1x4",
-  "no-light-1x4",
-  "no-dark-1x5",
-  "no-light-1x5",
-  "no-checkerboard",
-  "no-dark-light-dark",
-  "no-light-dark-light",
-  "no-dark-elbow",
-  "no-light-elbow",
-  "no-dark-l",
-  "no-light-l",
-  "no-dark-t",
-  "no-light-t",
-  "no-dark-long-t",
-  "no-light-long-t",
-  "no-dark-light-dark-elbow",
-  "no-light-dark-light-elbow",
-  "no-light-crossed-dark-t",
-  "no-dark-crossed-light-t",
-  "no-three-dark-one-light",
-  "no-three-light-one-dark",
-  "no-dark-diagonal",
-  "no-light-diagonal",
-  "no-dark-knight",
-  "no-light-knight",
-  "no-dark-any-dark",
-  "no-light-any-light",
-  "connect-dark",
-  "connect-light",
-  "area-two-dark",
-  "area-two-light",
-  "area-three-dark",
-  "area-three-light",
-  "area-four-dark",
-  "area-four-light",
-  "area-five-dark",
-  "area-five-light",
-  "area-six-dark",
-  "area-six-light",
-  "area-seven-dark",
-  "area-seven-light",
-  "area-twenty-four-dark",
-  "area-twenty-four-light",
-  "one-symbol-dark",
-  "one-symbol-light",
-  "off-by-one",
-  "underclued",
+const SIZED_MAP: [number, SizedRuleFamily, SizedRuleColor, number][] = [
+  [2, "runs", "dark", 2],
+  [3, "runs", "light", 2],
+  [4, "runs", "dark", 3],
+  [5, "runs", "light", 3],
+  [6, "runs", "dark", 4],
+  [7, "runs", "light", 4],
+  [8, "runs", "dark", 5],
+  [9, "runs", "light", 5],
+  [16, "areas", "dark", 2],
+  [17, "areas", "light", 2],
+  [18, "areas", "dark", 4],
+  [19, "areas", "light", 4],
+  [20, "areas", "dark", 5],
+  [21, "areas", "light", 5],
+  [30, "areas", "dark", 3],
+  [31, "areas", "light", 3],
+  [39, "areas", "dark", 6],
+  [40, "areas", "light", 6],
+  [41, "areas", "dark", 7],
+  [42, "areas", "light", 7],
+  [47, "areas", "dark", 24],
+  [48, "areas", "light", 24],
+];
+
+/** One row control, projected to what the layout promises about it. */
+type RowPin =
+  | ["single", string]
+  | ["pair", string, string, string]
+  | ["sized", string];
+
+/**
+ * And what the ROW looks like, which is a different question with a different
+ * answer — `no-dark-2x2` is stored at 0 and drawn as the Dark segment of the
+ * first pair. This table may be rewritten whenever the row should read
+ * differently; the two above may not. A pair pin is
+ * `["pair", label, dark id, light id]`.
+ */
+const ROW_PINS: {
+  band: LogicGridRuleGroup;
+  heading: string;
+  entries: RowPin[];
+}[] = [
+  {
+    band: "arrangement",
+    heading: "Arrangement",
+    entries: [
+      ["pair", "No 2x2", "no-dark-2x2", "no-light-2x2"],
+      ["sized", "run-dark"],
+      ["sized", "run-light"],
+      ["single", "no-checkerboard"],
+      ["pair", "No alternating triple", "no-dark-light-dark", "no-light-dark-light"],
+      ["pair", "No elbow", "no-dark-elbow", "no-light-elbow"],
+      ["pair", "No L", "no-dark-l", "no-light-l"],
+      ["pair", "No T", "no-dark-t", "no-light-t"],
+      ["pair", "No long T", "no-dark-long-t", "no-light-long-t"],
+      [
+        "pair",
+        "No mixed elbow",
+        "no-dark-light-dark-elbow",
+        "no-light-dark-light-elbow",
+      ],
+      // The Dark segment is `no-light-crossed-dark-t`: the id names the
+      // crossing colour, the segment names the T's.
+      ["pair", "No crossed T", "no-light-crossed-dark-t", "no-dark-crossed-light-t"],
+      ["pair", "No 3 + 1", "no-three-dark-one-light", "no-three-light-one-dark"],
+      ["pair", "No diagonal", "no-dark-diagonal", "no-light-diagonal"],
+      ["pair", "No knight's move", "no-dark-knight", "no-light-knight"],
+      ["pair", "No two apart", "no-dark-any-dark", "no-light-any-light"],
+    ],
+  },
+  {
+    band: "region",
+    heading: "Region",
+    entries: [
+      ["pair", "Connect all cells", "connect-dark", "connect-light"],
+      ["sized", "area-dark"],
+      ["sized", "area-light"],
+    ],
+  },
+  {
+    band: "symbol",
+    heading: "Symbol",
+    entries: [
+      ["pair", "One symbol per area", "one-symbol-dark", "one-symbol-light"],
+      ["single", "off-by-one"],
+    ],
+  },
+  {
+    band: "answer",
+    heading: "Answer",
+    entries: [["single", "underclued"]],
+  },
 ];
 
 const SYMBOL_ORDER: [number, string][] = [
@@ -191,31 +235,103 @@ describe("RULES", () => {
   test("an index past the end is undefined rather than a stand-in", () => {
     expect(ruleAt(RULE_COUNT)).toBeUndefined();
   });
+
+  test.each(SIZED_MAP)(
+    "index %i is the %s entry for %s %i",
+    (index, family, color, value) => {
+      expect(ruleAt(index)?.sized).toEqual({ family, color, value });
+    },
+  );
+
+  test("every entry outside the sized map is a flag", () => {
+    const sizedIndices = new Set(SIZED_MAP.map(([index]) => index));
+    RULES.forEach((rule, index) => {
+      if (!sizedIndices.has(index)) expect(rule.sized).toBeUndefined();
+    });
+  });
 });
 
-describe("RULE_DISPLAY_ORDER", () => {
-  test("draws the row in family order, not storage order", () => {
-    expect(RULE_DISPLAY_ORDER.map(index => ruleAt(index)?.id)).toEqual(
-      ROW_ORDER,
-    );
+describe("RULE_ROW", () => {
+  test("draws the bands and controls the pinned way", () => {
+    const projected = RULE_ROW.map(band => ({
+      band: band.band,
+      heading: band.heading,
+      entries: band.entries.map((entry): RowPin => {
+        if (entry.kind === "single") return ["single", entry.id];
+        if (entry.kind === "pair") {
+          return ["pair", entry.label, entry.dark, entry.light];
+        }
+        return ["sized", entry.control.key];
+      }),
+    }));
+    expect(projected).toEqual(ROW_PINS);
   });
 
-  test("shows every rule exactly once", () => {
-    // The invariant that makes the indirection safe. Grouping is what builds
-    // the list, so a rule can never be left out of it — but a group nobody
-    // draws would drop its chips silently, and this is what says so.
-    expect([...RULE_DISPLAY_ORDER].sort((a, b) => a - b)).toEqual([
-      ...Array(RULE_COUNT).keys(),
+  test("shows every flag rule exactly once and no sized rule at all", () => {
+    // The invariant that makes the folding safe: a control forgotten here
+    // would drop its rules from the page silently, and a sized id here would
+    // draw a chip the format can no longer store.
+    const drawn = RULE_ROW.flatMap(band =>
+      band.entries.flatMap(entry => {
+        if (entry.kind === "single") return [entry.id];
+        if (entry.kind === "pair") return [entry.dark, entry.light];
+        return [];
+      }),
+    );
+    const flags = RULES.filter(rule => !rule.sized).map(rule => rule.id);
+    expect([...drawn].sort()).toEqual([...flags].sort());
+    expect(new Set(drawn).size).toBe(drawn.length);
+  });
+
+  test("every control sits in the band its rules' group names", () => {
+    for (const band of RULE_ROW) {
+      for (const entry of band.entries) {
+        if (entry.kind === "sized") continue;
+        const ids = entry.kind === "single" ? [entry.id] : [entry.dark, entry.light];
+        for (const id of ids) {
+          expect(RULES.find(rule => rule.id === id)?.group).toBe(band.band);
+        }
+      }
+    }
+  });
+
+  test("the four sized controls cover both families and colours", () => {
+    const controls = RULE_ROW.flatMap(band =>
+      band.entries.flatMap(entry =>
+        entry.kind === "sized" ? [entry.control] : [],
+      ),
+    );
+    expect(controls.map(control => control.key).sort()).toEqual([
+      "area-dark",
+      "area-light",
+      "run-dark",
+      "run-light",
     ]);
-  });
-
-  test("says nothing about where a rule is stored", () => {
-    // Both halves of the point in one assertion: the row is not the file
-    // format, and the file format is still append-only.
-    expect(RULE_DISPLAY_ORDER).not.toEqual([...Array(RULE_COUNT).keys()]);
-    expect(RULE_DISPLAY_ORDER.indexOf(16)).toBeLessThan(
-      RULE_DISPLAY_ORDER.indexOf(15),
-    );
+    for (const control of controls) {
+      // The bounds are pinned as numbers on purpose: the run cap is the
+      // engine's `kMaxPatternCells` and must not drift by accident.
+      expect([control.min, control.max]).toEqual(
+        control.family === "runs" ? [2, 8] : [1, 9999],
+      );
+      // A sized control draws in the band its rules always lived in.
+      const members = RULES.filter(
+        rule =>
+          rule.sized?.family === control.family &&
+          rule.sized.color === control.color,
+      );
+      expect(members.length).toBeGreaterThan(0);
+      for (const member of members) {
+        const band = RULE_ROW.find(one =>
+          one.entries.some(
+            entry => entry.kind === "sized" && entry.control === control,
+          ),
+        );
+        expect(member.group).toBe(band!.band);
+        // Every retired size fits the control that replaced its chips.
+        expect(member.sized!.value).toBeGreaterThanOrEqual(control.min);
+        expect(member.sized!.value).toBeLessThanOrEqual(control.max);
+      }
+    }
   });
 });
 

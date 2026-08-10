@@ -1,10 +1,15 @@
 {
-  "version": 1,
+  "version": 2,
   "gridWidth": 8,
   "gridHeight": 5,
   "rules": [
-    1,
-    20
+    1
+  ],
+  "areas": [
+    {
+      "color": "dark",
+      "size": 5
+    }
   ],
   "cells": [
     [

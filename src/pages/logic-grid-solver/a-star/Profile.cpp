@@ -872,6 +872,13 @@ bool applicable(const Model &model) {
   // design, not a bigger constant.
   if (model.hasShapes)
     return false;
+  // The sized rule instances live OUTSIDE the mask, so the whitelist loop
+  // below cannot see them — they are declined here explicitly. Each would
+  // need per-class state the frontier does not carry: an area instance every
+  // open class's size, a run instance a running length along rows the sweep
+  // crosses as well as the one it follows.
+  if (!model.puzzle.areas.empty() || !model.puzzle.runs.empty())
+    return false;
   // An area clue would need each open class's SIZE in the state, and a dart a
   // running count along a line the sweep crosses rather than follows.
   if (std::ranges::any_of(model.puzzle.clues, [](const Clue &clue) {

@@ -76,9 +76,86 @@ bool readRules(const val &puzzleVal, Puzzle &puzzle, const char *&error) {
       error = "A rule index is not one this solver knows";
       return false;
     }
+    // Since format version 2 the sized indices are not legal here — their
+    // families arrive as `areas`/`runs` instances, and a bit the engine no
+    // longer reads must be refused rather than carried inert.
+    if (rules::has(rules::kSizedRuleBits, static_cast<rules::Rule>(index))) {
+      error = "A rule index names a sized rule; sized rules arrive as areas "
+              "or runs";
+      return false;
+    }
     puzzle.ruleMask |= rules::RuleMask{1} << index;
   }
   return true;
+}
+
+/**
+ * One sized family list, `areas` or `runs`. Absent means empty — the writers
+ * omit an empty list — and what arrives must already be CANONICAL: dark
+ * before light, values ascending, no duplicates. The page's validator sorts
+ * on output and `fixtureio::save` writes sorted, so a disordered list here is
+ * a hand-built payload, refused rather than repaired — the deliberate
+ * asymmetry with the TS validator, which accepts any order.
+ */
+bool readSized(const val &puzzleVal, const char *key, const char *valueKey,
+               const int lo, const int hi, const char *rangeError,
+               std::vector<rules::SizedRule> &into, const char *&error) {
+  const val list = puzzleVal[key];
+  if (list.isUndefined() || list.isNull())
+    return true;
+  const int count = list["length"].as<int>();
+  for (int i = 0; i < count; i++) {
+    const val entry = list[i];
+    // `isString` doubles as the type check — there is no typeOf probing to
+    // fall back on under -fno-exceptions, and any non-string is equally not
+    // a colour.
+    const val colorVal = entry["color"];
+    const std::string color =
+        colorVal.isString() ? colorVal.as<std::string>() : std::string();
+    if (color != "dark" && color != "light") {
+      error = "A sized rule's color must be dark or light";
+      return false;
+    }
+    // Read as a double so 2.5 is refused rather than silently truncated —
+    // and bounded BEFORE narrowing, spelled so NaN fails too: casting an
+    // out-of-range (or NaN) double to int is undefined behaviour, so the
+    // gate has to run first. In range the cast is exact, so the integrality
+    // test below still catches fractions.
+    const double raw = opt(entry, valueKey, 0.0);
+    if (!(raw >= lo && raw <= hi)) {
+      error = rangeError;
+      return false;
+    }
+    const int value = static_cast<int>(raw);
+    if (raw != static_cast<double>(value)) {
+      error = rangeError;
+      return false;
+    }
+    const rules::SizedRule rule{.color = color == "dark" ? kDark : kLight,
+                                .value = value};
+    if (!into.empty()) {
+      if (into.back() == rule) {
+        error = "A sized rule is listed twice";
+        return false;
+      }
+      if (!rules::sizedLess(into.back(), rule)) {
+        error = "Sized rules must be listed dark before light, then ascending";
+        return false;
+      }
+    }
+    into.push_back(rule);
+  }
+  return true;
+}
+
+bool readSizedLists(const val &puzzleVal, Puzzle &puzzle, const char *&error) {
+  return readSized(puzzleVal, "areas", "size", rules::kMinAreaSize,
+                   rules::kMaxAreaSize,
+                   "An area size must be between 1 and 9999", puzzle.areas,
+                   error) &&
+         readSized(puzzleVal, "runs", "length", rules::kMinRunLength,
+                   rules::kMaxRunLength, "A run length must be between 2 and 8",
+                   puzzle.runs, error);
 }
 
 bool readClues(const val &puzzleVal, Puzzle &puzzle, const char *&error) {
@@ -160,6 +237,7 @@ Puzzle puzzleFromVal(const val &puzzleVal, const char *&error) {
   }
   if (!readCells(puzzleVal, puzzle, error) ||
       !readRules(puzzleVal, puzzle, error) ||
+      !readSizedLists(puzzleVal, puzzle, error) ||
       !readClues(puzzleVal, puzzle, error) ||
       !readShapes(puzzleVal, puzzle, error))
     return puzzle;

@@ -98,18 +98,24 @@ TEST(Profile, DeclinesWhatItCannotExpress) {
   EXPECT_FALSE(takes({"3..", "...", "..a"}));
   // The pattern rules each need their own extra state; see Profile.h.
   EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::NoDark2x2}));
-  EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::NoDark1x3}));
   EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::NoCheckerboard}));
-  // An area RULE needs the same state an area clue would — the frontier carries
-  // each open class's colour and letter, never its size. Declining is a
-  // correctness requirement here rather than a tidiness one: `runProfileForced`
-  // sets `proven` with no oracle gate on its forced set, so a sweep blind to a
-  // rule would enumerate a superset of the solutions and then claim the cells
-  // they disagree about were proved to go either way.
-  EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::AreaTwoDark}));
-  EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::AreaTwoLight}));
-  EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::AreaFourDark}));
-  EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::AreaFourLight}));
+  // The sized rule instances live OUTSIDE the mask, so the whitelist loop
+  // cannot see them and their decline is its own explicit check: a run
+  // instance would need a running length along rows the sweep crosses, an
+  // area instance each open class's size — the state an area clue would need.
+  // Declining is a correctness requirement rather than a tidiness one:
+  // `runProfileForced` sets `proven` with no oracle gate on its forced set,
+  // so a sweep blind to an instance would enumerate a superset of the
+  // solutions and then claim the cells they disagree about were proved free.
+  Puzzle run = test::board({"a..", "...", "..a"});
+  test::withRunRule(run, kDark, 3);
+  EXPECT_FALSE(profile::applicable(buildModel(run)));
+  Puzzle darkArea = test::board({"a..", "...", "..a"});
+  test::withAreaRule(darkArea, kDark, 2);
+  EXPECT_FALSE(profile::applicable(buildModel(darkArea)));
+  Puzzle lightArea = test::board({"a..", "...", "..a"});
+  test::withAreaRule(lightArea, kLight, 4);
+  EXPECT_FALSE(profile::applicable(buildModel(lightArea)));
 }
 
 /**
@@ -174,6 +180,11 @@ TEST(Profile, DeclinesEveryRuleItDoesNotName) {
   using enum Rule;
   for (int index = 0; index < rules::kRuleCount; index++) {
     const auto rule = static_cast<Rule>(index);
+    // The 22 sized indices have no mask bit any more — their families arrive
+    // as instances, and the explicit instance check is pinned above. What
+    // this sweep keeps guarding is every FLAG, present and future.
+    if (rules::has(rules::kSizedRuleBits, rule))
+      continue;
     const bool supported =
         rule == ConnectDark || rule == ConnectLight || rule == Underclued;
     EXPECT_EQ(takes({"a..", "...", "..a"}, {rule}), supported)

@@ -13,11 +13,12 @@ import {
   UNKNOWN,
   UNPLAYABLE,
 } from "../../src/pages/logic-grid-solver/cell";
-import { LogicGridSolverEditor } from "../../src/pages/logic-grid-solver/logicGridSolver";
 import {
-  RULE_DISPLAY_ORDER,
-  RULES,
-} from "../../src/pages/logic-grid-solver/rules";
+  CONFIG_VERSION,
+  migrationNotice,
+} from "../../src/pages/logic-grid-solver/config";
+import { LogicGridSolverEditor } from "../../src/pages/logic-grid-solver/logicGridSolver";
+import { RULE_ROW, RULES } from "../../src/pages/logic-grid-solver/rules";
 import { SYMBOL_KINDS } from "../../src/pages/logic-grid-solver/symbols";
 import type { LogicGridTest } from "../../src/util/types";
 
@@ -105,10 +106,11 @@ describe("LogicGridSolverEditor", () => {
   ];
 
   /**
-   * One rule chip, by its stable id.
+   * One rule chip, by its stable id — a single's full-label chip and a folded
+   * pair's Dark/Light segment are the same button either way.
    *
-   * The row is drawn in `RULE_DISPLAY_ORDER`, so a chip's position is neither
-   * the index a config stores nor anything a test should lean on — and a case
+   * The row is laid out by `RULE_ROW`, so a chip's position is neither the
+   * index a config stores nor anything a test should lean on — and a case
    * that says which rule it is about keeps saying it when the row is
    * rearranged.
    */
@@ -116,6 +118,29 @@ describe("LogicGridSolverEditor", () => {
     document.querySelector<HTMLButtonElement>(
       `#rule-row .rule-chip[data-rule="${id}"]`,
     )!;
+
+  /** One sized family control — the pill holding its value fields. */
+  const sizedControl = (key: string) =>
+    document.querySelector<HTMLElement>(
+      `#rule-row .rule-sized[data-sized-control="${key}"]`,
+    )!;
+
+  /** The control's "+" button, which appends another value slot. */
+  const sizedAdd = (key: string) =>
+    sizedControl(key).querySelector<HTMLButtonElement>(".rule-size-add")!;
+
+  /** A control's value fields, in slot order — insertion keeps them so. */
+  const sizedFields = (key: string) => [
+    ...document.querySelectorAll<HTMLInputElement>(
+      `#rule-row .rule-size[data-sized-control="${key}"]`,
+    ),
+  ];
+
+  function setSizedValue(key: string, slot: number, raw: string) {
+    const field = sizedFields(key)[slot]!;
+    field.value = raw;
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  }
 
   /** The value field belonging to clue kind `index`. */
   const valueField = (index: number) =>
@@ -199,26 +224,67 @@ describe("LogicGridSolverEditor", () => {
       );
     });
 
-    test("offers every clue kind and every rule", () => {
+    test("offers every clue kind and every flag rule", () => {
       expect(symbolChips()).toHaveLength(SYMBOL_KINDS.length);
-      expect(ruleChips()).toHaveLength(RULES.length);
       expect(symbolChips()[0]!.dataset.symbol).toBe(SYMBOL_KINDS[0]!.id);
-      expect(ruleChip(RULES[0]!.id).textContent).toBe(RULES[0]!.label);
+      // One chip per FLAG rule: the 22 sized entries have no chip of their
+      // own — their families are the four value controls counted below.
+      expect(ruleChips()).toHaveLength(
+        RULES.filter(rule => !rule.sized).length,
+      );
+      // RULES[0] is half of a folded pair, so its segment wears the colour as
+      // a SWATCH — the paint tools' own visual — and the full rule name as
+      // its accessible one.
+      expect(
+        ruleChip(RULES[0]!.id).querySelector('.swatch[data-swatch="dark"]'),
+      ).not.toBeNull();
+      expect(ruleChip(RULES[0]!.id).getAttribute("aria-label")).toBe(
+        RULES[0]!.label,
+      );
+      expect(document.querySelectorAll("#rule-row .rule-sized")).toHaveLength(
+        4,
+      );
+      expect(
+        document.querySelectorAll("#rule-row .rule-size-add"),
+      ).toHaveLength(4);
+      // A fresh board starts every sized family empty: no value fields until
+      // the add button makes one.
+      expect(document.querySelectorAll("#rule-row .rule-size")).toHaveLength(0);
     });
 
     /**
      * The row is a reading order and the catalogue is the file format. This is
      * what says the page draws the first and still stores the second: a chip's
-     * position is `RULE_DISPLAY_ORDER`'s, and `data-rule-index` — which is what
-     * the click handler reads — is the catalogue's.
+     * position follows `RULE_ROW`'s bands — a pair contributing its dark then
+     * its light segment — while `data-rule-index`, which is what the click
+     * handler reads, is the catalogue's.
      */
     test("draws the rules in row order, carrying their stored index", () => {
-      expect(ruleChips().map(chip => chip.dataset.rule)).toEqual(
-        RULE_DISPLAY_ORDER.map(index => RULES[index]!.id),
+      const rowIds = RULE_ROW.flatMap(band =>
+        band.entries.flatMap(entry => {
+          if (entry.kind === "single") return [entry.id];
+          return entry.kind === "pair" ? [entry.dark, entry.light] : [];
+        }),
       );
-      expect(ruleChips().map(chip => Number(chip.dataset.ruleIndex))).toEqual([
-        ...RULE_DISPLAY_ORDER,
-      ]);
+      expect(ruleChips().map(chip => chip.dataset.rule)).toEqual(rowIds);
+      expect(ruleChips().map(chip => Number(chip.dataset.ruleIndex))).toEqual(
+        rowIds.map(id => RULES.findIndex(rule => rule.id === id)),
+      );
+    });
+
+    /** Each band is its own labelled section, in `RULE_ROW`'s order. */
+    test("groups the rules into headed bands", () => {
+      const bands = [
+        ...document.querySelectorAll<HTMLElement>("#rule-row .rule-band"),
+      ];
+      expect(bands.map(band => band.dataset.band)).toEqual(
+        RULE_ROW.map(band => band.band),
+      );
+      expect(
+        bands.map(
+          band => band.querySelector(".rule-band-heading")!.textContent,
+        ),
+      ).toEqual(RULE_ROW.map(band => band.heading));
     });
 
     /** Every kind that CARRIES a value gets its own field, so none has to be
@@ -395,10 +461,19 @@ describe("LogicGridSolverEditor", () => {
       expect(symbolChips()).toHaveLength(SYMBOL_KINDS.length);
     });
 
-    test("starts aimed right, with exactly one arrow on", () => {
-      expect(aimed()).toBe(1);
-      expect(arrows()[1]!.getAttribute("aria-pressed")).toBe("true");
-      expect(arrows()[0]!.getAttribute("aria-pressed")).toBe("false");
+    /** A lit arrow beside an idle chip reads as "this tool is active", so
+     * nothing shows until the dart itself is armed — and then the FIRST
+     * arrow, nothing having been picked yet. */
+    test("shows no aim until the dart is armed, then the first arrow", () => {
+      expect(aimed()).toBe(-1);
+      expect(
+        arrows().every(one => one.getAttribute("aria-pressed") === "false"),
+      ).toBeTrue();
+
+      symbolChips()[DART]!.click();
+      expect(aimed()).toBe(0);
+      expect(arrows()[0]!.getAttribute("aria-pressed")).toBe("true");
+      expect(arrows()[1]!.getAttribute("aria-pressed")).toBe("false");
     });
 
     /** Aiming is a declaration of intent to place, exactly as typing is. */
@@ -414,7 +489,9 @@ describe("LogicGridSolverEditor", () => {
     test("the aim survives switching kinds and coming back", () => {
       arrows()[3]!.click();
       symbolChips()[0]!.click();
-      expect(aimed()).toBe(3);
+      // Another kind is armed, so the dart's toggles show nothing at all —
+      // the choice itself is kept, not shown.
+      expect(aimed()).toBe(-1);
       symbolChips()[DART]!.click();
       expect(aimed()).toBe(3);
     });
@@ -464,21 +541,175 @@ describe("LogicGridSolverEditor", () => {
 
   describe("Rules", () => {
     test("a chip toggles its rule on and off", () => {
-      ruleChip("no-dark-1x2").click();
-      expect(ruleChip("no-dark-1x2").classList.contains("selected")).toBeTrue();
-      expect(ruleChip("no-dark-1x2").getAttribute("aria-pressed")).toBe("true");
-      ruleChip("no-dark-1x2").click();
-      expect(ruleChip("no-dark-1x2").classList.contains("selected")).toBeFalse();
-      expect(ruleChip("no-dark-1x2").getAttribute("aria-pressed")).toBe("false");
+      ruleChip("no-dark-t").click();
+      expect(ruleChip("no-dark-t").classList.contains("selected")).toBeTrue();
+      expect(ruleChip("no-dark-t").getAttribute("aria-pressed")).toBe("true");
+      ruleChip("no-dark-t").click();
+      expect(ruleChip("no-dark-t").classList.contains("selected")).toBeFalse();
+      expect(ruleChip("no-dark-t").getAttribute("aria-pressed")).toBe("false");
+    });
+
+    /** The fold is layout, not linkage: a pair's segments are two independent
+     * switches, and both colours can be on at once. */
+    test("a pair's segments toggle independently", () => {
+      ruleChip("no-dark-t").click();
+      expect(ruleChip("no-light-t").getAttribute("aria-pressed")).toBe("false");
+      ruleChip("no-light-t").click();
+      expect(ruleChip("no-dark-t").getAttribute("aria-pressed")).toBe("true");
+      expect(ruleChip("no-light-t").getAttribute("aria-pressed")).toBe("true");
     });
 
     /** A different size is a different puzzle, and it brings its own rules. */
     test("rules go with a resize, along with the board", () => {
-      ruleChip("no-light-1x2").click();
+      ruleChip("connect-light").click();
       setSize("4", "4");
-      const chip = ruleChip("no-light-1x2");
+      const chip = ruleChip("connect-light");
       expect(chip.classList.contains("selected")).toBeFalse();
       expect(chip.getAttribute("aria-pressed")).toBe("false");
+    });
+  });
+
+  describe("Sized rules", () => {
+    test("the add button appends an empty slot and focuses it", () => {
+      sizedAdd("run-dark").click();
+      const fields = sizedFields("run-dark");
+      expect(fields).toHaveLength(1);
+      expect(fields[0]!.value).toBe("");
+      expect(document.activeElement).toBe(fields[0]!);
+      // Empty is merely pending — not yet a value, not yet an error.
+      expect(fields[0]!.hasAttribute("aria-invalid")).toBeFalse();
+      expect(
+        sizedControl("run-dark").classList.contains("selected"),
+      ).toBeFalse();
+    });
+
+    test("a usable value lights its own control and no other", () => {
+      sizedAdd("area-dark").click();
+      setSizedValue("area-dark", 0, "4");
+      expect(
+        sizedControl("area-dark").classList.contains("selected"),
+      ).toBeTrue();
+      expect(
+        sizedFields("area-dark")[0]!.hasAttribute("aria-invalid"),
+      ).toBeFalse();
+      expect(
+        sizedControl("area-light").classList.contains("selected"),
+      ).toBeFalse();
+    });
+
+    /** The bounds are the format's: runs 2..8, areas 1..9999. A value outside
+     * them contributes nothing, and the field says so on itself. */
+    test.each([
+      ["run-dark", "1"],
+      ["run-dark", "9"],
+      ["area-dark", "0"],
+      ["area-dark", "10000"],
+    ])("%s marks %s as unusable", (key, raw) => {
+      sizedAdd(key).click();
+      setSizedValue(key, 0, raw);
+      expect(sizedFields(key)[0]!.getAttribute("aria-invalid")).toBe("true");
+      expect(sizedControl(key).classList.contains("selected")).toBeFalse();
+    });
+
+    test("a duplicate marks the later slot, not the first", () => {
+      sizedAdd("run-light").click();
+      setSizedValue("run-light", 0, "3");
+      sizedAdd("run-light").click();
+      setSizedValue("run-light", 1, "3");
+      const fields = sizedFields("run-light");
+      expect(fields[0]!.hasAttribute("aria-invalid")).toBeFalse();
+      expect(fields[1]!.getAttribute("aria-invalid")).toBe("true");
+    });
+
+    test("leaving an emptied slot removes it and renumbers the rest", () => {
+      sizedAdd("area-dark").click();
+      setSizedValue("area-dark", 0, "2");
+      sizedAdd("area-dark").click();
+      setSizedValue("area-dark", 1, "5");
+
+      setSizedValue("area-dark", 0, "");
+      // Still there while focused: clearing keeps the field for more digits.
+      expect(sizedFields("area-dark")).toHaveLength(2);
+
+      sizedFields("area-dark")[0]!.dispatchEvent(
+        new Event("focusout", { bubbles: true }),
+      );
+
+      const fields = sizedFields("area-dark");
+      expect(fields).toHaveLength(1);
+      expect(fields[0]!.value).toBe("5");
+      expect(fields[0]!.dataset.slot).toBe("0");
+      expect(fields[0]!.getAttribute("aria-label")).toBe(
+        "Dark regions have area value 1",
+      );
+    });
+
+    /**
+     * The refresh runs on every rule toggle and re-asserts each slot's text.
+     * Assigning `value` moves the caret even when the string is unchanged, so
+     * the guard has to SKIP the write — pinned by counting writes, since the
+     * value itself would look identical either way.
+     */
+    test("an unrelated refresh leaves a slot's text alone", () => {
+      sizedAdd("run-dark").click();
+      setSizedValue("run-dark", 0, "4");
+      const field = sizedFields("run-dark")[0]!;
+      let rewrites = 0;
+      Object.defineProperty(field, "value", {
+        get: () => "4",
+        set: () => {
+          rewrites++;
+        },
+        configurable: true,
+      });
+
+      ruleChip("no-checkerboard").click();
+
+      expect(rewrites).toBe(0);
+    });
+
+    test("a resize clears the sized values with the rest of the rules", () => {
+      sizedAdd("run-dark").click();
+      setSizedValue("run-dark", 0, "3");
+      setSize("4", "4");
+      expect(sizedFields("run-dark")).toHaveLength(0);
+      expect(
+        sizedControl("run-dark").classList.contains("selected"),
+      ).toBeFalse();
+    });
+
+    test("reset clears them too", () => {
+      sizedAdd("area-light").click();
+      setSizedValue("area-light", 0, "2");
+      toolButton("reset").click();
+      byId("reset-confirm").click();
+      expect(sizedFields("area-light")).toHaveLength(0);
+    });
+
+    test("an uploaded config replaces the slots wholesale", async () => {
+      sizedAdd("run-dark").click();
+      setSizedValue("run-dark", 0, "5");
+
+      pick(
+        configFile({
+          version: CONFIG_VERSION,
+          gridWidth: 2,
+          gridHeight: 1,
+          rules: [],
+          areas: [{ color: "light", size: 3 }],
+          cells: [[UNKNOWN], [UNKNOWN]],
+          symbols: [],
+        }),
+      );
+      await flush();
+
+      expect(sizedFields("run-dark")).toHaveLength(0);
+      expect(sizedFields("area-light").map(field => field.value)).toEqual([
+        "3",
+      ]);
+      expect(
+        sizedControl("area-light").classList.contains("selected"),
+      ).toBeTrue();
     });
   });
 
@@ -642,6 +873,19 @@ describe("LogicGridSolverEditor", () => {
 
       expect(byId("solution-view").classList.contains("hidden")).toBeTrue();
     });
+
+    test("typing a sized value drops it too", async () => {
+      byId("solve-puzzle").click();
+      await flush();
+
+      // The + button alone changes no config, so the answer stays up…
+      sizedAdd("run-dark").click();
+      expect(byId("solution-view").classList.contains("hidden")).toBeFalse();
+
+      // …and the first digit is an edit like any other.
+      setSizedValue("run-dark", 0, "2");
+      expect(byId("solution-view").classList.contains("hidden")).toBeTrue();
+    });
   });
 
   describe("Download", () => {
@@ -673,7 +917,7 @@ describe("LogicGridSolverEditor", () => {
 
       expect(blobs).toHaveLength(1);
       expect(JSON.parse(await blobs[0]!.text())).toEqual({
-        version: 1,
+        version: CONFIG_VERSION,
         gridWidth: 2,
         gridHeight: 2,
         rules: [0, 10],
@@ -683,8 +927,9 @@ describe("LogicGridSolverEditor", () => {
         ],
         symbols: [{ x: 0, y: 1, type: 1, value: "E" }],
       });
-      // Not written at all on a board with no merged cells — the 139 captured
-      // fixtures predate the key and have to keep round-tripping unchanged.
+      // `shapes` is not written at all on a board with no merged cells, and
+      // `toEqual` above already proves `areas`/`runs` are omitted rather than
+      // written empty — the captured fixtures round-trip byte-identically.
       expect("shapes" in JSON.parse(await blobs[0]!.text())).toBeFalse();
     });
 
@@ -707,7 +952,8 @@ describe("LogicGridSolverEditor", () => {
       symbolChips()[0]!.click();
       setValue(0, "3");
       press(2, 1);
-      ruleChip("no-dark-1x3").click();
+      sizedAdd("run-dark").click();
+      setSizedValue("run-dark", 0, "3");
 
       byId("download-config").click();
       const downloaded = await blobs[0]!.text();
@@ -715,6 +961,7 @@ describe("LogicGridSolverEditor", () => {
       toolButton("reset").click();
       byId("reset-confirm").click();
       expect(cellAt(1, 0).dataset.color).toBe("unknown");
+      expect(sizedFields("run-dark")).toHaveLength(0);
 
       pick(new File([downloaded], "logicGridTest.json"));
       await flush();
@@ -722,28 +969,55 @@ describe("LogicGridSolverEditor", () => {
       expect(document.querySelectorAll("#grid .grid-cell")).toHaveLength(6);
       expect(cellAt(1, 0).dataset.color).toBe("dark");
       expect(cellAt(2, 1).textContent).toBe("3");
-      expect(ruleChip("no-dark-1x3").classList.contains("selected")).toBeTrue();
+      expect(sizedFields("run-dark").map(field => field.value)).toEqual(["3"]);
+      expect(
+        sizedControl("run-dark").classList.contains("selected"),
+      ).toBeTrue();
     });
 
     /**
-     * The row/catalogue split, end to end. This chip is drawn beside the connect
-     * rules, roughly two thirds along the row, and the file it writes says 16 —
-     * which is what keeps every puzzle saved before it existed meaning the same
-     * thing.
+     * The row/catalogue split, end to end. This segment is drawn folded into
+     * the "Connect all cells" pair, and the file it writes says 12 — which is
+     * what keeps every puzzle saved before the fold meaning the same thing.
      */
     test("writes a rule's stored index, not its position in the row", async () => {
-      ruleChip("area-two-dark").click();
+      ruleChip("connect-light").click();
 
       byId("download-config").click();
 
       const written = JSON.parse(await blobs[0]!.text()) as LogicGridTest;
-      expect(written.rules).toEqual([16]);
+      expect(written.rules).toEqual([12]);
+    });
+
+    /**
+     * A sized value never lands in `rules` at all: since format version 2 the
+     * number rides in its family list, dark before light and values ascending,
+     * whatever order it was typed in.
+     */
+    test("writes sized values as family entries in canonical order", async () => {
+      sizedAdd("area-light").click();
+      setSizedValue("area-light", 0, "3");
+      sizedAdd("area-dark").click();
+      setSizedValue("area-dark", 0, "5");
+      sizedAdd("area-dark").click();
+      setSizedValue("area-dark", 1, "2");
+
+      byId("download-config").click();
+
+      const written = JSON.parse(await blobs[0]!.text()) as LogicGridTest;
+      expect(written.rules).toEqual([]);
+      expect(written.areas).toEqual([
+        { color: "dark", size: 2 },
+        { color: "dark", size: 5 },
+        { color: "light", size: 3 },
+      ]);
+      expect("runs" in written).toBeFalse();
     });
   });
 
   describe("Upload", () => {
     const config: LogicGridTest = {
-      version: 1,
+      version: CONFIG_VERSION,
       gridWidth: 2,
       gridHeight: 1,
       rules: [11],
@@ -782,6 +1056,31 @@ describe("LogicGridSolverEditor", () => {
       expect(byId("warning-banner").textContent).toBe(
         "Please choose a JSON config file.",
       );
+    });
+
+    /**
+     * An older file loads in full and then warns about the copy on disk. A
+     * file with no version key at all IS version 1, and its sized index — 2,
+     * "no dark 1x2" — lands as a value in the run control, not as a flag.
+     */
+    test("migrates a version 1 file and says so", async () => {
+      pick(
+        configFile({
+          gridWidth: 2,
+          gridHeight: 1,
+          rules: [2],
+          cells: [[UNKNOWN], [UNKNOWN]],
+          symbols: [],
+        }),
+      );
+      await flush();
+
+      expect(byId("warning-banner").classList.contains("hidden")).toBeFalse();
+      expect(byId("warning-banner").textContent).toBe(migrationNotice(1));
+      expect(sizedFields("run-dark").map(field => field.value)).toEqual(["2"]);
+      expect(
+        ruleChips().some(chip => chip.classList.contains("selected")),
+      ).toBeFalse();
     });
   });
 });
