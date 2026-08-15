@@ -123,6 +123,23 @@ export function isSolved(
 }
 
 /**
+ * Whether the board is already solved where it stands, no turn played.
+ *
+ * Worth asking because the solver answers such a board with the EMPTY plan,
+ * which is exactly what an arm that found nothing returns — so "no moves" has
+ * to be told apart from "no solution" somewhere, and the start state is the
+ * only thing that can say which it is.
+ *
+ * Goes through `replayTurns` rather than reading the blocks directly: seeding
+ * the satisfied mask from where they already stand is a rule of the replay, and
+ * a second copy of it here is a second place for it to go stale.
+ */
+export function isSolvedAtStart(puzzle: Puzzle): boolean {
+  const start = replayTurns(puzzle, []).steps[0]!;
+  return isSolved(puzzle, start.blocks, start.satisfied);
+}
+
+/**
  * Walks the turns, capturing the board before each one. Stops at the first
  * turn that names a missing block or leaves it in an illegal place — a witness
  * the page cannot play is worth showing up to the point it breaks, not

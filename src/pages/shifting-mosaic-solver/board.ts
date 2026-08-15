@@ -324,7 +324,13 @@ export class Board {
       this.editor.render();
     });
 
-    document.addEventListener("pointerup", () => {
+    // pointercancel as well as pointerup: a stroke does not always end in a
+    // pointerup — a touch that turns into a system gesture arrives as
+    // pointercancel instead, and the in-progress cells would be stranded with
+    // `isPainting` still set. Logic-grid ends its stroke on both for the same
+    // reason. A cancelled stroke commits what it already drew, exactly as a
+    // released one does: those cells are drawn either way.
+    const endStroke = () => {
       if (!this.isPainting) return;
       this.isPainting = false;
       this.commitInProgressBlock();
@@ -332,7 +338,9 @@ export class Board {
       this.attemptedOverlap = false;
       this.editor.hideSolution();
       this.editor.render();
-    });
+    };
+    document.addEventListener("pointerup", endStroke);
+    document.addEventListener("pointercancel", endStroke);
   }
 
   private tryAddInProgressCell(position: Position) {

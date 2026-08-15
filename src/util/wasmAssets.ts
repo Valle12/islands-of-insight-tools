@@ -25,6 +25,21 @@ export const WASM_VARIANT_FILES = [
 ] as const;
 
 /**
+ * Files served from every solver's wasm prefix that are NOT that solver's own
+ * output: the name each worker imports, mapped to the one source it is copied
+ * from.
+ *
+ * Published per solver rather than from a shared url of its own so a worker
+ * reaches it as `./astar.workerCore.js` — page-relative, exactly like the
+ * `astar.mjs` beside it, and with no second prefix for `serve.ts` and
+ * `build.ts` to keep in step. Four copies of ~4 KB in `dist/` is the price,
+ * and it buys one copy of the file that matters.
+ */
+export const WASM_SHARED_FILES: Readonly<Record<string, string>> = {
+  "astar.workerCore.js": "astarWorkerCore.js",
+};
+
+/**
  * Every solver that ships wasm: the page directory holding its `wasm/` output,
  * and the url prefix it is served from. The prefix is reached PAGE-relative
  * (`../lg-wasm/…`), never root-absolute — the site is served from a GitHub

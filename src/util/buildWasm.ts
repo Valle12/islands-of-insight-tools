@@ -65,7 +65,7 @@ function emccVersion(): string {
 const forceRebuild = process.env.FORCE_WASM === "1";
 
 interface Stamp {
-  /** Hash of the sources, the a-star headers and the full argv. */
+  /** Hash of the sources, the a-star headers and the build FLAGS. */
   sourcesHash: string;
   /** `em++ --version` at the time the output was produced. */
   emccVersion: string;
@@ -95,8 +95,10 @@ function sourcesHashFor(aStarDir: string, sources: string[], args: string[]) {
   const inputs = [...sources.map(s => resolve(aStarDir, s)), ...headers];
 
   const hash = createHash("sha256");
-  // The argv covers the output name, -I paths, SM_SIMD, -m64, -pthread and the
-  // memory ceilings, so flipping any build knob invalidates the stamp.
+  // `args` covers the output name, needsBoost as a boolean, SM_SIMD, -m64,
+  // -pthread and the memory ceilings, so flipping any build knob invalidates
+  // the stamp — while carrying no absolute path that could differ between two
+  // CI jobs building the same commit.
   hash.update(args.join("\0"));
   for (const file of inputs) {
     hash.update("\0");

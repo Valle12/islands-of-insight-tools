@@ -38,7 +38,12 @@ export function parseFlags(
 ) {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
-    const handler = flags[arg];
+    // `Object.hasOwn`, never a bare lookup: `flags["toString"]` finds
+    // `Object.prototype.toString`, which is truthy, so an argument named after
+    // a prototype member slipped past the guard and was silently ignored —
+    // and `flags["__proto__"]` yielded an object, throwing a TypeError instead
+    // of the message.
+    const handler = Object.hasOwn(flags, arg) ? flags[arg] : undefined;
     if (!handler) throw new Error(`Unknown argument: ${arg}`);
     handler(() => {
       const v = argv[++i];

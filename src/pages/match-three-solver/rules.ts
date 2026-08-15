@@ -342,11 +342,37 @@ export function legalMoves(board: MatchThreeBoard): Move[] {
   return moves;
 }
 
+/**
+ * Whether the two cells a move names are a swap the game would offer at all:
+ * both on the board, orthogonally adjacent with `b` to `a`'s right or below,
+ * both holding a symbol, and holding different ones.
+ *
+ * Mirrors the opening of `a-star/Rules.cpp`'s `applyMove`, which is where these
+ * checks have always been. Without them `swapCells` would read an out-of-range
+ * index as `undefined` and write it back into the `Uint8Array` as EMPTY —
+ * DELETING a block rather than swapping — so a witness with bad coordinates
+ * could reach `blockCount(current) === 0` and be accepted as a solution, and a
+ * non-adjacent swap would render in the viewer as a move the game refuses.
+ */
+function isWellFormed(board: MatchThreeBoard, move: Move): boolean {
+  const { width, height } = board;
+  const { a, b } = move;
+  if (a.x < 0 || a.x >= width || b.x < 0 || b.x >= width) return false;
+  if (a.y < 0 || a.y >= height || b.y < 0 || b.y >= height) return false;
+  const adjacent =
+    (b.y === a.y && b.x === a.x + 1) || (b.x === a.x && b.y === a.y + 1);
+  if (!adjacent) return false;
+  const first = cellAt(board, a.x, a.y);
+  const second = cellAt(board, b.x, b.y);
+  return isSymbol(first) && isSymbol(second) && first !== second;
+}
+
 /** Applies a swap and its whole cascade, or null when the swap clears nothing. */
 export function applyMove(
   board: MatchThreeBoard,
   move: Move,
 ): MoveOutcome | null {
+  if (!isWellFormed(board, move)) return null;
   const next = cloneBoard(board);
   swapCells(next, move);
 

@@ -159,9 +159,19 @@ MEMORY64 (8 GB heap), pthreads+MEMORY64 — concurrently for all four C++ solver
   `build.ts`'s copy step. Missing the `serve.ts` copy 404s in dev; missing the
   `build.ts` copy 404s only in production, after CI is green. Workers are reached
   page-relative, never root-absolute.
+  **`WASM_SHARED_FILES` is the second half of that list**: files published into
+  EVERY solver's prefix that are not that solver's own output, keyed by the name
+  they are PUBLISHED under and mapped to the one source they are copied from.
+  There is one entry, and it is renamed on the way: `src/util/astarWorkerCore.js`
+  ships into each prefix as `astar.workerCore.js`, which is what every worker
+  imports (`./astar.workerCore.js`) — page-relative like the `astar.mjs` beside
+  it, and with no second url prefix to keep in step.
 - `src/pages/*/wasm/` is generated and gitignored **except** `astar.worker.js`,
   hand-written source in the same directory — do not delete the directory
-  wholesale.
+  wholesale. Each of the four is now ~25 lines: the loader, the variant table,
+  the validate-is-not-instantiate fallback to wasm32 and the error protocol all
+  live once in **`src/util/astarWorkerCore.js`**, and a worker supplies only the
+  function that copies its own embind result out into a postable `done`.
 - Source lists are duplicated in `buildWasm.ts` and the C++ `CMakeLists.txt` and
   must stay in sync; a missing TU fails at link time.
 - **Variants are skipped when their inputs have not moved.** The
@@ -191,6 +201,17 @@ threads. Variant priority (threads-mem64 > threads > mem64 > default) comes from
 are **in-band** (`{…, error}`) because the builds are `-fno-exceptions`: a throw
 would reach the page as an aborted module.
 
+**The race itself is `src/util/wasmPool.ts`, not the bridges.** `startWasmPool`
+owns spawning, the queue and back-fill, per-arm progress summing, retirement,
+teardown and the "everything failed" path; a bridge supplies its arm list, its
+puzzle payload and an `onMessage` that says what a message MEANS. Four copies of
+that lifecycle is what let two of the four forget to mark the race dead in
+`terminate()` (a `done` still in flight then back-fills a fresh worker for a
+board the page has discarded) and two let a `new Worker` throw straight through
+the click handler. `crossOriginIsolatedPage()` and `armPoolSize()` live there
+too — logic-grid deliberately collapses on isolation ONLY, the other three also
+when a single slot would just serialise the portfolio.
+
 - **rolling-blocks** — `solve` / `optimize`; engines `cascade` (default),
   `wastar`, `exact`, `cracker`, `beam`, `greedy`. Arm selection is in
   `SolverArms.cpp`, whose `kPortfolio` must stay in sync with the bridge's
@@ -198,6 +219,11 @@ would reach the page as an aborted module.
   dims ≤ 64. The cascade first **decomposes** the board into independent playable
   regions. The two-block coverage scheme and the cracker-only `Config` fields
   (never exposed at the wasm/CLI boundary) are in `a-star/bench/HARD-BOARDS.md`.
+- **An EMPTY plan means two different things on both block pages**: no solution,
+  or a board that was already solved when it arrived. Only the start state tells
+  them apart — `replay.ts`'s `isSolvedAtStart` for rolling-blocks, the goal
+  anchor for shifting-mosaic — and both pages ask it before writing "no
+  solution", which is the same trap as match-three's cleared board.
 - **shifting-mosaic** — the original portfolio; `PORTFOLIO` is exported so its
   slow suite races the exact production arm set.
 - **match-three** — `puzzle.cells` is **flat row-major** while the fixture format
@@ -298,7 +324,7 @@ in `serve.ts`, an entrypoint in `build.ts`, a card in `src/pages/index.html` **i
   301 the other from `fetch`, as Pages does. **`dist` ships nothing `build.ts`
   does not copy**: a new static file needs a copy there *and* a branch in
   `serve.ts`'s allowlist.
-- **The OG frame is 1920x1005, not 1200x630**, and **a new page can force it up**;
+- **The OG frame is 2400x1257, not 1200x630**, and **a new page can force it up**;
   the number to measure is `#editor-card`'s box plus the body's 24 px padding, not
   `documentElement.scrollHeight`. `og:capture` drives Playwright's **CLI under
   node** (its API hangs forever under bun) and always passes the scheme
@@ -308,6 +334,34 @@ in `serve.ts`, an entrypoint in `build.ts`, a card in `src/pages/index.html` **i
 
 Full detail in **`docs/logic-grid.md`**. What bites from outside:
 
+- **The oracle is five files, `verify.ts` the front door.** `verifyCore.ts`
+  resolves every rule and clue index once at module load (so a renamed id breaks
+  the import rather than silently switching a rule off) and holds the grid
+  readers and the flood fill; `verifyPatterns.ts` has the local-window rules,
+  `verifyRegions.ts` the ones only answerable region-by-region, `verifyClues.ts`
+  the walked geometries (dart ray, viewpoint sight, lotus mirror, galaxy half
+  turn). `verify.ts` keeps the structural checks and the dispatch list, and
+  RE-EXPORTS `toFlat`/`toGrid`/`UNDERCLUED`/`OFF_BY_ONE`, so no caller knows
+  which file a thing is in. **The list's first two entries are load-bearing** —
+  `shapeProblem` then `fusedProblem` — because everything after them reads the
+  colouring one SQUARE at a time; the three families after that are independent,
+  and their order decides only WHICH violation is reported when a board breaks
+  several of them (which the suites assert). `board.ts`'s pure clue arithmetic
+  — turning, comparing, serialising one clue — is `clueEdits.ts` for the same
+  reason.
+- **The board is six files, `board.ts` the front door**, which keeps only
+  press → stroke → write: the listeners, `beginStroke`, `applyStroke`,
+  `paintCell` and the one `writeCell` everything funnels through.
+  `boardLayers.ts` owns the three layers and is the only thing that survives a
+  re-render (`getSymbols`, `load`, and a `write` returning `nothing`/`clue`/
+  `color`, which is what decides how much repaints); `boardView.ts` owns `#grid`,
+  the cell buttons and the outline SVG, and is the only file with a DOM handle;
+  `strokes.ts` decides what a press MEANS (the `Stroke` union, the
+  re-click-erases rule, the symmetry seat); `mergeEdits.ts` restructures a cell;
+  `boardKeys.ts` is the keyboard plus the digit-run state a number past nine
+  needs. **`Board` takes a `SolutionHolder`, not the editor** — `hideSolution()`
+  is all it ever calls, and the wide type made it import the module that imports
+  it back.
 - **A cell carries independent layers.** `cell.ts` owns the colour only
   (`UNKNOWN` 0, `DARK` 1, `LIGHT` 2, `UNPLAYABLE` 3) and `cells` is flat
   **column-major**. Clues are a separate sparse `symbols` array of
@@ -338,7 +392,7 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
   `.tool-button.rule-chip` with `data-rule`/`data-rule-index`/`aria-pressed`);
   one value control per sized family+colour whose `+` (`.rule-size-add`,
   deliberately not a `.tool-button`) appends a `.rule-size` slot. **Only
-  `buildRuleRow` reads it**; everything else addresses chips by id, so a test
+  `ruleRowMarkup` in `toolRowMarkup.ts` reads it**; everything else addresses chips by id, so a test
   that indexes chips by DOM position is the thing this breaks. Flag indices
   are also mirrored in `catalog.test.ts`, `rules_test.cpp` and — unavoidably,
   since it runs under node — `mem64.node.test.mjs`. The sized families need no
@@ -348,7 +402,27 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
 - **Both tool rows are built once and refreshed in place**: `buildSymbolRow` /
   `buildRuleRow` run only from `render()` (board replacement), since rebuilding on
   selection destroys the field being typed into, and `refreshSymbolRow` skips
-  writing `input.value` when it matches (assigning moves the caret).
+  writing `input.value` when it matches (assigning moves the caret). Their
+  MARKUP — every chip, pair segment, value field, arrow and axis toggle, plus
+  `ruleIndexOf` and `SIZED_CONTROLS` — is `toolRowMarkup.ts`, pure functions
+  taking the catalogue and the board size, and the clue row's refresh —
+  `buildSymbolRow`, `refreshSymbolRow` and the per-kind `symbolValueOf` /
+  `symbolAimOf` — is `symbolRowView.ts`, which takes the row element plus the
+  editor's two per-kind arrays. **The sized controls are the exception, and own
+  their own elements**: a `+` appends a field and focuses it and an emptied one
+  disappears on `focusout`, so `sizedRuleControls.ts` holds the raw slot text
+  AND builds, drops and listens for those fields on `#rule-row` — two delegated
+  `click` handlers on that row, disjoint because `.rule-size-add` is not a
+  `.tool-button`. What is still the editor's is `activeRules`, which four other
+  things read.
+- **The editor is four files**: `logicGridSolver.ts` keeps the board lifecycle,
+  the selection commands, the rule chips and config I/O; `symbolRowView.ts` and
+  `sizedRuleControls.ts` are the two tool-row halves above; and
+  `solveController.ts` owns Solve — the search in flight, the generation counter
+  that drops a stale answer, the eight `#solution-*` elements and the mounted
+  `SolutionView`. Exactly one thing crosses each way (`configOf`,
+  `onReturnToEditor`), and `hideSolution()` stays on the editor because `Board`
+  calls it on every edit.
 - **Optional config keys are omitted, never written empty** — `shapes`, a clue's
   `direction`, `seat`, a valueless kind's `value` — in all three writers
   (`board.ts getSymbols`, `validateConfig`'s rebuild, `fixtureio::save`), because
@@ -393,6 +467,15 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
 
 Full detail in **`docs/match-three.md`**. What bites from outside:
 
+- **The engine is four files, mirroring the C++ twin's own split.**
+  `engineTypes.ts` is the vocabulary (`SolveResult`, `SolveOptions`, the
+  sampling constants), `cheapArms.ts` the greedy -> beam -> NRPA ladder and how
+  the budget is sliced between them, `prover.ts` the one bounded DFS pass that
+  proves and its transposition table, and `engine.ts` the assembly — which
+  re-exports
+  every type, so `solveClient.ts` and `solverWorker.ts` still import them from
+  `./engine`. The same three-way seam as `Search.h` / `SearchGreedy|Beam|Nrpa`
+  / `SearchProver.cpp`.
 - **`rules.ts` is the definition of record for both engines** — `solutionView.ts`
   replays through `rules.applyMove`, so a witness those rules refuse is unplayable
   whichever engine produced it.

@@ -101,19 +101,27 @@ describe("solveMatchThree", () => {
     expect(clearsBoard(board(ORDERED), reversed)).toBeFalse();
   });
 
+  /**
+   * These carry explicit timeouts, unlike everything else in this file.
+   * Refuting a board costs the whole ladder: NRPA cannot know a board is dead,
+   * so it spends its slice — a quarter of the default budget — before the
+   * prover gets to say so, and under `bun test`'s coverage instrumentation that
+   * lands within a whisker of the 5 s default. A default-budget solve is the
+   * thing being tested, so the budget stays and the limit moves.
+   */
   describe("Unsolvable boards", () => {
     test("a symbol with too few blocks to ever line up", () => {
       expect(solve(CASCADE)).toEqual({ status: "unsolvable" });
-    });
+    }, 30_000);
 
     test("a board with no legal swap at all", () => {
       expect(solve(NO_SWAPS)).toEqual({ status: "unsolvable" });
-    });
+    }, 30_000);
 
     test("a board whose every move strands what it leaves behind", () => {
       // Both legal swaps clear six of the eight cells and orphan the other two.
       expect(solve(["aabb", "bbaa"])).toEqual({ status: "unsolvable" });
-    });
+    }, 30_000);
   });
 
   describe("Budget", () => {

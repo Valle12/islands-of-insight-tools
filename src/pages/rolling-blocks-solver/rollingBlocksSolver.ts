@@ -10,6 +10,7 @@ import {
 import type { PaintTool, RollingBlocksTest } from "./../../util/types";
 import { Board } from "./board";
 import { MAX_BLOCK_DIM, MAX_GRID_SIDE, validateConfig } from "./config";
+import { isSolvedAtStart, type Puzzle } from "./replay";
 import { SolutionView } from "./solutionView";
 import type { Turn } from "./turn";
 import { searchRollingBlocksWasm, type SolverHandle } from "./wasmBridge";
@@ -225,8 +226,16 @@ export class RollingBlocksSolverEditor {
       MAX_GRID_SIDE,
     );
     if (!parsedWidth || !parsedHeight) return;
+    // Unchanged dimensions are not a resize, and a resize throws the board
+    // away. The field fires on every keystroke, so without this, retyping the
+    // same number over itself wiped everything on the grid — the guard the
+    // three sibling pages already carry.
+    if (parsedWidth === this.gridWidth && parsedHeight === this.gridHeight) {
+      return;
+    }
     this.gridWidth = parsedWidth;
     this.gridHeight = parsedHeight;
+    this.board.dispose();
     this.board = new Board(
       this,
       this.gridWidth,
@@ -247,6 +256,7 @@ export class RollingBlocksSolverEditor {
   private resetToDefaults() {
     this.applyDefaultGridSize();
     this.selectedTool = "regular";
+    this.board.dispose();
     this.board = new Board(
       this,
       this.gridWidth,
@@ -341,7 +351,13 @@ export class RollingBlocksSolverEditor {
 
     if (path.length === 0) {
       // Nothing to step through, so the editor stays put and the panel says so.
-      this.solutionStatus.textContent = "No solution found";
+      // An empty plan is the solver's answer BOTH to a board it could not crack
+      // and to one that was already solved when it arrived — the start state is
+      // the only thing that says which, so it is asked here (the same
+      // distinction shifting-mosaic draws for its goal block).
+      this.solutionStatus.textContent = isSolvedAtStart(this.currentPuzzle())
+        ? "Already solved — no moves needed"
+        : "No solution found";
       return;
     }
 
@@ -351,18 +367,20 @@ export class RollingBlocksSolverEditor {
     this.enterSolutionView(path);
   }
 
+  /** The board as `replay.ts` and the solution view take it. */
+  private currentPuzzle(): Puzzle {
+    return {
+      gridWidth: this.gridWidth,
+      gridHeight: this.gridHeight,
+      cells: this.board.getCells(),
+      blocks: this.board.getBlocks().values().toArray(),
+    };
+  }
+
   /** Swaps the editor out for the step-by-step view of `path`. */
   private enterSolutionView(path: Turn[]) {
     this.solutionView?.dispose();
-    this.solutionView = new SolutionView(
-      {
-        gridWidth: this.gridWidth,
-        gridHeight: this.gridHeight,
-        cells: this.board.getCells(),
-        blocks: this.board.getBlocks().values().toArray(),
-      },
-      path,
-    );
+    this.solutionView = new SolutionView(this.currentPuzzle(), path);
     this.editorSection.classList.add("hidden");
     this.solutionPanel.classList.add("hidden");
     this.solutionViewEl.classList.remove("hidden");
@@ -433,6 +451,7 @@ export class RollingBlocksSolverEditor {
     this.gridHeight = config.gridHeight;
     this.widthField.value = String(this.gridWidth);
     this.heightField.value = String(this.gridHeight);
+    this.board.dispose();
     this.board = new Board(
       this,
       this.gridWidth,

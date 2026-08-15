@@ -124,7 +124,7 @@ jobs:
       - name: Build
         run: cmake --build build-ci -j "$(nproc)"
 
-      # -j is safe because the shifting-mosaic fixtures carry PROCESSORS 4 (they
+      # -j is safe because the shifting-mosaic fixtures carry PROCESSORS 8 (they
       # each run the production six-arm std::thread cascade and want the whole
       # machine), so ctest schedules them alone while the cheap rolling-blocks
       # tests fill the remaining slots.

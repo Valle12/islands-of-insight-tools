@@ -1,5 +1,10 @@
 import type { Position } from "../../util/types";
-import { pickWasmVariant } from "../../util/wasmFeatureProbes";
+import {
+  armPoolSize,
+  crossOriginIsolatedPage,
+  startWasmPool,
+  type WasmPoolHandle,
+} from "../../util/wasmPool";
 import { Direction } from "./directions";
 import type { Turn } from "./turn";
 
@@ -35,9 +40,38 @@ export interface ShiftingMosaicPuzzle {
   goalAnchor: Position;
 }
 
-export interface SolverHandle {
-  /** Cancel every solver worker still running. */
-  terminate: () => void;
+/** The one way to stop the race — see `src/util/wasmPool.ts`. */
+export type SolverHandle = WasmPoolHandle;
+
+/** A turn as the worker posts it, before the direction is named. */
+type RawTurn = { blockId: number; direction: number };
+
+/**
+ * Where `src/util/build.ts` publishes the em++ output. Page-relative, NOT
+ * root-absolute: the site is published to a GitHub Pages project sub-path
+ * (https://<user>.github.io/<repo>/), so "/sm-wasm/…" would resolve against
+ * the domain root and 404. Pages live one level below the site root, so "../"
+ * lands on it in dev and in production alike.
+ */
+const WORKER_URL = "../sm-wasm/astar.worker.js";
+
+/**
+ * The plan as the page can play it, or null when a turn names a direction that
+ * is not one of the four.
+ *
+ * Checked rather than asserted: the map covers 0..3, and a `!` on it would let
+ * anything else through as `direction: undefined` — which type-checks, reaches
+ * the solution view and animates a move nothing can replay. A malformed plan is
+ * this arm having failed, and is reported as one.
+ */
+function toTurns(raw: RawTurn[]): Turn[] | null {
+  const turns: Turn[] = [];
+  for (const turn of raw) {
+    const direction = DIRECTION_MAP[turn.direction];
+    if (direction === undefined) return null;
+    turns.push({ blockId: turn.blockId, direction });
+  }
+  return turns;
 }
 
 // One portfolio arm = one worker running one engine config (schema:
@@ -112,151 +146,84 @@ export function searchShiftingMosaicWasm(
   puzzle: ShiftingMosaicPuzzle,
   callbacks: WasmSearchCallbacks,
 ): SolverHandle {
-  const poolSize = Math.max(
-    1,
-    Math.min(PORTFOLIO.length, (navigator.hardwareConcurrency || 2) - 1),
-  );
-  // Cross-origin isolated (via the coi-serviceworker shim): one worker with
-  // the pthreads build — its cascade races the arms on real threads sharing
-  // a single 4GB heap. Otherwise: multi-worker portfolio (works everywhere),
-  // or the sequential in-wasm cascade when only one core is available.
-  const isolated =
-    typeof crossOriginIsolated !== "undefined" && crossOriginIsolated;
-  // Pick the biggest heap each path can load. On the hardest boards a deep arm
-  // exhausts the 4GB wasm32 heap and aborts partway through its budget; the 8GB
-  // MEMORY64 builds let it run to the end instead.
-  //   - isolated (threads cascade, one SHARED heap for all 8 arms): the 8GB
-  //     shared-memory64 build if the engine validates it, else the wasm32 one.
-  //   - non-isolated (one heap per worker): the 8GB non-shared build, else
-  //     wasm32. An arm that hits even the 8GB wall still only retires itself.
-  const variant = pickWasmVariant(isolated);
-  // Every arm, always. poolSize bounds how many run CONCURRENTLY, never which
+  // Cross-origin isolated (via the coi-serviceworker shim): one worker with the
+  // pthreads build — its cascade races the arms on real threads sharing a
+  // single 4GB heap. Otherwise: multi-worker portfolio (works everywhere), or
+  // the sequential in-wasm cascade when only one core is available.
+  //
+  // Every arm, always. The pool bounds how many run CONCURRENTLY, never which
   // ones exist: slicing the portfolio by core count made capability shrink as
   // the machine improved — a 4-core box raced only the first three arms and
   // reported "no solution" on boards that the 1-core in-wasm cascade and the
   // isolated 8-arm race both solve. Arms are queued and back-filled as earlier
   // ones retire, so a small machine is slower but never less capable.
+  //
+  // The pool picks the biggest heap each path can load. On the hardest boards a
+  // deep arm exhausts the 4GB wasm32 heap and aborts partway through its
+  // budget; the 8GB MEMORY64 builds let it run to the end instead.
   const configs =
-    isolated || poolSize === 1
+    crossOriginIsolatedPage() || armPoolSize(PORTFOLIO.length) === 1
       ? [{ engine: "cascade", maxMs: SOLVE_BUDGET_MS, maxNodes: 0 }]
       : PORTFOLIO;
 
-  let workers: Worker[] = [];
-  let finished = false;
-  const progressByWorker = new Map<Worker, number>();
   // Sticky: if ANY arm searched out cleanly, the board is "no solution within
   // budget", not a solver failure — otherwise which terminal message the user
   // saw depended purely on which arm happened to settle last.
   let anyArmCompleted = false;
-  let lastError = "";
 
-  const terminateAll = () => {
-    for (const w of workers) w.terminate();
-    workers = [];
-  };
-  const handle: SolverHandle = { terminate: terminateAll };
-
-  const finish = (fn: () => void) => {
-    if (finished) return;
-    finished = true;
-    terminateAll();
-    fn();
-  };
-
-  // Live workers, not queued arms: spawnNext() increments, retire() decrements.
-  let pending = 0;
-
-  // One arm is done for good: stop it and settle the portfolio once every arm
-  // has retired. A retired arm's last node count deliberately STAYS in
-  // progressByWorker — the readout is cumulative work done, and dropping it
-  // would make the displayed total jump backwards.
-  //
-  // `retired` makes this idempotent per worker: a failing arm can deliver both
-  // an {type:"error"} message AND an onerror event, and the double decrement
-  // would settle the portfolio while other arms were still searching.
-  const retired = new Set<Worker>();
-  let nextConfig = 0;
-  const retire = (worker: Worker) => {
-    if (finished || retired.has(worker)) return;
-    retired.add(worker);
-    pending--;
-    worker.terminate();
-    // Back-fill the freed slot before deciding we are done, so the queued arms
-    // still get their turn on a machine that cannot run them all at once.
-    spawnNext();
-    if (pending > 0) return;
-    finish(() =>
-      anyArmCompleted
-        ? callbacks.onDone?.([])
-        : callbacks.onError?.(lastError || "Worker failed to start"),
-    );
-  };
-
-  function spawnNext() {
-    if (finished || nextConfig >= configs.length) return;
-    const config = configs[nextConfig++]!;
-    // Page-relative, NOT root-absolute: the site is published to a GitHub
-    // Pages project sub-path (https://<user>.github.io/<repo>/), so "/sm-wasm/…"
-    // would resolve against the domain root and 404. Pages live one level
-    // below the site root, so "../" lands on it in dev and in production
-    // alike — the same form rolling-blocks-solver/wasmBridge.ts uses.
-    const worker = new Worker("../sm-wasm/astar.worker.js", { type: "module" });
-    workers.push(worker);
-    progressByWorker.set(worker, 0);
-
-    worker.onmessage = (event: MessageEvent) => {
-      const { type } = event.data;
-      if (type === "progress") {
-        progressByWorker.set(worker, event.data.progress);
-        let total = 0;
-        for (const n of progressByWorker.values()) total += n;
-        callbacks.onProgress?.(total);
+  return startWasmPool({
+    workerUrl: WORKER_URL,
+    configs,
+    payload: { puzzle },
+    startupError: "Worker failed to start",
+    onProgress: nodes => callbacks.onProgress?.(nodes),
+    onMessage: (data, arm) => {
+      if (data.type === "progress") {
+        arm.progress(Number(data.progress));
         return;
       }
-      if (type === "phase") {
+      if (data.type === "phase") {
         // Posted by the wasm module itself (it runs inside this worker, so its
         // self.postMessage lands here directly).
         callbacks.onPhase?.(
-          String(event.data.phase),
-          event.data.arm === undefined ? undefined : String(event.data.arm),
+          String(data.phase),
+          data.arm === undefined ? undefined : String(data.arm),
         );
         return;
       }
-      if (type === "done") {
-        const path: Turn[] = event.data.path.map(
-          (t: { blockId: number; direction: number }) => ({
-            blockId: t.blockId,
-            direction: DIRECTION_MAP[t.direction]!,
-          }),
-        );
+      if (data.type === "done") {
+        // `?? []` because the cast is a promise, not a check: a build that
+        // stopped sending the field would otherwise throw inside the pool's
+        // message handler, which has no `try` — and an arm that throws never
+        // retires, so the race would never settle at all.
+        const path = toTurns((data.path as RawTurn[]) ?? []);
+        if (!path) {
+          arm.fail("The solver returned a plan the page cannot play.");
+          arm.retire();
+          return;
+        }
+        // A board whose goal block already sits on the goal anchor is solved by
+        // the EMPTY plan, which is also what a failed arm returns — so it has
+        // to be told apart here rather than read as "this arm found nothing".
         if (path.length > 0 || isAlreadySolved(puzzle)) {
-          finish(() => callbacks.onDone?.(path));
+          arm.settle(() => callbacks.onDone?.(path));
           return;
         }
         // This arm found nothing — let the others keep racing.
         anyArmCompleted = true;
-        retire(worker);
+        arm.retire();
         return;
       }
-      if (type === "error") {
-        // A dying arm (e.g. wasm OOM) only retires itself; the portfolio
-        // fails only when every arm has failed or come back empty.
-        lastError = String(event.data.error);
-        retire(worker);
+      if (data.type === "error") {
+        // A dying arm (e.g. wasm OOM) only retires itself; the portfolio fails
+        // only when every arm has failed or come back empty.
+        arm.fail(String(data.error));
+        arm.retire();
       }
-    };
-
-    worker.onerror = event => {
-      lastError = event.message || "Worker failed to start";
-      retire(worker);
-    };
-
-    worker.postMessage({ puzzle, config, variant });
-    pending++;
-  }
-
-  // Fill the initial slots; retire() back-fills from the queue thereafter.
-  for (let i = 0; i < Math.min(poolSize, configs.length); i++) spawnNext();
-
-  return handle;
+    },
+    onExhausted: lastError => {
+      if (anyArmCompleted) callbacks.onDone?.([]);
+      else callbacks.onError?.(lastError);
+    },
+  });
 }

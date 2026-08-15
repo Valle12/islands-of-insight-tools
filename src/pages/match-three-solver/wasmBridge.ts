@@ -1,4 +1,9 @@
-import { pickWasmVariant } from "../../util/wasmFeatureProbes";
+import {
+  armPoolSize,
+  crossOriginIsolatedPage,
+  startWasmPool,
+  type WasmPoolHandle,
+} from "../../util/wasmPool";
 import type { MatchThreeTest } from "../../util/types";
 import { SOLVE_BUDGET_MS } from "./config";
 import type { Move } from "./rules";
@@ -76,9 +81,8 @@ export interface WasmCallbacks {
   readonly onError?: (message: string) => void;
 }
 
-export interface WasmHandle {
-  terminate(): void;
-}
+/** The one way to stop the race — see `src/util/wasmPool.ts`. */
+export type WasmHandle = WasmPoolHandle;
 
 /**
  * Where `src/util/build.ts` publishes the em++ output. Page-relative, NOT
@@ -118,124 +122,59 @@ export function searchMatchThreeWasm(
     cells: flatten(config),
   };
 
-  const isolated =
-    typeof crossOriginIsolated !== "undefined" && crossOriginIsolated;
-  const variant = pickWasmVariant(isolated);
-  const poolSize = Math.max(
-    1,
-    Math.min(PORTFOLIO.length, (navigator.hardwareConcurrency || 2) - 1),
-  );
-  // Every arm always runs: poolSize bounds how many go at once, never which
-  // ones exist — they queue and back-fill as earlier ones retire.
+  // Every arm always runs: the pool bounds how many go at once, never which
+  // ones exist. The list collapses only where one module races the same arms
+  // itself — on an isolated page, or on a machine with a single slot, where
+  // spawning them one at a time would just serialise the portfolio.
+  const isolated = crossOriginIsolatedPage();
   const configs =
-    isolated || poolSize === 1
+    isolated || armPoolSize(PORTFOLIO.length) === 1
       ? [{ engine: "cascade", maxMs: budgetMs }]
       : PORTFOLIO.map(arm => ({ ...arm, maxMs: budgetMs }));
 
-  let workers: Worker[] = [];
-  let settled = false;
-  let pending = 0;
-  let nextConfig = 0;
+  // Sticky: an arm that searched out cleanly means "no answer within budget",
+  // which is a result. Only a portfolio where every arm DIED is a failure.
   let anyArmFinished = false;
-  let lastError = "";
-  const nodesByWorker = new Map<Worker, number>();
-  // Idempotent per worker: a failing arm can deliver both an error message AND
-  // an onerror event, and the double decrement would settle the race early.
-  const retired = new Set<Worker>();
 
-  // Sets `settled` as well as killing the workers. Without that flag, `retire`
-  // and `spawnNext` both still think the race is live: a "done" message that
-  // reaches `finish()` synchronously would fall through to `retire`, which
-  // back-fills a FRESH worker after the portfolio was supposed to be dead, and
-  // that worker then runs its whole budget with nobody listening. Rare while
-  // the race only ended on a proof; the normal case now that the first witness
-  // ends it with most of the portfolio still queued.
-  const terminateAll = () => {
-    settled = true;
-    for (const worker of workers) worker.terminate();
-    workers = [];
-  };
-
-  const settle = () => {
-    if (settled) return;
-    settled = true;
-    terminateAll();
-    if (anyArmFinished) callbacks.onSettled?.();
-    else callbacks.onError?.(lastError || "The solver could not be started.");
-  };
-
-  const reportProgress = () => {
-    let nodes = 0;
-    for (const count of nodesByWorker.values()) nodes += count;
-    callbacks.onProgress?.(nodes);
-  };
-
-  const retire = (worker: Worker) => {
-    if (settled || retired.has(worker)) return;
-    retired.add(worker);
-    pending--;
-    worker.terminate();
-    spawnNext();
-    if (pending === 0) settle();
-  };
-
-  const handleMessage = (worker: Worker, data: Record<string, unknown>) => {
-    if (data.type === "progress") {
-      nodesByWorker.set(worker, Number(data.progress));
-      reportProgress();
-      return;
-    }
-    if (data.type === "best") {
-      callbacks.onBest?.(data.moves as Move[]);
-      return;
-    }
-    if (data.type === "done") {
-      anyArmFinished = true;
-      reportProgress();
-      callbacks.onArm?.({
-        moves: data.moves as Move[],
-        unsolvable: data.unsolvable === true,
-        stats: data.stats as SolveStats | undefined,
-      });
-      retire(worker);
-      return;
-    }
-    if (data.type === "error") {
-      // A dying arm (a wasm heap that could not grow aborts its module) retires
-      // itself; the portfolio fails only when every arm has failed.
-      lastError = String(data.error);
-      retire(worker);
-    }
-  };
-
-  function spawnNext() {
-    if (settled || nextConfig >= configs.length) return;
-    const armConfig = configs[nextConfig++]!;
-    let worker: Worker;
-    try {
-      worker = new Worker(WORKER_URL, { type: "module" });
-    } catch {
-      lastError = "The solver could not be started.";
-      spawnNext();
-      return;
-    }
-    workers.push(worker);
-    nodesByWorker.set(worker, 0);
-
-    worker.onmessage = (event: MessageEvent) => {
-      if (settled) return;
-      handleMessage(worker, event.data as Record<string, unknown>);
-    };
-    worker.onerror = event => {
-      lastError = event.message || "The solver stopped unexpectedly.";
-      retire(worker);
-    };
-    worker.postMessage({ puzzle, config: armConfig, variant });
-    pending++;
-  }
-
-  for (let i = 0; i < Math.min(poolSize, configs.length); i++) spawnNext();
-  if (pending === 0) settle();
-
-  return { terminate: terminateAll };
+  return startWasmPool({
+    workerUrl: WORKER_URL,
+    configs,
+    payload: { puzzle },
+    startupError: "The solver could not be started.",
+    onProgress: nodes => callbacks.onProgress?.(nodes),
+    onMessage: (data, arm) => {
+      if (data.type === "progress") {
+        arm.progress(Number(data.progress));
+        return;
+      }
+      if (data.type === "best") {
+        callbacks.onBest?.((data.moves as Move[]) ?? []);
+        return;
+      }
+      if (data.type === "done") {
+        anyArmFinished = true;
+        callbacks.onArm?.({
+          // `?? []` because the cast is a promise, not a check: a build that
+          // stopped sending the field would otherwise be walked as `undefined`
+          // inside the pool's message handler, which has no `try` — and an arm
+          // that throws never retires, so the race would never settle.
+          moves: (data.moves as Move[]) ?? [],
+          unsolvable: data.unsolvable === true,
+          stats: data.stats as SolveStats | undefined,
+        });
+        arm.retire();
+        return;
+      }
+      if (data.type === "error") {
+        // A dying arm (a wasm heap that could not grow aborts its module)
+        // retires itself; the portfolio fails only when every arm has failed.
+        arm.fail(String(data.error));
+        arm.retire();
+      }
+    },
+    onExhausted: lastError => {
+      if (anyArmFinished) callbacks.onSettled?.();
+      else callbacks.onError?.(lastError);
+    },
+  });
 }

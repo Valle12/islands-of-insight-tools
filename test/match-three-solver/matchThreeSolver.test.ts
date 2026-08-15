@@ -178,7 +178,7 @@ describe("MatchThreeSolverEditor", () => {
 
   describe("Initial render", () => {
     test("draws the default grid", () => {
-      expect(document.querySelectorAll(".grid-cell")).toHaveLength(36);
+      expect(document.querySelectorAll("#grid .grid-cell")).toHaveLength(36);
     });
 
     test("offers every symbol, with the first selected", () => {
@@ -275,7 +275,7 @@ describe("MatchThreeSolverEditor", () => {
   describe("Grid size", () => {
     test("resizing redraws the grid", () => {
       setSize("3", "2");
-      expect(document.querySelectorAll(".grid-cell")).toHaveLength(6);
+      expect(document.querySelectorAll("#grid .grid-cell")).toHaveLength(6);
     });
 
     test("resizing keeps the selected symbol", () => {
@@ -288,12 +288,12 @@ describe("MatchThreeSolverEditor", () => {
 
     test("an out-of-range size is ignored", () => {
       setSize("0", "4");
-      expect(document.querySelectorAll(".grid-cell")).toHaveLength(36);
+      expect(document.querySelectorAll("#grid .grid-cell")).toHaveLength(36);
     });
 
     test("a non-numeric size is ignored", () => {
       setSize("abc", "4");
-      expect(document.querySelectorAll(".grid-cell")).toHaveLength(36);
+      expect(document.querySelectorAll("#grid .grid-cell")).toHaveLength(36);
     });
   });
 
@@ -537,7 +537,7 @@ describe("MatchThreeSolverEditor", () => {
       toolButton("reset").click();
       byId("reset-confirm").click();
 
-      expect(document.querySelectorAll(".grid-cell")).toHaveLength(36);
+      expect(document.querySelectorAll("#grid .grid-cell")).toHaveLength(36);
       expect(cellAt(0, 0).dataset.kind).toBe("empty");
       expect(widthField().value).toBe("6");
       expect(heightField().value).toBe("6");
@@ -610,7 +610,7 @@ describe("MatchThreeSolverEditor", () => {
 
       expect(widthField().value).toBe("2");
       expect(heightField().value).toBe("3");
-      expect(document.querySelectorAll(".grid-cell")).toHaveLength(6);
+      expect(document.querySelectorAll("#grid .grid-cell")).toHaveLength(6);
       expect(cellAt(0, 1).dataset.kind).toBe("blocked");
       expect(cellAt(1, 2).dataset.symbol).toBe(SYMBOLS[0]!.id);
       expect(byId("warning-banner").classList.contains("hidden")).toBeTrue();
@@ -624,7 +624,7 @@ describe("MatchThreeSolverEditor", () => {
         "The file is not valid JSON.",
       );
       expect(byId("warning-banner").classList.contains("hidden")).toBeFalse();
-      expect(document.querySelectorAll(".grid-cell")).toHaveLength(36);
+      expect(document.querySelectorAll("#grid .grid-cell")).toHaveLength(36);
     });
 
     test("warns and keeps the board on an invalid config", async () => {
@@ -636,7 +636,7 @@ describe("MatchThreeSolverEditor", () => {
       expect(byId("warning-banner").textContent).toBe(
         "Invalid config: gridWidth must be an integer between 1 and 32.",
       );
-      expect(document.querySelectorAll(".grid-cell")).toHaveLength(36);
+      expect(document.querySelectorAll("#grid .grid-cell")).toHaveLength(36);
     });
 
     test("loads a board captured from the game", async () => {
@@ -648,7 +648,7 @@ describe("MatchThreeSolverEditor", () => {
       pick(new File([fixture], "matchThreeTest28.json"));
       await flush();
 
-      expect(document.querySelectorAll(".grid-cell")).toHaveLength(36);
+      expect(document.querySelectorAll("#grid .grid-cell")).toHaveLength(36);
       expect(cellAt(0, 4).dataset.kind).toBe("blocked");
       expect(cellAt(0, 0).dataset.kind).toBe("empty");
       expect(cellAt(2, 0).dataset.kind).toBe("symbol");

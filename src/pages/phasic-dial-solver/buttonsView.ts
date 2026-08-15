@@ -164,7 +164,12 @@ export class ButtonsView {
     if (turns === 0) return `<span class="turn-icon-empty"></span>`;
 
     const icon = `<img class="turn-icon" src="${info.image}" alt="" />`;
-    if (turns > MAX_STACKED_ICONS) {
+    // Negative counts take the counted form too, not just large ones: the
+    // format accepts them (`config.ts` asks only for integers) and `TurnSolver`
+    // solves them correctly through `mod`, but `String.repeat` throws a
+    // RangeError below zero — which aborted `render()` mid-way and left the
+    // button cards showing the previous puzzle.
+    if (turns < 0 || turns > MAX_STACKED_ICONS) {
       return icon + `<span class="turn-overflow">×${turns}</span>`;
     }
     return icon.repeat(turns);
@@ -172,8 +177,10 @@ export class ButtonsView {
 
   /** Columns the stack is laid out in, so two rows come out even. */
   private static iconColumns(turns: number): number {
-    // One icon beside its count is two cells, whatever the count says.
-    if (turns > MAX_STACKED_ICONS) return 2;
+    // One icon beside its count is two cells, whatever the count says. Same
+    // predicate as `iconsMarkup`, so the two cannot disagree about which form
+    // a slot is drawn in.
+    if (turns < 0 || turns > MAX_STACKED_ICONS) return 2;
     return balancedColumns(Math.max(turns, 1), ICONS_PER_ROW);
   }
 

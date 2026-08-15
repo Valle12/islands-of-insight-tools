@@ -463,6 +463,36 @@ describe("PhasicDialSolver", () => {
     expect(byId("result").textContent).toBe("");
   });
 
+  test("should let the newest search keep its spinner", async () => {
+    const finishers: ((turns: number[] | null) => void)[] = [];
+    spyOn(TurnSolver.prototype, "calculateTurnsAsync").mockImplementation(
+      () => new Promise(resolve => finishers.push(resolve)),
+    );
+
+    // `reset` re-enables Calculate, so a second search can start while the
+    // first is still running — the one case where "nothing else can be
+    // solving" stops being true.
+    byId("calculate").click();
+    await flush();
+    byId("reset").click();
+    byId("calculate").click();
+    await flush();
+
+    // The OLDER search settles first. Its cleanup belongs to a search nobody
+    // is waiting for, and must not take the running one's chrome with it.
+    finishers[0]!([7]);
+    await flush();
+
+    expect(byId("solve-spinner").classList.contains("hidden")).toBeFalse();
+    expect(byId("calculate").hasAttribute("disabled")).toBeTrue();
+
+    finishers[1]!([2]);
+    await flush();
+
+    expect(byId("solve-spinner").classList.contains("hidden")).toBeTrue();
+    expect(byId("calculate").hasAttribute("disabled")).toBeFalse();
+  });
+
   test("should reset the puzzle to two dials and one button", () => {
     byId("add-dial").click();
     byId("add-button").click();

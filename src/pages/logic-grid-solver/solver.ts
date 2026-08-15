@@ -70,6 +70,13 @@ function witnessesSupport(
   config: LogicGridTest,
   result: ArmResult,
 ): boolean {
+  // No witnesses is not "nothing to object to" — it is nothing CHECKED, and an
+  // empty list would sail through the loop below and hand the board a `proven`
+  // answer this file never looked at. An underclued answer is the intersection
+  // of the solutions, so a real one always has at least one to show; a list
+  // that arrives empty (a truncated message, an arm built with witnessLimit 0)
+  // is refused rather than trusted.
+  if (result.witnesses.length === 0) return false;
   for (const witness of result.witnesses) {
     if (verifyLogicGrid(config, witness) !== "none") return false;
     const disagrees = result.cells.some(

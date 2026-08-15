@@ -50,7 +50,11 @@ export function readGridSize(
   data: unknown,
   maxSide: number,
 ): ConfigResult<GridSize> {
-  if (typeof data !== "object" || data === null) {
+  // `Array.isArray` as well as the null test: `typeof [] === "object"`, so an
+  // array top level used to sail through and be refused for a missing
+  // `gridWidth` — naming a key that cannot exist on an array. phasic-dial's
+  // validator already guarded this; the four grid pages now say the same thing.
+  if (typeof data !== "object" || data === null || Array.isArray(data)) {
     return { ok: false, error: "Config must be a JSON object." };
   }
   const raw = data as Record<string, unknown>;
