@@ -36,11 +36,23 @@ type RawTurn = { blockId: number; direction: number };
  */
 const WORKER_URL = "../rb-wasm/astar.worker.js";
 
-function toTurns(raw: RawTurn[]): Turn[] {
-  return raw.map(t => ({
-    blockId: t.blockId,
-    direction: DIRECTION_MAP[t.direction]!,
-  }));
+/**
+ * The plan as the page can play it, or null when a turn names a direction that
+ * is not one of the four.
+ *
+ * Checked rather than asserted: the map covers 0..3, and a `!` on it would let
+ * anything else through as `direction: undefined` — which type-checks, reaches
+ * the solution view and animates a move nothing can replay. A malformed plan is
+ * this arm having failed, and is reported as one.
+ */
+function toTurns(raw: RawTurn[]): Turn[] | null {
+  const turns: Turn[] = [];
+  for (const turn of raw) {
+    const direction = DIRECTION_MAP[turn.direction];
+    if (direction === undefined) return null;
+    turns.push({ blockId: turn.blockId, direction });
+  }
+  return turns;
 }
 
 export interface SolveStats {
@@ -160,7 +172,16 @@ export function searchRollingBlocksWasm(
         return;
       }
       if (data.type === "done") {
-        const path = toTurns(data.path as RawTurn[]);
+        // `?? []` because the cast is a promise, not a check: a build that
+        // stopped sending the field would otherwise throw inside the pool's
+        // message handler, which has no `try` — and an arm that throws never
+        // retires, so the race would never settle at all.
+        const path = toTurns((data.path as RawTurn[]) ?? []);
+        if (!path) {
+          arm.fail("The solver returned a plan the page cannot play.");
+          arm.retire();
+          return;
+        }
         // First non-empty plan wins and ends the race outright.
         if (path.length > 0) {
           arm.settle(() => callbacks.onDone?.(path, data.stats as SolveStats));

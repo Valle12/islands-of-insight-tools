@@ -10,6 +10,7 @@ import {
 import type { PaintTool, RollingBlocksTest } from "./../../util/types";
 import { Board } from "./board";
 import { MAX_BLOCK_DIM, MAX_GRID_SIDE, validateConfig } from "./config";
+import { isSolvedAtStart, type Puzzle } from "./replay";
 import { SolutionView } from "./solutionView";
 import type { Turn } from "./turn";
 import { searchRollingBlocksWasm, type SolverHandle } from "./wasmBridge";
@@ -350,7 +351,13 @@ export class RollingBlocksSolverEditor {
 
     if (path.length === 0) {
       // Nothing to step through, so the editor stays put and the panel says so.
-      this.solutionStatus.textContent = "No solution found";
+      // An empty plan is the solver's answer BOTH to a board it could not crack
+      // and to one that was already solved when it arrived — the start state is
+      // the only thing that says which, so it is asked here (the same
+      // distinction shifting-mosaic draws for its goal block).
+      this.solutionStatus.textContent = isSolvedAtStart(this.currentPuzzle())
+        ? "Already solved — no moves needed"
+        : "No solution found";
       return;
     }
 
@@ -360,18 +367,20 @@ export class RollingBlocksSolverEditor {
     this.enterSolutionView(path);
   }
 
+  /** The board as `replay.ts` and the solution view take it. */
+  private currentPuzzle(): Puzzle {
+    return {
+      gridWidth: this.gridWidth,
+      gridHeight: this.gridHeight,
+      cells: this.board.getCells(),
+      blocks: this.board.getBlocks().values().toArray(),
+    };
+  }
+
   /** Swaps the editor out for the step-by-step view of `path`. */
   private enterSolutionView(path: Turn[]) {
     this.solutionView?.dispose();
-    this.solutionView = new SolutionView(
-      {
-        gridWidth: this.gridWidth,
-        gridHeight: this.gridHeight,
-        cells: this.board.getCells(),
-        blocks: this.board.getBlocks().values().toArray(),
-      },
-      path,
-    );
+    this.solutionView = new SolutionView(this.currentPuzzle(), path);
     this.editorSection.classList.add("hidden");
     this.solutionPanel.classList.add("hidden");
     this.solutionViewEl.classList.remove("hidden");

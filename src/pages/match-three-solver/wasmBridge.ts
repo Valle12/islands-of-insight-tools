@@ -148,13 +148,17 @@ export function searchMatchThreeWasm(
         return;
       }
       if (data.type === "best") {
-        callbacks.onBest?.(data.moves as Move[]);
+        callbacks.onBest?.((data.moves as Move[]) ?? []);
         return;
       }
       if (data.type === "done") {
         anyArmFinished = true;
         callbacks.onArm?.({
-          moves: data.moves as Move[],
+          // `?? []` because the cast is a promise, not a check: a build that
+          // stopped sending the field would otherwise be walked as `undefined`
+          // inside the pool's message handler, which has no `try` — and an arm
+          // that throws never retires, so the race would never settle.
+          moves: (data.moves as Move[]) ?? [],
           unsolvable: data.unsolvable === true,
           stats: data.stats as SolveStats | undefined,
         });

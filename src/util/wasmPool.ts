@@ -41,6 +41,11 @@ export interface PoolArm {
    * This arm's latest work counter. The pool keeps one per arm and hands the
    * SUM to `onProgress` — retired arms included, so the readout never jumps
    * backwards.
+   *
+   * A count that is not a finite number is DROPPED rather than stored. Every
+   * bridge reads it off a worker message with `Number(...)`, so a build that
+   * omits the field hands over `NaN` — and one `NaN` in the sum poisons the
+   * readout for the rest of the race, since retired arms are summed forever.
    */
   progress(nodes: number): void;
   /** Nothing more from this arm: free its slot, back-fill, settle when empty. */
@@ -166,6 +171,7 @@ export function startWasmPool(options: WasmPoolOptions): WasmPoolHandle {
     return {
       index,
       progress(nodes) {
+        if (!Number.isFinite(nodes)) return;
         nodesByWorker.set(worker, nodes);
         reportProgress();
       },
@@ -211,8 +217,29 @@ export function startWasmPool(options: WasmPoolOptions): WasmPoolHandle {
       lastError = event.message || startupError;
       retire(worker);
     };
-    worker.postMessage({ ...payload, config, variant });
+    // A message the page cannot deserialize fires `messageerror`, NOT `error`.
+    // Without this the arm would sit there having said nothing: `pending` never
+    // reaches 0, no terminal callback runs, and the spinner turns until the
+    // user cancels.
+    worker.onmessageerror = () => {
+      lastError = startupError;
+      retire(worker);
+    };
+
+    // Counted BEFORE the post, so the failure below retires a pending arm
+    // rather than one the pool never knew it had.
     pending++;
+    try {
+      worker.postMessage({ ...payload, config, variant });
+    } catch (error) {
+      // `payload` is the page's own object, and a value that cannot be
+      // structured-cloned throws HERE. Escaping would take the whole initial
+      // fill loop with it, leaving the page with a live worker, no handle to
+      // stop it and no error to show — the one thing this module promises
+      // cannot happen.
+      lastError = error instanceof Error ? error.message : startupError;
+      retire(worker);
+    }
   }
 
   for (let i = 0; i < Math.min(armPoolSize(configs.length), configs.length); i++)

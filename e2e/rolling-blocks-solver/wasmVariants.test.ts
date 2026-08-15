@@ -153,4 +153,20 @@ test.describe("Rolling Blocks wasm variants", () => {
       { timeout: 60000 },
     );
   });
+
+  test("a board with nothing left to do says so instead", async ({ page }) => {
+    await gotoIsolated(page, "/rolling-blocks-solver");
+
+    // A block and no goals at all: solved where it stands. The solver answers
+    // that board with the same EMPTY plan an unsolvable one gets, so this and
+    // the test above are the two halves of one distinction.
+    await page.getByRole("button", { name: "Block Footprint" }).click();
+    await page.getByRole("button", { name: "Column 1, Row 1, Regular" }).click();
+
+    await page.getByRole("button", { name: "Calculate Moves" }).click();
+    await expect(page.locator("#solution-status")).toHaveText(
+      "Already solved — no moves needed",
+      { timeout: 60000 },
+    );
+  });
 });

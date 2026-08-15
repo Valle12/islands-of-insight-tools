@@ -1418,14 +1418,22 @@ std::vector<Region> decompose(const replay::Puzzle &puzzle) {
     regions.push_back(buildRegion(puzzle, component, id));
   }
   for (const auto &block : puzzle.blocks) {
-    const int anchor = block.x + block.y * puzzle.gridWidth;
-    // Bounds first. A negative anchor casts to SIZE_MAX, and the id read back
-    // out of bounds then indexes `regions` — an out-of-range WRITE, not just a
-    // bad read. An off-board block belongs to no region; leaving it out is
-    // what the `sub.blocks.empty()` pass below already knows how to handle.
-    if (anchor < 0 || static_cast<size_t>(anchor) >= component.size())
+    // Bounds per AXIS, and BEFORE flattening. A negative anchor casts to
+    // SIZE_MAX, and the id read back out of bounds then indexes `regions` — an
+    // out-of-range WRITE, not just a bad read. Checking the flat index alone
+    // does not catch every off-board block though: x = -1 with y = 1 flattens
+    // back INTO range as the last cell of row 0, and would file the block
+    // under a region it is nowhere near. An off-board block belongs to no
+    // region; leaving it out is what the `sub.blocks.empty()` pass below
+    // already knows how to handle.
+    if (block.x < 0 || block.y < 0 || block.x >= puzzle.gridWidth ||
+        block.y >= puzzle.gridHeight)
       continue;
-    if (const int id = component[static_cast<size_t>(anchor)];
+    const size_t anchor = static_cast<size_t>(block.x) +
+                          static_cast<size_t>(block.y) * puzzle.gridWidth;
+    if (anchor >= component.size())
+      continue;
+    if (const int id = component[anchor];
         id >= 0 && static_cast<size_t>(id) < regions.size()) {
       regions[static_cast<size_t>(id)].sub.blocks.push_back(block);
     }

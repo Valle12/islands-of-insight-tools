@@ -160,10 +160,12 @@ MEMORY64 (8 GB heap), pthreads+MEMORY64 — concurrently for all four C++ solver
   `build.ts` copy 404s only in production, after CI is green. Workers are reached
   page-relative, never root-absolute.
   **`WASM_SHARED_FILES` is the second half of that list**: files published into
-  EVERY solver's prefix that are not that solver's own output, mapped to the one
-  source they are copied from. `astar.workerCore.js` is the only one, so each
-  worker imports it as `./astar.workerCore.js` — page-relative like the
-  `astar.mjs` beside it, and with no second url prefix to keep in step.
+  EVERY solver's prefix that are not that solver's own output, keyed by the name
+  they are PUBLISHED under and mapped to the one source they are copied from.
+  There is one entry, and it is renamed on the way: `src/util/astarWorkerCore.js`
+  ships into each prefix as `astar.workerCore.js`, which is what every worker
+  imports (`./astar.workerCore.js`) — page-relative like the `astar.mjs` beside
+  it, and with no second url prefix to keep in step.
 - `src/pages/*/wasm/` is generated and gitignored **except** `astar.worker.js`,
   hand-written source in the same directory — do not delete the directory
   wholesale. Each of the four is now ~25 lines: the loader, the variant table,
@@ -217,6 +219,11 @@ when a single slot would just serialise the portfolio.
   dims ≤ 64. The cascade first **decomposes** the board into independent playable
   regions. The two-block coverage scheme and the cracker-only `Config` fields
   (never exposed at the wasm/CLI boundary) are in `a-star/bench/HARD-BOARDS.md`.
+- **An EMPTY plan means two different things on both block pages**: no solution,
+  or a board that was already solved when it arrived. Only the start state tells
+  them apart — `replay.ts`'s `isSolvedAtStart` for rolling-blocks, the goal
+  anchor for shifting-mosaic — and both pages ask it before writing "no
+  solution", which is the same trap as match-three's cleared board.
 - **shifting-mosaic** — the original portfolio; `PORTFOLIO` is exported so its
   slow suite races the exact production arm set.
 - **match-three** — `puzzle.cells` is **flat row-major** while the fixture format
@@ -338,9 +345,10 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
   which file a thing is in. **The list's first two entries are load-bearing** —
   `shapeProblem` then `fusedProblem` — because everything after them reads the
   colouring one SQUARE at a time; the three families after that are independent,
-  and their order only decides which violation a board breaking several is named
-  for (which the suites assert). `board.ts`'s pure clue arithmetic — turning,
-  comparing, serialising one clue — is `clueEdits.ts` for the same reason.
+  and their order decides only WHICH violation is reported when a board breaks
+  several of them (which the suites assert). `board.ts`'s pure clue arithmetic
+  — turning, comparing, serialising one clue — is `clueEdits.ts` for the same
+  reason.
 - **The board is six files, `board.ts` the front door**, which keeps only
   press → stroke → write: the listeners, `beginStroke`, `applyStroke`,
   `paintCell` and the one `writeCell` everything funnels through.
@@ -462,8 +470,9 @@ Full detail in **`docs/match-three.md`**. What bites from outside:
 - **The engine is four files, mirroring the C++ twin's own split.**
   `engineTypes.ts` is the vocabulary (`SolveResult`, `SolveOptions`, the
   sampling constants), `cheapArms.ts` the greedy -> beam -> NRPA ladder and how
-  the budget is sliced between them, `prover.ts` the iterative-deepening search
-  and its transposition table, and `engine.ts` the assembly — which re-exports
+  the budget is sliced between them, `prover.ts` the one bounded DFS pass that
+  proves and its transposition table, and `engine.ts` the assembly — which
+  re-exports
   every type, so `solveClient.ts` and `solverWorker.ts` still import them from
   `./engine`. The same three-way seam as `Search.h` / `SearchGreedy|Beam|Nrpa`
   / `SearchProver.cpp`.

@@ -1,5 +1,5 @@
-// The exhaustive prover: iterative-deepening DFS over move count, with a
-// bounded transposition table of states searched out in vain.
+// The exhaustive prover: one bounded DFS pass over move count, with a bounded
+// transposition table of states searched out in vain.
 //
 // The finder of last resort AND the only thing in this engine that can call a
 // board unclearable, which is why it gets its own file: everything here is in
@@ -95,11 +95,15 @@ function ensureCapacity(level: Level, needed: number): void {
 }
 
 /**
- * Iterative-deepening DFS. Depth `d` is only reported once every shorter
- * length has been searched out, so a reported move count is always minimal —
- * and because every move clears at least `MIN_RUN` cells, the deepening
- * terminates on its own, which is what makes "unsolvable" a real proof rather
- * than a timeout in disguise.
+ * DFS to a fixed depth, returning the first solution it reaches — the length
+ * of which it claims nothing about.
+ *
+ * It used to deepen one length at a time, which did make a reported move count
+ * minimal; the single pass at `floor(blocks / MIN_RUN)` searches the same space
+ * for a fraction of the work, because every move clears at least `MIN_RUN`
+ * cells and no plan can be longer than that. Searching THAT depth out having
+ * found nothing is what makes "unsolvable" a real proof rather than a timeout
+ * in disguise — see `run`.
  */
 export class Search {
   private readonly deadline: number;

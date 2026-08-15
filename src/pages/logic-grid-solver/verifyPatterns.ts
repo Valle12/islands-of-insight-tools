@@ -103,14 +103,6 @@ function hasCheckerboard(config: LogicGridTest, cells: number[]) {
   return false;
 }
 
-/**
- * Whether `cells` is a complete, legal solution of `config`.
- *
- * The implied checkerboard rule is deliberately absent: when both colours are
- * connected a checkerboard already breaks one of them, so the connectivity
- * test catches it — and leaving it out keeps this file free of anything the
- * solver derived rather than was told.
- */
 /** The 2x2 rules and the checkerboard: everything read off one small window. */
 function squareProblem(
   config: LogicGridTest,

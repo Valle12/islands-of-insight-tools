@@ -52,6 +52,9 @@ export class PhasicDialSolver {
   // Bumped whenever a search starts or the board changes, so an answer that
   // arrives after either is discarded.
   private solveGeneration = 0;
+  // Bumped only when a search STARTS, which is what makes it the right thing
+  // to ask "am I still the newest search?" — see `calculate`.
+  private solveRun = 0;
 
   private dialViews: DialView[] = [];
   private readonly buttonsView: ButtonsView;
@@ -304,19 +307,24 @@ export class PhasicDialSolver {
     );
 
     const generation = ++this.solveGeneration;
+    const run = ++this.solveRun;
     this.setSolving(true);
     let result: number[] | null;
     try {
       result = await solver.calculateTurnsAsync();
     } finally {
-      // Unconditionally, NOT `if (generation === this.solveGeneration)`. A
-      // newer generation means the board was edited while the search ran —
-      // `invalidateResult` bumps the counter and touches nothing else — and
-      // the guarded form then skipped the only call that hides the spinner and
-      // re-enables Calculate, leaving the page stuck until a reset or an
-      // upload. Nothing else can be solving: the button is disabled for the
-      // whole of `calculate`, so this is always THIS search's chrome.
-      this.setSolving(false);
+      // Guarded on the RUN, never on the generation. A newer generation only
+      // means the board was edited while the search ran — `invalidateResult`
+      // bumps the counter and touches nothing else — and guarding on it
+      // skipped the only call that hides the spinner and re-enables Calculate,
+      // leaving the page stuck until a reset or an upload.
+      //
+      // A newer RUN is the other case, and the reason this is not simply
+      // unconditional: `reset` and `applyLoadedConfig` re-enable Calculate
+      // themselves, so the user can start a second search while this one is
+      // still awaiting. Clearing the chrome then would take the NEWER search's
+      // spinner down and hand back a button that is supposed to be disabled.
+      if (run === this.solveRun) this.setSolving(false);
     }
     // The board can be reset or replaced by an upload while the search runs;
     // rendering this answer against it would attribute presses to the wrong

@@ -3,6 +3,7 @@ import { Block } from "../../src/pages/rolling-blocks-solver/block";
 import { Direction } from "../../src/pages/rolling-blocks-solver/directions";
 import {
   isSolved,
+  isSolvedAtStart,
   replayTurns,
   type Puzzle,
 } from "../../src/pages/rolling-blocks-solver/replay";
@@ -256,5 +257,45 @@ describe("isSolved", () => {
     };
 
     expect(isSolved(puzzle, puzzle.blocks, 0n)).toBeFalse();
+  });
+});
+
+// What tells "no moves needed" apart from "no solution": both come back from
+// the solver as the empty plan, and only the start state says which.
+describe("isSolvedAtStart", () => {
+  test("a board with nothing left to do is solved before a turn", () => {
+    const puzzle: Puzzle = {
+      gridWidth: 3,
+      gridHeight: 1,
+      cells: grid(3, 1, { "0,0": "goal" }),
+      blocks: [cube(1, 0, 0)],
+    };
+
+    expect(isSolvedAtStart(puzzle)).toBeTrue();
+  });
+
+  test("a must-touch cell under a block counts as stepped on", () => {
+    // The satisfied mask is SEEDED from where the blocks already stand, so a
+    // board is solved by standing on its last star, not only by rolling onto
+    // it. Reading the blocks directly would miss this.
+    const puzzle: Puzzle = {
+      gridWidth: 3,
+      gridHeight: 1,
+      cells: grid(3, 1, { "0,0": "mustTouch" }),
+      blocks: [cube(1, 0, 0)],
+    };
+
+    expect(isSolvedAtStart(puzzle)).toBeTrue();
+  });
+
+  test("a board with work left is not", () => {
+    const puzzle: Puzzle = {
+      gridWidth: 3,
+      gridHeight: 1,
+      cells: grid(3, 1, { "2,0": "goal" }),
+      blocks: [cube(1, 0, 0)],
+    };
+
+    expect(isSolvedAtStart(puzzle)).toBeFalse();
   });
 });
