@@ -44,8 +44,18 @@ boost::dynamic_bitset<> Block::updateMustTouchCells(
     boost::dynamic_bitset<> mustTouchCellsSatisfied) const {
   for (int8_t cx = x; cx < x + static_cast<int8_t>(width); cx++) {
     for (int8_t cy = y; cy < y + static_cast<int8_t>(depth); cy++) {
-      if (const auto idx = positionToIndex(cx, cy, gridWidth);
-          cells[idx] == Tile::MustTouch && idx < mustTouchCellsSatisfied.size())
+      // Bounds FIRST, and against `cells` as well as the bitset. `&&` sequences
+      // the range test AFTER the subscript, so the old spelling read
+      // `cells[idx]` before deciding whether idx was on the board — and
+      // `positionToIndex` casts to uint16_t, so an off-board block arrives as
+      // ~65535. `checkBlockingCells` below already guards first, and it has to
+      // be done here too: both seeding callers (Replay.cpp's satisfied mask and
+      // AStar::prepareSearch) run before any validity check, and the exported
+      // `verify` binding never runs one at all.
+      const auto idx = positionToIndex(cx, cy, gridWidth);
+      if (idx >= cells.size() || idx >= mustTouchCellsSatisfied.size())
+        continue;
+      if (cells[idx] == Tile::MustTouch)
         mustTouchCellsSatisfied.set(idx);
     }
   }

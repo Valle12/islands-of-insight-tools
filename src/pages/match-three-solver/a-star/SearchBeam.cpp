@@ -60,7 +60,11 @@ Moves expandNode(const Node &node, Frontier &scratch, TransTable &seen) {
       continue;
     seen.store(scratch.child, 1);
     auto &[childBoard, childPath, childBlocks] = scratch.next.emplace_back();
-    childBoard = scratch.child;
+    // copyBoard, never plain assignment: `Board::cells` is the fixed kMaxCells
+    // inline array, so `=` moves 1024 bytes on every child whatever the board's
+    // size — and this line runs once per surviving legal move per node, which
+    // is the hottest allocation-free copy in the arm. See Types.h.
+    copyBoard(scratch.child, childBoard);
     childPath = node.path;
     childPath.push_back(rules::decodeMove(packed, node.board.width));
     childBlocks = left;
@@ -74,7 +78,7 @@ Moves beamRun(const Board &start, const int blocks, const int width,
               const int bound, Frontier &scratch, Budget &budget) {
   scratch.current.clear();
   Node &root = scratch.current.emplace_back();
-  root.board = start;
+  copyBoard(start, root.board);
   root.blocks = blocks;
 
   for (int level = 1; level < bound && !scratch.current.empty(); level++) {

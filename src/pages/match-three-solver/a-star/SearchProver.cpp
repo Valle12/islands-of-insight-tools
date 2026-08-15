@@ -169,7 +169,13 @@ bool Prover::exploreInner(const Board &board, const int remaining,
             blocks - scratch.cleared[static_cast<size_t>(child)]);
     popStep(scratch, child);
   }
-  return true;
+  // Not a bare `true`: the budget can run out INSIDE the last child, and the
+  // loop then ends normally with no top-of-iteration check left to catch it.
+  // Reported as searched out, that node — and every node above it that was also
+  // on its parent's last branch — would be written off in the table as proven
+  // barren. `expired()` is the const accessor, not `exhausted()`, which counts
+  // a node as a side effect.
+  return !budget_.expired();
 }
 
 /// The last ply, where a move only matters if it clears the whole board: each

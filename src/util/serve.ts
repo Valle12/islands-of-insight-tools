@@ -19,7 +19,11 @@ import {
   ROBOTS_FILE,
   SITEMAP_FILE,
 } from "./siteMeta";
-import { WASM_SOLVERS, WASM_VARIANT_FILES } from "./wasmAssets";
+import {
+  WASM_SHARED_FILES,
+  WASM_SOLVERS,
+  WASM_VARIANT_FILES,
+} from "./wasmAssets";
 
 const imagesDir = resolve(import.meta.dir, "./../../images");
 
@@ -107,9 +111,15 @@ const server = Bun.serve({
     for (const { page, prefix } of WASM_SOLVERS) {
       if (!url.pathname.startsWith(`/${prefix}/`)) continue;
       const name = url.pathname.slice(prefix.length + 2);
-      if (wasmVariantFiles.has(name)) {
-        const dir = resolve(import.meta.dir, `./../pages/${page}/wasm`);
-        return new Response(Bun.file(resolve(dir, name)), {
+      // The solver's own output, or the hand-written worker core published
+      // into every prefix — mirroring build.ts's copy step so dev and dist
+      // answer the same urls.
+      const shared = WASM_SHARED_FILES[name];
+      const file = wasmVariantFiles.has(name)
+        ? resolve(import.meta.dir, `./../pages/${page}/wasm`, name)
+        : shared && resolve(import.meta.dir, shared);
+      if (file) {
+        return new Response(Bun.file(file), {
           headers: {
             "Content-Type": name.endsWith(".wasm")
               ? "application/wasm"

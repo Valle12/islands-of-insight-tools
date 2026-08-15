@@ -1,103 +1,36 @@
-// Worker that loads the requested logic-grid WASM build variant and runs one
-// solve. Message in: { puzzle, config, variant }; messages out: progress
+// Logic-grid solver worker: loads the requested wasm build variant and runs
+// one arm. Message in: { puzzle, config, variant }; messages out are progress
 // (posted by the wasm module itself, which runs in this scope), then
-// done { status, cells, proven, decided, playable, witnesses, stats } or error.
+// done { status, reason, cells, proven, decided, playable, witnesses, stats }
+// or error.
 //
-// Hand-written source living in an otherwise generated directory — the
-// astar*.mjs/wasm files beside it are em++ output and gitignored.
+// Everything that is not about the logic grid — the variant table, the
+// fallback to the portable build, the error protocol — lives in
+// ./astar.workerCore.js, copied in beside this file from src/util. This file
+// is hand-written source in an otherwise generated directory; the astar*.mjs
+// and .wasm beside it are em++ output and gitignored.
+//
+// This solver reports its own stats shape rather than the A* one, so it spells
+// the block out instead of reaching for `plainSearchStats`.
 
-const modulePromises = new Map();
+import { plainArray, runSolverWorker } from "./astar.workerCore.js";
 
-function getModule(name) {
-  if (!modulePromises.has(name)) {
-    modulePromises.set(
-      name,
-      (async () => {
-        const url = new URL(`./${name}`, self.location.href).href;
-        const createModule = (await import(url)).default;
-        return createModule({
-          locateFile: path => new URL(`./${path}`, self.location.href).href,
-        });
-      })(),
-    );
-  }
-  return modulePromises.get(name);
-}
-
-const MODULE_BY_VARIANT = {
-  threads: "astar.threads.mjs",
-  "threads-mem64": "astar.threads.mem64.mjs",
-  mem64: "astar.mem64.mjs",
-};
-
-// The bridge only requests variants its probes validated, but validation is
-// not instantiation — fall back to the universal wasm32 build if the preferred
-// module fails to load.
-async function loadModule(variant) {
-  const preferred = MODULE_BY_VARIANT[variant];
-  if (preferred) {
-    try {
-      return await getModule(preferred);
-    } catch (err) {
-      console.error(`Falling back to astar.mjs: ${err}`);
-      modulePromises.delete(preferred);
-    }
-  }
-  return getModule("astar.mjs");
-}
-
-/**
- * Embind values have to become plain structures before they can be posted.
- *
- * `Array.from` rather than a spread or a for-of: the bindings build these with
- * `val::array()`, so they are real arrays here, but copying by length and index
- * also works for anything array-LIKE if that ever changes.
- */
-function plainCells(cells) {
-  return Array.from(cells);
-}
-
-function plainWitnesses(witnesses) {
-  return Array.from(witnesses, plainCells);
-}
-
-self.onmessage = async event => {
-  const { puzzle, config, variant } = event.data;
-
-  try {
-    const module = await loadModule(variant);
-    const result = module.solve(puzzle, config ?? {});
-
-    if (result.error) {
-      self.postMessage({ type: "error", error: String(result.error) });
-      return;
-    }
-
-    const stats = result.stats
-      ? {
-          nodes: result.stats.nodes,
-          refutations: result.stats.refutations,
-          oracleRejections: result.stats.oracleRejections,
-          stoppedOnMemory: result.stats.stoppedOnMemory,
-          wallMs: result.stats.wallMs,
-          arm: result.stats.arm,
-        }
-      : undefined;
-
-    self.postMessage({
-      type: "done",
-      status: result.status,
-      reason: result.reason,
-      cells: plainCells(result.cells),
-      proven: result.proven === true,
-      decided: result.decided,
-      playable: result.playable,
-      witnesses: plainWitnesses(result.witnesses),
-      stats,
-    });
-  } catch (err) {
-    // A wasm heap that cannot grow ABORTS the module, which arrives here as a
-    // RuntimeError — the bridge retires this one arm and the race goes on.
-    self.postMessage({ type: "error", error: String(err) });
-  }
-};
+runSolverWorker(result => ({
+  status: result.status,
+  reason: result.reason,
+  cells: plainArray(result.cells),
+  proven: result.proven === true,
+  decided: result.decided,
+  playable: result.playable,
+  witnesses: plainArray(result.witnesses, cells => plainArray(cells)),
+  stats: result.stats
+    ? {
+        nodes: result.stats.nodes,
+        refutations: result.stats.refutations,
+        oracleRejections: result.stats.oracleRejections,
+        stoppedOnMemory: result.stats.stoppedOnMemory,
+        wallMs: result.stats.wallMs,
+        arm: result.stats.arm,
+      }
+    : undefined,
+}));

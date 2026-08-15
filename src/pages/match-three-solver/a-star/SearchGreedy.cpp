@@ -142,7 +142,8 @@ Choice sampleChoice(const std::vector<Choice> &choices, SeededRng &rng) {
 Moves rolloutOnce(const Board &start, const int blocks, const int bound,
                   const bool sample, SeededRng &rng, Scratch &scratch,
                   Budget &budget) {
-  Board current = start;
+  Board current;
+  copyBoard(start, current);
   int left = blocks;
   Moves path;
   std::vector<Choice> choices;
@@ -160,7 +161,9 @@ Moves rolloutOnce(const Board &start, const int blocks, const int bound,
       return path;
     // Replayed rather than kept: see collectChoices.
     rules::applyPacked(current, scratch.next, choice.move, scratch.mask, nullptr);
-    current = scratch.next;
+    // copyBoard, never plain assignment: `=` moves the whole 1024-byte inline
+    // array whatever the board's size, once per rollout step. See Types.h.
+    copyBoard(scratch.next, current);
     left -= choice.cleared;
   }
   return {};

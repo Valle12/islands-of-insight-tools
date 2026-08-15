@@ -190,9 +190,14 @@ export type LogicGridTest = {
    * layout the solver's wasm boundary takes.
    *
    * A merged cell is the game's irregular tile: any connected polyomino of at
-   * least two squares, painted as ONE cell and carrying at most one clue, but
-   * still counting every square it is made of towards an area number and
-   * adjacent to whatever any of its squares touches.
+   * least two squares, painted as ONE cell but still counting every square it
+   * is made of towards an area number and adjacent to whatever any of its
+   * squares touches.
+   *
+   * Every SQUARE keeps its own clue slot, so a merged cell may carry SEVERAL
+   * clues — the game puts two darts on one domino, and each acts from the
+   * square the file names it on. It is one clue per square that is capped, not
+   * one per cell.
    *
    * OPTIONAL, and omitted entirely rather than written as `[]` when a board has
    * none — every captured fixture predates this key and must keep round-tripping

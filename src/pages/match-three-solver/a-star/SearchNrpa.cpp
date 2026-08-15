@@ -192,6 +192,15 @@ public:
     // being spent first.
     if (rules::hasStrandedSymbol(board_))
       return {};
+    // The same argument for a board with no legal swap at all, which
+    // `hasStrandedSymbol` does not cover — a diagonal weave can hold nine
+    // blocks of every symbol and still offer no move. Without this every
+    // playout breaks on its first `collectSteps`, `best_.left` never falls,
+    // and the ladder runs the full kBarrenRestarts x ~10 000 playouts before
+    // the prover is told.
+    rules::legalMovesInto(board_, scratch_.probe, scratch_.moves);
+    if (scratch_.moves.empty())
+      return {};
     // RESTARTS, and they are the whole difference between finding
     // matchThreeTest50 and not. A level-N search exhausts its iterations and
     // returns; on that board the losing runs come back after ~16 s of a 45 s
@@ -212,8 +221,12 @@ public:
       const auto [level, iterations] = rungFor(restarts_);
       level_ = level;
       iterations_ = iterations;
-      // One slot per packed move: a cell index, plus the direction bit.
-      Policy policy(board_.cells.size() * 2, 0.0);
+      // One slot per packed move: a cell index, plus the direction bit. Sized
+      // from cellCount(), NOT from cells.size() — `cells` is the fixed
+      // kMaxCells inline array, so that spelling allocated 1024 slots on every
+      // board and paid the 5-8x over-copy on each of the ~10 000 policy clones
+      // a restart makes.
+      Policy policy(static_cast<size_t>(board_.cellCount()) * 2, 0.0);
       search(level_, policy);
       restarts_++;
       barren = best_.left < before ? 0 : barren + 1;

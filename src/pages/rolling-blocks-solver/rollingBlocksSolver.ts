@@ -225,8 +225,16 @@ export class RollingBlocksSolverEditor {
       MAX_GRID_SIDE,
     );
     if (!parsedWidth || !parsedHeight) return;
+    // Unchanged dimensions are not a resize, and a resize throws the board
+    // away. The field fires on every keystroke, so without this, retyping the
+    // same number over itself wiped everything on the grid — the guard the
+    // three sibling pages already carry.
+    if (parsedWidth === this.gridWidth && parsedHeight === this.gridHeight) {
+      return;
+    }
     this.gridWidth = parsedWidth;
     this.gridHeight = parsedHeight;
+    this.board.dispose();
     this.board = new Board(
       this,
       this.gridWidth,
@@ -247,6 +255,7 @@ export class RollingBlocksSolverEditor {
   private resetToDefaults() {
     this.applyDefaultGridSize();
     this.selectedTool = "regular";
+    this.board.dispose();
     this.board = new Board(
       this,
       this.gridWidth,
@@ -433,6 +442,7 @@ export class RollingBlocksSolverEditor {
     this.gridHeight = config.gridHeight;
     this.widthField.value = String(this.gridWidth);
     this.heightField.value = String(this.gridHeight);
+    this.board.dispose();
     this.board = new Board(
       this,
       this.gridWidth,

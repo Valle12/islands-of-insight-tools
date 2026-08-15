@@ -21,6 +21,8 @@ export class Board {
   private cells: Tile[][] = [];
   private blockAssignments: number[][] = [];
   private readonly blocks: Map<number, Block> = new Map();
+  /** Aborts every listener this board registered — see `dispose`. */
+  private readonly listeners = new AbortController();
   private readonly grid = document.getElementById("grid") as HTMLDivElement;
 
   constructor(
@@ -35,6 +37,16 @@ export class Board {
     this.selectedTool = selectedTool;
     this.resetBoardData();
     this.addListeners();
+  }
+
+  /**
+   * Drops this board's listeners. `#grid` and `document` outlive the board they
+   * belong to, so a replaced board that kept listening would go on painting
+   * into its own dead `cells` and rebuild the grid from its own stale
+   * dimensions — once more per replacement, on every pointer event.
+   */
+  dispose() {
+    this.listeners.abort();
   }
 
   setSelectedTool(tool: PaintTool) {
@@ -171,40 +183,61 @@ export class Board {
   }
 
   private addListeners() {
-    this.grid.addEventListener("pointerdown", event => {
-      const position = this.extractCellPosition(event.target);
-      if (!position) return;
-      this.isPainting = true;
+    // Every listener carries the board's abort signal, so `dispose()` takes
+    // them all off the shared `#grid` / `document` in one call.
+    const { signal } = this.listeners;
 
-      if (this.selectedTool === "block" || this.selectedTool === "goal") {
-        this.dragStart = position;
-        this.dragCurrent = position;
-        this.renderGrid();
-        return;
-      }
+    this.grid.addEventListener(
+      "pointerdown",
+      event => {
+        const position = this.extractCellPosition(event.target);
+        if (!position) return;
+        this.isPainting = true;
 
-      this.paintCell(position);
-      this.solver.hideSolution();
-      this.solver.render();
-    });
+        if (this.selectedTool === "block" || this.selectedTool === "goal") {
+          this.dragStart = position;
+          this.dragCurrent = position;
+          this.renderGrid();
+          return;
+        }
 
-    this.grid.addEventListener("pointermove", event => {
-      if (!this.isPainting) return;
-      const position = this.extractCellPosition(event.target);
-      if (!position) return;
+        if (!this.paintCell(position)) return;
+        this.solver.hideSolution();
+        this.solver.render();
+      },
+      { signal },
+    );
 
-      if (this.selectedTool === "block" || this.selectedTool === "goal") {
-        this.dragCurrent = position;
-        this.renderGrid();
-        return;
-      }
+    this.grid.addEventListener(
+      "pointermove",
+      event => {
+        if (!this.isPainting) return;
+        const position = this.extractCellPosition(event.target);
+        if (!position) return;
 
-      this.paintCell(position);
-      this.solver.hideSolution();
-      this.solver.render();
-    });
+        if (this.selectedTool === "block" || this.selectedTool === "goal") {
+          this.dragCurrent = position;
+          this.renderGrid();
+          return;
+        }
 
-    document.addEventListener("pointerup", () => {
+        // Gated on the cell actually changing: a pointermove fires many times
+        // per cell while dragging, and `solver.render()` rebuilds the whole
+        // grid AND re-upgrades every Material element in the blocks list.
+        if (!this.paintCell(position)) return;
+        this.solver.hideSolution();
+        this.solver.render();
+      },
+      { signal },
+    );
+
+    // pointercancel as well as pointerup: a stroke does not always end in a
+    // pointerup — a touch that turns into a system gesture arrives as
+    // pointercancel instead, and `renderGrid()` running from pointermove
+    // destroys the node holding the implicit pointer capture, which is exactly
+    // what provokes one. Without it `isPainting` and the drag rectangle stay
+    // latched and the block being drawn is silently discarded.
+    const endStroke = () => {
       if (!this.isPainting) return;
       this.isPainting = false;
 
@@ -221,7 +254,9 @@ export class Board {
       this.dragStart = null;
       this.dragCurrent = null;
       this.solver.render();
-    });
+    };
+    document.addEventListener("pointerup", endStroke, { signal });
+    document.addEventListener("pointercancel", endStroke, { signal });
   }
 
   private rectangleIsFree(
@@ -391,18 +426,30 @@ export class Board {
     return { x, y };
   }
 
-  private paintCell(position: Position) {
+  /** Applies the selected tool to one cell. False when nothing changed. */
+  private paintCell(position: Position): boolean {
     const col = this.cells[position.x];
-    if (!col) return;
+    if (!col) return false;
 
     const tool = this.selectedTool;
     if (
-      tool === "regular" ||
-      tool === "mustTouch" ||
-      tool === "goal" ||
-      tool === "unplayable"
+      tool !== "regular" &&
+      tool !== "mustTouch" &&
+      tool !== "goal" &&
+      tool !== "unplayable"
     ) {
-      col[position.y] = tool;
+      return false;
     }
+    // A block may not stand on an unplayable cell — `rectangleIsFree` already
+    // refuses to draw one there, and `config.ts` refuses to LOAD one ("Block N
+    // sits on an unplayable cell."). Painting the gap under an existing block
+    // is the other order into the same state, and it is invisible: `renderGrid`
+    // draws the block over it. Left alone, the editor writes a file it cannot
+    // read back, and Solve searches a board whose blocks start on walls.
+    if (tool === "unplayable" && this.blockAssignments[position.x]?.[position.y])
+      return false;
+    if (col[position.y] === tool) return false;
+    col[position.y] = tool;
+    return true;
   }
 }

@@ -130,10 +130,13 @@ describe("solveMatchThree under a tiny evicting table", () => {
     expect(clearsBoard(start, full.moves)).toBeTrue();
   });
 
+  // Explicit timeout for the same reason as engine.test.ts's refutation cases:
+  // a default-budget refutation spends NRPA's whole slice before the prover
+  // answers, which under coverage lands close to the 5 s default.
   test("an unsolvable proof survives eviction", () => {
     const start = board(["aabb", "bbaa"]);
     expect(solveMatchThree(start, { tableBytes: 1 })).toEqual({
       status: "unsolvable",
     });
-  });
+  }, 30_000);
 });

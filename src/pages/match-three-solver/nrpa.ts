@@ -249,6 +249,17 @@ export function runNrpa(
     return { moves: [], partial: [], left: total, playouts: 0 };
   }
 
+  // The same argument for a board with no legal swap at all. `hasStrandedSymbol`
+  // does not cover it — a diagonal weave can hold nine blocks of every symbol
+  // and still offer no move — so without this every playout breaks on its first
+  // `expand`, `best.left` never falls, and the ladder runs the full
+  // BARREN_RESTARTS x ~10 000 playouts before the prover is told. Measured:
+  // ~3.2 s of the slice on a 6x6 weave, which is what pushed three unit tests
+  // past bun's default 5 s timeout.
+  if (total > 0 && legalMoves(start).length === 0) {
+    return { moves: [], partial: [], left: total, playouts: 0 };
+  }
+
   const playout = (policy: Policy): Line => {
     const weightOf: WeightOf = move => policy.get(codeOf(move));
     let board = start;

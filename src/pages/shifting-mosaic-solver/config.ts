@@ -1,4 +1,8 @@
-import type { ConfigResult } from "../../util/configValidation";
+import {
+  readGridSize,
+  type ConfigResult,
+  type GridSize,
+} from "../../util/configValidation";
 import type { Position, ShiftingMosaicTest } from "../../util/types";
 
 /**
@@ -34,38 +38,64 @@ function isPositionArray(value: unknown): value is Position[] {
 }
 
 /**
+ * Returns the first problem with where the blocks sit, or null.
+ *
+ * Split out of `validateConfig` rather than inlined: two nested walks over
+ * every square of every block are most of that function's branching, and none
+ * of it needs anything but the shapes, their anchors and the grid size.
+ */
+function placementError(
+  shapes: Position[][],
+  initialAnchors: Position[],
+  goalIndex: number,
+  goalAnchor: Position,
+  size: GridSize,
+): string | null {
+  const { gridWidth, gridHeight } = size;
+  const offBoard = (anchor: Position, cell: Position) => {
+    const x = anchor.x + cell.x;
+    const y = anchor.y + cell.y;
+    return x < 0 || x >= gridWidth || y < 0 || y >= gridHeight;
+  };
+
+  // Every block must sit fully inside the grid, and no two blocks may share
+  // a cell — the board cannot represent overlapping blocks.
+  const occupied = new Set<number>();
+  for (let i = 0; i < shapes.length; i++) {
+    const anchor = initialAnchors[i]!;
+    for (const cell of shapes[i]!) {
+      if (offBoard(anchor, cell)) {
+        return `Block ${i + 1} extends outside the grid.`;
+      }
+      const key = anchor.x + cell.x + (anchor.y + cell.y) * gridWidth;
+      if (occupied.has(key)) return `Block ${i + 1} overlaps another block.`;
+      occupied.add(key);
+    }
+  }
+
+  // The goal zone must also fit inside the grid.
+  for (const cell of shapes[goalIndex]!) {
+    if (offBoard(goalAnchor, cell)) {
+      return "The goal zone extends outside the grid.";
+    }
+  }
+  return null;
+}
+
+/**
  * Validates an unknown parsed JSON value against the shifting-mosaic config
  * (download) format. Returns the typed config on success, or a human-readable
  * error explaining the first problem found.
  */
 export function validateConfig(data: unknown): ConfigParseResult {
-  if (typeof data !== "object" || data === null) {
-    return { ok: false, error: "Config must be a JSON object." };
-  }
+  // The object check and both dimension bounds come from the shared module,
+  // whose messages are part of the download format's contract — this page used
+  // to restate all three verbatim, which is exactly how the four pages drift
+  // into answering the same malformed upload two different ways.
+  const size = readGridSize(data, MAX_GRID_SIDE);
+  if (!size.ok) return size;
+  const { gridWidth, gridHeight } = size.config;
   const raw = data as Record<string, unknown>;
-
-  if (
-    !Number.isInteger(raw.gridWidth) ||
-    (raw.gridWidth as number) <= 0 ||
-    (raw.gridWidth as number) > MAX_GRID_SIDE
-  ) {
-    return {
-      ok: false,
-      error: `gridWidth must be an integer between 1 and ${MAX_GRID_SIDE}.`,
-    };
-  }
-  if (
-    !Number.isInteger(raw.gridHeight) ||
-    (raw.gridHeight as number) <= 0 ||
-    (raw.gridHeight as number) > MAX_GRID_SIDE
-  ) {
-    return {
-      ok: false,
-      error: `gridHeight must be an integer between 1 and ${MAX_GRID_SIDE}.`,
-    };
-  }
-  const gridWidth = raw.gridWidth as number;
-  const gridHeight = raw.gridHeight as number;
 
   if (
     !Array.isArray(raw.shapes) ||
@@ -113,33 +143,14 @@ export function validateConfig(data: unknown): ConfigParseResult {
   }
   const goalAnchor = raw.goalAnchor;
 
-  // Every block must sit fully inside the grid, and no two blocks may share
-  // a cell — the board cannot represent overlapping blocks.
-  const occupied = new Set<string>();
-  for (let i = 0; i < shapes.length; i++) {
-    const anchor = initialAnchors[i]!;
-    for (const cell of shapes[i]!) {
-      const x = anchor.x + cell.x;
-      const y = anchor.y + cell.y;
-      if (x < 0 || x >= gridWidth || y < 0 || y >= gridHeight) {
-        return { ok: false, error: `Block ${i + 1} extends outside the grid.` };
-      }
-      const key = `${x},${y}`;
-      if (occupied.has(key)) {
-        return { ok: false, error: `Block ${i + 1} overlaps another block.` };
-      }
-      occupied.add(key);
-    }
-  }
-
-  // The goal zone must also fit inside the grid.
-  for (const cell of shapes[goalIndex]!) {
-    const x = goalAnchor.x + cell.x;
-    const y = goalAnchor.y + cell.y;
-    if (x < 0 || x >= gridWidth || y < 0 || y >= gridHeight) {
-      return { ok: false, error: "The goal zone extends outside the grid." };
-    }
-  }
+  const placement = placementError(
+    shapes,
+    initialAnchors,
+    goalIndex,
+    goalAnchor,
+    size.config,
+  );
+  if (placement !== null) return { ok: false, error: placement };
 
   return {
     ok: true,

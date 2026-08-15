@@ -1,5 +1,9 @@
 import type { LogicGridTest } from "../../util/types";
-import { pickWasmVariant } from "../../util/wasmFeatureProbes";
+import {
+  crossOriginIsolatedPage,
+  startWasmPool,
+  type WasmPoolHandle,
+} from "../../util/wasmPool";
 import { SOLVE_BUDGET_MS } from "./config";
 import { symbolKindAt } from "./symbols";
 import { toFlat } from "./verify";
@@ -61,9 +65,8 @@ export interface WasmCallbacks {
   readonly onError?: (message: string) => void;
 }
 
-export interface WasmHandle {
-  terminate(): void;
-}
+/** The one way to stop the race — see `src/util/wasmPool.ts`. */
+export type WasmHandle = WasmPoolHandle;
 
 /**
  * Where `src/util/build.ts` publishes the em++ output. Page-relative, NOT
@@ -131,133 +134,78 @@ export function searchLogicGridWasm(
 ): WasmHandle {
   const puzzle = toPuzzle(config);
 
-  const isolated =
-    typeof crossOriginIsolated !== "undefined" && crossOriginIsolated;
-  const variant = pickWasmVariant(isolated);
-  const poolSize = Math.max(
-    1,
-    Math.min(PORTFOLIO.length, (navigator.hardwareConcurrency || 2) - 1),
-  );
-  // Every arm always runs: poolSize bounds how many go at once, never which
+  // Every arm always runs: the pool bounds how many go at once, never which
   // ones exist — they queue and back-fill as earlier ones retire. That is why
   // only the ISOLATED case collapses the list: there the pthreads module races
   // `kPortfolio` on real threads inside one worker, so spawning the arms out
-  // here as well would run each of them twice. A small `poolSize` is not a
-  // reason to drop any — it just means they take longer to all get a turn, and
-  // dropping them would cost a one- or two-core machine the near-free `deduce`
-  // arm that finishes most boards on its own.
-  const configs = isolated
+  // here as well would run each of them twice. A small pool is NOT a reason to
+  // drop any — it just means they take longer to all get a turn, and dropping
+  // them would cost a one- or two-core machine the near-free `deduce` arm that
+  // finishes most boards on its own.
+  const configs = crossOriginIsolatedPage()
     ? [{ engine: "cascade", maxMs: budgetMs }]
     : PORTFOLIO.map(arm => ({ ...arm, maxMs: budgetMs }));
 
-  let workers: Worker[] = [];
-  let settled = false;
-  let pending = 0;
-  let nextConfig = 0;
+  // Sticky: an arm that searched out cleanly means "no answer within budget",
+  // which is a result. Only a portfolio where every arm DIED is a failure.
   let anyArmFinished = false;
-  let lastError = "";
-  const nodesByWorker = new Map<Worker, number>();
-  const decidedByWorker = new Map<Worker, number>();
-  // Idempotent per worker: a failing arm can deliver both an error message AND
-  // an onerror event, and the double decrement would settle the race early.
-  const retired = new Set<Worker>();
+  // Nodes are summed by the pool; `decided` is the deduction pass's count, so
+  // the most any one arm settled is the number to show — summing four arms'
+  // views of the same board would multiply it.
+  const decidedByArm = new Map<number, number>();
 
-  const terminateAll = () => {
-    // Sets the flag as well as killing the workers. `retire` and `spawnNext`
-    // guard only on this, so a `done` that reaches here synchronously would
-    // otherwise back-fill a fresh worker after the portfolio was torn down.
-    settled = true;
-    for (const worker of workers) worker.terminate();
-    workers = [];
-  };
-
-  const settle = () => {
-    if (settled) return;
-    settled = true;
-    terminateAll();
-    if (anyArmFinished) callbacks.onSettled?.();
-    else callbacks.onError?.(lastError || "The solver could not be started.");
-  };
-
-  const reportProgress = () => {
-    let nodes = 0;
-    for (const count of nodesByWorker.values()) nodes += count;
+  // Held so a `done` can re-report without disturbing it: that message carries
+  // no node count, and feeding it 0 would drop the arm's whole contribution out
+  // of the running total the moment it finished.
+  let lastNodes = 0;
+  const reportProgress = (nodes: number) => {
+    lastNodes = nodes;
     let decided = 0;
-    for (const count of decidedByWorker.values())
+    for (const count of decidedByArm.values())
       decided = Math.max(decided, count);
     callbacks.onProgress?.(nodes, decided);
   };
 
-  const retire = (worker: Worker) => {
-    if (settled || retired.has(worker)) return;
-    retired.add(worker);
-    pending--;
-    worker.terminate();
-    spawnNext();
-    if (pending === 0) settle();
-  };
-
-  const handleMessage = (worker: Worker, data: Record<string, unknown>) => {
-    if (data.type === "progress") {
-      nodesByWorker.set(worker, Number(data.nodes));
-      decidedByWorker.set(worker, Number(data.decided ?? 0));
-      reportProgress();
-      return;
-    }
-    if (data.type === "done") {
-      anyArmFinished = true;
-      const result: ArmResult = {
-        status: (data.status as LogicGridStatus) ?? "unsolved",
-        reason: data.reason as string | undefined,
-        cells: (data.cells as number[]) ?? [],
-        proven: data.proven === true,
-        decided: Number(data.decided ?? 0),
-        playable: Number(data.playable ?? 0),
-        witnesses: (data.witnesses as number[][]) ?? [],
-        stats: data.stats as SolveStats | undefined,
-      };
-      decidedByWorker.set(worker, result.decided);
-      reportProgress();
-      callbacks.onArm?.(result);
-      retire(worker);
-      return;
-    }
-    if (data.type === "error") {
-      // A dying arm (a wasm heap that could not grow aborts its module)
-      // retires itself; the portfolio fails only when every arm has failed.
-      lastError = String(data.error);
-      retire(worker);
-    }
-  };
-
-  function spawnNext() {
-    if (settled || nextConfig >= configs.length) return;
-    const armConfig = configs[nextConfig++]!;
-    let worker: Worker;
-    try {
-      worker = new Worker(WORKER_URL, { type: "module" });
-    } catch {
-      lastError = "The solver could not be started.";
-      spawnNext();
-      return;
-    }
-    workers.push(worker);
-    nodesByWorker.set(worker, 0);
-
-    worker.onmessage = (event: MessageEvent) => {
-      if (settled) return;
-      handleMessage(worker, event.data as Record<string, unknown>);
-    };
-    worker.onerror = event => {
-      lastError = event.message || "The solver stopped unexpectedly.";
-      retire(worker);
-    };
-    worker.postMessage({ puzzle, config: armConfig, variant });
-    pending++;
-  }
-
-  for (let i = 0; i < Math.min(poolSize, configs.length); i++) spawnNext();
-  if (pending === 0) settle();
-
-  return { terminate: terminateAll };
+  return startWasmPool({
+    workerUrl: WORKER_URL,
+    configs,
+    payload: { puzzle },
+    startupError: "The solver could not be started.",
+    onProgress: reportProgress,
+    onMessage: (data, arm) => {
+      if (data.type === "progress") {
+        decidedByArm.set(arm.index, Number(data.decided ?? 0));
+        arm.progress(Number(data.nodes));
+        return;
+      }
+      if (data.type === "done") {
+        anyArmFinished = true;
+        const result: ArmResult = {
+          status: (data.status as LogicGridStatus) ?? "unsolved",
+          reason: data.reason as string | undefined,
+          cells: (data.cells as number[]) ?? [],
+          proven: data.proven === true,
+          decided: Number(data.decided ?? 0),
+          playable: Number(data.playable ?? 0),
+          witnesses: (data.witnesses as number[][]) ?? [],
+          stats: data.stats as SolveStats | undefined,
+        };
+        decidedByArm.set(arm.index, result.decided);
+        reportProgress(lastNodes);
+        callbacks.onArm?.(result);
+        arm.retire();
+        return;
+      }
+      if (data.type === "error") {
+        // A dying arm (a wasm heap that could not grow aborts its module)
+        // retires itself; the portfolio fails only when every arm has failed.
+        arm.fail(String(data.error));
+        arm.retire();
+      }
+    },
+    onExhausted: lastError => {
+      if (anyArmFinished) callbacks.onSettled?.();
+      else callbacks.onError?.(lastError);
+    },
+  });
 }

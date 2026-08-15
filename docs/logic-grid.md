@@ -82,16 +82,20 @@ chip; and
 each sized family-and-colour is ONE value control (`.rule-sized`) holding a
 field per instance plus a `+` that appends another (`.rule-size-add`,
 deliberately NOT a `.tool-button` — `chipFrom` means "a rule or clue chip").
-**Only `buildRuleRow` reads `RULE_ROW`.** `toggleRule` reads the segment's
-`data-rule-index` and `refreshRuleRow` queries by `data-rule` id, so both are
-position-independent — as are the e2e suites, which address chips by id.
+**Only `ruleRowMarkup`, in `toolRowMarkup.ts`, reads `RULE_ROW`.** `toggleRule`
+reads the segment's `data-rule-index` and `refreshRuleRow` queries by
+`data-rule` id, so both are position-independent — as are the e2e suites, which
+address chips by id.
 `catalog.test.ts` pins the coverage invariants rather than the order: every
 flag in exactly one control, no sized id anywhere, pairs dark-then-light, each
 control in the band its rules' `group` names. The sized value fields keep raw
-per-slot strings in `sizedValues` (the `symbolValues` pattern): the row is
-never rebuilt on interaction, a refresh writes a field only when its text
-differs (the caret guard), an emptied slot is dropped on `focusout` — never
-mid-typing — and a family is active exactly while it holds one usable value.
+per-slot strings (the `symbolValues` pattern): the row is never rebuilt on
+interaction, a refresh writes a field only when its text differs (the caret
+guard), an emptied slot is dropped on `focusout` — never mid-typing — and a
+family is active exactly while it holds one usable value. All of that,
+including building and focusing a new slot, is `sizedRuleControls.ts`: those
+fields are the one part of either row that is created and destroyed while the
+page runs, so the text and the elements have a single owner.
 
 **Indices are copied in four places, and one of them cannot be avoided.**
 `catalog.test.ts` and `rules_test.cpp` pin every index on both sides — that is
@@ -193,7 +197,7 @@ dimensions rather than its area: an area number is bounded by the board's
 AREA, a dart by its longest LINE (`max(w, h) - 1`), and a valueless kind by
 nothing, which it reports as 0. Zero is a real dart and not a real area, which
 is why `MIN_AREA_VALUE` stopped being the one floor and why `nextNumberValue`
-in `board.ts` no longer refuses a leading zero outright. The error strings are
+in `boardKeys.ts` no longer refuses a leading zero outright. The error strings are
 still built from `${kind.label}` and the bounds, so a new kind gets its
 message for nothing.
 
@@ -238,8 +242,13 @@ and attributes on every selection change. Rebuilding on selection would destroy
 the field being typed into, and `refreshSymbolRow` additionally skips writing
 `input.value` when it already matches — assigning it moves the caret to the end.
 The same discipline is what keeps a rule chip focused after a keyboard toggle.
+`buildSymbolRow` / `refreshSymbolRow` live in `symbolRowView.ts` and take the
+row element plus the editor's per-kind arrays; `buildRuleRow` /
+`refreshRuleRow` stay on the editor, which owns `activeRules`.
 
-Four things in `board.ts` are load-bearing:
+Four things about the board are load-bearing. Three of them are decided in
+`strokes.ts` — what a press MEANS, before anything is written — and the digit
+run is `boardKeys.ts`, along with the keyboard half of the other three:
 
 - **The right mouse button is a real input here.** The selected chip drives the
   left button; the right one paints the *other* colour for `dark`/`light` and

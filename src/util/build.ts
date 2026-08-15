@@ -16,7 +16,11 @@ import {
   ROBOTS_FILE,
   SITEMAP_FILE,
 } from "./siteMeta";
-import { WASM_SOLVERS, WASM_VARIANT_FILES } from "./wasmAssets";
+import {
+  WASM_SHARED_FILES,
+  WASM_SOLVERS,
+  WASM_VARIANT_FILES,
+} from "./wasmAssets";
 
 // NOTE: this file must be launched with NODE_ENV=production — the `build`
 // script does it, and CI runs `bun run build`. Material Web pulls in Lit, whose
@@ -56,6 +60,14 @@ for (const { page, prefix } of WASM_SOLVERS) {
   mkdirSync(resolve("./dist", prefix), { recursive: true });
   for (const file of WASM_VARIANT_FILES)
     copyFileSync(resolve(from, file), resolve("./dist", prefix, file));
+  // The hand-written worker core, published into every solver's prefix so each
+  // worker can import it page-relative. Same list serve.ts reads, so dev and
+  // dist answer the same urls.
+  for (const [name, source] of Object.entries(WASM_SHARED_FILES))
+    copyFileSync(
+      resolve(import.meta.dir, source),
+      resolve("./dist", prefix, name),
+    );
 }
 
 // The match-three search worker — a second bundle pass, because the HTML

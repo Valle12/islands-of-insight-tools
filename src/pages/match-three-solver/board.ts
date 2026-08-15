@@ -144,13 +144,16 @@ export class Board {
       { signal },
     );
 
-    document.addEventListener(
-      "pointerup",
-      () => {
-        this.isPainting = false;
-      },
-      { signal },
-    );
+    // pointercancel as well as pointerup: a stroke does not always end in a
+    // pointerup — a touch that turns into a system gesture arrives as
+    // pointercancel instead, and a board that kept `isPainting` would carry on
+    // painting on the next move with nothing pressed. Logic-grid ends its
+    // stroke on both for the same reason.
+    const endStroke = () => {
+      this.isPainting = false;
+    };
+    document.addEventListener("pointerup", endStroke, { signal });
+    document.addEventListener("pointercancel", endStroke, { signal });
   }
 
   private extractCellPosition(target: EventTarget | null): Position | null {
