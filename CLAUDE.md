@@ -319,6 +319,12 @@ in `serve.ts`, an entrypoint in `build.ts`, a card in `src/pages/index.html` **i
 `PAGES` order** with its `ItemList` entry, a leg in `e2e/index.test.ts`, and
 `bun run og:capture`. A page registering the COI shim also joins `COI_PATHS`.
 
+**Any change to what a page LOOKS like owes `og:capture`, not just a new page** —
+the frames are shot from the live pages, so a recoloured token or a rebuilt tool
+row silently staled them, and nothing in CI compares them. Logic-grid's committed
+frame advertised the pre-v2 flat rule list for weeks after `RULE_ROW` became
+banded, because the change that landed it never re-shot.
+
 - **The site is a GitHub Pages *project* page** at `/islands-of-insight-tools/`;
   a root-absolute href points outside the site (what the favicon used to do), and
   **the favicon must stay an ABSOLUTE url** or Bun inlines it as a `data:` URI
