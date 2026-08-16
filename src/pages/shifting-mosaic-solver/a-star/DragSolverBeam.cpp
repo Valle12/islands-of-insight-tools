@@ -13,8 +13,8 @@
 #include <iostream>
 
 uint32_t DragSolver::beamWidth() const {
-  if (cfg_.beamWidth != 0)
-    return cfg_.beamWidth;
+  if (cfg_.jam.beamWidth != 0)
+    return cfg_.jam.beamWidth;
   return std::clamp<uint32_t>(
       static_cast<uint32_t>(gridWidth_) * gridHeight_ * 400, 20000, 150000);
 }
@@ -40,7 +40,7 @@ bool DragSolver::roundBudgetSpent(const uint64_t deadline,
                                       const uint32_t maxNodes) const {
   if (deadline != 0 && nowMs() >= deadline)
     return true;
-  if (cfg_.cancel && cfg_.cancel->load(std::memory_order_relaxed))
+  if (cfg_.stop.cancel && cfg_.stop.cancel->load(std::memory_order_relaxed))
     return true;
   return maxNodes != 0 && stats_.nodesExpanded >= maxNodes;
 }
@@ -48,22 +48,22 @@ bool DragSolver::roundBudgetSpent(const uint64_t deadline,
 bool DragSolver::beamRoundExhausted(const uint64_t deadline) {
   if (deadline != 0 && nowMs() >= deadline)
     return true;
-  if (cfg_.cancel && cfg_.cancel->load(std::memory_order_relaxed))
+  if (cfg_.stop.cancel && cfg_.stop.cancel->load(std::memory_order_relaxed))
     return true;
   // Memory ceiling. The beam keeps EVERY layer of the round resident
   // (`arena` is cleared per round, not per depth) plus a `visited` set of
   // the same keys, so at W up to 150k x MAX_DEPTH it is the hungriest arm
   // there is — yet it was the only search entry point that never consulted
-  // cfg_.maxHeapBytes. On the isolated build all 8 arms share ONE wasm
+  // cfg_.stop.maxHeapBytes. On the isolated build all 8 arms share ONE wasm
   // heap and exhausting it ABORTS the module rather than retiring one arm.
-  if (cfg_.maxHeapBytes == 0)
+  if (cfg_.stop.maxHeapBytes == 0)
     return false;
   // 0 means the platform cannot measure — treat as "no information".
   const uint64_t used = memprobe::liveAllocatedBytes();
-  if (used == 0 || used < cfg_.maxHeapBytes)
+  if (used == 0 || used < cfg_.stop.maxHeapBytes)
     return false;
   std::cout << "beam-jam hit memory ceiling (" << (used >> 20u) << " MB of "
-            << (cfg_.maxHeapBytes >> 20u) << " MB)\n";
+            << (cfg_.stop.maxHeapBytes >> 20u) << " MB)\n";
   stats_.stoppedOnMemory = true;
   return true;
 }
@@ -124,7 +124,7 @@ void DragSolver::scoreBeamChildren(const uint8_t i, const BeamParent &parent,
     } else {
       jamChild = std::min<uint32_t>(
           parent.jamBase - jamOldOverlap +
-              cfg_.jamBlockerPenalty * blockCellsOnMask(i, t, jamSweepRows_),
+              cfg_.jam.blockerPenalty * blockCellsOnMask(i, t, jamSweepRows_),
           1u << 19u);
     }
     const uint64_t score = static_cast<uint64_t>(jamChild) << 14u |
@@ -161,7 +161,7 @@ void DragSolver::expandBeamState(const int32_t ai, BeamRound &rd) {
     const Position from = rd.anchors[i];
     const uint32_t jamOldOverlap =
         i != goalIndex_
-            ? cfg_.jamBlockerPenalty * blockCellsOnMask(i, from, jamSweepRows_)
+            ? cfg_.jam.blockerPenalty * blockCellsOnMask(i, from, jamSweepRows_)
             : 0;
     grid_.removeBlock(i, from);
     const auto &reached = grid_.floodFill(i, from);
@@ -240,7 +240,7 @@ std::vector<Turn> DragSolver::searchBeamJam(const uint32_t maxMs,
   rd.width = beamWidth();
   rd.anchors.resize(shapes_.size());
   rd.frozen.assign(shapes_.size(), false);
-  for (const uint8_t b : cfg_.frozenBlocks)
+  for (const uint8_t b : cfg_.packing.frozenBlocks)
     rd.frozen[b] = true;
 
   std::vector<Turn> turns;
@@ -261,7 +261,7 @@ std::vector<Turn> DragSolver::searchBeamJam(const uint32_t maxMs,
   // the decode. Boards without same-shape blocks are unaffected.
   if (!symmetryGroups_.empty())
     cfg_.canonicalizeSymmetry = false;
-  const bool savedPin = cfg_.jamPinRoute;
+  const bool savedPin = cfg_.jam.pinRoute;
   // Both budgets zero means "no budget" (DragSolver.h), and roundBudgetSpent
   // then only ever fires on cancel. Every round is incomplete by design, so on
   // an unsolvable board an unbudgeted call would restart rounds forever — the
@@ -272,18 +272,19 @@ std::vector<Turn> DragSolver::searchBeamJam(const uint32_t maxMs,
   const bool unbudgeted = deadline == 0 && maxNodes == 0;
   // A while, not `for (; turns.empty(); round++)`: that header tested a value
   // the body writes (S1994). `round` is stepped at the end of the body so the
-  // budget breaks below still skip it, exactly as the for's increment did.
-  while (turns.empty()) {
-    if (roundBudgetSpent(deadline, maxNodes))
-      break;
-    if (unbudgeted && round >= MAX_UNBUDGETED_ROUNDS) {
-      std::cout << "DragSolver(beam): no budget given — stopping after "
-                << MAX_UNBUDGETED_ROUNDS << " rounds\n";
-      break;
-    }
+  // stop conditions still skip it, exactly as the for's increment did.
+  //
+  // Both of those conditions live in the header rather than as breaks in the
+  // body (cpp:S924 allows one): the round cap is a predicate so its diagnostic
+  // can be printed AFTER the loop, where it needs no second exit.
+  const auto roundCapHit = [&] {
+    return unbudgeted && round >= MAX_UNBUDGETED_ROUNDS;
+  };
+  while (turns.empty() && !roundBudgetSpent(deadline, maxNodes) &&
+         !roundCapHit()) {
     rd.seed = savedSeed + round * 0x9E3779B9u;
     // Odd beam rounds pin the root route (wide-board diversification).
-    cfg_.jamPinRoute = savedPin || (round & 1u) != 0;
+    cfg_.jam.pinRoute = savedPin || (round & 1u) != 0;
     jamPinned_ = false;
     runBeamRound(rd, deadline);
     if (rd.goalArena >= 0)
@@ -292,8 +293,11 @@ std::vector<Turn> DragSolver::searchBeamJam(const uint32_t maxMs,
     stats_.statesStored += rd.visited.size();
     round++;
   }
+  if (roundCapHit())
+    std::cout << "DragSolver(beam): no budget given — stopping after "
+              << MAX_UNBUDGETED_ROUNDS << " rounds\n";
   cfg_.canonicalizeSymmetry = savedCanon;
-  cfg_.jamPinRoute = savedPin;
+  cfg_.jam.pinRoute = savedPin;
   std::cout << "DragSolver(beam): " << round << " rounds, "
             << stats_.nodesExpanded << " expansions, "
             << (turns.empty() ? "no solution" : "SOLVED") << "\n";
@@ -325,7 +329,7 @@ bool DragSolver::hierBudgetSpent(const uint64_t deadline,
                                  const uint32_t maxNodes,
                                  const uint32_t segments,
                                  const uint32_t backtracks) const {
-  if (cfg_.cancel && cfg_.cancel->load(std::memory_order_relaxed)) {
+  if (cfg_.stop.cancel && cfg_.stop.cancel->load(std::memory_order_relaxed)) {
     std::cout << "DragSolver(hier): cancelled after " << segments
               << " segments\n";
     return true;
@@ -373,11 +377,11 @@ uint32_t DragSolver::consolidationTargetFor(const Frame &cur) const {
   // note: with the guide on, dispField_ is slot-seeded and thus identical
   // across segments, so comparing sums across calls is sound.
   if (constexpr uint8_t MAX_CONSOLIDATION_RUN = 6;
-      cfg_.consolidationGain == 0 || !packingGuideActive_ ||
+      cfg_.packing.consolidationGain == 0 || !packingGuideActive_ ||
       cur.consolidationRun >= MAX_CONSOLIDATION_RUN)
     return 0;
   const uint32_t curDisp = displacementSum(cur.anchors);
-  return curDisp > cfg_.consolidationGain ? curDisp - cfg_.consolidationGain
+  return curDisp > cfg_.packing.consolidationGain ? curDisp - cfg_.packing.consolidationGain
                                           : 0;
 }
 
@@ -493,7 +497,7 @@ std::vector<Turn> DragSolver::searchHierarchical(const uint32_t maxMs,
   // segment search populates them; with the packing guide active they are
   // slot-seeded and segment-independent, so computing them once here is
   // both safe and sufficient.
-  if (cfg_.consolidationGain != 0 && packingGuideActive_)
+  if (cfg_.packing.consolidationGain != 0 && packingGuideActive_)
     computeDisplacementFields(0);
   std::vector<uint32_t> failsAtDepth;
   uint32_t backtracks = 0;

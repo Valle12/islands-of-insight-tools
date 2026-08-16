@@ -1,7 +1,6 @@
-#ifdef __clang__
-#include <yvals_core.h>
-#undef __cpp_lib_is_pointer_interconvertible
-#endif
+// ClangdCompat.h first: the clang+MSVC-STL workaround it carries has to
+// precede any standard-library header.
+#include "ClangdCompat.h"
 #include "Block.h"
 #include "Types.h"
 #if defined(__GNUC__) && !defined(__clang__)

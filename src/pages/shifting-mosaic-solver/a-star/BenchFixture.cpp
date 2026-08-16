@@ -6,6 +6,7 @@
 
 #include "BitGrid.h"
 
+#include <format>
 #include <fstream>
 
 #include <nlohmann/json.hpp>
@@ -44,13 +45,13 @@ Fixture loadFixture(const std::string &path) {
   // with initialAnchors[i] on trust. Reject a file that cannot honour that
   // here, where there is still a path to report it.
   if (data.shapes.size() != data.initialAnchors.size())
-    throw FixtureError(path + ": " + std::to_string(data.shapes.size()) +
-                       " shapes but " +
-                       std::to_string(data.initialAnchors.size()) + " anchors");
+    throw FixtureError(std::format("{}: {} shapes but {} anchors", path,
+                                   data.shapes.size(),
+                                   data.initialAnchors.size()));
   if (data.goalIndex >= data.initialAnchors.size())
-    throw FixtureError(path + ": goalIndex " +
-                       std::to_string(data.goalIndex) + " is out of range for " +
-                       std::to_string(data.initialAnchors.size()) + " blocks");
+    throw FixtureError(std::format(
+        "{}: goalIndex {} is out of range for {} blocks", path,
+        static_cast<unsigned>(data.goalIndex), data.initialAnchors.size()));
   return data;
 }
 

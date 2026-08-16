@@ -56,7 +56,7 @@ struct FlagSpec {
 
 constexpr std::array<FlagSpec, 41> FLAGS{{
     {.name = "--fixture",
-     .apply = [](BenchOptions &o, ArgCursor &c) { o.fixturePath = c.value(); }},
+     .apply = [](BenchOptions &o, ArgCursor &c) { o.paths.fixture = c.value(); }},
     {.name = "--engine",
      .apply = [](BenchOptions &o, ArgCursor &c) { o.engine = c.value(); }},
     {.name = "--weight",
@@ -67,12 +67,12 @@ constexpr std::array<FlagSpec, 41> FLAGS{{
     {.name = "--budget-ms",
      .apply =
          [](BenchOptions &o, ArgCursor &c) {
-           o.budgetMs = static_cast<uint32_t>(c.valueU());
+           o.limits.budgetMs = static_cast<uint32_t>(c.valueU());
          }},
     {.name = "--max-nodes",
      .apply =
          [](BenchOptions &o, ArgCursor &c) {
-           o.maxNodes = static_cast<uint32_t>(c.valueU());
+           o.limits.maxNodes = static_cast<uint32_t>(c.valueU());
          }},
     {.name = "--stride",
      .apply =
@@ -80,44 +80,44 @@ constexpr std::array<FlagSpec, 41> FLAGS{{
            o.cfg.strideOverride = static_cast<uint8_t>(c.valueU());
          }},
     {.name = "--settled",
-     .apply = [](BenchOptions &o, ArgCursor &) { o.settledOnly = true; }},
+     .apply = [](BenchOptions &o, ArgCursor &) { o.drag.settledOnly = true; }},
     {.name = "--pea",
      .apply = [](BenchOptions &o,
-                 ArgCursor &c) { o.pea = static_cast<uint16_t>(c.valueU()); }},
+                 ArgCursor &c) { o.drag.pea = static_cast<uint16_t>(c.valueU()); }},
     {.name = "--packing-weight",
      .apply =
          [](BenchOptions &o, ArgCursor &c) {
-           o.packingWeight = static_cast<uint8_t>(c.valueU());
+           o.drag.packingWeight = static_cast<uint8_t>(c.valueU());
          }},
     {.name = "--consolidation",
      .apply =
          [](BenchOptions &o, ArgCursor &c) {
-           o.consolidationGain = static_cast<uint8_t>(c.valueU());
+           o.drag.consolidationGain = static_cast<uint8_t>(c.valueU());
          }},
     {.name = "--slot-h",
-     .apply = [](BenchOptions &o, ArgCursor &) { o.slotHeuristic = true; }},
+     .apply = [](BenchOptions &o, ArgCursor &) { o.drag.slotHeuristic = true; }},
     {.name = "--dump",
-     .apply = [](BenchOptions &o, ArgCursor &c) { o.dumpPath = c.value(); }},
+     .apply = [](BenchOptions &o, ArgCursor &c) { o.paths.dump = c.value(); }},
     {.name = "--all-slots",
-     .apply = [](BenchOptions &o, ArgCursor &) { o.requireAllSlots = true; }},
+     .apply = [](BenchOptions &o, ArgCursor &) { o.drag.requireAllSlots = true; }},
     {.name = "--ratchet",
-     .apply = [](BenchOptions &o, ArgCursor &) { o.lockOnSlot = true; }},
+     .apply = [](BenchOptions &o, ArgCursor &) { o.drag.lockOnSlot = true; }},
     {.name = "--por",
-     .apply = [](BenchOptions &o, ArgCursor &) { o.sleepSets = true; }},
+     .apply = [](BenchOptions &o, ArgCursor &) { o.drag.sleepSets = true; }},
     {.name = "--relevant",
-     .apply = [](BenchOptions &o, ArgCursor &) { o.relevantOnly = true; }},
+     .apply = [](BenchOptions &o, ArgCursor &) { o.drag.relevantOnly = true; }},
     {.name = "--bands",
-     .apply = [](BenchOptions &o, ArgCursor &) { o.bands = true; }},
+     .apply = [](BenchOptions &o, ArgCursor &) { o.drag.bands = true; }},
     {.name = "--band-min-path",
      .apply =
          [](BenchOptions &o, ArgCursor &c) {
-           o.bandMinPath = static_cast<uint8_t>(c.valueU());
+           o.drag.bandMinPath = static_cast<uint8_t>(c.valueU());
          }},
     {.name = "--max-states",
      .apply =
          [](BenchOptions &o, ArgCursor &c) {
-           o.maxStates = c.valueU();
-           o.cfg.maxStatesStored = o.maxStates;
+           o.limits.maxStates = c.valueU();
+           o.cfg.maxStatesStored = o.limits.maxStates;
          }},
     {.name = "--arm",
      .apply = [](BenchOptions &o,
@@ -127,56 +127,56 @@ constexpr std::array<FlagSpec, 41> FLAGS{{
     {.name = "--jam-density",
      .apply =
          [](BenchOptions &o, ArgCursor &c) {
-           o.jamDensityPct = static_cast<uint8_t>(c.valueU());
+           o.jam.densityPct = static_cast<uint8_t>(c.valueU());
          }},
     {.name = "--jam-aspect",
      .apply =
          [](BenchOptions &o, ArgCursor &c) {
-           o.jamAspect16 = static_cast<uint8_t>(c.valueU());
+           o.jam.aspect16 = static_cast<uint8_t>(c.valueU());
          }},
     {.name = "--seq-total-ms",
      .apply =
          [](BenchOptions &o, ArgCursor &c) {
-           o.seqTotalMs = static_cast<uint32_t>(c.valueU());
+           o.limits.seqTotalMs = static_cast<uint32_t>(c.valueU());
          }},
     {.name = "--max-heap-bytes",
      .apply =
          [](BenchOptions &o, ArgCursor &c) {
-           o.maxHeapBytes = c.valueU();
-           o.cfg.maxHeapBytes = o.maxHeapBytes;
+           o.limits.maxHeapBytes = c.valueU();
+           o.cfg.maxHeapBytes = o.limits.maxHeapBytes;
          }},
     {.name = "--dump-elite",
      .apply = [](BenchOptions &o,
-                 ArgCursor &c) { o.dumpElitePath = c.value(); }},
+                 ArgCursor &c) { o.paths.dumpElite = c.value(); }},
     {.name = "--dump-elite-turns",
      .apply = [](BenchOptions &o,
-                 ArgCursor &c) { o.dumpEliteTurnsPath = c.value(); }},
+                 ArgCursor &c) { o.paths.dumpEliteTurns = c.value(); }},
     {.name = "--verify",
-     .apply = [](BenchOptions &o, ArgCursor &c) { o.verifyPath = c.value(); }},
+     .apply = [](BenchOptions &o, ArgCursor &c) { o.paths.verify = c.value(); }},
     {.name = "--jam-penalty",
      .apply =
          [](BenchOptions &o, ArgCursor &c) {
-           o.jamPenalty = static_cast<uint8_t>(c.valueU());
+           o.jam.penalty = static_cast<uint8_t>(c.valueU());
          }},
     {.name = "--jam-guide",
      .apply =
          [](BenchOptions &o, ArgCursor &c) {
-           o.jamGuide = static_cast<uint8_t>(c.valueU());
+           o.jam.guide = static_cast<uint8_t>(c.valueU());
          }},
     {.name = "--jam-pin",
-     .apply = [](BenchOptions &o, ArgCursor &) { o.jamPin = true; }},
+     .apply = [](BenchOptions &o, ArgCursor &) { o.jam.pin = true; }},
     {.name = "--jam-round-cap",
      .apply =
          [](BenchOptions &o, ArgCursor &c) {
-           o.jamRoundCap = static_cast<uint32_t>(c.valueU());
+           o.jam.roundCap = static_cast<uint32_t>(c.valueU());
          }},
     {.name = "--jam-elites",
      .apply =
          [](BenchOptions &o, ArgCursor &c) {
-           o.jamElites = static_cast<uint32_t>(c.valueU());
+           o.jam.elites = static_cast<uint32_t>(c.valueU());
          }},
     {.name = "--jam-luby",
-     .apply = [](BenchOptions &o, ArgCursor &) { o.jamLuby = true; }},
+     .apply = [](BenchOptions &o, ArgCursor &) { o.jam.luby = true; }},
     {.name = "--tie-seed",
      .apply =
          [](BenchOptions &o, ArgCursor &c) {
@@ -189,14 +189,14 @@ constexpr std::array<FlagSpec, 41> FLAGS{{
          }},
     {.name = "--generate",
      .apply = [](BenchOptions &o,
-                 ArgCursor &c) { o.generatePath = c.value(); }},
+                 ArgCursor &c) { o.paths.generate = c.value(); }},
     {.name = "--seed",
      .apply = [](BenchOptions &o,
-                 ArgCursor &c) { o.seed = static_cast<uint32_t>(c.valueU()); }},
+                 ArgCursor &c) { o.generate.seed = static_cast<uint32_t>(c.valueU()); }},
     {.name = "--shuffle",
      .apply =
          [](BenchOptions &o, ArgCursor &c) {
-           o.shuffleMoves = static_cast<uint32_t>(c.valueU());
+           o.generate.shuffleMoves = static_cast<uint32_t>(c.valueU());
          }},
     {.name = "--no-post",
      .apply = [](BenchOptions &o, ArgCursor &) { o.cfg.postProcess = false; }},

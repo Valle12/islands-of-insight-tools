@@ -14,6 +14,7 @@
 #include <set>
 #include <string_view>
 #include <utility>
+#include <type_traits>
 
 #ifdef __EMSCRIPTEN_PTHREADS__
 // Heap ceilings only matter for the in-module thread race.
@@ -450,6 +451,15 @@ struct StateKey {
   StateKey &operator=(StateKey &&) noexcept = default;
   ~StateKey() = default;
 };
+
+// The five above exist ONLY to promise noexcept, so pin the promise: a member
+// whose own move is not noexcept would otherwise quietly reintroduce the
+// copy-on-reallocation this avoids, and nothing would say so. It also puts the
+// two operators the rule of five obliges us to declare to real use — they are
+// what cpp:S1144 reports as unused, and deleting either leaves the type
+// unassignable by any route.
+static_assert(std::is_nothrow_move_constructible_v<StateKey>);
+static_assert(std::is_nothrow_move_assignable_v<StateKey>);
 
 StateKey makeKey(const LegState &state) {
   // `poses` is sized for the two blocks the scheme is gated on; a third

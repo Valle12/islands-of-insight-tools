@@ -222,61 +222,74 @@ struct Model {
   std::vector<int> clueAt;
   /// Indices into `puzzle.clues` of every area clue, in clue order.
   std::vector<int> areaClues;
-  /// ...and of every dart, which `darts` below carries the geometry for.
-  std::vector<int> dartClues;
-  /// ...and of every lotus, which `lotuses` below carries the mirrors for.
-  std::vector<int> lotusClues;
-  /// ...and of every viewpoint, which `viewpoints` below carries the rays for.
-  std::vector<int> viewpointClues;
-  /// ...and of every galaxy. Its geometry is one point reflection about its
-  /// own square, precomputed in `galaxies` below.
-  std::vector<int> galaxyClues;
+  /**
+   * The four clue families whose geometry has to be WALKED — a dart's ray, a
+   * lotus's mirror, a viewpoint's sight lines, a galaxy's half turn — each as
+   * the clue indices in clue order plus the precomputed geometry itself.
+   *
+   * One nested struct rather than eight sibling fields: `Model` carried 25
+   * (cpp:S1820), and these eight are the ones that genuinely travel together —
+   * every one of them is built by the same pass and read by the same walk.
+   */
+  struct Walked {
+    /// ...and of every dart, which `darts` below carries the geometry for.
+    std::vector<int> dartClues;
+    /// ...and of every lotus, which `lotuses` below carries the mirrors for.
+    std::vector<int> lotusClues;
+    /// ...and of every viewpoint, which `viewpoints` below carries the rays for.
+    std::vector<int> viewpointClues;
+    /// ...and of every galaxy. Its geometry is one point reflection about its
+    /// own square, precomputed in `galaxies` below.
+    std::vector<int> galaxyClues;
+
+    /**
+     * Every dart's line, precomputed: the playable squares from its own square to
+     * the edge of the board in the direction it points, MINUS the squares of its
+     * own cell.
+     *
+     * Gaps are stepped over rather than stopping the line — a dart sees past a
+     * hole — so this is not a run and cannot be found by shifting until something
+     * blocks.
+     *
+     * Taking the dart's own cell out is a correctness requirement, not a
+     * tightening. Every square of that cell holds the dart's own colour, so none
+     * of them can ever be the colour it counts; left in, the "the line is exactly
+     * full" branch would assign the OTHER colour to one of them, `Domains::
+     * exclude` would fan that over the whole cell, and the dart would refute
+     * itself. Out, `ray.count()` is also exactly the largest number the dart
+     * could legally carry.
+     */
+    std::vector<Dart> darts;
+
+    /**
+     * Every lotus's reflection map, precomputed like a dart's ray: mirrors are a
+     * property of the board and its seat, never of the colouring. A clue whose
+     * axis or seat cannot be read stays in `lotusClues` but not here, so
+     * `verify::check` refuses every colouring rather than quietly solving the
+     * board without it — the same net `buildDarts` has.
+     */
+    std::vector<Lotus> lotuses;
+
+    /**
+     * Every viewpoint's four rays, precomputed the same way. No net here,
+     * deliberately: a viewpoint carries no direction or seat that could be
+     * unreadable, so every clue `structureProblem` accepts gets its geometry.
+     */
+    std::vector<Viewpoint> viewpoints;
+
+    /**
+     * Every galaxy's point-reflection map, precomputed like a lotus's mirrors.
+     * No net either, for the viewpoint's reason: a galaxy carries no value,
+     * direction or seat that could be unreadable, so every clue
+     * `structureProblem` accepts gets its geometry.
+     */
+    std::vector<Galaxy> galaxies;
+  };
+  Walked walked;
   std::vector<LetterGroup> letters;
   /// Index into `letters` for each cell, or -1.
   std::vector<int> letterAt;
 
-  /**
-   * Every dart's line, precomputed: the playable squares from its own square to
-   * the edge of the board in the direction it points, MINUS the squares of its
-   * own cell.
-   *
-   * Gaps are stepped over rather than stopping the line — a dart sees past a
-   * hole — so this is not a run and cannot be found by shifting until something
-   * blocks.
-   *
-   * Taking the dart's own cell out is a correctness requirement, not a
-   * tightening. Every square of that cell holds the dart's own colour, so none
-   * of them can ever be the colour it counts; left in, the "the line is exactly
-   * full" branch would assign the OTHER colour to one of them, `Domains::
-   * exclude` would fan that over the whole cell, and the dart would refute
-   * itself. Out, `ray.count()` is also exactly the largest number the dart
-   * could legally carry.
-   */
-  std::vector<Dart> darts;
-
-  /**
-   * Every lotus's reflection map, precomputed like a dart's ray: mirrors are a
-   * property of the board and its seat, never of the colouring. A clue whose
-   * axis or seat cannot be read stays in `lotusClues` but not here, so
-   * `verify::check` refuses every colouring rather than quietly solving the
-   * board without it — the same net `buildDarts` has.
-   */
-  std::vector<Lotus> lotuses;
-
-  /**
-   * Every viewpoint's four rays, precomputed the same way. No net here,
-   * deliberately: a viewpoint carries no direction or seat that could be
-   * unreadable, so every clue `structureProblem` accepts gets its geometry.
-   */
-  std::vector<Viewpoint> viewpoints;
-
-  /**
-   * Every galaxy's point-reflection map, precomputed like a lotus's mirrors.
-   * No net either, for the viewpoint's reason: a galaxy carries no value,
-   * direction or seat that could be unreadable, so every clue
-   * `structureProblem` accepts gets its geometry.
-   */
-  std::vector<Galaxy> galaxies;
 
   /**
    * The playable squares of the board's outer perimeter in cyclic order —

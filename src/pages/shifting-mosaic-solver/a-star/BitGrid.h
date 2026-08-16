@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -161,18 +162,20 @@ public:
     return parentDir_[idx];
   }
 
-  // Deliberately C arrays, against cpp:S5945 ("use std::array or std::vector").
-  // These are indexed in the two hottest inner loops there are — floodFill's
-  // 4-neighbour scan and runJamDijkstra's, the latter running once per beam/jam
-  // expansion. Converting them to std::array cost a MEASURED 3.4% on the jam
-  // leg and 3.3% on the beam leg (9 interleaved reps, reproduced twice; every
-  // other leg was unaffected, and reverting just this declaration recovered all
-  // of it). The same conversion in AStar.h is free and was kept, so this is
-  // about these two loops rather than the rule.
-  static constexpr int8_t DX[4] = {0, 1, 0, -1};
-  static constexpr int8_t DY[4] = {-1, 0, 1, 0};
-  static constexpr Direction DIRS[4] = {Direction::UP, Direction::RIGHT,
-                                        Direction::DOWN, Direction::LEFT};
+  // Indexed by floodFill's 4-neighbour scan and runJamDijkstra's, the latter
+  // once per beam/jam expansion — the two hottest inner loops here.
+  //
+  // These were deliberately C arrays until 2026-08-16, because converting them
+  // had MEASURED 3.4% (jam) / 3.3% (beam) in July. Re-measured against the
+  // current toolchain the conversion is FREE: +0.1% unit, -0.1% drag, -0.5%
+  // jam, every leg inside a ±0.5% noise floor (min-of-9 interleaved, node
+  // counts pinned identical, the change bisected away from the NodeKey one it
+  // was originally measured alongside). The compiler moved, not the code — so
+  // re-bench before concluding anything either way about this declaration.
+  static constexpr std::array<int8_t, 4> DX = {0, 1, 0, -1};
+  static constexpr std::array<int8_t, 4> DY = {-1, 0, 1, 0};
+  static constexpr std::array<Direction, 4> DIRS = {
+      Direction::UP, Direction::RIGHT, Direction::DOWN, Direction::LEFT};
 
 private:
   uint8_t w_;

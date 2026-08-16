@@ -10,6 +10,7 @@
 #include <queue>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -35,6 +36,15 @@ struct State {
   State &operator=(State &&) noexcept = default;
   ~State() = default;
 };
+
+// The five above exist ONLY to promise noexcept, so pin the promise: a member
+// whose own move is not noexcept would otherwise quietly reintroduce the
+// copy-on-reallocation this avoids, and nothing would say so. It also puts the
+// two operators the rule of five obliges us to declare to real use — they are
+// what cpp:S1144 reports as unused, and deleting either leaves the type
+// unassignable by any route.
+static_assert(std::is_nothrow_move_constructible_v<State>);
+static_assert(std::is_nothrow_move_assignable_v<State>);
 
 std::string stateKey(const State &s) {
   std::string key;

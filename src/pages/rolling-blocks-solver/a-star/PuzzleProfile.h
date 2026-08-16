@@ -15,15 +15,16 @@ struct Features {
 };
 
 inline Features analyze(const replay::Puzzle &puzzle) {
+  using enum Tile;
   Features f;
   f.blocks = puzzle.blocks.size();
   for (const Tile cell : puzzle.cells) {
-    if (cell != Tile::Unplayable) {
+    if (cell != Unplayable) {
       f.playable++;
     }
-    if (cell == Tile::MustTouch) {
+    if (cell == MustTouch) {
       f.mustTouch++;
-    } else if (cell == Tile::Goal) {
+    } else if (cell == Goal) {
       f.goals++;
     }
   }

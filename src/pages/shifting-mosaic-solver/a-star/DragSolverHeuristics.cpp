@@ -38,7 +38,7 @@ uint32_t DragSolver::heuristic(const std::vector<Position> &anchors) const {
 // Dig Dijkstra from the TARGET over the locked-walls-only anchor graph under
 // the occupancy in `anchors`: jamField_[a] = cheapest goal route a → target
 // where a step costs 4 and every newly swept movable-block cell costs
-// cfg_.jamBlockerPenalty (long blocks are charged once per cell over a
+// cfg_.jam.blockerPenalty (long blocks are charged once per cell over a
 // traversal, not once per step). jamSweepRows_ = the argmin route's swept
 // footprint from the goal's current anchor. Returns the goal's own term.
 // One step of a goal route costs this; see computeJamField.
@@ -95,7 +95,7 @@ void DragSolver::runJamDijkstra(const uint16_t targetIdx,
                                 const uint16_t goalIdx,
                                 const JamGeometry &geo) {
   const int H = gridHeight_;
-  const uint32_t penalty = cfg_.jamBlockerPenalty;
+  const uint32_t penalty = cfg_.jam.blockerPenalty;
   using QE = std::pair<uint32_t, uint16_t>;
   std::priority_queue<QE, std::vector<QE>, std::greater<>> pq;
   if (jamAnchorValid(goalAnchor_.x, goalAnchor_.y, geo)) {
@@ -185,7 +185,7 @@ uint32_t DragSolver::computeJamField(const std::vector<Position> &anchors) {
   const JamGeometry geo{.gRows = grid_.shapeRows(gi),
                         .maxX = gridWidth_ - grid_.boxWidth(gi),
                         .maxY = H - grid_.boxHeight(gi),
-                        .pinActive = cfg_.jamPinRoute && jamPinned_};
+                        .pinActive = cfg_.jam.pinRoute && jamPinned_};
   const auto targetIdx =
       static_cast<uint16_t>(goalAnchor_.x * H + goalAnchor_.y);
   // The goal's CURRENT anchor: both the Dijkstra's early-exit trigger and the
@@ -200,7 +200,7 @@ uint32_t DragSolver::computeJamField(const std::vector<Position> &anchors) {
   buildJamSweepRows(goalIdx, geo);
   // First successful field with jamPinRoute: freeze this route's 2-dilated
   // footprint as the corridor every later Dijkstra must stay inside.
-  if (cfg_.jamPinRoute && !jamPinned_ && jamField_[goalIdx] != UINT32_MAX)
+  if (cfg_.jam.pinRoute && !jamPinned_ && jamField_[goalIdx] != UINT32_MAX)
     pinJamRoute();
   return jamField_[goalIdx];
 }

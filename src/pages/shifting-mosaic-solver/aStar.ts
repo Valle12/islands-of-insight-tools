@@ -3,18 +3,55 @@ import { MinHeap } from "../../util/minHeap";
 import { Direction } from "./directions";
 import { Node } from "./node";
 import type { Turn } from "./turn";
-export class AStar {
-  private gridWidth: number;
-  private gridHeight: number;
-  private shapes: Position[][];
-  private initialAnchors: Position[];
-  private goalIndex: number;
-  private goalAnchor: Position;
+/**
+ * What an `AStar` needs to describe a board. An options object rather than a
+ * positional list: the two tuning knobs are optional and everything else is a
+ * number or a `Position`, so a transposed pair of arguments would have typed
+ * fine and searched the wrong board.
+ */
+export interface AStarOptions {
+  gridWidth: number;
+  gridHeight: number;
+  shapes: Position[][];
+  initialAnchors: Position[];
+  goalIndex: number;
+  goalAnchor: Position;
+  /** Greedy weight on the heuristic; 1 (the default) is plain A*. */
+  weight?: number;
+  deadlockPruning?: boolean;
+}
 
-  private shapeBoxWidth: number[];
-  private shapeBoxHeight: number[];
-  private shapeCellSets: Set<number>[];
-  private goalBlockFinalCells: Set<number>;
+/** The open/closed bookkeeping one `search` run threads through its steps. */
+interface SearchState {
+  readonly nodeStore: Map<string, Position[]>;
+  readonly gScore: Map<string, number>;
+  readonly cameFrom: Map<
+    string,
+    { parentSignature: string | null; turn: Turn | null }
+  >;
+  readonly closedSet: Set<string>;
+  readonly openHeap: MinHeap;
+}
+
+/** The node currently being expanded: its anchors, its cost, its signature. */
+interface Expansion {
+  readonly anchors: Position[];
+  readonly g: number;
+  readonly signature: string;
+}
+
+export class AStar {
+  private readonly gridWidth: number;
+  private readonly gridHeight: number;
+  private readonly shapes: Position[][];
+  private readonly initialAnchors: Position[];
+  private readonly goalIndex: number;
+  private readonly goalAnchor: Position;
+
+  private readonly shapeBoxWidth: number[];
+  private readonly shapeBoxHeight: number[];
+  private readonly shapeCellSets: Set<number>[];
+  private readonly goalBlockFinalCells: Set<number>;
 
   private static readonly SHAPE_STRIDE = 1024;
   private static readonly DIRECTIONS: Direction[] = [
@@ -26,27 +63,19 @@ export class AStar {
   private static readonly DX = [0, 1, 0, -1];
   private static readonly DY = [-1, 0, 1, 0];
 
-  private weight: number;
-  private deadlockPruning: boolean;
+  private readonly weight: number;
+  private readonly deadlockPruning: boolean;
 
-  constructor(
-    gridWidth: number,
-    gridHeight: number,
-    shapes: Position[][],
-    initialAnchors: Position[],
-    goalIndex: number,
-    goalAnchor: Position,
-    weight = 1,
-    deadlockPruning = true,
-  ) {
-    this.gridWidth = gridWidth;
-    this.gridHeight = gridHeight;
+  constructor(options: AStarOptions) {
+    const { shapes, goalAnchor } = options;
+    this.gridWidth = options.gridWidth;
+    this.gridHeight = options.gridHeight;
     this.shapes = shapes;
-    this.initialAnchors = initialAnchors;
-    this.goalIndex = goalIndex;
+    this.initialAnchors = options.initialAnchors;
+    this.goalIndex = options.goalIndex;
     this.goalAnchor = goalAnchor;
-    this.weight = weight;
-    this.deadlockPruning = deadlockPruning;
+    this.weight = options.weight ?? 1;
+    this.deadlockPruning = options.deadlockPruning ?? true;
 
     this.shapeBoxWidth = shapes.map(shape => {
       let max = 0;
@@ -103,11 +132,11 @@ export class AStar {
     );
   }
 
-  private movableBlockIndices: number[] = [];
-  private unsolvableAtStart = false;
+  private readonly movableBlockIndices: number[] = [];
+  private readonly unsolvableAtStart: boolean = false;
   // BFS distance from every valid goal-block anchor to goalAnchor, treating
   // locked blocks as walls. -1 means unreachable.
-  private goalAnchorBfsDist: Int32Array = new Int32Array(0);
+  private readonly goalAnchorBfsDist: Int32Array = new Int32Array(0);
 
   private computeGoalAnchorBfs(lockedCells: Set<number>): Int32Array {
     const total = this.gridWidth * this.gridHeight;
@@ -160,102 +189,138 @@ export class AStar {
     const deadline = maxMs === undefined ? Infinity : Date.now() + maxMs;
     const rootAnchors = this.initialAnchors.map(a => ({ x: a.x, y: a.y }));
     const root = new Node(rootAnchors);
-    const rootSignature = this.nodeSignature(root);
-
     if (this.isGoalState(root)) return [];
 
-    const nodeStore = new Map<string, Position[]>();
-    nodeStore.set(rootSignature, rootAnchors);
-
-    const gScore = new Map<string, number>();
-    gScore.set(rootSignature, 0);
-
-    const cameFrom = new Map<
-      string,
-      { parentSignature: string | null; turn: Turn | null }
-    >();
-    cameFrom.set(rootSignature, { parentSignature: null, turn: null });
-
-    const closedSet = new Set<string>();
-    const openHeap = new MinHeap();
-    openHeap.push({
-      f: this.weight * this.heuristic(root),
-      g: 0,
-      signature: rootSignature,
-    });
-
+    const state = this.seedState(root, rootAnchors);
     let nodesExpanded = 0;
 
-    while (openHeap.size > 0) {
-      if ((nodesExpanded & 0xfff) === 0 && Date.now() > deadline) {
+    while (state.openHeap.size > 0) {
+      if (this.outOfTime(nodesExpanded, deadline)) {
         console.log(
           `A* timed out after ${nodesExpanded} nodes (budget ${maxMs}ms)`,
         );
         return [];
       }
 
-      const { g, signature } = openHeap.pop()!;
-
-      if (closedSet.has(signature)) continue;
-      if ((gScore.get(signature) ?? Infinity) < g) continue;
-
-      const anchors = nodeStore.get(signature);
+      const { g, signature } = state.openHeap.pop()!;
+      const anchors = this.claimNode(state, signature, g);
       if (!anchors) continue;
 
-      closedSet.add(signature);
-      nodeStore.delete(signature);
-
-      const node = new Node(anchors, g, 0);
-      if (this.isGoalState(node)) {
+      if (this.isGoalState(new Node(anchors, g, 0))) {
         console.log(
           `A* found solution in ${g} moves, expanded ${nodesExpanded} nodes`,
         );
-        return this.reconstructPath(cameFrom, signature);
+        return this.reconstructPath(state.cameFrom, signature);
       }
 
       nodesExpanded++;
 
       if (this.deadlockPruning && this.isDeadlocked(anchors)) continue;
 
-      for (const i of this.movableBlockIndices) {
-        const currentAnchor = anchors[i]!;
-        for (let d = 0; d < 4; d++) {
-          const newAnchor: Position = {
-            x: currentAnchor.x + AStar.DX[d]!,
-            y: currentAnchor.y + AStar.DY[d]!,
-          };
-
-          if (!this.inBounds(i, newAnchor)) continue;
-          if (this.collidesWithOthers(i, newAnchor, anchors)) continue;
-
-          const newAnchors = anchors.slice();
-          newAnchors[i] = newAnchor;
-
-          const newNode = new Node(newAnchors);
-          const newSignature = this.nodeSignature(newNode);
-
-          if (closedSet.has(newSignature)) continue;
-
-          const newG = g + 1;
-          if (newG >= (gScore.get(newSignature) ?? Infinity)) continue;
-
-          gScore.set(newSignature, newG);
-          nodeStore.set(newSignature, newAnchors);
-          cameFrom.set(newSignature, {
-            parentSignature: signature,
-            turn: { blockId: i, direction: AStar.DIRECTIONS[d]! },
-          });
-          openHeap.push({
-            f: newG + this.weight * this.heuristic(newNode),
-            g: newG,
-            signature: newSignature,
-          });
-        }
-      }
+      this.expandNode(state, { anchors, g, signature });
     }
 
     console.log(`A* found no solution, expanded ${nodesExpanded} nodes`);
     return [];
+  }
+
+  /** The open/closed bookkeeping for a fresh run, seeded with the root. */
+  private seedState(root: Node, rootAnchors: Position[]): SearchState {
+    const rootSignature = this.nodeSignature(root);
+    const state: SearchState = {
+      nodeStore: new Map([[rootSignature, rootAnchors]]),
+      gScore: new Map([[rootSignature, 0]]),
+      cameFrom: new Map([
+        [rootSignature, { parentSignature: null, turn: null }],
+      ]),
+      closedSet: new Set(),
+      openHeap: new MinHeap(),
+    };
+    state.openHeap.push({
+      f: this.weight * this.heuristic(root),
+      g: 0,
+      signature: rootSignature,
+    });
+    return state;
+  }
+
+  /**
+   * Only every 4096th expansion actually reads the clock — `Date.now()` in the
+   * inner loop is not free, and the budget is a coarse stop rather than a
+   * precise one.
+   */
+  private outOfTime(nodesExpanded: number, deadline: number): boolean {
+    return (nodesExpanded & 0xfff) === 0 && Date.now() > deadline;
+  }
+
+  /**
+   * Closes a popped entry and hands back its anchors, or `null` when the entry
+   * is STALE: already closed, superseded by a cheaper path found after it was
+   * pushed, or with its anchors already released. The heap has no decrease-key,
+   * so the same state is pushed more than once and the extra copies are dropped
+   * here rather than at push time.
+   */
+  private claimNode(
+    state: SearchState,
+    signature: string,
+    g: number,
+  ): Position[] | null {
+    if (state.closedSet.has(signature)) return null;
+    if ((state.gScore.get(signature) ?? Infinity) < g) return null;
+    const anchors = state.nodeStore.get(signature);
+    if (!anchors) return null;
+    state.closedSet.add(signature);
+    state.nodeStore.delete(signature);
+    return anchors;
+  }
+
+  /** Every one-square slide of every movable block. */
+  private expandNode(state: SearchState, from: Expansion) {
+    for (const i of this.movableBlockIndices) {
+      for (let d = 0; d < 4; d++) {
+        this.relaxMove(state, from, i, d);
+      }
+    }
+  }
+
+  /** One candidate slide: bounds, collision, then the open-set relaxation. */
+  private relaxMove(
+    state: SearchState,
+    from: Expansion,
+    i: number,
+    d: number,
+  ) {
+    const { anchors, g, signature } = from;
+    const currentAnchor = anchors[i]!;
+    const newAnchor: Position = {
+      x: currentAnchor.x + AStar.DX[d]!,
+      y: currentAnchor.y + AStar.DY[d]!,
+    };
+
+    if (!this.inBounds(i, newAnchor)) return;
+    if (this.collidesWithOthers(i, newAnchor, anchors)) return;
+
+    const newAnchors = anchors.slice();
+    newAnchors[i] = newAnchor;
+
+    const newNode = new Node(newAnchors);
+    const newSignature = this.nodeSignature(newNode);
+    if (state.closedSet.has(newSignature)) return;
+
+    const newG = g + 1;
+    if (newG >= (state.gScore.get(newSignature) ?? Infinity)) return;
+
+    state.gScore.set(newSignature, newG);
+    state.nodeStore.set(newSignature, newAnchors);
+    state.cameFrom.set(newSignature, {
+      parentSignature: signature,
+      turn: { blockId: i, direction: AStar.DIRECTIONS[d]! },
+    });
+    state.openHeap.push({
+      f: newG + this.weight * this.heuristic(newNode),
+      g: newG,
+      signature: newSignature,
+    });
   }
 
   private inBounds(blockIndex: number, anchor: Position): boolean {
@@ -375,57 +440,78 @@ export class AStar {
    * pair in the set forever, masking the deadlock.
    */
   private computeMovableSet(anchors: Position[]): Set<number> {
-    const n = anchors.length;
-    const stride = this.gridHeight;
-    const occupancy = new Int16Array(this.gridWidth * this.gridHeight);
-    occupancy.fill(-1);
-    for (let i = 0; i < n; i++) {
-      const a = anchors[i]!;
-      for (const cell of this.shapes[i]!) {
-        occupancy[(a.x + cell.x) * stride + (a.y + cell.y)] = i;
-      }
-    }
-
+    const occupancy = this.buildOccupancy(anchors);
     const movable = new Set<number>();
 
     let changed = true;
     while (changed) {
       changed = false;
-      for (let i = 0; i < n; i++) {
+      for (let i = 0; i < anchors.length; i++) {
         if (movable.has(i)) continue;
-        const a = anchors[i]!;
-        const shape = this.shapes[i]!;
-        let canMove = false;
-
-        for (let d = 0; d < 4; d++) {
-          const nax = a.x + AStar.DX[d]!;
-          const nay = a.y + AStar.DY[d]!;
-          if (!this.inBounds(i, { x: nax, y: nay })) continue;
-
-          let allFreeable = true;
-          for (const cell of shape) {
-            const enc = (nax + cell.x) * stride + (nay + cell.y);
-            const occ = occupancy[enc]!;
-            if (occ === -1 || occ === i) continue;
-            if (!movable.has(occ)) {
-              allFreeable = false;
-              break;
-            }
-          }
-          if (allFreeable) {
-            canMove = true;
-            break;
-          }
+        if (!this.canFreeAnyDirection(i, anchors[i]!, occupancy, movable)) {
+          continue;
         }
-
-        if (canMove) {
-          movable.add(i);
-          changed = true;
-        }
+        movable.add(i);
+        changed = true;
       }
     }
 
     return movable;
+  }
+
+  /** Which block owns each cell, `-1` where none does. */
+  private buildOccupancy(anchors: Position[]): Int16Array {
+    const stride = this.gridHeight;
+    const occupancy = new Int16Array(this.gridWidth * this.gridHeight);
+    occupancy.fill(-1);
+    for (let i = 0; i < anchors.length; i++) {
+      const a = anchors[i]!;
+      for (const cell of this.shapes[i]!) {
+        occupancy[(a.x + cell.x) * stride + (a.y + cell.y)] = i;
+      }
+    }
+    return occupancy;
+  }
+
+  /**
+   * Can block `i` step one square in SOME direction, counting a cell held by an
+   * already-proven-movable block as clearable? One round of the fixpoint above.
+   */
+  private canFreeAnyDirection(
+    i: number,
+    a: Position,
+    occupancy: Int16Array,
+    movable: Set<number>,
+  ): boolean {
+    for (let d = 0; d < 4; d++) {
+      const nax = a.x + AStar.DX[d]!;
+      const nay = a.y + AStar.DY[d]!;
+      if (!this.inBounds(i, { x: nax, y: nay })) continue;
+      if (this.allOccupantsFreeable(i, nax, nay, occupancy, movable)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Every OTHER block sitting on block `i`'s destination footprint is itself
+   * already proven movable. A cell held by nobody, or by `i` itself, is free.
+   */
+  private allOccupantsFreeable(
+    i: number,
+    nax: number,
+    nay: number,
+    occupancy: Int16Array,
+    movable: Set<number>,
+  ): boolean {
+    const stride = this.gridHeight;
+    for (const cell of this.shapes[i]!) {
+      const occ = occupancy[(nax + cell.x) * stride + (nay + cell.y)]!;
+      if (occ === -1 || occ === i) continue;
+      if (!movable.has(occ)) return false;
+    }
+    return true;
   }
 
   /**
@@ -434,32 +520,29 @@ export class AStar {
    * block to land — if it can never move, the goal is unreachable.
    */
   private isDeadlocked(anchors: Position[]): boolean {
-    const stride = this.gridHeight;
-    let hasBlocker = false;
-    for (let i = 0; i < anchors.length; i++) {
-      if (i === this.goalIndex) continue;
-      const a = anchors[i]!;
-      for (const cell of this.shapes[i]!) {
-        const enc = (a.x + cell.x) * stride + (a.y + cell.y);
-        if (this.goalBlockFinalCells.has(enc)) {
-          hasBlocker = true;
-          break;
-        }
-      }
-      if (hasBlocker) break;
-    }
-    if (!hasBlocker) return false;
+    // Cheap pre-check: with nothing standing on the goal footprint at all there
+    // is no deadlock to look for, and the fixpoint below is not worth running.
+    const anyBlocker = anchors.some(
+      (_, i) => i !== this.goalIndex && this.overlapsGoalFootprint(i, anchors),
+    );
+    if (!anyBlocker) return false;
 
     const movable = this.computeMovableSet(anchors);
+    return anchors.some(
+      (_, i) =>
+        i !== this.goalIndex &&
+        !movable.has(i) &&
+        this.overlapsGoalFootprint(i, anchors),
+    );
+  }
 
-    for (let i = 0; i < anchors.length; i++) {
-      if (i === this.goalIndex) continue;
-      if (movable.has(i)) continue;
-      const a = anchors[i]!;
-      for (const cell of this.shapes[i]!) {
-        const enc = (a.x + cell.x) * stride + (a.y + cell.y);
-        if (this.goalBlockFinalCells.has(enc)) return true;
-      }
+  /** Does block `i` stand on any cell the goal block has to end up on? */
+  private overlapsGoalFootprint(i: number, anchors: Position[]): boolean {
+    const stride = this.gridHeight;
+    const a = anchors[i]!;
+    for (const cell of this.shapes[i]!) {
+      const enc = (a.x + cell.x) * stride + (a.y + cell.y);
+      if (this.goalBlockFinalCells.has(enc)) return true;
     }
     return false;
   }

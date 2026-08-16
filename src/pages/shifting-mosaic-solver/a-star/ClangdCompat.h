@@ -17,5 +17,9 @@
 // and hard-errors.
 #if defined(__clang__) && defined(_MSC_VER)
 #include <yvals_core.h>
+// Only MSVC's STL defines it; undefining a macro that was never defined is
+// what cpp:S959 flags, and the sibling solvers' copies already guard it.
+#ifdef __cpp_lib_is_pointer_interconvertible
 #undef __cpp_lib_is_pointer_interconvertible
+#endif
 #endif

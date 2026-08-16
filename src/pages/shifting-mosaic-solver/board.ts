@@ -10,6 +10,7 @@ import {
   isContiguous,
   positionsEqual,
 } from "./boardGeometry";
+import { markBlockEdges, markZoneEdges } from "../../util/gridOutline";
 import { gridMaxWidthPx } from "./layout";
 import type { ShiftingMosaicSolverEditor } from "./shiftingMosaicSolver";
 
@@ -189,75 +190,71 @@ export class Board {
     this.grid.innerHTML = "";
 
     const hologramCells = this.computeHologramCells();
-    const hologramValid = this.isHologramValid(hologramCells);
+    const hologramClass = this.isHologramValid(hologramCells)
+      ? "hologram"
+      : "hologram-invalid";
     const hologramSet = new Set(hologramCells.map(c => `${c.x},${c.y}`));
     const goalZoneSet = new Set(this.goalZoneCells.map(c => `${c.x},${c.y}`));
 
     for (let y = 0; y < this.gridHeight; y++) {
       for (let x = 0; x < this.gridWidth; x++) {
-        const cell = document.createElement("button");
-        cell.type = "button";
-        cell.className = "grid-cell";
-        cell.dataset.x = String(x);
-        cell.dataset.y = String(y);
-
-        const blockId = this.blockAssignments[x]?.[y] ?? 0;
-        if (blockId !== 0) {
-          const block = this.blocks.get(blockId);
-          cell.dataset.blockId = String(blockId);
-          cell.dataset.blockType = block?.type ?? "obstruction";
-
-          if (!this.hasBlockAt(x, y - 1, blockId)) {
-            cell.classList.add("block-edge-top");
-          }
-          if (!this.hasBlockAt(x + 1, y, blockId)) {
-            cell.classList.add("block-edge-right");
-          }
-          if (!this.hasBlockAt(x, y + 1, blockId)) {
-            cell.classList.add("block-edge-bottom");
-          }
-          if (!this.hasBlockAt(x - 1, y, blockId)) {
-            cell.classList.add("block-edge-left");
-          }
-
-          if (this.hoveredBlockId === blockId) {
-            cell.classList.add("block-hovered");
-          }
-        }
-
-        if (this.inProgressCells.has(`${x},${y}`)) {
-          cell.classList.add(
-            this.selectedTool === "goal" ? "in-progress-goal" : "in-progress",
-          );
-        }
-
-        if (goalZoneSet.has(`${x},${y}`)) {
-          cell.classList.add("goal-zone");
-          if (!goalZoneSet.has(`${x},${y - 1}`)) {
-            cell.classList.add("goal-zone-edge-top");
-          }
-          if (!goalZoneSet.has(`${x + 1},${y}`)) {
-            cell.classList.add("goal-zone-edge-right");
-          }
-          if (!goalZoneSet.has(`${x},${y + 1}`)) {
-            cell.classList.add("goal-zone-edge-bottom");
-          }
-          if (!goalZoneSet.has(`${x - 1},${y}`)) {
-            cell.classList.add("goal-zone-edge-left");
-          }
-        }
-
-        if (hologramSet.has(`${x},${y}`)) {
-          cell.classList.add(hologramValid ? "hologram" : "hologram-invalid");
-        }
-
-        const label = this.describeCell(x, y, blockId);
-        cell.setAttribute("aria-label", label);
-        cell.dataset.label = label;
-
-        this.grid.appendChild(cell);
+        this.grid.appendChild(
+          this.buildCell(x, y, hologramSet, hologramClass, goalZoneSet),
+        );
       }
     }
+  }
+
+  /**
+   * One editor square: which block owns it, the three outlines it may carry and
+   * its label. Split out of `renderGrid` so that function is just the sweep —
+   * the per-cell branches are what made it the most complex thing in the repo.
+   *
+   * The two edge markers come from `gridOutline.ts`, the same helpers the
+   * solution view uses: `blockAssignments` is already the `occupant[x][y]` grid
+   * `markBlockEdges` expects, and `hasBlockAt` was its `sameBlock` spelled out.
+   */
+  private buildCell(
+    x: number,
+    y: number,
+    hologramSet: Set<string>,
+    hologramClass: string,
+    goalZoneSet: Set<string>,
+  ): HTMLButtonElement {
+    const cell = document.createElement("button");
+    cell.type = "button";
+    cell.className = "grid-cell";
+    cell.dataset.x = String(x);
+    cell.dataset.y = String(y);
+
+    const blockId = this.blockAssignments[x]?.[y] ?? 0;
+    if (blockId !== 0) {
+      const block = this.blocks.get(blockId);
+      cell.dataset.blockId = String(blockId);
+      cell.dataset.blockType = block?.type ?? "obstruction";
+      markBlockEdges(cell, x, y, blockId, this.blockAssignments);
+      if (this.hoveredBlockId === blockId) {
+        cell.classList.add("block-hovered");
+      }
+    }
+
+    if (this.inProgressCells.has(`${x},${y}`)) {
+      cell.classList.add(
+        this.selectedTool === "goal" ? "in-progress-goal" : "in-progress",
+      );
+    }
+
+    markZoneEdges(cell, x, y, goalZoneSet, "goal-zone");
+
+    if (hologramSet.has(`${x},${y}`)) {
+      cell.classList.add(hologramClass);
+    }
+
+    const label = this.describeCell(x, y, blockId);
+    cell.setAttribute("aria-label", label);
+    cell.dataset.label = label;
+
+    return cell;
   }
 
   private describeCell(x: number, y: number, blockId: number): string {
@@ -365,30 +362,14 @@ export class Board {
     }
     if (this.selectedTool === "goal" && this.hasGoalBlock()) return;
 
-    if (this.inProgressCells.size === 0) {
-      if (this.attemptedOverlap) {
-        this.editor.showWarning(
-          "Cannot create a block that overlaps with an existing block.",
-        );
-      }
-      return;
-    }
-
     const cells: Position[] = Array.from(this.inProgressCells).map(key => {
       const [x, y] = key.split(",").map(Number) as [number, number];
       return { x, y };
     });
 
-    if (!isContiguous(cells)) {
-      if (this.attemptedOverlap) {
-        this.editor.showWarning(
-          "Cannot create a block that overlaps with an existing block.",
-        );
-      } else {
-        this.editor.showWarning(
-          "Block must be a single connected area — try drawing more slowly.",
-        );
-      }
+    // Short-circuits, so `isContiguous` is never handed an empty stroke.
+    if (cells.length === 0 || !isContiguous(cells)) {
+      this.warnRejectedStroke(cells.length > 0);
       return;
     }
 
@@ -410,6 +391,24 @@ export class Board {
     }
   }
 
+  /**
+   * Why a stroke was thrown away. An overlap outranks discontiguity: a stroke
+   * that ran into an existing block is USUALLY discontiguous because of it, so
+   * naming the overlap is the more useful of the two messages. An empty stroke
+   * that never hit anything is silent — the user drew nothing.
+   */
+  private warnRejectedStroke(hadCells: boolean) {
+    if (this.attemptedOverlap) {
+      this.editor.showWarning(
+        "Cannot create a block that overlaps with an existing block.",
+      );
+    } else if (hadCells) {
+      this.editor.showWarning(
+        "Block must be a single connected area — try drawing more slowly.",
+      );
+    }
+  }
+
   private beginGoalZonePlacement() {
     this.isPlacingGoalZone = true;
     this.placementCursor = null;
@@ -418,7 +417,7 @@ export class Board {
 
   startGoalZonePlacement(blockId: number) {
     const block = this.blocks.get(blockId);
-    if (!block || block.type !== "goal") return;
+    if (block?.type !== "goal") return;
     this.goalZoneCells = [];
     this.beginGoalZonePlacement();
     this.editor.render();

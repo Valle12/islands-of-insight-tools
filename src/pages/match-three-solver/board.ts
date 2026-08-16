@@ -1,5 +1,4 @@
 import type {
-  MatchThreeCell,
   MatchThreeTest,
   MatchThreeTool,
   Position,
@@ -15,7 +14,7 @@ export class Board {
   private selectedTool: MatchThreeTool;
   private selectedSymbol: number;
   private readonly solver: MatchThreeSolverEditor;
-  private cells: MatchThreeCell[][] = [];
+  private cells: number[][] = [];
   /**
    * The rendered cell buttons, indexed like `cells`. Painting rewrites the one
    * button it touched rather than re-running `renderGrid`; on a 32x32 board

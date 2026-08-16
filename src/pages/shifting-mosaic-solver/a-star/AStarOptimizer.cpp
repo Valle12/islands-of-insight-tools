@@ -277,16 +277,20 @@ AStar::optimizeSolution(const std::vector<Turn> &input) const {
   constexpr int kMaxIterations = 100000;
   const uint64_t deadline =
       cfg_.optimizeMaxMs == 0 ? 0 : nowMs() + cfg_.optimizeMaxMs;
-  for (int iter = 0; iter < kMaxIterations; iter++) {
+  // All three stop conditions in the header rather than as breaks in the body
+  // (cpp:S924 allows one): out of time, cancelled, or no rewrite fired. The
+  // ladder is the last operand so it only runs while the budget still allows
+  // it, exactly as the guards above the old body did.
+  const auto budgetSpent = [&] {
     if (deadline != 0 && nowMs() >= deadline)
-      break;
-    if (cfg_.cancel && cfg_.cancel->load(std::memory_order_relaxed))
-      break;
-    if (const bool improved = tryRunPairCancellation(cur) ||
-                              tryRunRemoval(cur) || trySingleRemoval(cur) ||
-                              tryReorderMerge(cur);
-        !improved)
-      break;
+      return true;
+    return cfg_.cancel != nullptr &&
+           cfg_.cancel->load(std::memory_order_relaxed);
+  };
+  int iter = 0;
+  while (iter++ < kMaxIterations && !budgetSpent() &&
+         (tryRunPairCancellation(cur) || tryRunRemoval(cur) ||
+          trySingleRemoval(cur) || tryReorderMerge(cur))) {
     cur.resize(firstSolvingPrefixLen(cur));
   }
   return cur;

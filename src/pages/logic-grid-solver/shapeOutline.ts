@@ -121,14 +121,28 @@ function boundarySteps(
   const add = (from: Point, to: Point) => steps.set(cornerKey(...from), to);
   for (let j = 0; j + 1 < rows; j++) {
     for (let i = 0; i + 1 < columns; i++) {
-      if (!inside(i, j)) continue;
-      if (!inside(i, j - 1)) add([i, j], [i + 1, j]);
-      if (!inside(i + 1, j)) add([i + 1, j], [i + 1, j + 1]);
-      if (!inside(i, j + 1)) add([i + 1, j + 1], [i, j + 1]);
-      if (!inside(i - 1, j)) add([i, j + 1], [i, j]);
+      if (inside(i, j)) emitCellSteps(add, inside, i, j);
     }
   }
   return steps;
+}
+
+/**
+ * The boundary segments contributed by one filled cell: a side is on the
+ * boundary exactly where the cell across it is outside. Emitted clockwise from
+ * the top-left corner, which is what keeps the filled area on each segment's
+ * right.
+ */
+function emitCellSteps(
+  add: (from: Point, to: Point) => void,
+  inside: (i: number, j: number) => boolean,
+  i: number,
+  j: number,
+) {
+  if (!inside(i, j - 1)) add([i, j], [i + 1, j]);
+  if (!inside(i + 1, j)) add([i + 1, j], [i + 1, j + 1]);
+  if (!inside(i, j + 1)) add([i + 1, j + 1], [i, j + 1]);
+  if (!inside(i - 1, j)) add([i, j + 1], [i, j]);
 }
 
 /** Follows the segments round into closed loops, in real coordinates. */

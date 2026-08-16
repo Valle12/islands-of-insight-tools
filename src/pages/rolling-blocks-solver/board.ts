@@ -4,6 +4,7 @@ import type {
   RollingBlocksTest,
   Tile,
 } from "../../util/types";
+import { markBlockEdges } from "../../util/gridOutline";
 import { Block } from "./block";
 import { MAX_BLOCKS } from "./config";
 import type { RollingBlocksSolverEditor } from "./rollingBlocksSolver";
@@ -73,53 +74,49 @@ export class Board {
 
     for (let y = 0; y < this.gridHeight; y++) {
       for (let x = 0; x < this.gridWidth; x++) {
-        const cell = document.createElement("button");
-        cell.type = "button";
-        cell.className = "grid-cell";
-        cell.dataset.x = String(x);
-        cell.dataset.y = String(y);
-
-        const blockId = this.blockAssignments[x]?.[y] ?? 0;
-        if (blockId !== 0) {
-          cell.dataset.kind = "block";
-          cell.dataset.blockId = String(blockId);
-
-          if (!this.hasBlockAt(x, y - 1, blockId)) {
-            cell.classList.add("block-edge-top");
-          }
-
-          if (!this.hasBlockAt(x + 1, y, blockId)) {
-            cell.classList.add("block-edge-right");
-          }
-
-          if (!this.hasBlockAt(x, y + 1, blockId)) {
-            cell.classList.add("block-edge-bottom");
-          }
-
-          if (!this.hasBlockAt(x - 1, y, blockId)) {
-            cell.classList.add("block-edge-left");
-          }
-
-          if (this.hoveredBlockId === blockId) {
-            cell.classList.add("block-hovered");
-          }
-        } else {
-          cell.dataset.kind = this.cells[x]?.[y] ?? "regular";
-        }
-
-        if (this.shouldPreviewCell(x, y)) {
-          cell.classList.add(
-            this.selectedTool === "goal" ? "goal-preview" : "preview",
-          );
-        }
-
-        const label = this.describeCell(x, y, blockId);
-        cell.setAttribute("aria-label", label);
-        cell.dataset.label = label;
-
-        this.grid.appendChild(cell);
+        this.grid.appendChild(this.buildCell(x, y));
       }
     }
+  }
+
+  /**
+   * One editor square: the block that owns it (or the tile underneath), the
+   * drag preview and the label. Split out of `renderGrid` so that function is
+   * just the sweep — the per-cell branches are all of its complexity.
+   *
+   * `markBlockEdges` comes from `gridOutline.ts`, the same helper the solution
+   * view uses; `blockAssignments` is already the `occupant[x][y]` grid it wants.
+   */
+  private buildCell(x: number, y: number): HTMLButtonElement {
+    const cell = document.createElement("button");
+    cell.type = "button";
+    cell.className = "grid-cell";
+    cell.dataset.x = String(x);
+    cell.dataset.y = String(y);
+
+    const blockId = this.blockAssignments[x]?.[y] ?? 0;
+    if (blockId !== 0) {
+      cell.dataset.kind = "block";
+      cell.dataset.blockId = String(blockId);
+      markBlockEdges(cell, x, y, blockId, this.blockAssignments);
+      if (this.hoveredBlockId === blockId) {
+        cell.classList.add("block-hovered");
+      }
+    } else {
+      cell.dataset.kind = this.cells[x]?.[y] ?? "regular";
+    }
+
+    if (this.shouldPreviewCell(x, y)) {
+      cell.classList.add(
+        this.selectedTool === "goal" ? "goal-preview" : "preview",
+      );
+    }
+
+    const label = this.describeCell(x, y, blockId);
+    cell.setAttribute("aria-label", label);
+    cell.dataset.label = label;
+
+    return cell;
   }
 
   setHoveredBlockId(blockdId: number) {
@@ -385,10 +382,6 @@ export class Board {
         col[y] = "goal";
       }
     }
-  }
-
-  private hasBlockAt(x: number, y: number, blockId: number) {
-    return this.blockAssignments[x]?.[y] === blockId;
   }
 
   private shouldPreviewCell(x: number, y: number): boolean {

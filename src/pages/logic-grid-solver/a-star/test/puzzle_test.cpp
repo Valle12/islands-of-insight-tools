@@ -257,9 +257,9 @@ TEST(Darts, TheLineRunsToTheEdgeAndStepsOverGaps) {
   Puzzle puzzle = test::board({"..#..", "....."});
   test::withDart(puzzle, 0, 0, 0, kDirRight);
   const Model model = buildModel(puzzle);
-  ASSERT_EQ(model.darts.size(), 1U);
+  ASSERT_EQ(model.walked.darts.size(), 1U);
   // Three squares, not two: the gap is neither counted nor a wall.
-  const Bits &ray = model.darts.front().ray;
+  const Bits &ray = model.walked.darts.front().ray;
   EXPECT_EQ(ray.count(), 3);
   EXPECT_TRUE(ray.test(cellIndex(1, 0)));
   EXPECT_FALSE(ray.test(cellIndex(2, 0)));
@@ -280,8 +280,8 @@ TEST(Darts, TheLineExcludesTheDartsOwnCell) {
   test::withShape(puzzle, {{0, 0}, {1, 0}});
   test::withDart(puzzle, 0, 0, 0, kDirRight);
   const Model model = buildModel(puzzle);
-  ASSERT_EQ(model.darts.size(), 1U);
-  const Bits &ray = model.darts.front().ray;
+  ASSERT_EQ(model.walked.darts.size(), 1U);
+  const Bits &ray = model.walked.darts.front().ray;
   EXPECT_EQ(ray.count(), 3);
   EXPECT_FALSE(ray.test(cellIndex(1, 0)));
   EXPECT_TRUE(ray.test(cellIndex(2, 0)));
@@ -296,7 +296,7 @@ TEST(Darts, ADartIsNotAnAreaClue) {
   const Model model = buildModel(puzzle);
   EXPECT_TRUE(model.areaClues.empty());
   EXPECT_TRUE(model.letters.empty());
-  EXPECT_EQ(model.dartClues.size(), 1U);
+  EXPECT_EQ(model.walked.dartClues.size(), 1U);
   EXPECT_EQ(model.areaValueAt(cellIndex(0, 0)), 0);
   EXPECT_GE(model.clueAt[slot(cellIndex(0, 0))], 0);
 }
@@ -414,10 +414,10 @@ TEST(Lotuses, ALotusIsOnlyASymbol) {
   test::withLotus(puzzle, 1, 1, kAxisHorizontal);
   const Model model = buildModel(puzzle);
   EXPECT_TRUE(model.areaClues.empty());
-  EXPECT_TRUE(model.dartClues.empty());
+  EXPECT_TRUE(model.walked.dartClues.empty());
   EXPECT_TRUE(model.letters.empty());
-  ASSERT_EQ(model.lotusClues.size(), 1U);
-  ASSERT_EQ(model.lotuses.size(), 1U);
+  ASSERT_EQ(model.walked.lotusClues.size(), 1U);
+  ASSERT_EQ(model.walked.lotuses.size(), 1U);
   EXPECT_EQ(model.areaValueAt(cellIndex(1, 1)), 0);
   EXPECT_GE(model.clueAt[slot(cellIndex(1, 1))], 0);
 }
@@ -428,8 +428,8 @@ TEST(Lotuses, TheMirrorMapReflectsAcrossTheAxis) {
   Puzzle puzzle = test::board(open());
   test::withLotus(puzzle, 1, 1, kAxisHorizontal);
   const Model model = buildModel(puzzle);
-  ASSERT_EQ(model.lotuses.size(), 1U);
-  const Lotus &lotus = model.lotuses.front();
+  ASSERT_EQ(model.walked.lotuses.size(), 1U);
+  const Lotus &lotus = model.walked.lotuses.front();
   EXPECT_EQ(lotus.mirror[slot(cellIndex(0, 0))], cellIndex(0, 2));
   EXPECT_EQ(lotus.mirror[slot(cellIndex(1, 1))], cellIndex(1, 1));
   EXPECT_EQ(lotus.mirror[slot(cellIndex(2, 2))], cellIndex(2, 0));
@@ -503,8 +503,8 @@ TEST(Viewpoints, TheRaysStopAtGaps) {
   Puzzle puzzle = test::board({"..#..", "....."});
   test::withViewpoint(puzzle, 0, 0, 1);
   const Model model = buildModel(puzzle);
-  ASSERT_EQ(model.viewpoints.size(), 1U);
-  const Viewpoint &viewpoint = model.viewpoints.front();
+  ASSERT_EQ(model.walked.viewpoints.size(), 1U);
+  const Viewpoint &viewpoint = model.walked.viewpoints.front();
   ASSERT_EQ(viewpoint.rays[slot(kDirRight)].size(), 1U);
   EXPECT_EQ(viewpoint.rays[slot(kDirRight)].front(), cellIndex(1, 0));
   EXPECT_EQ(viewpoint.rays[slot(kDirDown)].size(), 1U);
@@ -519,9 +519,9 @@ TEST(Viewpoints, TheRaysKeepTheOwnCellsSquares) {
   test::withShape(puzzle, {{0, 0}, {1, 0}});
   test::withViewpoint(puzzle, 0, 0, 1);
   const Model model = buildModel(puzzle);
-  ASSERT_EQ(model.viewpoints.size(), 1U);
+  ASSERT_EQ(model.walked.viewpoints.size(), 1U);
   const std::vector<int16_t> &ray =
-      model.viewpoints.front().rays[slot(kDirRight)];
+      model.walked.viewpoints.front().rays[slot(kDirRight)];
   ASSERT_EQ(ray.size(), 4U);
   EXPECT_EQ(ray.front(), cellIndex(1, 0));
 }
@@ -533,11 +533,11 @@ TEST(Viewpoints, AViewpointIsOnlyASymbol) {
   test::withViewpoint(puzzle, 1, 1, 3);
   const Model model = buildModel(puzzle);
   EXPECT_TRUE(model.areaClues.empty());
-  EXPECT_TRUE(model.dartClues.empty());
-  EXPECT_TRUE(model.lotusClues.empty());
+  EXPECT_TRUE(model.walked.dartClues.empty());
+  EXPECT_TRUE(model.walked.lotusClues.empty());
   EXPECT_TRUE(model.letters.empty());
-  ASSERT_EQ(model.viewpointClues.size(), 1U);
-  ASSERT_EQ(model.viewpoints.size(), 1U);
+  ASSERT_EQ(model.walked.viewpointClues.size(), 1U);
+  ASSERT_EQ(model.walked.viewpoints.size(), 1U);
   EXPECT_EQ(model.areaValueAt(cellIndex(1, 1)), 0);
   EXPECT_GE(model.clueAt[slot(cellIndex(1, 1))], 0);
 }
@@ -585,12 +585,12 @@ TEST(Galaxies, AGalaxyIsOnlyASymbol) {
   test::withGalaxy(puzzle, 1, 1);
   const Model model = buildModel(puzzle);
   EXPECT_TRUE(model.areaClues.empty());
-  EXPECT_TRUE(model.dartClues.empty());
-  EXPECT_TRUE(model.lotusClues.empty());
-  EXPECT_TRUE(model.viewpointClues.empty());
+  EXPECT_TRUE(model.walked.dartClues.empty());
+  EXPECT_TRUE(model.walked.lotusClues.empty());
+  EXPECT_TRUE(model.walked.viewpointClues.empty());
   EXPECT_TRUE(model.letters.empty());
-  ASSERT_EQ(model.galaxyClues.size(), 1U);
-  ASSERT_EQ(model.galaxies.size(), 1U);
+  ASSERT_EQ(model.walked.galaxyClues.size(), 1U);
+  ASSERT_EQ(model.walked.galaxies.size(), 1U);
   EXPECT_EQ(model.clueAt[slot(cellIndex(1, 1))], 0);
 }
 
@@ -598,7 +598,7 @@ TEST(Galaxies, TheMirrorMapPointReflectsAboutTheOwnSquare) {
   Puzzle puzzle = test::board(open());
   test::withGalaxy(puzzle, 1, 1);
   const Model model = buildModel(puzzle);
-  const Galaxy &galaxy = model.galaxies.front();
+  const Galaxy &galaxy = model.walked.galaxies.front();
   EXPECT_EQ(galaxy.mirror[slot(cellIndex(0, 0))], cellIndex(2, 2));
   EXPECT_EQ(galaxy.mirror[slot(cellIndex(2, 0))], cellIndex(0, 2));
   EXPECT_EQ(galaxy.mirror[slot(cellIndex(1, 1))], cellIndex(1, 1));
@@ -606,8 +606,8 @@ TEST(Galaxies, TheMirrorMapPointReflectsAboutTheOwnSquare) {
   Puzzle corner = test::board(open());
   test::withGalaxy(corner, 0, 0);
   const Model cornered = buildModel(corner);
-  EXPECT_EQ(cornered.galaxies.front().mirror[slot(cellIndex(1, 1))], -1);
-  EXPECT_EQ(cornered.galaxies.front().mirror[slot(cellIndex(0, 0))],
+  EXPECT_EQ(cornered.walked.galaxies.front().mirror[slot(cellIndex(1, 1))], -1);
+  EXPECT_EQ(cornered.walked.galaxies.front().mirror[slot(cellIndex(0, 0))],
             cellIndex(0, 0));
 }
 

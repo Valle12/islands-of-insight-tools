@@ -46,7 +46,10 @@ struct NodeKey {
       heapData = std::make_unique<uint8_t[]>(n); // value-init: starts zeroed
   }
 
-  ~NodeKey() = default;
+  // No destructor: heapData is a unique_ptr, so the implicit one already
+  // does the right thing and spelling it out only makes analysers ask what
+  // resource it is meant to be managing (cpp:S3624). The copy/move members
+  // below stay explicit — they are what the inline buffer needs.
 
   NodeKey(const NodeKey &o) : len(o.len) {
     if (len > InlineCapacity) {

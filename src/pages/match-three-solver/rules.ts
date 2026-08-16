@@ -1,4 +1,4 @@
-import type { MatchThreeCell, MatchThreeTest, Position } from "../../util/types";
+import type { MatchThreeTest, Position } from "../../util/types";
 import { BLOCKED, symbolIndexOf, EMPTY, isSymbol } from "./cell";
 
 /** Cells that must line up before anything clears. */
@@ -7,7 +7,7 @@ export const MIN_RUN = 3;
 /**
  * A board in the shape the search wants: one flat `Uint8Array` indexed
  * `y * width + x`, so a state is one cheap allocation to clone and one string
- * to key a transposition table with. The editor's `MatchThreeCell[][]` is
+ * to key a transposition table with. The editor's `number[][]` is
  * column-major (`cells[x][y]`); `toBoard` / `toGrid` convert between the two.
  */
 export interface MatchThreeBoard {
@@ -45,7 +45,7 @@ export function toBoard(config: MatchThreeTest): MatchThreeBoard {
   return { width, height, cells };
 }
 
-export function toGrid(board: MatchThreeBoard): MatchThreeCell[][] {
+export function toGrid(board: MatchThreeBoard): number[][] {
   return Array.from({ length: board.width }, (_, x) =>
     Array.from(
       { length: board.height },

@@ -23,9 +23,11 @@ parentPort!.on("message", async ({ puzzle, config }) => {
   try {
     const module = await modulePromise;
     const result = module.solve(puzzle, config ?? {});
+    // A real JS array, not an Embind vector proxy: `turnsToJs` in
+    // wasm_bindings.cpp builds it with `val::array()`, so it is iterable.
     const path: { blockId: number; direction: number }[] = [];
-    for (let i = 0; i < result.length; i++) {
-      path.push({ blockId: result[i].blockId, direction: result[i].direction });
+    for (const turn of result) {
+      path.push({ blockId: turn.blockId, direction: turn.direction });
     }
     parentPort!.postMessage({ type: "done", path });
   } catch (err) {

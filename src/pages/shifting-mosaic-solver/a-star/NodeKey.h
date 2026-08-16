@@ -24,6 +24,12 @@ struct NodeKey {
   // NodeKey is the hash key of every state map in every arm, so its move and
   // destroy paths are as hot as code gets here. The delete[]s below are the
   // price; they are confined to this struct's five special members.
+  //
+  // RE-MEASURED 2026-08-16 and the refusal STANDS: +3.7% on unit and +5.2% on
+  // jam, against a ±0.5% noise floor (min-of-9 interleaved, node counts pinned
+  // identical, isolated from the BitGrid change by a three-point bisect). Worth
+  // noting that BitGrid's sibling refusal did NOT survive the same re-measure —
+  // it is free now — so this one is about this struct, not about the era.
   uint16_t *heapData = nullptr;
   uint8_t len = 0;
 

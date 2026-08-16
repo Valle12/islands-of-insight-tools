@@ -385,6 +385,12 @@ export class PhasicDialSolver {
   }
 }
 
+// Module-scope so the editor (and the DOM listeners it owns) lives as long as
+// the page does, rather than reading as an object constructed and dropped.
+// A const holder rather than an exported `let`: a mutable export would let
+// importers observe the binding change out from under them.
+export const page: { editor?: PhasicDialSolver } = {};
+
 if (process.env.NODE_ENV !== "test") {
-  new PhasicDialSolver();
+  page.editor = new PhasicDialSolver();
 }

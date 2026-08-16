@@ -1,5 +1,5 @@
 export class Button {
-  private turns: number[];
+  private readonly turns: number[];
 
   constructor(turns: number[]) {
     this.turns = turns;

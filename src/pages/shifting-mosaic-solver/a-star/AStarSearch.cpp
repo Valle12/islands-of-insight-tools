@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <compare>
+#include <concepts>
 #include <functional>
 #include <iostream>
 #include <queue>
@@ -54,6 +55,13 @@ struct HeapEntry {
   }
   bool operator==(const HeapEntry &o) const = default;
 };
+
+// operator== is REQUIRED, not incidental: a user-written operator<=> does not
+// synthesise it. Asserted rather than merely declared so it cannot be deleted
+// as "unused" (cpp:S1144) without the build saying so. Note the defaulted form
+// compares every member, including the two pointers, while <=> orders on f and
+// g alone — consistent enough for the priority_queue, which only ever calls <.
+static_assert(std::equality_comparable<HeapEntry>);
 } // namespace
 
 std::vector<Turn> AStar::reconstructPath(const StateInfo *goal) {

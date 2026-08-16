@@ -3,6 +3,15 @@
      names the same size (fixed tracks — see #grid-shell), and the mobile
      breakpoint changes it. */
   --rb-cell: 42px;
+
+  /* The block purple, in one place because four rules carry it: the grid
+     square, the two chips that put white text ON it, and the moving-block
+     label that uses it AS text.
+
+     Darkened from #8465c8, which computed to 4.49:1 against white — under AA's
+     4.5:1 for the 12-13px chip text, by a rounding error. This value is 5.12:1
+     on white and 4.64:1 as text on the card, so both readings pass. */
+  --rb-block: #7a5cbe;
 }
 
 body {
@@ -165,7 +174,7 @@ h2 {
 }
 
 .grid-cell[data-kind="block"] {
-  background: #8465c8;
+  background: var(--rb-block);
 }
 
 .grid-cell[data-block-id] {
@@ -317,7 +326,7 @@ h2 {
   font-size: 13px;
   font-weight: 600;
   color: #fff;
-  background: #8465c8;
+  background: var(--rb-block);
   border-radius: 999px;
   padding: 4px 10px;
 }
@@ -514,7 +523,7 @@ h2 {
 }
 
 .rb-moving-label {
-  color: #8465c8;
+  color: var(--rb-block);
 }
 
 .rb-dest-label {
@@ -596,7 +605,7 @@ h2 {
   font-size: 12px;
   font-weight: 600;
   color: #fff;
-  background: #8465c8;
+  background: var(--rb-block);
   border-radius: 999px;
   padding: 2px 8px;
   margin-right: 4px;

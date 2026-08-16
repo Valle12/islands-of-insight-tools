@@ -1,10 +1,9 @@
 // Tests for the canonical state encoding, real-id turn attribution, budgets
 // and engine caps introduced with the StateTable-based search core.
 
-#ifdef __clang__
-#include <yvals_core.h>
-#undef __cpp_lib_is_pointer_interconvertible
-#endif
+// ClangdCompat.h first: the clang+MSVC-STL workaround it carries has to
+// precede any standard-library header.
+#include "ClangdCompat.h"
 #include "AStar.h"
 #if defined(__GNUC__) && !defined(__clang__)
 namespace boost {

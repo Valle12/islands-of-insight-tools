@@ -375,13 +375,13 @@ void buildClueTables(Model &model) {
     if (clue.kind == kClueArea) {
       model.areaClues.push_back(id);
     } else if (clue.kind == kClueDart) {
-      model.dartClues.push_back(id);
+      model.walked.dartClues.push_back(id);
     } else if (clue.kind == kClueLotus) {
-      model.lotusClues.push_back(id);
+      model.walked.lotusClues.push_back(id);
     } else if (clue.kind == kClueViewpoint) {
-      model.viewpointClues.push_back(id);
+      model.walked.viewpointClues.push_back(id);
     } else if (clue.kind == kClueGalaxy) {
-      model.galaxyClues.push_back(id);
+      model.walked.galaxyClues.push_back(id);
     } else {
       int &group = groupOf[slot(clue.value)];
       if (group < 0) {
@@ -407,7 +407,7 @@ void buildClueTables(Model &model) {
  * requirement rather than a tightening.
  */
 void buildDarts(Model &model) {
-  for (const int id : model.dartClues) {
+  for (const int id : model.walked.dartClues) {
     const Clue &clue = model.puzzle.clues[slot(id)];
     // Only a puzzle that skipped validation can fail this. Left out of `darts`
     // it constrains nothing — but it stays in `dartClues`, so `verify::check`
@@ -423,7 +423,7 @@ void buildDarts(Model &model) {
       if (const int at = cellIndex(x, y); model.playable.test(at))
         ray.set(at);
     }
-    model.darts.push_back({.clueId = id,
+    model.walked.darts.push_back({.clueId = id,
                            .index = clue.index,
                            .value = clue.value,
                            .direction = clue.direction,
@@ -457,7 +457,7 @@ void fillMirror(const Model &model, Lotus &lotus) {
  * and the board comes back unsolvable rather than quietly solved without it.
  */
 void buildLotuses(Model &model) {
-  for (const int id : model.lotusClues) {
+  for (const int id : model.walked.lotusClues) {
     const Clue &clue = model.puzzle.clues[slot(id)];
     if (!isAxis(clue.direction) || !isSeat(clue.seat) ||
         (isDiagonalAxis(clue.direction) && !diagonalSeatValid(clue.seat)))
@@ -469,7 +469,7 @@ void buildLotuses(Model &model) {
     lotus.cx2 = seatX2(clue.index, clue.seat);
     lotus.cy2 = seatY2(clue.index, clue.seat);
     fillMirror(model, lotus);
-    model.lotuses.push_back(lotus);
+    model.walked.lotuses.push_back(lotus);
   }
 }
 
@@ -502,7 +502,7 @@ std::vector<int16_t> sightRay(const Model &model, const int index,
  * be unreadable.
  */
 void buildViewpoints(Model &model) {
-  for (const int id : model.viewpointClues) {
+  for (const int id : model.walked.viewpointClues) {
     const Clue &clue = model.puzzle.clues[slot(id)];
     Viewpoint viewpoint;
     viewpoint.clueId = id;
@@ -510,7 +510,7 @@ void buildViewpoints(Model &model) {
     viewpoint.value = clue.value;
     for (int direction = 0; direction < kDirectionCount; direction++)
       viewpoint.rays[slot(direction)] = sightRay(model, clue.index, direction);
-    model.viewpoints.push_back(std::move(viewpoint));
+    model.walked.viewpoints.push_back(std::move(viewpoint));
   }
 }
 
@@ -538,13 +538,13 @@ void fillMirror(const Model &model, Galaxy &galaxy) {
 }
 
 void buildGalaxies(Model &model) {
-  for (const int id : model.galaxyClues) {
+  for (const int id : model.walked.galaxyClues) {
     const Clue &clue = model.puzzle.clues[slot(id)];
     Galaxy galaxy;
     galaxy.clueId = id;
     galaxy.index = clue.index;
     fillMirror(model, galaxy);
-    model.galaxies.push_back(galaxy);
+    model.walked.galaxies.push_back(galaxy);
   }
 }
 
@@ -555,7 +555,7 @@ void buildGalaxies(Model &model) {
 /// on it and by the dart's own merged cell. A displayed 0 means a true 1
 /// under the rule, so such a dart on an empty line is named here too.
 Problem dartFitsLine(const Model &model) {
-  const bool bad = std::ranges::any_of(model.darts, [&model](const Dart &dart) {
+  const bool bad = std::ranges::any_of(model.walked.darts, [&model](const Dart &dart) {
     const Clue &clue = model.puzzle.clues[slot(dart.clueId)];
     return model.candidatesFor(clue).lo() > dart.ray.count();
   });
@@ -566,7 +566,7 @@ Problem dartFitsLine(const Model &model) {
 /// so each must reflect onto a playable square — a mirror off the board or on
 /// a gap makes the board unsolvable before a single cell is coloured.
 Problem lotusMirrorsFit(const Model &model) {
-  for (const Lotus &lotus : model.lotuses) {
+  for (const Lotus &lotus : model.walked.lotuses) {
     const Bits mask = model.cellMask(lotus.index);
     for (int i = mask.nextSet(0); i >= 0; i = mask.nextSet(i + 1)) {
       if (const int reflected = lotus.mirror[slot(i)];
@@ -582,7 +582,7 @@ Problem lotusMirrorsFit(const Model &model) {
 /// reflects onto itself, so this can only ever fire through a merged cell —
 /// which is exactly the case worth naming before a single cell is coloured.
 Problem galaxyMirrorsFit(const Model &model) {
-  for (const Galaxy &galaxy : model.galaxies) {
+  for (const Galaxy &galaxy : model.walked.galaxies) {
     const Bits mask = model.cellMask(galaxy.index);
     for (int i = mask.nextSet(0); i >= 0; i = mask.nextSet(i + 1)) {
       if (const int reflected = galaxy.mirror[slot(i)];
@@ -599,7 +599,7 @@ Problem galaxyMirrorsFit(const Model &model) {
 /// cut short by the first gap on it.
 Problem viewpointsFitSight(const Model &model) {
   const bool bad = std::ranges::any_of(
-      model.viewpoints, [&model](const Viewpoint &viewpoint) {
+      model.walked.viewpoints, [&model](const Viewpoint &viewpoint) {
         int sight = 1;
         for (const std::vector<int16_t> &ray : viewpoint.rays)
           sight += static_cast<int>(ray.size());

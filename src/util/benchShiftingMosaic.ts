@@ -123,8 +123,7 @@ async function runOne(
   const lastJsonLine = stdout
     .split("\n")
     .map(l => l.trim())
-    .filter(l => l.startsWith("{"))
-    .pop();
+    .findLast(l => l.startsWith("{"));
   if (!lastJsonLine) {
     return {
       fixture: file,
@@ -177,37 +176,57 @@ async function runMode(opts: ReturnType<typeof parseArgs>) {
   console.log(`\n${solved}/${results.length} solved, total ${(totalMs / 1000).toFixed(1)}s → ${opts.out}`);
 }
 
+const fmt = (v: number | undefined) => (v === undefined ? "?" : String(v));
+
+/** One before→after row of the diff table. */
+function rowFor(b: BenchResult, a: BenchResult): string {
+  const solvedCell = `${b.solved ? "✓" : "✗"}→${a.solved ? "✓" : "✗"}`;
+  return (
+    `| ${b.fixture.replace("shiftingMosaic", "")} | ${solvedCell} ` +
+    `| ${b.wallMs}→${a.wallMs} | ${fmt(b.nodesExpanded)}→${fmt(a.nodesExpanded)} ` +
+    `| ${fmt(b.turns)}→${fmt(a.turns)} | ${fmt(b.steps)}→${fmt(a.steps)} |`
+  );
+}
+
+/**
+ * Why this fixture counts as a regression, or null. Losing a solution is one
+ * whatever the clock says; a slowdown only counts past 2x, and the 250 ms floor
+ * keeps a fixture that runs in single-digit ms from tripping it on noise.
+ */
+function regressionFor(b: BenchResult, a: BenchResult): string | null {
+  if (b.solved && !a.solved) return `${b.fixture}: solved → UNSOLVED`;
+  if (b.solved && a.solved && a.wallMs > 2 * Math.max(b.wallMs, 250))
+    return `${b.fixture}: wall time ${b.wallMs} → ${a.wallMs} ms (>2x)`;
+  return null;
+}
+
 async function diffMode(beforePath: string, afterPath: string) {
   const before = (await Bun.file(beforePath).json()) as BenchFile;
   const after = (await Bun.file(afterPath).json()) as BenchFile;
   const byFixture = new Map(after.results.map(r => [r.fixture, r]));
 
-  const fmt = (v: number | undefined) => (v === undefined ? "?" : String(v));
   const lines: string[] = [];
-  lines.push(`| fixture | solved | wallMs | nodes | turns | steps |`);
-  lines.push(`|---|---|---|---|---|---|`);
+  lines.push(
+    `| fixture | solved | wallMs | nodes | turns | steps |`,
+    `|---|---|---|---|---|---|`,
+  );
   const regressions: string[] = [];
   for (const b of before.results) {
     const a = byFixture.get(b.fixture);
     if (!a) continue;
-    const solvedCell = `${b.solved ? "✓" : "✗"}→${a.solved ? "✓" : "✗"}`;
-    lines.push(
-      `| ${b.fixture.replace("shiftingMosaic", "")} | ${solvedCell} ` +
-        `| ${b.wallMs}→${a.wallMs} | ${fmt(b.nodesExpanded)}→${fmt(a.nodesExpanded)} ` +
-        `| ${fmt(b.turns)}→${fmt(a.turns)} | ${fmt(b.steps)}→${fmt(a.steps)} |`,
-    );
-    if (b.solved && !a.solved) regressions.push(`${b.fixture}: solved → UNSOLVED`);
-    else if (b.solved && a.solved && a.wallMs > 2 * Math.max(b.wallMs, 250))
-      regressions.push(`${b.fixture}: wall time ${b.wallMs} → ${a.wallMs} ms (>2x)`);
+    lines.push(rowFor(b, a));
+    const regression = regressionFor(b, a);
+    if (regression) regressions.push(regression);
   }
   for (const a of after.results)
     if (!before.results.some(b => b.fixture === a.fixture) && a.solved)
       regressions.push(`${a.fixture}: newly covered (not in before file)`);
 
   console.log(lines.join("\n"));
+  const regressionList = regressions.map(r => `- ${r}`).join("\n");
   console.log(
     regressions.length
-      ? `\nRegressions/notes:\n${regressions.map(r => `- ${r}`).join("\n")}`
+      ? `\nRegressions/notes:\n${regressionList}`
       : "\nNo regressions.",
   );
 }

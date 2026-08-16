@@ -142,16 +142,16 @@ public:
     // prefix, so fold i into that prefix and re-derive k (re-deriving is the
     // easy step to miss — without it k underflows past zero).
     uint64_t k = 1;
-    while ((1ull << k) - 1 < i)
+    while ((1ULL << k) - 1 < i)
       k++;
-    while ((1ull << k) - 1 != i) {
+    while ((1ULL << k) - 1 != i) {
       k--;
-      i -= static_cast<uint32_t>((1ull << k) - 1);
+      i -= static_cast<uint32_t>((1ULL << k) - 1);
       k = 1;
-      while ((1ull << k) - 1 < i)
+      while ((1ULL << k) - 1 < i)
         k++;
     }
-    return 1ull << (k - 1);
+    return 1ULL << (k - 1);
   }
 
   // Cheap jam-class predicate for portfolio gating: no REAL cut bottlenecks,
@@ -236,6 +236,15 @@ private:
   // long path + cfg_.corridorBands). Lets the corridor arm decline instantly
   // when it would just duplicate plain hier (real cuts present).
   bool corridorBandsActive_ = false;
+  // Groups blocks that share a shape (and fills blockGroup_ from the result),
+  // so the search can treat interchangeable blocks as one. Its own function
+  // only because the constructor was over the complexity limit with it inline;
+  // it runs once, before anything else the constructor does.
+  void buildSymmetryGroups();
+  // Row bitmask, per grid row, of the cells held by blocks that can never
+  // move. Both computeCutSchedule and tryComputePacking need exactly this and
+  // used to build it inline — the same fifteen lines, twice.
+  [[nodiscard]] std::vector<uint64_t> buildLockedRows() const;
   void computeCutSchedule();
   // Per-block BFS distance (over anchor moves, locked blocks as the only
   // obstacles) to the nearest anchor whose footprint clears a given suffix
@@ -278,6 +287,19 @@ private:
   // last at every cell — together they steer the DFS toward structurally
   // different packings. Fills packedSlot_ and returns success.
   bool tryComputePacking(int cellOrderVariant, int demotedPiece);
+  // The three phases of that, split out so it stays under the complexity and
+  // nesting limits: which cells a packing may use and in what scan order,
+  // which blocks compete for them, and the interchange pass that follows a
+  // successful pack.
+  [[nodiscard]] std::vector<uint16_t>
+  buildPackCells(const std::vector<uint64_t> &lockedRows,
+                 const std::vector<uint64_t> &sweep, int cellOrderVariant,
+                 std::vector<uint8_t> &allowed) const;
+  [[nodiscard]] std::vector<uint8_t> orderPackPieces(int demotedPiece) const;
+  void reassignSymmetrySlots(int H);
+  void claimNearestSlot(uint8_t member, int H,
+                        const std::vector<int32_t> &slots,
+                        std::vector<bool> &taken);
   [[nodiscard]] uint32_t
   displacementSum(const std::vector<Position> &anchors) const;
   SearchStats stats_{};
@@ -380,7 +402,7 @@ private:
   // without a solution — exhaustion is fast, so escalation is nearly free.
   uint8_t relevantRing_ = 1;
 
-  // Jam guide scratch (cfg_.jamGuideWeight > 0): jamField_[anchor] = dig cost
+  // Jam guide scratch (cfg_.jam.guideWeight > 0): jamField_[anchor] = dig cost
   // of the goal's cheapest route anchor → target under the CURRENT occupancy
   // (step 4 + jamBlockerPenalty per newly swept movable cell; locked cells
   // are walls), rebuilt once per expansion. jamSweepRows_ = the argmin
@@ -655,7 +677,9 @@ private:
     Frame(const Frame &) = delete;
     Frame &operator=(const Frame &) = delete;
     Frame &operator=(Frame &&) = delete;
-    ~Frame() = default;
+    // No destructor: every member is a RAII container, so the implicit one
+    // is already correct and declaring it only invites cpp:S3624. The move
+    // constructor below is unaffected — it is user-declared either way.
     // Spelled out only to promise noexcept. std::unordered_set's move
     // constructor is not noexcept, so the implicit one here would not be
     // either — and std::vector then deep-COPIES every frame, banned set

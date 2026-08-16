@@ -29,7 +29,7 @@ TEST(DragSolver, JamGuideAndJitterStayValidAndComplete) {
     DragSolver::Config cfg;
     cfg.weight = 2;
     cfg.postProcess = false;
-    cfg.jamGuideWeight = 8;
+    cfg.jam.guideWeight = 8;
     cfg.tieBreakSeed = 1000 + round;
     auto solver = makeDragSolver(p, cfg);
     const auto turns = solver.search(10000, 0);
@@ -58,7 +58,7 @@ TEST(DragSolver, JamRestartsAndBeamStayValid) {
     solvable++;
     DragSolver::Config cfg;
     cfg.postProcess = false;
-    cfg.beamWidth = 4096;
+    cfg.jam.beamWidth = 4096;
     auto restarts = makeDragSolver(p, cfg);
     auto turnsR = restarts.searchJamRestarts(5000, 0);
     auto beam = makeDragSolver(p, cfg);
@@ -104,8 +104,8 @@ TEST(DragSolver, JamRoundShapingStaysValidAndDefaultsUnchanged) {
 
     DragSolver::Config shaped;
     shaped.postProcess = false;
-    shaped.jamRoundNodeCap = 20000;
-    shaped.jamMaxElites = 32;
+    shaped.jam.roundNodeCap = 20000;
+    shaped.jam.maxElites = 32;
     auto driver = makeDragSolver(p, shaped);
     if (const auto turns = driver.searchJamRestarts(5000, 0); !turns.empty()) {
       EXPECT_TRUE(replayValid(p, turns)) << "shaped round " << round;
@@ -123,8 +123,8 @@ TEST(DragSolver, JamRoundShapingStaysValidAndDefaultsUnchanged) {
     auto a = makeDragSolver(p, base);
     const auto ta = a.searchJamRestarts(0, 200000);
     DragSolver::Config explicitDefaults = base;
-    explicitDefaults.jamRoundNodeCap = 0;
-    explicitDefaults.jamMaxElites = 6;
+    explicitDefaults.jam.roundNodeCap = 0;
+    explicitDefaults.jam.maxElites = 6;
     auto b = makeDragSolver(p, explicitDefaults);
     const auto tb = b.searchJamRestarts(0, 200000);
     EXPECT_EQ(a.lastStats().nodesExpanded, b.lastStats().nodesExpanded)
@@ -142,9 +142,14 @@ TEST(ParallelCascade, RacesArmsAndReturnsValidPlans) {
   for (int round = 0; round < 15; round++) {
     const Puzzle p = randomPuzzle(rng);
     const int want = oracleMinDrags(p);
-    const auto turns =
-        solveArmsParallel(p.w, p.h, p.shapes, p.anchors, p.goalIndex,
-                          p.goalAnchor, 10000, 0, false, nullptr);
+    const cascade::Board board{.gridWidth = p.w,
+                               .gridHeight = p.h,
+                               .shapes = p.shapes,
+                               .initialAnchors = p.anchors,
+                               .goalIndex = p.goalIndex,
+                               .goalAnchor = p.goalAnchor};
+    const auto turns = solveArmsParallel(
+        board, {.maxMs = 10000, .maxNodes = 0, .postProcess = false}, nullptr);
     if (want <= 0) {
       EXPECT_TRUE(turns.empty()) << "round " << round;
       continue;

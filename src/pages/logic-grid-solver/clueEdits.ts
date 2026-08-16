@@ -22,7 +22,6 @@ import {
   directionIndex,
   isDiagonalAxis,
   symbolKindAt,
-  type LogicGridSymbolKind,
 } from "./symbols";
 
 export const DIGIT_PATTERN = /^\d$/;

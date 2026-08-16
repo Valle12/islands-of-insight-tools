@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <compare>
+#include <concepts>
 #include <functional>
 #include <iostream>
 #include <queue>
@@ -48,6 +49,12 @@ struct DragHeapEntry {
     return f == o.f && g == o.g && tie == o.tie;
   }
 };
+
+// As in AStarSearch.cpp: a user-written operator<=> does not synthesise ==, so
+// this one is required rather than incidental, and it is hand-written because
+// the struct holds raw pointers a defaulted == would compare by address. The
+// assertion is what keeps cpp:S1144 from reading it as dead.
+static_assert(std::equality_comparable<DragHeapEntry>);
 } // namespace
 
 // Shared by every exit path: promotes the first collected alternative to the
@@ -120,7 +127,7 @@ bool DragSolver::qualifiesAsEnd(const std::vector<Position> &anchors,
       (consolidationBelow == 0 || g == 0 ||
        displacementSum(anchors) > consolidationBelow))
     return false;
-  if (!cfg_.requireAllSlots || !packingGuideActive_)
+  if (!cfg_.packing.requireAllSlots || !packingGuideActive_)
     return true;
   return std::ranges::none_of(movableBlockIndices_, [&](const uint8_t b) {
     return b != goalIndex_ && packedSlot_[b] >= 0 &&
@@ -218,7 +225,7 @@ uint32_t DragSolver::updateJamGuide(const std::vector<Position> &anchors,
                                     const StateInfo *const state,
                                     const StateInfo *&bestJamState,
                                     uint32_t &bestJamVal) {
-  if (cfg_.jamGuideWeight == 0)
+  if (cfg_.jam.guideWeight == 0)
     return 0;
   const uint32_t jamBase = computeJamField(anchors);
   if (jamBase < stats_.minJamTerm)
@@ -235,7 +242,7 @@ uint32_t DragSolver::updateJamGuide(const std::vector<Position> &anchors,
 // correctness, the guide only orders).
 uint32_t DragSolver::jamAdd(const uint32_t term) const {
   const uint32_t t = std::min<uint32_t>(term, 1u << 20u);
-  return cfg_.jamGuideWeight * t / 16;
+  return cfg_.jam.guideWeight * t / 16;
 }
 
 // Diversification jitter: replaces the deterministic tie field with a
@@ -268,10 +275,10 @@ bool DragSolver::blockIsParked(const uint8_t i, const Position from,
     if (por && slept >> i & 1u)
       return true; // commutes with the drag that created this node
   }
-  if (cfg_.lockOnSlot && packingGuideActive_ && i != goalIndex_ &&
+  if (cfg_.packing.lockOnSlot && packingGuideActive_ && i != goalIndex_ &&
       packedSlot_[i] >= 0 && from.x * gridHeight_ + from.y == packedSlot_[i])
     return true; // ratcheted: this block reached its slot and stays
-  return std::ranges::find(cfg_.frozenBlocks, i) != cfg_.frozenBlocks.end();
+  return std::ranges::find(cfg_.packing.frozenBlocks, i) != cfg_.packing.frozenBlocks.end();
 }
 
 bool DragSolver::isSettledDrag(const uint8_t i, const Position t,
@@ -339,7 +346,7 @@ uint32_t DragSolver::jamChildTerm(const uint8_t i, const Position t,
   if (i == goalIndex_)
     return jamField_[toIdx];
   return exp.jamBase - jamOldOverlap +
-         cfg_.jamBlockerPenalty * blockCellsOnMask(i, t, jamSweepRows_);
+         cfg_.jam.blockerPenalty * blockCellsOnMask(i, t, jamSweepRows_);
 }
 
 // Scores every anchor block `i` can reach from this state. Must run with block
@@ -363,8 +370,8 @@ void DragSolver::scoreDrags(const uint8_t i,
       disp = exp.dispBase - dispContribScratch_[i] + dispContribution(i, toIdx);
     }
     const uint32_t newCells = exp.cells + grid_.distTo(toIdx);
-    uint32_t f = newG + cfg_.weight * h + cfg_.packingWeight * disp / 16;
-    if (cfg_.jamGuideWeight != 0)
+    uint32_t f = newG + cfg_.weight * h + cfg_.packing.weight * disp / 16;
+    if (cfg_.jam.guideWeight != 0)
       f += jamAdd(jamChildTerm(i, t, toIdx, exp, jamOldOverlap));
     const uint32_t tieVal = cfg_.tieBreakSeed != 0
                                 ? jitterTie(i, toIdx, exp.g)
@@ -398,8 +405,8 @@ void DragSolver::generateCandidates(const DragExpansion &exp,
     // Jam guide: this block's current overlap with the goal's argmin route
     // sweep — candidates re-add their overlap at the target spot.
     const uint32_t jamOldOverlap =
-        cfg_.jamGuideWeight != 0 && i != goalIndex_
-            ? cfg_.jamBlockerPenalty * blockCellsOnMask(i, from, jamSweepRows_)
+        cfg_.jam.guideWeight != 0 && i != goalIndex_
+            ? cfg_.jam.blockerPenalty * blockCellsOnMask(i, from, jamSweepRows_)
             : 0;
     grid_.removeBlock(i, from);
     const auto &reached = grid_.floodFill(i, from);
@@ -513,7 +520,7 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
   nodeStore.try_emplace(rootSig, startAnchors);
   const uint32_t rootDisp = displacementSum(startAnchors);
   openHeap.push({.f = cfg_.weight * heuristic(startAnchors) +
-                      cfg_.packingWeight * rootDisp / 16,
+                      cfg_.packing.weight * rootDisp / 16,
                  .g = 0,
                  .cells = 0,
                  .tie = 16 * rootDisp,
@@ -587,7 +594,7 @@ DragSolver::runAStarDrag(const std::vector<Position> &startAnchors,
 
     // ---- Score every candidate drag incrementally (no per-candidate anchor
     // vectors or O(blocks) heuristic recomputation) ----
-    const bool useSlotH = cfg_.slotHeuristic && packingGuideActive_;
+    const bool useSlotH = cfg_.packing.slotHeuristic && packingGuideActive_;
     const auto [gPosX, gPosY] = anchors[goalIndex_];
     const uint16_t gProg = progressIndex_[gPosX * gridHeight_ + gPosY];
     const auto &maskP =

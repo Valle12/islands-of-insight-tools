@@ -128,9 +128,9 @@ constexpr std::array<CascadeStage, 7> CASCADE{{
          [](const bool pp) {
            DragSolver::Config c;
            c.corridorBands = true;
-           c.jamRoundNodeCap = 20000;
-           c.jamMaxElites = 64;
-           c.jamLubyRestarts = true;
+           c.jam.roundNodeCap = 20000;
+           c.jam.maxElites = 64;
+           c.jam.lubyRestarts = true;
            c.postProcess = pp;
            return c;
          },
@@ -147,9 +147,9 @@ constexpr std::array<CascadeStage, 7> CASCADE{{
          [](const bool pp) {
            DragSolver::Config c;
            c.corridorBands = true;
-           c.jamGuideWeight = 8;
-           c.jamBlockerPenalty = 8;
-           c.beamWidth = 500000;
+           c.jam.guideWeight = 8;
+           c.jam.blockerPenalty = 8;
+           c.jam.beamWidth = 500000;
            c.postProcess = pp;
            return c;
          },
@@ -170,6 +170,27 @@ bool isDragFamily(const std::string_view engine) {
          engine == "corridor" || engine == "jam" || engine == "beam";
 }
 
+// The two grouped arguments every cascade entry point takes, built once from
+// the bench's own option bag so the four call sites below cannot drift.
+cascade::Board boardOf(const Fixture &data) {
+  return {.gridWidth = data.gridWidth,
+          .gridHeight = data.gridHeight,
+          .shapes = data.shapes,
+          .initialAnchors = data.initialAnchors,
+          .goalIndex = data.goalIndex,
+          .goalAnchor = data.goalAnchor};
+}
+
+cascade::Budget budgetOf(const BenchOptions &opt) {
+  return {.maxMs = opt.limits.budgetMs,
+          .maxNodes = opt.limits.maxNodes,
+          .postProcess = opt.cfg.postProcess,
+          .maxHeapBytes = opt.limits.maxHeapBytes,
+          .totalMaxMs = opt.limits.seqTotalMs,
+          .jamAspect16 = opt.jam.aspect16,
+          .jamDensityPct = opt.jam.densityPct};
+}
+
 // THE SHIPPED PATH. solveArmsParallel is the exact function the threaded wasm
 // build calls for a cross-origin-isolated page (wasm_bindings.cpp under
 // __EMSCRIPTEN_PTHREADS__): 8 arms racing on real threads, first non-empty plan
@@ -179,11 +200,8 @@ void runParallel(const BenchOptions &opt, const Fixture &data,
                  SolveResult &res) {
   res.t0 = nowMs();
   res.t1 = res.t0;
-  res.turns = solveArmsParallel(
-      data.gridWidth, data.gridHeight, data.shapes, data.initialAnchors,
-      data.goalIndex, data.goalAnchor, opt.budgetMs, opt.maxNodes,
-      opt.cfg.postProcess, ignoreProgress, opt.maxHeapBytes, opt.jamAspect16,
-      opt.jamDensityPct, &res.armOutcomes);
+  res.turns = solveArmsParallel(boardOf(data), budgetOf(opt), ignoreProgress,
+                                &res.armOutcomes);
   res.t2 = nowMs();
 }
 
@@ -201,11 +219,8 @@ bool runSingleArm(const BenchOptions &opt, const Fixture &data,
   }
   res.t0 = nowMs();
   res.t1 = res.t0;
-  res.turns = cascade::runArm(
-      opt.armIndex, data.gridWidth, data.gridHeight, data.shapes,
-      data.initialAnchors, data.goalIndex, data.goalAnchor, opt.budgetMs,
-      opt.maxNodes, opt.cfg.postProcess, opt.maxHeapBytes, nullptr,
-      ignoreProgress, opt.armGated, opt.jamAspect16, opt.jamDensityPct);
+  res.turns = cascade::runArm(opt.armIndex, boardOf(data), budgetOf(opt),
+                              nullptr, ignoreProgress, opt.armGated);
   res.t2 = nowMs();
   res.stage = cascade::armName(opt.armIndex);
   return true;
@@ -219,11 +234,8 @@ void runSequential(const BenchOptions &opt, const Fixture &data,
   res.t0 = nowMs();
   res.t1 = res.t0;
   if (twoPhase)
-    res.turns = solveArmsParallel(
-        data.gridWidth, data.gridHeight, data.shapes, data.initialAnchors,
-        data.goalIndex, data.goalAnchor, opt.budgetMs, opt.maxNodes,
-        opt.cfg.postProcess, ignoreProgress, opt.maxHeapBytes, opt.jamAspect16,
-        opt.jamDensityPct, &res.armOutcomes);
+    res.turns = solveArmsParallel(boardOf(data), budgetOf(opt), ignoreProgress,
+                                  &res.armOutcomes);
   if (!res.turns.empty()) {
     res.stage = "parallel";
     res.t2 = nowMs();
@@ -232,11 +244,8 @@ void runSequential(const BenchOptions &opt, const Fixture &data,
   if (twoPhase)
     std::cout << "cascade: parallel race found nothing - falling back to "
                  "sequential arms (slower; each arm gets the whole heap)\n";
-  res.turns = solveArmsSequential(
-      data.gridWidth, data.gridHeight, data.shapes, data.initialAnchors,
-      data.goalIndex, data.goalAnchor, opt.budgetMs, opt.seqTotalMs,
-      opt.maxNodes, opt.cfg.postProcess, ignoreProgress, opt.maxHeapBytes,
-      nullptr, opt.jamAspect16, opt.jamDensityPct, &res.armOutcomes);
+  res.turns = solveArmsSequential(boardOf(data), budgetOf(opt), ignoreProgress,
+                                  /*cancel=*/nullptr, &res.armOutcomes);
   if (!res.turns.empty())
     res.stage = "sequential";
   res.t2 = nowMs();
@@ -256,7 +265,7 @@ void runCascade(const BenchOptions &opt, const Fixture &data,
                       config(opt.cfg.postProcess));
     if (jamGated && !solver.jamProfile())
       continue;
-    res.turns = run(solver, opt.budgetMs, opt.maxNodes);
+    res.turns = run(solver, opt.limits.budgetMs, opt.limits.maxNodes);
     accumulateFrom(res, solver);
     if (!res.turns.empty())
       res.stage = name;
@@ -264,7 +273,7 @@ void runCascade(const BenchOptions &opt, const Fixture &data,
   if (res.turns.empty()) {
     AStar solver(data.gridWidth, data.gridHeight, data.shapes,
                  data.initialAnchors, data.goalIndex, data.goalAnchor, opt.cfg);
-    res.turns = solver.search(opt.budgetMs, opt.maxNodes);
+    res.turns = solver.search(opt.limits.budgetMs, opt.limits.maxNodes);
     const auto &[nodesExpanded, statesStored, stoppedOnMemory, passes] =
         solver.lastStats();
     res.nodesExpanded += nodesExpanded;
@@ -288,48 +297,48 @@ void dumpEliteArtifacts(const BenchOptions &opt, const Fixture &data,
                         DragSolver &solver) {
   if (solver.lastEliteAnchors().empty())
     return;
-  if (!opt.dumpElitePath.empty()) {
-    if (const std::string path = opt.dumpElitePath.string();
+  if (!opt.paths.dumpElite.empty()) {
+    if (const std::string path = opt.paths.dumpElite.string();
         writeFixtureAt(data, solver.lastEliteAnchors(), path))
       std::cerr << "elite residual fixture dumped to " << path << "\n";
     else
       std::cerr << "cannot write " << path << "\n";
   }
-  if (opt.dumpEliteTurnsPath.empty())
+  if (opt.paths.dumpEliteTurns.empty())
     return;
   const auto prefix = solver.lastElitePrefixTurns();
-  writeTurnsFile(prefix, opt.dumpEliteTurnsPath.string());
+  writeTurnsFile(prefix, opt.paths.dumpEliteTurns.string());
   std::cerr << "elite prefix (" << prefix.size() << " turns) dumped to "
-            << opt.dumpEliteTurnsPath.string() << "\n";
+            << opt.paths.dumpEliteTurns.string() << "\n";
 }
 
 DragSolver::Config dragConfigFrom(const BenchOptions &opt) {
   DragSolver::Config dcfg;
   dcfg.weight = opt.cfg.weight;
   dcfg.postProcess = opt.cfg.postProcess;
-  dcfg.settledOnly = opt.settledOnly;
-  dcfg.partialExpansionWidth = opt.pea;
-  dcfg.packingWeight = opt.packingWeight;
-  dcfg.consolidationGain = opt.consolidationGain;
-  dcfg.slotHeuristic = opt.slotHeuristic;
-  dcfg.requireAllSlots = opt.requireAllSlots;
-  dcfg.lockOnSlot = opt.lockOnSlot;
-  dcfg.sleepSets = opt.sleepSets;
-  dcfg.relevantOnly = opt.relevantOnly;
-  dcfg.corridorBands = opt.engine == "corridor" || opt.bands;
-  dcfg.corridorBandMinPath = opt.bandMinPath;
-  dcfg.maxStatesStored = opt.maxStates;
-  dcfg.maxHeapBytes = opt.maxHeapBytes;
-  dcfg.jamAspect16 = opt.jamAspect16;
-  dcfg.jamDensityPct = opt.jamDensityPct;
-  dcfg.jamGuideWeight = opt.jamGuide;
-  dcfg.jamPinRoute = opt.jamPin;
-  dcfg.jamRoundNodeCap = opt.jamRoundCap;
-  dcfg.jamMaxElites = opt.jamElites;
-  dcfg.jamLubyRestarts = opt.jamLuby;
-  dcfg.jamBlockerPenalty = opt.jamPenalty;
+  dcfg.settledOnly = opt.drag.settledOnly;
+  dcfg.partialExpansionWidth = opt.drag.pea;
+  dcfg.packing.weight = opt.drag.packingWeight;
+  dcfg.packing.consolidationGain = opt.drag.consolidationGain;
+  dcfg.packing.slotHeuristic = opt.drag.slotHeuristic;
+  dcfg.packing.requireAllSlots = opt.drag.requireAllSlots;
+  dcfg.packing.lockOnSlot = opt.drag.lockOnSlot;
+  dcfg.sleepSets = opt.drag.sleepSets;
+  dcfg.relevantOnly = opt.drag.relevantOnly;
+  dcfg.corridorBands = opt.engine == "corridor" || opt.drag.bands;
+  dcfg.corridorBandMinPath = opt.drag.bandMinPath;
+  dcfg.stop.maxStatesStored = opt.limits.maxStates;
+  dcfg.stop.maxHeapBytes = opt.limits.maxHeapBytes;
+  dcfg.jam.aspect16 = opt.jam.aspect16;
+  dcfg.jam.densityPct = opt.jam.densityPct;
+  dcfg.jam.guideWeight = opt.jam.guide;
+  dcfg.jam.pinRoute = opt.jam.pin;
+  dcfg.jam.roundNodeCap = opt.jam.roundCap;
+  dcfg.jam.maxElites = opt.jam.elites;
+  dcfg.jam.lubyRestarts = opt.jam.luby;
+  dcfg.jam.blockerPenalty = opt.jam.penalty;
   dcfg.tieBreakSeed = opt.tieSeed;
-  dcfg.beamWidth = opt.beamWidth;
+  dcfg.jam.beamWidth = opt.beamWidth;
   return dcfg;
 }
 
@@ -341,15 +350,15 @@ void runDragFamily(const BenchOptions &opt, const Fixture &data,
                     dragConfigFrom(opt));
   res.t1 = nowMs();
   if (opt.engine == "hier" || opt.engine == "corridor")
-    res.turns = solver.searchHierarchical(opt.budgetMs, opt.maxNodes);
+    res.turns = solver.searchHierarchical(opt.limits.budgetMs, opt.limits.maxNodes);
   else if (opt.engine == "assembly")
-    res.turns = solver.searchAssembly(opt.budgetMs, opt.maxNodes);
+    res.turns = solver.searchAssembly(opt.limits.budgetMs, opt.limits.maxNodes);
   else if (opt.engine == "jam")
-    res.turns = solver.searchJamRestarts(opt.budgetMs, opt.maxNodes);
+    res.turns = solver.searchJamRestarts(opt.limits.budgetMs, opt.limits.maxNodes);
   else if (opt.engine == "beam")
-    res.turns = solver.searchBeamJam(opt.budgetMs, opt.maxNodes);
+    res.turns = solver.searchBeamJam(opt.limits.budgetMs, opt.limits.maxNodes);
   else
-    res.turns = solver.search(opt.budgetMs, opt.maxNodes);
+    res.turns = solver.search(opt.limits.budgetMs, opt.limits.maxNodes);
   res.t2 = nowMs();
 
   const auto &stats = solver.lastStats();
@@ -367,7 +376,7 @@ void runUnit(const BenchOptions &opt, const Fixture &data, SolveResult &res) {
   AStar solver(data.gridWidth, data.gridHeight, data.shapes,
                data.initialAnchors, data.goalIndex, data.goalAnchor, opt.cfg);
   res.t1 = nowMs();
-  res.turns = solver.search(opt.budgetMs, opt.maxNodes);
+  res.turns = solver.search(opt.limits.budgetMs, opt.limits.maxNodes);
   res.t2 = nowMs();
   const auto &[nodesExpanded, statesStored, stoppedOnMemory, passes] =
       solver.lastStats();

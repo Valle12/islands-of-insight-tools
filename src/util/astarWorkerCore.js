@@ -102,7 +102,7 @@ export function runSolverWorker(toDone, moduleOptions) {
 
       // In-band, because the builds are -fno-exceptions: a C++ throw would
       // reach the page as an aborted module rather than a message.
-      if (result && result.error) {
+      if (result?.error) {
         self.postMessage({ type: "error", error: String(result.error) });
         return;
       }

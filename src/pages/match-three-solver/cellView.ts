@@ -1,4 +1,3 @@
-import type { MatchThreeCell } from "../../util/types";
 import { BLOCKED, isSymbol, symbolIndexOf } from "./cell";
 import { BLOCKER_IMAGE, symbolAt } from "./symbols";
 
@@ -9,7 +8,7 @@ import { BLOCKER_IMAGE, symbolAt } from "./symbols";
 export function describeCell(
   x: number,
   y: number,
-  value: MatchThreeCell,
+  value: number,
 ): string {
   const position = `Column ${x + 1}, Row ${y + 1}`;
   if (isSymbol(value)) {
@@ -27,7 +26,7 @@ export function describeCell(
  */
 export function dressCell(
   element: HTMLElement,
-  value: MatchThreeCell,
+  value: number,
   x: number,
   y: number,
 ): void {

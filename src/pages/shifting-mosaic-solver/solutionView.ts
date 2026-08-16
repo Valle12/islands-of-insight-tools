@@ -133,13 +133,13 @@ export class SolutionView {
   private static buildSteps(turns: Turn[]): Step[] {
     const steps: Step[] = [];
     for (const turn of turns) {
-      let step = steps[steps.length - 1];
-      if (!step || step.blockId !== turn.blockId) {
+      let step = steps.at(-1);
+      if (step?.blockId !== turn.blockId) {
         step = { blockId: turn.blockId, segments: [] };
         steps.push(step);
       }
-      const seg = step.segments[step.segments.length - 1];
-      if (seg && seg.direction === turn.direction) {
+      const seg = step.segments.at(-1);
+      if (seg?.direction === turn.direction) {
         seg.distance++;
       } else {
         step.segments.push({ direction: turn.direction, distance: 1 });
@@ -225,7 +225,7 @@ export class SolutionView {
       cell.dataset.blockType =
         block === this.data.goalIndex ? "goal" : "obstruction";
       markBlockEdges(cell, x, y, block, occupant);
-      if (step && block === step.blockId) {
+      if (block === step?.blockId) {
         cell.classList.add("sm-moving");
       }
     }

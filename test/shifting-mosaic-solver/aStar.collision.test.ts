@@ -17,14 +17,14 @@ function makeAStar(
   goalIndex: number,
   goalAnchor: Position,
 ): AStar {
-  return new AStar(
+  return new AStar({
     gridWidth,
     gridHeight,
     shapes,
     initialAnchors,
     goalIndex,
     goalAnchor,
-  );
+  });
 }
 
 

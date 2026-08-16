@@ -2,6 +2,7 @@
 
 #include "NodeKey.h"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -56,8 +57,7 @@ public:
     const size_t mask = slots_.size() - 1;
     size_t i = NodeKeyHash{}(k)&mask;
     while (const uint32_t s = slots_[i]) {
-      Entry &e = at(s - 1);
-      if (e.key == k)
+      if (Entry &e = at(s - 1); e.key == k)
         return &e;
       i = i + 1 & mask;
     }
@@ -73,8 +73,7 @@ public:
     const size_t mask = slots_.size() - 1;
     size_t i = NodeKeyHash{}(k)&mask;
     while (const uint32_t s = slots_[i]) {
-      Entry &e = at(s - 1);
-      if (e.key == k)
+      if (Entry &e = at(s - 1); e.key == k)
         return {&e, false};
       i = i + 1 & mask;
     }
@@ -95,16 +94,20 @@ private:
   static constexpr uint32_t kBlockMask = kBlockSize - 1;
 
   std::vector<uint32_t> slots_;
-  std::vector<std::unique_ptr<Entry[]>> blocks_;
+  // std::array rather than a `unique_ptr<Entry[]>`: the block size is a
+  // compile-time constant, so the array form buys nothing and reads as a
+  // C array to analysers (cpp:S5945). Layout, size and the never-relocate
+  // guarantee the arena depends on are identical either way.
+  std::vector<std::unique_ptr<std::array<Entry, kBlockSize>>> blocks_;
   size_t count_ = 0;
 
   Entry &at(const uint32_t i) {
-    return blocks_[i >> kBlockShift][i & kBlockMask];
+    return (*blocks_[i >> kBlockShift])[i & kBlockMask];
   }
 
   void ensureBlock(const uint32_t idx) {
     if (idx >> kBlockShift >= blocks_.size())
-      blocks_.push_back(std::make_unique<Entry[]>(kBlockSize));
+      blocks_.push_back(std::make_unique<std::array<Entry, kBlockSize>>());
   }
 
   // Re-probe existing indices into a larger slot table. Entries stay put, so

@@ -126,6 +126,18 @@ export const PORTFOLIO: Record<string, unknown>[] = [
   { engine: "beam", gated: true, beamWidth: 500_000, jamBlockerPenalty: 8, maxMs: SOLVE_BUDGET_MS, maxNodes: 0 },
 ];
 
+/**
+ * A worker message field as a display label. The pool hands messages over as
+ * `Record<string, unknown>`, so a bare `String(...)` on a field would happily
+ * render an object as "[object Object]"; only a primitive is a meaningful
+ * phase name or arm id, and anything else is dropped rather than shown.
+ */
+function asLabel(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  return undefined;
+}
+
 function isAlreadySolved(p: ShiftingMosaicPuzzle): boolean {
   const g = p.initialAnchors[p.goalIndex]!;
   return g.x === p.goalAnchor.x && g.y === p.goalAnchor.y;
@@ -185,10 +197,7 @@ export function searchShiftingMosaicWasm(
       if (data.type === "phase") {
         // Posted by the wasm module itself (it runs inside this worker, so its
         // self.postMessage lands here directly).
-        callbacks.onPhase?.(
-          String(data.phase),
-          data.arm === undefined ? undefined : String(data.arm),
-        );
+        callbacks.onPhase?.(asLabel(data.phase) ?? "", asLabel(data.arm));
         return;
       }
       if (data.type === "done") {
