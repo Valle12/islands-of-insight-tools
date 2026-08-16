@@ -233,7 +233,7 @@ export class PhasicDialSolver {
     return {
       maxValues: [...this.maxValues],
       initialValues: [...this.values],
-      buttons: this.buttons.map(turns => new Button([...turns])),
+      buttons: this.buttons.map(turns => new Button(turns)), // Button copies
     };
   }
 

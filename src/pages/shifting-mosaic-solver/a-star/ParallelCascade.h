@@ -147,8 +147,7 @@ runArm(const int arm, const Board &board, const Budget &budget,
                       board.initialAnchors, board.goalIndex, board.goalAnchor,
                       cfg);
     solver.setOnProgress(onArmProgress);
-    return solver.search(budget.maxMs,
-                         budget.maxNodes == 0 ? 0 : budget.maxNodes);
+    return solver.search(budget.maxMs, budget.maxNodes);
   }
   case 2: { // the legacy unit-move production config — zero-regression arm
     AStar::Config cfg;

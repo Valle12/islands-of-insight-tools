@@ -10,7 +10,6 @@
 
 import type { LogicGridTest } from "../../util/types";
 import { DARK, LIGHT } from "./cell";
-import type { Held } from "./verifyCore";
 import {
   at,
   has,
@@ -40,6 +39,7 @@ import {
   NO_LIGHT_T,
   NO_THREE_DARK_ONE_LIGHT,
   NO_THREE_LIGHT_ONE_DARK,
+  type Held,
   type LogicGridViolation,
   type RuleCheck,
 } from "./verifyCore";

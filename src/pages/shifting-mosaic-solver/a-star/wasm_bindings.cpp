@@ -156,9 +156,13 @@ std::vector<Turn> runJamArm(const SolveContext &ctx, const bool beam,
   DragSolver::Config cfg;
   cfg.corridorBands = true;
   cfg.deadlockPruning = ctx.deadlockPruning;
-  if (beam)
+  // Braced deliberately: the guarded assignment wraps across two lines and the
+  // unconditional one below it looks identical, so an unbraced body invites a
+  // later edit to slide in or out of the condition.
+  if (beam) {
     cfg.jam.guideWeight =
         static_cast<uint8_t>(opt<unsigned>(configVal, "jamGuideWeight", 8));
+  }
   cfg.jam.blockerPenalty =
       static_cast<uint8_t>(opt<unsigned>(configVal, "jamBlockerPenalty", 4));
   cfg.tieBreakSeed = opt<unsigned>(configVal, "tieBreakSeed", 0);
@@ -231,10 +235,10 @@ std::vector<Turn> runCascade(const SolveContext &ctx) {
                              .initialAnchors = ctx.initialAnchors,
                              .goalIndex = ctx.goalIndex,
                              .goalAnchor = ctx.goalAnchor};
-  cascade::Budget budget{.maxMs = ctx.maxMs,
-                         .maxNodes = ctx.maxNodes,
-                         .postProcess = ctx.postProcess,
-                         .maxHeapBytes = armHeapCap};
+  const cascade::Budget budget{.maxMs = ctx.maxMs,
+                               .maxNodes = ctx.maxNodes,
+                               .postProcess = ctx.postProcess,
+                               .maxHeapBytes = armHeapCap};
   std::vector<Turn> turns = solveArmsParallel(board, budget, postProgress);
   if (!turns.empty())
     return turns;
@@ -256,10 +260,13 @@ std::vector<Turn> runCascade(const SolveContext &ctx) {
   // 90% leaves headroom for the coarse checkpoint cadence and for the
   // allocations the module itself needs to report a result.
   const uint64_t seqHeapCap = heapMax == 0 ? 0 : (heapMax / 100) * 90;
-  budget.maxHeapBytes = seqHeapCap;
-  budget.totalMaxMs = seqTotalMs;
+  // A copy rather than a mutation of `budget`, so the race's settings cannot be
+  // carried into the sequential phase by anything inserted between the two.
+  cascade::Budget seqBudget = budget;
+  seqBudget.maxHeapBytes = seqHeapCap;
+  seqBudget.totalMaxMs = seqTotalMs;
   return solveArmsSequential(
-      board, budget, postProgress, /*cancel=*/nullptr, /*outcomes=*/nullptr,
+      board, seqBudget, postProgress, /*cancel=*/nullptr, /*outcomes=*/nullptr,
       [](const char *arm) { postPhase("sequential", arm); });
 }
 #else

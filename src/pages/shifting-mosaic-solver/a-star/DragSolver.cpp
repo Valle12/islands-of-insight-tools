@@ -360,6 +360,16 @@ void DragSolver::computeFinalPacking() {
 // The cells a packing may use — everything neither locked nor on the goal's
 // final sweep — in the scan order `cellOrderVariant` selects. That order is the
 // main lever on packing shape, which is why the caller varies it.
+//
+// The four orders are WALKED rather than sorted into place, which is exactly
+// equivalent and drops two sorts. A flat index is `x * H + y`, so the
+// column-major walk already emits strictly ascending indices (variant 0) and
+// variant 1 is that same list reversed; the row-major walks put the rows in
+// order by construction, with x ascending inside a row supplying the ascending-
+// index tie-break the old comparators spelled out. It is also why nothing here
+// recovers y with `index % H` any more — Sonar reads that modulo as a possible
+// division by zero, since it cannot prove `gridHeight_ != 0`, and the walk
+// never needed it.
 std::vector<uint16_t>
 DragSolver::buildPackCells(const std::vector<uint64_t> &lockedRows,
                            const std::vector<uint64_t> &sweep,
@@ -367,36 +377,32 @@ DragSolver::buildPackCells(const std::vector<uint64_t> &lockedRows,
                            std::vector<uint8_t> &allowed) const {
   const int H = gridHeight_;
   std::vector<uint16_t> cellList;
-  for (int x = 0; x < gridWidth_; x++)
-    for (int y = 0; y < H; y++) {
-      if (const uint64_t bit = uint64_t{1} << static_cast<unsigned>(x);
-          lockedRows[y] & bit || sweep[y] & bit)
-        continue;
-      allowed[x * H + y] = 1;
-      cellList.push_back(static_cast<uint16_t>(x * H + y));
+
+  // `allowed` is a flag set and so is order-independent; only `cellList`
+  // carries the scan order, which is the whole of what the variants differ in.
+  const auto take = [&lockedRows, &sweep, &allowed, &cellList,
+                     H](const int x, const int y) {
+    if (const uint64_t bit = uint64_t{1} << static_cast<unsigned>(x);
+        lockedRows[y] & bit || sweep[y] & bit)
+      return;
+    allowed[x * H + y] = 1;
+    cellList.push_back(static_cast<uint16_t>(x * H + y));
+  };
+
+  const unsigned variant = static_cast<unsigned>(cellOrderVariant) & 3u;
+  if (variant >= 2) {
+    for (int r = 0; r < H; r++) {
+      const int y = variant == 2 ? r : H - 1 - r; // top-down, else bottom-up
+      for (int x = 0; x < gridWidth_; x++)
+        take(x, y);
     }
-  switch (static_cast<unsigned>(cellOrderVariant) & 3u) {
-  case 0:
-    std::ranges::sort(cellList);
-    break;
-  case 1:
-    std::ranges::sort(cellList, std::greater());
-    break;
-  case 2:
-    std::ranges::sort(cellList, [H](const uint16_t a, const uint16_t b) {
-      const int ya = a % H;
-      const int yb = b % H;
-      return ya != yb ? ya < yb : a < b;
-    });
-    break;
-  default:
-    std::ranges::sort(cellList, [H](const uint16_t a, const uint16_t b) {
-      const int ya = a % H;
-      const int yb = b % H;
-      return ya != yb ? ya > yb : a < b;
-    });
-    break;
+    return cellList;
   }
+  for (int x = 0; x < gridWidth_; x++)
+    for (int y = 0; y < H; y++)
+      take(x, y);
+  if (variant == 1)
+    std::ranges::reverse(cellList);
   return cellList;
 }
 
@@ -533,7 +539,8 @@ void DragSolver::computeCutSchedule() {
 
   const int maxX = gridWidth_ - grid_.boxWidth(gi);
   const int maxY = gridHeight_ - grid_.boxHeight(gi);
-  const auto validAnchor = [&](const int x, const int y) {
+  const auto validAnchor = [this, &lockedRows, gi, maxX,
+                            maxY](const int x, const int y) {
     if (x < 0 || y < 0 || x > maxX || y > maxY)
       return false;
     const auto &rows = grid_.shapeRows(gi);
