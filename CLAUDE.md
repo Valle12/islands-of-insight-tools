@@ -115,7 +115,13 @@ Every page is `index.html` + a `<page>Solver.ts` class + a `.css`, plus
 DOM by `id`; there is no component layer and no state library.
 
 The solver class is instantiated at module scope behind
-`if (process.env.NODE_ENV !== "test")` (`src/util/preload.ts` sets that). Unit
+`if (process.env.NODE_ENV !== "test")` (`src/util/preload.ts` sets that), and
+**assigned into an exported `page` holder** — `export const page: { editor?: X }
+= {}`, then `page.editor = new X()`. A const holder rather than an exported
+`let`, so importers cannot observe the binding change under them; and an
+assignment rather than a bare `new X()`, because a constructed-and-dropped
+object is a `typescript:S1848` **bug**, which is what held the project's
+reliability rating at C until all five pages did this. Unit
 tests construct it themselves by **mounting the page's own markup** — a `MARKUP`
 template literal into `document.body.innerHTML` in `beforeEach`, then
 `new PageEditor()`. Not a `getElementById` spy: pages also `querySelectorAll` over
@@ -312,6 +318,12 @@ Adding a page: an entry in `PAGES`, head tags in its HTML, a trailing-slash rout
 in `serve.ts`, an entrypoint in `build.ts`, a card in `src/pages/index.html` **in
 `PAGES` order** with its `ItemList` entry, a leg in `e2e/index.test.ts`, and
 `bun run og:capture`. A page registering the COI shim also joins `COI_PATHS`.
+
+**Any change to what a page LOOKS like owes `og:capture`, not just a new page** —
+the frames are shot from the live pages, so a recoloured token or a rebuilt tool
+row silently staled them, and nothing in CI compares them. Logic-grid's committed
+frame advertised the pre-v2 flat rule list for weeks after `RULE_ROW` became
+banded, because the change that landed it never re-shot.
 
 - **The site is a GitHub Pages *project* page** at `/islands-of-insight-tools/`;
   a root-absolute href points outside the site (what the favicon used to do), and
@@ -606,6 +618,22 @@ cmake -B build-ci -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
 cmake --build build-ci -j
 ctest --test-dir build-ci -j 4 --output-on-failure
 ```
+
+**From a shell on this machine that means, exactly** (the three deps come from
+vcpkg, and `cmake` is not on `PATH` — only CLion's copy is):
+
+```bat
+call "C:\Program Files\Microsoft Visual Studio\2022\Preview\VC\Auxiliary\Build\vcvars64.bat"
+set CMAKE="C:\Program Files\JetBrains\CLion 2024.1.4\bin\cmake\win\x64\bin\cmake.exe"
+%CMAKE% -B build-ci -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON ^
+  -DCMAKE_TOOLCHAIN_FILE=E:/packages/vcpkg/scripts/buildsystems/vcpkg.cmake
+```
+
+Configured that way the clang-tidy gate IS live — configure prints
+`-- clang-tidy enforced: …` four times, once per solver — so the build itself
+fails on any finding. That is the cheapest C++ review available here, since
+`analyze_code_snippet` cannot analyze C++ at all. A full run is ~6233 tests in
+about 225 s.
 
 **`-j` is never implicit** — neither command parallelises by default, and CLion
 passes its own, which is why the pre-configured dirs feel parallel. Export

@@ -230,10 +230,17 @@ TEST_P(ShiftingMosaicJsonTest, ShouldFindValidSolution) {
   AStar solver(data.gridWidth, data.gridHeight, data.shapes,
                data.initialAnchors, data.goalIndex, data.goalAnchor, cfg);
   if (engine == "cascade") {
-    turns = solveArmsParallel(data.gridWidth, data.gridHeight, data.shapes,
-                              data.initialAnchors, data.goalIndex,
-                              data.goalAnchor, budgetMs, maxNodes,
-                              /*postProcess=*/false, nullptr);
+    const cascade::Board board{.gridWidth = data.gridWidth,
+                              .gridHeight = data.gridHeight,
+                              .shapes = data.shapes,
+                              .initialAnchors = data.initialAnchors,
+                              .goalIndex = data.goalIndex,
+                              .goalAnchor = data.goalAnchor};
+    turns = solveArmsParallel(board,
+                              {.maxMs = budgetMs,
+                               .maxNodes = maxNodes,
+                               .postProcess = false},
+                              nullptr);
   } else if (engine == "drag" || engine == "hier") {
     DragSolver::Config dcfg;
     dcfg.weight = cfg.weight;

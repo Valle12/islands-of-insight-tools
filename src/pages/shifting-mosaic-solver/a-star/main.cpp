@@ -86,7 +86,7 @@ void emitReport(const BenchOptions &opt, const Fixture &data,
   const bool valid = !solved || replaySolves(data, res.turns);
 
   json out = {
-      {"fixture", opt.fixturePath.filename().string()},
+      {"fixture", opt.paths.fixture.filename().string()},
       {"engine", opt.engine},
       {"solved", solved},
       {"valid", valid},
@@ -106,15 +106,15 @@ void emitReport(const BenchOptions &opt, const Fixture &data,
                          : static_cast<int64_t>(res.minJamTerm)},
       {"maxProgress", res.maxProgress},
       {"stoppedOnMemory", res.stoppedOnMemory},
-      {"jamAspect16", opt.jamAspect16},
-      {"jamDensityPct", opt.jamDensityPct},
+      {"jamAspect16", opt.jam.aspect16},
+      {"jamDensityPct", opt.jam.densityPct},
   };
 
   if (!res.armOutcomes.empty())
     out["arms"] = armsReport(res.armOutcomes);
 
-  if (!opt.dumpPath.empty() && !res.turns.empty())
-    writeTurnsDump(res.turns, opt.dumpPath);
+  if (!opt.paths.dump.empty() && !res.turns.empty())
+    writeTurnsDump(res.turns, opt.paths.dump);
 
   if (opt.emitJson) {
     std::cout << out.dump() << "\n";
@@ -133,10 +133,10 @@ int main(const int argc, char **argv) {
   BenchOptions opt;
   if (!parseBenchOptions(argc, argv, opt))
     return usage(argv[0]);
-  if (!opt.generatePath.empty())
-    return runGenerate(opt.generatePath.string(), opt.seed, opt.shuffleMoves,
+  if (!opt.paths.generate.empty())
+    return runGenerate(opt.paths.generate.string(), opt.generate.seed, opt.generate.shuffleMoves,
                        opt.emitJson);
-  if (opt.fixturePath.empty())
+  if (opt.paths.fixture.empty())
     return usage(argv[0]);
   if (!isKnownEngine(opt.engine)) {
     std::cerr << "Unknown engine '" << opt.engine << "'\n";
@@ -145,13 +145,13 @@ int main(const int argc, char **argv) {
 
   Fixture data;
   try {
-    data = loadFixture(opt.fixturePath.string());
+    data = loadFixture(opt.paths.fixture.string());
   } catch (const std::exception &e) {
     std::cerr << e.what() << "\n";
     return 1;
   }
-  if (!opt.verifyPath.empty())
-    return runVerify(data, opt.verifyPath.string());
+  if (!opt.paths.verify.empty())
+    return runVerify(data, opt.paths.verify.string());
 
   SolveResult res;
   if (!runBenchEngine(opt, data, res))

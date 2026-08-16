@@ -56,6 +56,24 @@ interface CaseResult {
   error?: string;
 }
 
+/** Why a case did not come out — the error if there is one, else how it failed. */
+function failureReason(r: CaseResult): string {
+  if (r.error) return r.error;
+  return r.valid === false ? "INVALID SOLUTION" : "UNSOLVED";
+}
+
+/**
+ * The per-seed outcome line. Written as statements rather than as nested
+ * ternaries inside the template literal: three of the four branches want a
+ * different set of fields, so the conditional expression was unreadable.
+ */
+function outcomeText(r: CaseResult, ok: boolean, alreadySolved: boolean): string {
+  if (!ok)
+    return `*** ${failureReason(r)} *** repro: --generate --seed ${r.seed}`;
+  if (alreadySolved) return "trivial (goal drifted home)";
+  return `solved via ${r.stage} — ${r.turns} turns / ${r.steps} steps in ${r.wallMs}ms`;
+}
+
 function parseArgs(argv: string[]) {
   const opts = {
     exe: defaultExe,
@@ -151,11 +169,7 @@ for (let i = 0; i < opts.count; i++) {
     stageWins.set(r.stage ?? "?", (stageWins.get(r.stage ?? "?") ?? 0) + 1);
   console.log(
     `  seed ${seed}: ${r.width}x${r.height} ${r.blocks}b ${(100 * (r.density ?? 0)).toFixed(0)}% | ` +
-      (ok
-        ? alreadySolved
-          ? "trivial (goal drifted home)"
-          : `solved via ${r.stage} — ${r.turns} turns / ${r.steps} steps in ${r.wallMs}ms`
-        : `*** ${r.error ?? (r.valid === false ? "INVALID SOLUTION" : "UNSOLVED")} *** repro: --generate --seed ${seed}`),
+      outcomeText(r, ok, alreadySolved),
   );
 }
 
@@ -214,9 +228,10 @@ const trivial = results.filter(r => r.alreadySolved).length;
 const times = results.filter(r => r.solved && !r.alreadySolved).map(r => r.wallMs).sort((a, b) => a - b);
 const pct = (p: number) => times.length ? times[Math.min(times.length - 1, Math.floor((p / 100) * times.length))] : 0;
 console.log(`\n${solvedCount}/${results.length} solved (${trivial} trivial)`);
-console.log(`stage wins: ${[...stageWins.entries()].map(([k, v]) => `${k}=${v}`).join(", ") || "none"}`);
+const stageWinText = [...stageWins.entries()].map(([k, v]) => `${k}=${v}`).join(", ");
+console.log(`stage wins: ${stageWinText || "none"}`);
 if (times.length)
-  console.log(`solve time ms: p50=${pct(50)} p90=${pct(90)} max=${times[times.length - 1]}`);
+  console.log(`solve time ms: p50=${pct(50)} p90=${pct(90)} max=${times.at(-1)}`);
 if (failures > 0) {
   console.log(`\n${failures} FAILURES — see repro seeds above; fixtures kept in ${opts.workDir}`);
   process.exit(1);

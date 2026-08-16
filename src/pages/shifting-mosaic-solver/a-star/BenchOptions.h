@@ -13,16 +13,72 @@
 
 // Every option the CLI accepts, with the production defaults already applied
 // (these mirror wasmBridge.ts SOLVER_CONFIG).
+//
+// Grouped rather than flat: 39 fields in one struct is cpp:S1820, and the
+// groups below are the ones the flag table already implies. Nothing else
+// changed — each nested field keeps its old default and meaning.
 struct BenchOptions {
-  std::filesystem::path fixturePath;
-  std::filesystem::path dumpPath;
-  std::filesystem::path generatePath;
-  std::filesystem::path verifyPath;
-  // Decomposition of a stalled jam board: dump the deepest elite as a residual
-  // fixture (+ the root->elite prefix) so the remainder can be solved
-  // separately and the two halves stitched.
-  std::filesystem::path dumpElitePath;
-  std::filesystem::path dumpEliteTurnsPath;
+  // Where a run reads from and writes to.
+  struct Paths {
+    std::filesystem::path fixture;
+    std::filesystem::path dump;
+    std::filesystem::path generate;
+    std::filesystem::path verify;
+    // Decomposition of a stalled jam board: dump the deepest elite as a
+    // residual fixture (+ the root->elite prefix) so the remainder can be
+    // solved separately and the two halves stitched.
+    std::filesystem::path dumpElite;
+    std::filesystem::path dumpEliteTurns;
+  };
+
+  // What stops a run.
+  struct Limits {
+    uint32_t budgetMs = 60000;
+    uint32_t maxNodes = 20000000;
+    uint32_t seqTotalMs = 0;   // total cap for the sequential phase; 0 = none
+    uint64_t maxStates = 0;    // 0 = unlimited (unchanged behaviour)
+    uint64_t maxHeapBytes = 0; // 0 = unlimited; measured bytes, not a proxy
+  };
+
+  // The jam and beam family's knobs.
+  struct Jam {
+    uint32_t roundCap = 0;
+    uint32_t elites = 6;
+    uint8_t aspect16 = DragSolver::Config{}.jam.aspect16;     // x16 ratio
+    uint8_t densityPct = DragSolver::Config{}.jam.densityPct; // percent
+    uint8_t penalty = 4;
+    uint8_t guide = 0;
+    bool pin = false;
+    bool luby = false;
+  };
+
+  // The drag-space engines' knobs.
+  struct Drag {
+    uint16_t pea = 0;
+    uint8_t packingWeight = 0;
+    uint8_t consolidationGain = 0;
+    uint8_t bandMinPath = DragSolver::Config{}.corridorBandMinPath;
+    bool settledOnly = false;
+    bool slotHeuristic = false;
+    bool requireAllSlots = false;
+    bool lockOnSlot = false;
+    bool sleepSets = false;
+    bool relevantOnly = false;
+    bool bands = false;
+  };
+
+  // --generate only.
+  struct Generate {
+    uint32_t seed = 0;
+    uint32_t shuffleMoves = 100000;
+  };
+
+  Paths paths;
+  Limits limits;
+  Jam jam;
+  Drag drag;
+  Generate generate;
+
   std::string engine = "unit";
 
   AStar::Config cfg = [] {
@@ -36,37 +92,11 @@ struct BenchOptions {
     return c;
   }();
 
-  uint32_t budgetMs = 60000;
-  uint32_t maxNodes = 20000000;
-  uint32_t seed = 0;
-  uint32_t shuffleMoves = 100000;
-  uint32_t seqTotalMs = 0; // total cap for the sequential phase; 0 = none
-  uint32_t jamRoundCap = 0;
-  uint32_t jamElites = 6;
   uint32_t tieSeed = 0;
   uint32_t beamWidth = 0;
-  uint64_t maxStates = 0;    // 0 = unlimited (unchanged behaviour)
-  uint64_t maxHeapBytes = 0; // 0 = unlimited; measured bytes, not a proxy
-  uint16_t pea = 0;
-  int armIndex = -1; // --engine arm: which race arm to run alone
-  uint8_t packingWeight = 0;
-  uint8_t consolidationGain = 0;
-  uint8_t bandMinPath = DragSolver::Config{}.corridorBandMinPath;
-  uint8_t jamAspect16 = DragSolver::Config{}.jamAspect16;     // x16 ratio
-  uint8_t jamDensityPct = DragSolver::Config{}.jamDensityPct; // percent
-  uint8_t jamPenalty = 4;
-  uint8_t jamGuide = 0;
+  int armIndex = -1;     // --engine arm: which race arm to run alone
   bool emitJson = false;
-  bool settledOnly = false;
-  bool slotHeuristic = false;
-  bool requireAllSlots = false;
-  bool lockOnSlot = false;
-  bool sleepSets = false;
-  bool relevantOnly = false;
-  bool bands = false;
   bool armGated = false; // apply jamProfile() to arms 6/7 (phase 2 does not)
-  bool jamPin = false;
-  bool jamLuby = false;
 };
 
 // Walks argv. The index lives here rather than in a for-loop counter that the

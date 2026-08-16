@@ -180,7 +180,7 @@ bool DragSolver::dragBudgetExhausted(const uint64_t deadline,
                                      const uint32_t nodesExpanded,
                                      const size_t statesStored,
                                      const bool verbose) {
-  if (cfg_.cancel && cfg_.cancel->load(std::memory_order_relaxed)) {
+  if (cfg_.stop.cancel && cfg_.stop.cancel->load(std::memory_order_relaxed)) {
     if (verbose)
       std::cout << "DragSolver cancelled after " << nodesExpanded
                 << " drag expansions\n";
@@ -195,7 +195,7 @@ bool DragSolver::dragBudgetExhausted(const uint64_t deadline,
   // Graceful memory stop — see Config::maxStatesStored. An out-of-memory
   // search must report "no solution" rather than abort the (shared) wasm
   // heap under every other arm.
-  if (cfg_.maxStatesStored != 0 && statesStored >= cfg_.maxStatesStored) {
+  if (cfg_.stop.maxStatesStored != 0 && statesStored >= cfg_.stop.maxStatesStored) {
     if (verbose)
       std::cout << "DragSolver hit the state ceiling (" << statesStored
                 << " states) after " << nodesExpanded << " drag expansions\n";
@@ -216,14 +216,14 @@ bool DragSolver::dragBudgetExhausted(const uint64_t deadline,
     return true;
   }
 #endif
-  if (cfg_.maxHeapBytes != 0) {
+  if (cfg_.stop.maxHeapBytes != 0) {
     // 0 means the platform cannot measure — treat as "no information" and
     // keep searching rather than stopping a search that is perfectly fine.
     if (const uint64_t used = memprobe::liveAllocatedBytes();
-        used != 0 && used >= cfg_.maxHeapBytes) {
+        used != 0 && used >= cfg_.stop.maxHeapBytes) {
       if (verbose)
         std::cout << "DragSolver hit the memory ceiling (" << (used >> 20u)
-                  << " MB of " << (cfg_.maxHeapBytes >> 20u) << " MB) after "
+                  << " MB of " << (cfg_.stop.maxHeapBytes >> 20u) << " MB) after "
                   << nodesExpanded << " drag expansions\n";
       stats_.stoppedOnMemory = true;
       return true;

@@ -3,7 +3,7 @@ import {
   readGridSize,
   type ConfigResult,
 } from "../../util/configValidation";
-import type { MatchThreeCell, MatchThreeTest } from "../../util/types";
+import type { MatchThreeTest } from "../../util/types";
 import { cellLimit } from "./cell";
 import { SYMBOL_COUNT } from "./symbols";
 
@@ -66,7 +66,7 @@ export function validateConfig(data: unknown): ConfigParseResult {
   if (cellsProblem !== null) {
     return { ok: false, error: cellsProblem };
   }
-  const cells = raw.cells as MatchThreeCell[][];
+  const cells = raw.cells as number[][];
 
   return { ok: true, config: { gridWidth, gridHeight, cells } };
 }

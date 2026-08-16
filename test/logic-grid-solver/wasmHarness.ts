@@ -96,8 +96,10 @@ export async function expectEveryArmAgrees(
       expect(verifyLogicGrid(config, answer)).toBe("none");
       expect(wasm.verify(puzzle, answer)).toBeTrue();
     }
-    for (let i = 0; i < result.witnesses.length; i++)
-      expect(verifyLogicGrid(config, flat(result.witnesses[i]!))).toBe("none");
+    // Array.from because `witnesses` crosses the wasm boundary as an ArrayLike,
+    // not an iterable — a bare for-of over it does not typecheck.
+    for (const witness of Array.from(result.witnesses))
+      expect(verifyLogicGrid(config, flat(witness))).toBe("none");
 
     // "unsolved" only means this arm ran out of budget, so it says nothing
     // either way and is left out of the vote.

@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstdint>
 #include <utility>
 #include <vector>
@@ -17,8 +18,8 @@
 
 namespace {
 
-constexpr int DX[4] = {0, 1, 0, -1};
-constexpr int DY[4] = {-1, 0, 1, 0};
+constexpr std::array<int, 4> kDX = {0, 1, 0, -1};
+constexpr std::array<int, 4> kDY = {-1, 0, 1, 0};
 
 struct Puzzle {
   uint8_t gridWidth;
@@ -61,8 +62,8 @@ bool replayValid(const Puzzle &p, const std::vector<Turn> &turns) {
     if (blockId >= anchors.size())
       return false;
     const auto d = static_cast<int>(std::to_underlying(direction));
-    anchors[blockId].x = static_cast<int8_t>(anchors[blockId].x + DX[d]);
-    anchors[blockId].y = static_cast<int8_t>(anchors[blockId].y + DY[d]);
+    anchors[blockId].x = static_cast<int8_t>(anchors[blockId].x + kDX[d]);
+    anchors[blockId].y = static_cast<int8_t>(anchors[blockId].y + kDY[d]);
     if (!collisionFree(p, anchors))
       return false;
   }

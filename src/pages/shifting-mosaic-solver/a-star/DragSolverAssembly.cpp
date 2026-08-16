@@ -107,20 +107,20 @@ std::vector<Turn> DragSolver::jointEndgame(const AsmFrame &f,
   c.weight = 3;
   c.settledOnly = false; // threading needs floating intermediates
   c.partialExpansionWidth = 48;
-  c.lockOnSlot = false;     // unfrozen placed may leave their slots...
-  c.requireAllSlots = true; // ...but all must return by the end
-  c.slotHeuristic = true;
-  c.packingGuide = false;
+  c.packing.lockOnSlot = false;     // unfrozen placed may leave their slots...
+  c.packing.requireAllSlots = true; // ...but all must return by the end
+  c.packing.slotHeuristic = true;
+  c.packing.guide = false;
   c.postProcess = false;
-  c.cancel = cfg_.cancel;
+  c.stop.cancel = cfg_.stop.cancel;
   // Inherit the resource ceilings. ALL of the assembly arm's actual search
   // happens in these children — the outer solver only orchestrates — so
   // leaving them at 0 (unlimited) meant maxHeapBytes was silently ignored by
   // the whole arm. On the isolated build all 8 arms share ONE wasm heap and
   // exhausting it ABORTS the module, killing every other arm.
-  c.maxHeapBytes = cfg_.maxHeapBytes;
-  c.maxStatesStored = cfg_.maxStatesStored;
-  c.frozenBlocks = std::move(frozen);
+  c.stop.maxHeapBytes = cfg_.stop.maxHeapBytes;
+  c.stop.maxStatesStored = cfg_.stop.maxStatesStored;
+  c.packing.frozenBlocks = std::move(frozen);
   DragSolver child(gridWidth_, gridHeight_, shapes_, f.anchors,
                    remaining.front(), slotPos(remaining.front()), c);
   child.overrideSlots(packedSlot_);
@@ -238,15 +238,15 @@ void DragSolver::placePiece(const AsmFrame &cur, AsmRun &run,
   c.weight = 4;
   c.settledOnly = true;
   c.partialExpansionWidth = 48;
-  c.lockOnSlot = true;
-  c.packingGuide = false; // slots injected below
+  c.packing.lockOnSlot = true;
+  c.packing.guide = false; // slots injected below
   c.postProcess = false;
-  c.cancel = cfg_.cancel;
+  c.stop.cancel = cfg_.stop.cancel;
   // See jointEndgame: the child does the searching, so it must inherit the
   // heap/state ceilings or the arm has none.
-  c.maxHeapBytes = cfg_.maxHeapBytes;
-  c.maxStatesStored = cfg_.maxStatesStored;
-  c.frozenBlocks = {goalIndex_};
+  c.stop.maxHeapBytes = cfg_.stop.maxHeapBytes;
+  c.stop.maxStatesStored = cfg_.stop.maxStatesStored;
+  c.packing.frozenBlocks = {goalIndex_};
   DragSolver child(gridWidth_, gridHeight_, shapes_, cur.anchors, piece,
                    slotPos(piece), c);
   child.overrideSlots(packedSlot_);
@@ -282,7 +282,7 @@ DragSolver::AsmOutcome DragSolver::runAssemblyAttempt(AsmRun &run,
                                                       const uint64_t deadline,
                                                       const uint32_t maxNodes) {
   while (!run.stack.empty() && !run.attemptOver) {
-    if (cfg_.cancel && cfg_.cancel->load(std::memory_order_relaxed))
+    if (cfg_.stop.cancel && cfg_.stop.cancel->load(std::memory_order_relaxed))
       return AsmOutcome::Abort;
     if (deadline != 0 && nowMs() > deadline) {
       std::cout << "assembly: out of time with "
@@ -345,15 +345,15 @@ std::vector<Turn> DragSolver::finalGoalLeg(const std::vector<Position> &anchors,
   c.weight = 3;
   c.settledOnly = true;
   c.partialExpansionWidth = 48;
-  c.lockOnSlot = true;
-  c.requireAllSlots = false;
-  c.slotHeuristic = false;
-  c.packingGuide = false;
+  c.packing.lockOnSlot = true;
+  c.packing.requireAllSlots = false;
+  c.packing.slotHeuristic = false;
+  c.packing.guide = false;
   c.postProcess = false;
-  c.cancel = cfg_.cancel;
+  c.stop.cancel = cfg_.stop.cancel;
   // See jointEndgame: inherit the heap/state ceilings.
-  c.maxHeapBytes = cfg_.maxHeapBytes;
-  c.maxStatesStored = cfg_.maxStatesStored;
+  c.stop.maxHeapBytes = cfg_.stop.maxHeapBytes;
+  c.stop.maxStatesStored = cfg_.stop.maxStatesStored;
   DragSolver leg(gridWidth_, gridHeight_, shapes_, anchors, goalIndex_,
                  goalAnchor_, c);
   leg.overrideSlots(packedSlot_);
@@ -370,7 +370,7 @@ std::vector<Turn> DragSolver::postProcess(std::vector<Turn> turns) const {
   // Give the optimizer the race's cancel flag: once another arm has won,
   // polishing a plan nobody will use only delays every other arm's join.
   AStar::Config oc;
-  oc.cancel = cfg_.cancel;
+  oc.cancel = cfg_.stop.cancel;
   const AStar optimizer(gridWidth_, gridHeight_, shapes_, initialAnchors_,
                         goalIndex_, goalAnchor_, oc);
   const size_t beforeMoves = turns.size();

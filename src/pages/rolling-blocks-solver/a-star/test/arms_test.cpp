@@ -1,10 +1,9 @@
 // Tests for the portfolio arms: the coverage cracker, the exact (weight-0)
 // arm, the beam, the classifier gate and the single-threaded cascade.
 
-#ifdef __clang__
-#include <yvals_core.h>
-#undef __cpp_lib_is_pointer_interconvertible
-#endif
+// ClangdCompat.h first: the clang+MSVC-STL workaround it carries has to
+// precede any standard-library header.
+#include "ClangdCompat.h"
 #include "FixtureIo.h"
 #include "PuzzleProfile.h"
 #include "Replay.h"

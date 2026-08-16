@@ -120,22 +120,22 @@ std::vector<Turn> runDrag(const SolveContext &ctx, const DragMode mode) {
   cfg.settledOnly = opt<bool>(configVal, "settledOnly", true);
   cfg.partialExpansionWidth =
       static_cast<uint16_t>(opt<unsigned>(configVal, "pea", 0));
-  cfg.packingWeight =
+  cfg.packing.weight =
       static_cast<uint8_t>(opt<unsigned>(configVal, "packingWeight", 0));
-  cfg.consolidationGain =
+  cfg.packing.consolidationGain =
       static_cast<uint8_t>(opt<unsigned>(configVal, "consolidationGain", 0));
-  cfg.slotHeuristic = opt<bool>(configVal, "slotHeuristic", false);
-  cfg.requireAllSlots = opt<bool>(configVal, "requireAllSlots", false);
-  cfg.lockOnSlot = opt<bool>(configVal, "lockOnSlot", false);
+  cfg.packing.slotHeuristic = opt<bool>(configVal, "slotHeuristic", false);
+  cfg.packing.requireAllSlots = opt<bool>(configVal, "requireAllSlots", false);
+  cfg.packing.lockOnSlot = opt<bool>(configVal, "lockOnSlot", false);
   cfg.corridorBands = opt<bool>(configVal, "corridorBands", false);
   cfg.sleepSets = opt<bool>(configVal, "sleepSets", false);
   cfg.relevantOnly = opt<bool>(configVal, "relevantOnly", false);
-  cfg.jamGuideWeight =
+  cfg.jam.guideWeight =
       static_cast<uint8_t>(opt<unsigned>(configVal, "jamGuideWeight", 0));
-  cfg.jamBlockerPenalty =
+  cfg.jam.blockerPenalty =
       static_cast<uint8_t>(opt<unsigned>(configVal, "jamBlockerPenalty", 4));
   cfg.tieBreakSeed = opt<unsigned>(configVal, "tieBreakSeed", 0);
-  cfg.beamWidth = opt<unsigned>(configVal, "beamWidth", 0);
+  cfg.jam.beamWidth = opt<unsigned>(configVal, "beamWidth", 0);
   cfg.postProcess = ctx.postProcess;
   DragSolver solver(ctx.gridWidth, ctx.gridHeight, ctx.shapes,
                     ctx.initialAnchors, ctx.goalIndex, ctx.goalAnchor, cfg);
@@ -156,22 +156,26 @@ std::vector<Turn> runJamArm(const SolveContext &ctx, const bool beam,
   DragSolver::Config cfg;
   cfg.corridorBands = true;
   cfg.deadlockPruning = ctx.deadlockPruning;
-  if (beam)
-    cfg.jamGuideWeight =
+  // Braced deliberately: the guarded assignment wraps across two lines and the
+  // unconditional one below it looks identical, so an unbraced body invites a
+  // later edit to slide in or out of the condition.
+  if (beam) {
+    cfg.jam.guideWeight =
         static_cast<uint8_t>(opt<unsigned>(configVal, "jamGuideWeight", 8));
-  cfg.jamBlockerPenalty =
+  }
+  cfg.jam.blockerPenalty =
       static_cast<uint8_t>(opt<unsigned>(configVal, "jamBlockerPenalty", 4));
   cfg.tieBreakSeed = opt<unsigned>(configVal, "tieBreakSeed", 0);
-  cfg.beamWidth = opt<unsigned>(configVal, "beamWidth", 0);
+  cfg.jam.beamWidth = opt<unsigned>(configVal, "beamWidth", 0);
   if (!beam) {
     // Luby-shaped restart caps: the browser's ~300s/arm gives the stock
     // 1.5M-node cap only ~4 rounds, but the elite ratchet needs many. On
     // the hard-instance family at 300s these defaults (20k base / 64
     // elites) descend the ratchet -46% deeper than stock (HARD-BOARDS.md).
     // Overridable so the caller-facing "jam" engine can still sweep.
-    cfg.jamRoundNodeCap = opt<unsigned>(configVal, "jamRoundNodeCap", 20000);
-    cfg.jamMaxElites = opt<unsigned>(configVal, "jamMaxElites", 64);
-    cfg.jamLubyRestarts = opt<bool>(configVal, "jamLubyRestarts", true);
+    cfg.jam.roundNodeCap = opt<unsigned>(configVal, "jamRoundNodeCap", 20000);
+    cfg.jam.maxElites = opt<unsigned>(configVal, "jamMaxElites", 64);
+    cfg.jam.lubyRestarts = opt<bool>(configVal, "jamLubyRestarts", true);
   }
   cfg.postProcess = ctx.postProcess;
   DragSolver solver(ctx.gridWidth, ctx.gridHeight, ctx.shapes,
@@ -225,10 +229,17 @@ std::vector<Turn> runCascade(const SolveContext &ctx) {
   // checkpoints (measured ~8% with 8 arms allocating concurrently).
   const uint64_t heapMax = memprobe::heapCeilingBytes();
   const uint64_t armHeapCap = heapMax == 0 ? 0 : (heapMax / 100) * 85;
-  std::vector<Turn> turns = solveArmsParallel(
-      ctx.gridWidth, ctx.gridHeight, ctx.shapes, ctx.initialAnchors,
-      ctx.goalIndex, ctx.goalAnchor, ctx.maxMs, ctx.maxNodes, ctx.postProcess,
-      postProgress, armHeapCap);
+  const cascade::Board board{.gridWidth = ctx.gridWidth,
+                             .gridHeight = ctx.gridHeight,
+                             .shapes = ctx.shapes,
+                             .initialAnchors = ctx.initialAnchors,
+                             .goalIndex = ctx.goalIndex,
+                             .goalAnchor = ctx.goalAnchor};
+  const cascade::Budget budget{.maxMs = ctx.maxMs,
+                               .maxNodes = ctx.maxNodes,
+                               .postProcess = ctx.postProcess,
+                               .maxHeapBytes = armHeapCap};
+  std::vector<Turn> turns = solveArmsParallel(board, budget, postProgress);
   if (!turns.empty())
     return turns;
   // Phase 2: the same arms one at a time, each with the whole heap and
@@ -249,13 +260,13 @@ std::vector<Turn> runCascade(const SolveContext &ctx) {
   // 90% leaves headroom for the coarse checkpoint cadence and for the
   // allocations the module itself needs to report a result.
   const uint64_t seqHeapCap = heapMax == 0 ? 0 : (heapMax / 100) * 90;
+  // A copy rather than a mutation of `budget`, so the race's settings cannot be
+  // carried into the sequential phase by anything inserted between the two.
+  cascade::Budget seqBudget = budget;
+  seqBudget.maxHeapBytes = seqHeapCap;
+  seqBudget.totalMaxMs = seqTotalMs;
   return solveArmsSequential(
-      ctx.gridWidth, ctx.gridHeight, ctx.shapes, ctx.initialAnchors,
-      ctx.goalIndex, ctx.goalAnchor, ctx.maxMs, seqTotalMs, ctx.maxNodes,
-      ctx.postProcess, postProgress, seqHeapCap,
-      /*cancel=*/nullptr, DragSolver::Config{}.jamAspect16,
-      DragSolver::Config{}.jamDensityPct,
-      /*outcomes=*/nullptr,
+      board, seqBudget, postProgress, /*cancel=*/nullptr, /*outcomes=*/nullptr,
       [](const char *arm) { postPhase("sequential", arm); });
 }
 #else

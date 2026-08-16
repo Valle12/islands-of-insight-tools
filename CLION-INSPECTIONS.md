@@ -170,6 +170,16 @@ the idiom that satisfies them:
   arena the code must keep (parent chains for path reconstruction), keep the
   arena and make the queue a separate cursor of indices into it (see
   `Reconnector` in `AStarOptimizer.cpp`).
+
+  **Where the vector IS the arena and a `std::queue` would mean keeping two,
+  the cheap fix is just the loop head**: `size_t head = 0; while (head <
+  q.size()) { const auto cur = q[head++]; … }`. `cpp:S886` ("less error-prone")
+  is a **`for`-loop rule**, so moving the same test into a `while` header
+  satisfies it, and it takes the companion `cpp:S5566` ("change this raw
+  for-loop to a range for-loop") with it — which matters, because that
+  suggestion is an iterator-invalidation bug here and following it would be
+  worse than the finding. `DragSolver.cpp`'s two anchor BFS worklists are the
+  worked example. Do not read S5566 on a growing worklist as advice.
 - **`std::byte` for byte-oriented bit twiddling** — packing bits into a
   `uint8_t` is flagged; use `std::byte packed{}` with `packed |= std::byte{1}
   << bit`. Convert back with `std::to_integer<char>(packed)`, NOT
@@ -322,16 +332,30 @@ Note the JSON shape: a measure's value for a PR is in `periods[0].value`, NOT
 
 ## Known intentional findings — leave them
 
-- `MemoryProbe.h`'s two Windows findings, both required by the Win32 API:
-  `cpp:S954` (move the `#include`s to the top) cannot be obeyed — `Windows.h`
-  has to follow the `WIN32_LEAN_AND_MEAN` define and `Psapi.h` has to follow
-  `Windows.h`; and `cpp:S3630` (replace `reinterpret_cast`) is the documented
-  calling convention for `GetProcessMemoryInfo`, which takes a
-  `PROCESS_MEMORY_COUNTERS *` and is handed the `_EX` form on purpose. Both are
-  commented in the file.
-- `#include <yvals_core.h>` under `#ifdef __clang__` in the gtest TUs is
-  the clang+MSVC-STL `__cpp_lib_is_pointer_interconvertible` workaround.
-  Removing it breaks the clang-tidy gate's parse of gtest headers.
+- ~~`MemoryProbe.h`'s `cpp:S954`~~ — **FIXED 2026-08-16.** The claim that it
+  "cannot be obeyed" was too strong: the ordering constraints are
+  `WIN32_LEAN_AND_MEAN` before `<Windows.h>` and `<Windows.h>` before
+  `<Psapi.h>`, and *moving the whole guarded platform block to the top of the
+  file* keeps both while putting every `#include` ahead of the first
+  declaration. The `min`/`max` leak the old note worried about would only
+  happen by hoisting them OUT of the `_WIN32` guard, which this does not.
+  Applied to all four copies.
+- `MemoryProbe.h`'s `cpp:S3630` — the cast itself is unavoidable
+  (`GetProcessMemoryInfo` takes a `PROCESS_MEMORY_COUNTERS *` and is handed the
+  `_EX` form on purpose), but it is now spelled `static_cast` through `void *`,
+  which is the constrained form of the same conversion and what the rule asks
+  for. **A union of the two structs was tried and rejected**: `PrivateUsage`
+  sits outside their common initial sequence, so reading it back through the
+  `_EX` member after the API wrote through the base one is undefined behaviour.
+  Be honest about what the current spelling is — a spelling, not extra safety.
+- `#include <yvals_core.h>` under `#ifdef __clang__` in the gtest TUs is the
+  clang+MSVC-STL `__cpp_lib_is_pointer_interconvertible` workaround. Removing it
+  breaks the clang-tidy gate's parse of gtest headers. **The `#undef` must be
+  wrapped in its own `#ifdef`** — only MSVC's STL defines the macro, and
+  undefining one that was never defined is `cpp:S959` (five CRITICALs, all in
+  the rolling-blocks test TUs, until 2026-08-16). Rolling-blocks now has a
+  shared `test/ClangdCompat.h` like the other three solvers instead of pasting
+  the shim into five files.
 - Includes that ARE used but only under `#ifdef __EMSCRIPTEN_PTHREADS__`
   look unused to the native indexer — keep them inside the `#ifdef`
   (see `SolverArms.cpp`) so both tools agree.
@@ -387,3 +411,55 @@ Note the JSON shape: a measure's value for a PR is in `periods[0].value`, NOT
   matter either way: two analyzers want opposite things over a 2-minute
   smell. Leave the five intact — the noexcept guarantee is load-bearing,
   the unused operator is not.
+
+  **Updated 2026-08-16**: rather than leaving them merely unused, each such
+  block is now followed by `static_assert(std::is_nothrow_move_*_v<T>)` (and
+  `std::equality_comparable<T>` for the two `operator==` cases in
+  `AStarSearch.cpp` / `DragSolverSearch.cpp`). That pins the guarantee the five
+  exist for — a member whose own move stops being `noexcept` now fails the
+  build instead of silently reintroducing copy-on-reallocation — and gives the
+  operators a reason to exist that reads without the comment.
+
+### Findings re-examined 2026-08-16 and still declined
+
+- **`cpp:S1874` `getenv` is deprecated** (`DragSolverTestOracle.h`,
+  `json_test.cpp` ×2). `std::getenv` is not deprecated in ISO C++; this is
+  MSVC's `_CRT_SECURE` nag, which `CMakeLists.txt` already answers with
+  `_CRT_SECURE_NO_WARNINGS` and a comment saying to silence the vendor nag
+  rather than fork the code. The suggested `_dupenv_s` is non-portable and
+  these files also build under GCC and emscripten, so taking it would
+  contradict a decision already recorded one directory up.
+- **`cpp:S1181` generic catch** (`match-three/main.cpp` `solveAndReport`). The
+  only way to satisfy it is to delete the catch-all, which is the whole point
+  of the block: the harnesses in `src/util` read the LAST stdout line starting
+  with `{`, and an exception escaping here kills the process with no JSON line
+  at all — indistinguishable from a crash. Note this file already *complies*
+  at `loadFixture`, which narrows to the two types `fixtureio::load` throws;
+  the rule elsewhere in this project is genuine, this one site is the
+  deliberate exception.
+- **`cpp:S5945` on `std::unique_ptr<T[]>`** (`rolling-blocks/NodeKey.h`). Not a
+  C array — `[]` is the array specialisation tag. The same finding on both
+  `StateTable.h` copies WAS fixed, because there the block size is a
+  compile-time constant and `std::unique_ptr<std::array<Entry, kBlockSize>>`
+  is a drop-in; `NodeKey`'s spill buffer is runtime-sized, and `std::vector`
+  (24 bytes) would destroy the inline-buffer optimisation the struct exists for.
+- **`cpp:S1448` method counts** — `DragSolver.h` (129), `shifting-mosaic/AStar.h`
+  (66), `rolling-blocks/AStar.h` (44). Not reducible by grouping at all, and
+  splitting the classes would undo work that is already recorded: `DragSolver`'s
+  129 methods exist *because* the July pass split its big searches into named
+  phases across seven TUs, so "fixing" S1448 here means reintroducing S3776.
+  `rolling-blocks/AStar`'s members are almost all reusable scratch buffers
+  (`encodeScratch_`, `matchDp_`, `childBitsBuf_`, …) hoisted deliberately to
+  avoid per-expansion allocation.
+
+  **The three `cpp:S1820` field counts on the same classes were FIXED**
+  2026-08-16 by grouping, and the cost was measured rather than guessed:
+  `BenchOptions` 39 → 12 fields (95 access sites rewritten), `DragSolverConfig`
+  30 → 14 (`packing` / `jam` / `stop`, ~140 sites), logic-grid `Model` 25 → 18
+  (a `walked` group for the four clue geometries and their index lists, 54
+  sites). Two things made that safe rather than brave: every missed or wrongly
+  targeted site is a **compile error** — `DragSolverConfig` shares field names
+  (`maxHeapBytes`, `cancel`, `postProcess`, `weight`) with `AStar::Config`, and
+  the build caught every one of the collisions — and `ctest` plus the fuzz
+  sweep cover the behaviour. Grouping by holder name needs care for the same
+  reason: `cfg`/`cfg_`/`c` mean *different types* depending on the file.

@@ -65,7 +65,8 @@ const GALAXY_SYMBOL = symbolIndex("galaxy");
  * game actually shows; `withGiven` paints one afterwards when a test needs a
  * clue whose colour is already known.
  */
-export function board(rows: string[], ruleIds: string[] = []): LogicGridTest {
+/** The grid half of `board`: the colouring and the clues, read off the picture. */
+function parseGlyphs(rows: string[]) {
   const gridHeight = rows.length;
   const gridWidth = rows[0]!.length;
   const cells = Array.from({ length: gridWidth }, () =>
@@ -84,8 +85,15 @@ export function board(rows: string[], ruleIds: string[] = []): LogicGridTest {
         symbols.push({ x, y, type: LETTER_SYMBOL, value: glyph.toUpperCase() });
     }
   }
-  // A caller still names every rule by its catalogue id; the sized ones leave
-  // for their family lists here, exactly as the migration rewrites a v1 file.
+  return { gridWidth, gridHeight, cells, symbols };
+}
+
+/**
+ * The rule half. A caller still names every rule by its catalogue id; the sized
+ * ones leave for their family lists here, exactly as the migration rewrites a
+ * v1 file.
+ */
+function parseRules(ruleIds: string[]) {
   const flags: number[] = [];
   const areas: LogicGridAreaRule[] = [];
   const runs: LogicGridRunRule[] = [];
@@ -101,13 +109,19 @@ export function board(rows: string[], ruleIds: string[] = []): LogicGridTest {
   runs.sort(
     (a, b) => colorRank(a.color) - colorRank(b.color) || a.length - b.length,
   );
+  return { flags, areas, runs };
+}
+
+export function board(rows: string[], ruleIds: string[] = []): LogicGridTest {
+  const { gridWidth, gridHeight, cells, symbols } = parseGlyphs(rows);
+  const { flags, areas, runs } = parseRules(ruleIds);
   return {
     // Current by construction: these boards stand in for files the editor
     // itself could have written, and every one of those carries the tag.
     version: CONFIG_VERSION,
     gridWidth,
     gridHeight,
-    rules: flags.sort((a, b) => a - b),
+    rules: flags.toSorted((a, b) => a - b),
     ...(areas.length > 0 ? { areas } : {}),
     ...(runs.length > 0 ? { runs } : {}),
     cells,

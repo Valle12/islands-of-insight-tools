@@ -2,6 +2,51 @@
 
 #include <cstdint>
 
+// Platform headers up here rather than beside the implementation that uses
+// them: an #include after a declaration is cpp:S954, and these carry the same
+// guards the definitions below do, so nothing changes about which ones a given
+// build sees. NOMINMAX still precedes <Windows.h> and <Psapi.h> still follows
+// it, which are the two orderings that actually matter.
+#if defined(__EMSCRIPTEN__)
+
+#include <emscripten/heap.h>
+// mallinfo is declared by emscripten's compat/malloc.h, which the toolchain
+// already places on the include path (-iwithsysroot/include/compat). Include it
+// as plain <malloc.h>: reaching it by its explicit compat/ path breaks the
+// `#include_next <malloc.h>` at the end of that header ("malloc.h not found").
+// dlmalloc — the default allocator, since buildWasm.ts sets no -sMALLOC= — is
+// what implements it. Define SM_NO_MALLINFO to fall back if that ever changes.
+#ifndef SM_NO_MALLINFO
+#include <malloc.h>
+#define SM_HAVE_MALLINFO 1
+#endif
+#elif defined(_WIN32)
+
+// NOMINMAX before windows.h: it otherwise defines min/max as macros, which
+// breaks every std::min / std::numeric_limits<T>::max() in the translation
+// unit that includes this header. WIN32_LEAN_AND_MEAN keeps the rest out.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+// Capitalised to match the Windows SDK's own file names — clangd resolves the
+// include against the real directory entry and reports a non-portable path for
+// the all-lowercase spelling. (Lowercase is the mingw-w64 convention, which
+// this project does not target: MSVC, Linux/GCC and emscripten only.)
+#include <Windows.h>
+// Psapi.h must follow Windows.h.
+#include <Psapi.h>
+#if defined(_MSC_VER)
+#pragma comment(lib, "Psapi.lib")
+#endif
+#elif defined(__linux__)
+
+#include <cstdio>
+#include <unistd.h>
+#endif
+
 // Actual measured memory, for bounding a search before it exhausts the heap.
 //
 // Why measured bytes rather than a node or state count: maxNodes bounds
@@ -33,18 +78,6 @@ inline bool nearHeapLimit();
 } // namespace memprobe
 
 #if defined(__EMSCRIPTEN__)
-
-#include <emscripten/heap.h>
-// mallinfo is declared by emscripten's compat/malloc.h, which the toolchain
-// already places on the include path (-iwithsysroot/include/compat). Include it
-// as plain <malloc.h>: reaching it by its explicit compat/ path breaks the
-// `#include_next <malloc.h>` at the end of that header ("malloc.h not found").
-// dlmalloc — the default allocator, since buildWasm.ts sets no -sMALLOC= — is
-// what implements it. Define SM_NO_MALLINFO to fall back if that ever changes.
-#ifndef SM_NO_MALLINFO
-#include <malloc.h>
-#define SM_HAVE_MALLINFO 1
-#endif
 
 namespace memprobe {
 
@@ -91,26 +124,6 @@ inline bool nearHeapLimit() {
 
 #elif defined(_WIN32)
 
-// NOMINMAX before windows.h: it otherwise defines min/max as macros, which
-// breaks every std::min / std::numeric_limits<T>::max() in the translation
-// unit that includes this header. WIN32_LEAN_AND_MEAN keeps the rest out.
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-// Capitalised to match the Windows SDK's own file names — clangd resolves the
-// include against the real directory entry and reports a non-portable path for
-// the all-lowercase spelling. (Lowercase is the mingw-w64 convention, which
-// this project does not target: MSVC, Linux/GCC and emscripten only.)
-#include <Windows.h>
-// Psapi.h must follow Windows.h.
-#include <Psapi.h>
-#if defined(_MSC_VER)
-#pragma comment(lib, "Psapi.lib")
-#endif
-
 namespace memprobe {
 
 inline uint64_t liveAllocatedBytes() {
@@ -120,9 +133,20 @@ inline uint64_t liveAllocatedBytes() {
   // the profiling in HARD-BOARDS.md used, so figures stay comparable.
   PROCESS_MEMORY_COUNTERS_EX pmc{};
   pmc.cb = sizeof(pmc);
-  if (!GetProcessMemoryInfo(GetCurrentProcess(),
-                            reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&pmc),
-                            sizeof(pmc)))
+  //
+  // GetProcessMemoryInfo is declared to take the BASE struct and documented to
+  // accept the _EX one through it — that indirection is the API's, not ours.
+  // Spelled as static_cast-through-void* rather than reinterpret_cast because
+  // that is the constrained form of the very same conversion (the standard
+  // defines one in terms of the other for standard-layout types), and it is
+  // what cpp:S3630 asks for. It is a spelling, not extra safety.
+  //
+  // A union of the two structs was considered and REJECTED: PrivateUsage sits
+  // outside the common initial sequence, so reading it back through the _EX
+  // member after the API wrote through the base one is undefined behaviour.
+  if (auto *const asBase =
+          static_cast<PROCESS_MEMORY_COUNTERS *>(static_cast<void *>(&pmc));
+      !GetProcessMemoryInfo(GetCurrentProcess(), asBase, sizeof(pmc)))
     return 0;
   return pmc.PrivateUsage;
 }
@@ -133,9 +157,6 @@ inline bool nearHeapLimit() { return false; }    // nothing aborts natively
 } // namespace memprobe
 
 #elif defined(__linux__)
-
-#include <cstdio>
-#include <unistd.h>
 
 namespace memprobe {
 

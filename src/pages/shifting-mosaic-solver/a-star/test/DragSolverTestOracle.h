@@ -4,12 +4,15 @@
 #include "SeededRng.h"
 #include "Types.h"
 
+#include <array>
 #include <cstdint>
 #include <cstdlib>
+#include <functional>
 #include <map>
 #include <queue>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Brute-force oracles shared by the DragSolver test TUs.
@@ -38,8 +41,11 @@ inline uint32_t testSeed(const uint32_t fallback) {
   return end == raw || *end != 0 ? fallback : static_cast<uint32_t>(v);
 }
 
-constexpr int DX[4] = {0, 1, 0, -1};
-constexpr int DY[4] = {-1, 0, 1, 0};
+// kDX/kDY, not DX/DY: this header is included BEFORE AStar.h by two test TUs,
+// and at namespace scope it made that class's own private DX/DY read as
+// shadowing declarations (cpp:S1117) in files the solver never sees.
+constexpr std::array<int, 4> kDX = {0, 1, 0, -1};
+constexpr std::array<int, 4> kDY = {-1, 0, 1, 0};
 
 struct Puzzle {
   uint8_t w = 0;
@@ -89,8 +95,8 @@ oracleFloodFill(const Puzzle &p, const size_t i,
     q.pop();
     const auto curIdx = static_cast<uint16_t>(curX * p.h + curY);
     for (int d = 0; d < 4; d++) {
-      const Position next = {.x = static_cast<int8_t>(curX + DX[d]),
-                             .y = static_cast<int8_t>(curY + DY[d])};
+      const Position next = {.x = static_cast<int8_t>(curX + kDX[d]),
+                             .y = static_cast<int8_t>(curY + kDY[d])};
       if (!oracleCanPlace(p, i, next, anchors))
         continue;
       const auto nIdx = static_cast<uint16_t>(next.x * p.h + next.y);
@@ -105,36 +111,53 @@ oracleFloodFill(const Puzzle &p, const size_t i,
 
 // Exhaustive drag-space BFS: minimal number of drags to bring the goal block
 // onto goalAnchor, or -1 if unreachable. State = all anchors.
-inline int oracleMinDrags(const Puzzle &p) {
-  const auto key = [&](const std::vector<Position> &anchors) {
-    std::string k;
-    for (const auto &[ax, ay] : anchors) {
-      k.push_back(static_cast<char>(ax));
-      k.push_back(static_cast<char>(ay));
+/** A whole-board state as a map key: two bytes per anchor. */
+inline std::string oracleKey(const std::vector<Position> &anchors) {
+  std::string k;
+  for (const auto &[ax, ay] : anchors) {
+    k.push_back(static_cast<char>(ax));
+    k.push_back(static_cast<char>(ay));
+  }
+  return k;
+}
+
+/**
+ * Every one-drag successor of `anchors`, enqueued if not already seen.
+ *
+ * Lifted out of the BFS below only to get under the nesting limit (cpp:S134).
+ * It is deliberately the same exhaustive, uninteresting expansion it was
+ * inline — this oracle earns its keep by sharing NOTHING with the solver it
+ * checks, so it must stay obviously correct rather than become clever.
+ */
+inline void oracleExpand(const Puzzle &p, const std::vector<Position> &anchors,
+                         const int d,
+                         std::map<std::string, int, std::less<>> &dist,
+                         std::queue<std::vector<Position>> &q) {
+  for (size_t i = 0; i < anchors.size(); i++) {
+    for (const auto &[toIdx, dd] : oracleFloodFill(p, i, anchors)) {
+      if (dd == 0)
+        continue;
+      auto next = anchors;
+      next[i] = {.x = static_cast<int8_t>(toIdx / p.h),
+                 .y = static_cast<int8_t>(toIdx % p.h)};
+      if (dist.try_emplace(oracleKey(next), d + 1).second)
+        q.push(next);
     }
-    return k;
-  };
-  std::map<std::string, int> dist;
+  }
+}
+
+inline int oracleMinDrags(const Puzzle &p) {
+  std::map<std::string, int, std::less<>> dist;
   std::queue<std::vector<Position>> q;
-  dist[key(p.anchors)] = 0;
+  dist[oracleKey(p.anchors)] = 0;
   q.push(p.anchors);
   while (!q.empty()) {
     const auto anchors = q.front();
     q.pop();
-    const int d = dist[key(anchors)];
+    const int d = dist[oracleKey(anchors)];
     if (anchors[p.goalIndex] == p.goalAnchor)
       return d;
-    for (size_t i = 0; i < anchors.size(); i++) {
-      for (const auto &[toIdx, dd] : oracleFloodFill(p, i, anchors)) {
-        if (dd == 0)
-          continue;
-        auto next = anchors;
-        next[i] = {.x = static_cast<int8_t>(toIdx / p.h),
-                   .y = static_cast<int8_t>(toIdx % p.h)};
-        if (dist.try_emplace(key(next), d + 1).second)
-          q.push(next);
-      }
-    }
+    oracleExpand(p, anchors, d, dist, q);
   }
   return -1;
 }
@@ -144,10 +167,10 @@ inline bool replayValid(const Puzzle &p, const std::vector<Turn> &turns) {
   for (const auto &[blockId, direction] : turns) {
     if (blockId >= anchors.size())
       return false;
-    const int d = static_cast<int>(direction);
-    const Position next = {.x = static_cast<int8_t>(anchors[blockId].x + DX[d]),
+    const auto d = static_cast<int>(std::to_underlying(direction));
+    const Position next = {.x = static_cast<int8_t>(anchors[blockId].x + kDX[d]),
                            .y =
-                               static_cast<int8_t>(anchors[blockId].y + DY[d])};
+                               static_cast<int8_t>(anchors[blockId].y + kDY[d])};
     if (!oracleCanPlace(p, blockId, next, anchors))
       return false;
     anchors[blockId] = next;
@@ -208,7 +231,8 @@ inline Puzzle randomPuzzle(SeededRng &rng) {
     std::vector<Position> alone(p.anchors.size(), {.x = 127, .y = 127});
     alone[0] = t;
     // Target just needs the goal's bbox in-grid.
-    int boxW = 0, boxH = 0;
+    int boxW = 0;
+    int boxH = 0;
     for (const auto &[cx, cy] : p.shapes[0]) {
       boxW = std::max(boxW, cx + 1);
       boxH = std::max(boxH, cy + 1);

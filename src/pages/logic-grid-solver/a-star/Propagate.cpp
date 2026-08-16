@@ -553,7 +553,7 @@ bool dartColorChoice(const Model &model, Domains &domains, const Dart &dart) {
 }
 
 bool propagateDarts(const Model &model, Domains &domains) {
-  for (const Dart &dart : model.darts) {
+  for (const Dart &dart : model.walked.darts) {
     const uint8_t color = domains.colorOf(dart.index);
     const bool ok = color == kUnknown
                         ? dartColorChoice(model, domains, dart)
@@ -645,7 +645,7 @@ bool mirrorSymmetry(const Model &model, Domains &domains,
  * technique falling out of machinery that already existed.
  */
 bool propagateLotuses(const Model &model, Domains &domains) {
-  for (const Lotus &lotus : model.lotuses) {
+  for (const Lotus &lotus : model.walked.lotuses) {
     const uint8_t color = domains.colorOf(lotus.index);
     if (color == kUnknown)
       continue;
@@ -662,7 +662,7 @@ bool propagateLotuses(const Model &model, Domains &domains) {
 /// turns compose to a translation no finite region survives, so it emerges
 /// from this propagator meeting the probe, and the reference sweep referees.
 bool propagateGalaxies(const Model &model, Domains &domains) {
-  for (const Galaxy &galaxy : model.galaxies) {
+  for (const Galaxy &galaxy : model.walked.galaxies) {
     const uint8_t color = domains.colorOf(galaxy.index);
     if (color == kUnknown)
       continue;
@@ -796,7 +796,7 @@ bool viewpointColorChoice(const Model &model, Domains &domains,
 }
 
 bool propagateViewpoints(const Model &model, Domains &domains) {
-  for (const Viewpoint &viewpoint : model.viewpoints) {
+  for (const Viewpoint &viewpoint : model.walked.viewpoints) {
     const uint8_t color = domains.colorOf(viewpoint.index);
     const bool ok = color == kUnknown
                         ? viewpointColorChoice(model, domains, viewpoint)
@@ -1158,13 +1158,13 @@ bool propagateGlobal(const Model &model, Domains &domains) {
     return false;
   if (!model.areaClues.empty() && !propagateAreas(model, domains))
     return false;
-  if (!model.darts.empty() && !propagateDarts(model, domains))
+  if (!model.walked.darts.empty() && !propagateDarts(model, domains))
     return false;
-  if (!model.lotuses.empty() && !propagateLotuses(model, domains))
+  if (!model.walked.lotuses.empty() && !propagateLotuses(model, domains))
     return false;
-  if (!model.viewpoints.empty() && !propagateViewpoints(model, domains))
+  if (!model.walked.viewpoints.empty() && !propagateViewpoints(model, domains))
     return false;
-  if (!model.galaxies.empty() && !propagateGalaxies(model, domains))
+  if (!model.walked.galaxies.empty() && !propagateGalaxies(model, domains))
     return false;
   if (!model.letters.empty() && !propagateLetters(domains, model))
     return false;

@@ -220,6 +220,9 @@ export function at(config: LogicGridTest, cells: number[], x: number, y: number)
   return cells[y * config.gridWidth + x] ?? UNPLAYABLE;
 }
 
+/** What `holds` hands back, so a shape test can take the probe as a parameter. */
+export type Held = (x: number, y: number) => boolean;
+
 /** A bounds-checked "is (x, y) on the board and holding `color`" reader — the
  * probe the centre-anchored scans share, since their steps walk off the board. */
 export function holds(config: LogicGridTest, cells: number[], color: number) {

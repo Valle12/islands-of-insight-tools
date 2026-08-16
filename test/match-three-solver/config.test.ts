@@ -10,7 +10,6 @@ import {
   validateConfig,
 } from "../../src/pages/match-three-solver/config";
 import { SYMBOL_COUNT } from "../../src/pages/match-three-solver/symbols";
-import type { MatchThreeCell } from "../../src/util/types";
 
 const VALID = {
   gridWidth: 3,
@@ -19,7 +18,7 @@ const VALID = {
     [symbolCell(0), BLOCKED],
     [EMPTY, symbolCell(1)],
     [symbolCell(1), symbolCell(0)],
-  ] as MatchThreeCell[][],
+  ] as number[][],
 };
 
 /** The highest legal cell value: every symbol the app knows. */

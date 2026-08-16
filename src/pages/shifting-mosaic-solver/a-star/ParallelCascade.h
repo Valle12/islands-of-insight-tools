@@ -69,6 +69,37 @@ struct ArmOutcome {
   uint32_t wallMs = 0;
 };
 
+// The board every arm searches. Grouped because all three entry points below
+// take exactly these six together and nothing else — a 16-parameter signature
+// (cpp:S107) is precisely where a transposed pair of same-typed arguments
+// hides, and the note on the jam defaults below records one that already did.
+//
+// Holds references: it is always a short-lived local passed straight down, and
+// solveArmsParallel blocks on its join, so the referents always outlive it.
+struct Board {
+  uint8_t gridWidth = 0;
+  uint8_t gridHeight = 0;
+  const std::vector<std::vector<Position>> &shapes;
+  const std::vector<Position> &initialAnchors;
+  uint8_t goalIndex = 0;
+  Position goalAnchor{};
+};
+
+// Budget and tuning shared by every arm. The jam defaults defer to
+// DragSolver::Config's own rather than re-declaring literals — see the note on
+// runArm for what re-declaring them cost last time.
+struct Budget {
+  uint32_t maxMs = 0;   // per arm
+  uint32_t maxNodes = 0;
+  bool postProcess = false;
+  uint64_t maxHeapBytes = 0;
+  // Caps the SEQUENTIAL phase as a whole; the race ignores it, since there the
+  // arms run concurrently and maxMs already bounds the wall clock.
+  uint32_t totalMaxMs = 0;
+  uint8_t jamAspect16 = DragSolver::Config{}.jam.aspect16;
+  uint8_t jamDensityPct = DragSolver::Config{}.jam.densityPct;
+};
+
 // One production arm, extracted so the parallel race and the sequential
 // fallback run byte-identical configurations — two copies would drift.
 //
@@ -80,121 +111,115 @@ struct ArmOutcome {
 // boards — seed 41193 (37x9) is solved by arm 6 in 12ms but excluded by the
 // aspect test, and 42889 (25x7) likewise. So phase 2 runs every arm ungated.
 inline std::vector<Turn>
-runArm(const int arm, const uint8_t gridWidth, const uint8_t gridHeight,
-       const std::vector<std::vector<Position>> &shapes,
-       const std::vector<Position> &initialAnchors, const uint8_t goalIndex,
-       const Position goalAnchor, const uint32_t maxMs, const uint32_t maxNodes,
-       const bool postProcess, const uint64_t maxHeapBytes,
+runArm(const int arm, const Board &board, const Budget &budget,
        std::atomic<bool> *cancel,
        const std::function<void(uint32_t)> &onArmProgress,
-       // Defer to DragSolver::Config's own defaults rather than re-declaring
-       // them here: the literals used to be 42/40, which silently overrode the
-       // validated 66/35 relaxation for every caller that did not pass them
-       // (wasm_bindings.cpp and json_test.cpp both omit these arguments), so
-       // the shipped cross-origin-isolated build and the C++ test suite ran the
-       // pre-relaxation gate while main.cpp ran the relaxed one.
-       const bool respectJamGate,
-       const uint8_t jamAspect16 = DragSolver::Config{}.jamAspect16,
-       const uint8_t jamDensityPct = DragSolver::Config{}.jamDensityPct) {
+       // The one deliberate difference between the two callers; see above.
+       const bool respectJamGate) {
   switch (arm) {
   case 0: { // receding-horizon drag search — fast on cut-structured puzzles
     DragSolver::Config cfg;
-    cfg.maxHeapBytes = maxHeapBytes;
-    cfg.jamAspect16 = jamAspect16;
-    cfg.jamDensityPct = jamDensityPct;
+    cfg.stop.maxHeapBytes = budget.maxHeapBytes;
+    cfg.jam.aspect16 = budget.jamAspect16;
+    cfg.jam.densityPct = budget.jamDensityPct;
     cfg.weight = 3;
     cfg.settledOnly = true;
     cfg.partialExpansionWidth = 48;
-    cfg.postProcess = postProcess;
-    cfg.cancel = cancel;
-    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
-                      goalAnchor, cfg);
+    cfg.postProcess = budget.postProcess;
+    cfg.stop.cancel = cancel;
+    DragSolver solver(board.gridWidth, board.gridHeight, board.shapes,
+                      board.initialAnchors, board.goalIndex, board.goalAnchor,
+                      cfg);
     solver.setOnProgress(onArmProgress);
-    return solver.searchHierarchical(maxMs, maxNodes);
+    return solver.searchHierarchical(budget.maxMs, budget.maxNodes);
   }
   case 1: { // the deep-puzzle flat drag config (cracked shiftingMosaicTest37)
     DragSolver::Config cfg;
-    cfg.maxHeapBytes = maxHeapBytes;
-    cfg.jamAspect16 = jamAspect16;
-    cfg.jamDensityPct = jamDensityPct;
+    cfg.stop.maxHeapBytes = budget.maxHeapBytes;
+    cfg.jam.aspect16 = budget.jamAspect16;
+    cfg.jam.densityPct = budget.jamDensityPct;
     cfg.weight = 4;
     cfg.settledOnly = true;
     cfg.partialExpansionWidth = 64;
-    cfg.postProcess = postProcess;
-    cfg.cancel = cancel;
-    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
-                      goalAnchor, cfg);
+    cfg.postProcess = budget.postProcess;
+    cfg.stop.cancel = cancel;
+    DragSolver solver(board.gridWidth, board.gridHeight, board.shapes,
+                      board.initialAnchors, board.goalIndex, board.goalAnchor,
+                      cfg);
     solver.setOnProgress(onArmProgress);
-    return solver.search(maxMs, maxNodes == 0 ? 0 : maxNodes);
+    return solver.search(budget.maxMs, budget.maxNodes);
   }
   case 2: { // the legacy unit-move production config — zero-regression arm
     AStar::Config cfg;
-    cfg.maxHeapBytes = maxHeapBytes;
+    cfg.maxHeapBytes = budget.maxHeapBytes;
     // no jamAspect16 here: the unit arm is AStar and has no jam gate.
     cfg.weight = 3;
     cfg.pathBlockerWeight = 1;
     cfg.boundaryDistanceWeight = 1;
     cfg.axisAwareWeight = 1;
     cfg.lpDisplacementWeight = 1;
-    cfg.postProcess = postProcess;
+    cfg.postProcess = budget.postProcess;
     cfg.cancel = cancel;
-    AStar solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
-                 goalAnchor, cfg);
+    AStar solver(board.gridWidth, board.gridHeight, board.shapes,
+                 board.initialAnchors, board.goalIndex, board.goalAnchor, cfg);
     solver.setOnProgress(onArmProgress);
-    return solver.search(maxMs, maxNodes);
+    return solver.search(budget.maxMs, budget.maxNodes);
   }
   case 3: { // corridor — synthetic distance bands (declines fast on cut boards)
     DragSolver::Config cfg;
-    cfg.maxHeapBytes = maxHeapBytes;
-    cfg.jamAspect16 = jamAspect16;
-    cfg.jamDensityPct = jamDensityPct;
+    cfg.stop.maxHeapBytes = budget.maxHeapBytes;
+    cfg.jam.aspect16 = budget.jamAspect16;
+    cfg.jam.densityPct = budget.jamDensityPct;
     cfg.weight = 3;
     cfg.settledOnly = true;
     cfg.partialExpansionWidth = 48;
     cfg.corridorBands = true;
-    cfg.postProcess = postProcess;
-    cfg.cancel = cancel;
-    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
-                      goalAnchor, cfg);
+    cfg.postProcess = budget.postProcess;
+    cfg.stop.cancel = cancel;
+    DragSolver solver(board.gridWidth, board.gridHeight, board.shapes,
+                      board.initialAnchors, board.goalIndex, board.goalAnchor,
+                      cfg);
     solver.setOnProgress(onArmProgress);
-    return solver.searchHierarchical(maxMs, maxNodes);
+    return solver.searchHierarchical(budget.maxMs, budget.maxNodes);
   }
   case 4: { // assembly — pack-then-slide (declines fast without a packing)
     DragSolver::Config cfg;
-    cfg.maxHeapBytes = maxHeapBytes;
-    cfg.jamAspect16 = jamAspect16;
-    cfg.jamDensityPct = jamDensityPct;
-    cfg.postProcess = postProcess;
-    cfg.cancel = cancel;
-    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
-                      goalAnchor, cfg);
+    cfg.stop.maxHeapBytes = budget.maxHeapBytes;
+    cfg.jam.aspect16 = budget.jamAspect16;
+    cfg.jam.densityPct = budget.jamDensityPct;
+    cfg.postProcess = budget.postProcess;
+    cfg.stop.cancel = cancel;
+    DragSolver solver(board.gridWidth, board.gridHeight, board.shapes,
+                      board.initialAnchors, board.goalIndex, board.goalAnchor,
+                      cfg);
     solver.setOnProgress(onArmProgress);
-    return solver.searchAssembly(maxMs, maxNodes);
+    return solver.searchAssembly(budget.maxMs, budget.maxNodes);
   }
   case 5: { // jam — relevance filter + commutativity pruning for compact
             // dense boards where the unrestricted searches drown
     DragSolver::Config cfg;
-    cfg.maxHeapBytes = maxHeapBytes;
-    cfg.jamAspect16 = jamAspect16;
-    cfg.jamDensityPct = jamDensityPct;
+    cfg.stop.maxHeapBytes = budget.maxHeapBytes;
+    cfg.jam.aspect16 = budget.jamAspect16;
+    cfg.jam.densityPct = budget.jamDensityPct;
     cfg.weight = 4;
     cfg.settledOnly = true;
     cfg.partialExpansionWidth = 64;
     cfg.sleepSets = true;
     cfg.relevantOnly = true;
-    cfg.postProcess = postProcess;
-    cfg.cancel = cancel;
-    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
-                      goalAnchor, cfg);
+    cfg.postProcess = budget.postProcess;
+    cfg.stop.cancel = cancel;
+    DragSolver solver(board.gridWidth, board.gridHeight, board.shapes,
+                      board.initialAnchors, board.goalIndex, board.goalAnchor,
+                      cfg);
     solver.setOnProgress(onArmProgress);
-    return solver.search(maxMs, maxNodes);
+    return solver.search(budget.maxMs, budget.maxNodes);
   }
   case 6: { // jam restarts — dig-cost-guided diversified rounds for compact
             // dense 0-cut boards (cracked seeds 10276/4722; bands covers 9164)
     DragSolver::Config cfg;
-    cfg.maxHeapBytes = maxHeapBytes;
-    cfg.jamAspect16 = jamAspect16;
-    cfg.jamDensityPct = jamDensityPct;
+    cfg.stop.maxHeapBytes = budget.maxHeapBytes;
+    cfg.jam.aspect16 = budget.jamAspect16;
+    cfg.jam.densityPct = budget.jamDensityPct;
     cfg.corridorBands = true; // synthesizes only on 0-cut long-path boards
     // Luby-shaped round caps: at the browser's ~300s/arm budget the stock
     // 1.5M-node cap yields only ~4 restart rounds, but the elite ratchet is a
@@ -202,35 +227,37 @@ runArm(const int arm, const uint8_t gridWidth, const uint8_t gridHeight,
     // family at 300s, luby20k/e64 descends the ratchet -46% deeper than stock
     // (mean minJamTerm 40->21.7) — best of every config tried. See
     // HARD-BOARDS.md.
-    cfg.jamRoundNodeCap = 20000;
-    cfg.jamMaxElites = 64;
-    cfg.jamLubyRestarts = true;
-    cfg.postProcess = postProcess;
-    cfg.cancel = cancel;
-    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
-                      goalAnchor, cfg);
+    cfg.jam.roundNodeCap = 20000;
+    cfg.jam.maxElites = 64;
+    cfg.jam.lubyRestarts = true;
+    cfg.postProcess = budget.postProcess;
+    cfg.stop.cancel = cancel;
+    DragSolver solver(board.gridWidth, board.gridHeight, board.shapes,
+                      board.initialAnchors, board.goalIndex, board.goalAnchor,
+                      cfg);
     if (respectJamGate && !solver.jamProfile())
       return {};
     solver.setOnProgress(onArmProgress);
-    return solver.searchJamRestarts(maxMs, maxNodes);
+    return solver.searchJamRestarts(budget.maxMs, budget.maxNodes);
   }
   case 7: { // guided beam — breadth against the jam plateaus the restart
             // rounds dive past. Heavy penalty is the config that cracked 3870.
     DragSolver::Config cfg;
-    cfg.maxHeapBytes = maxHeapBytes;
-    cfg.jamAspect16 = jamAspect16;
-    cfg.jamDensityPct = jamDensityPct;
+    cfg.stop.maxHeapBytes = budget.maxHeapBytes;
+    cfg.jam.aspect16 = budget.jamAspect16;
+    cfg.jam.densityPct = budget.jamDensityPct;
     cfg.corridorBands = true;
-    cfg.jamGuideWeight = 8;
-    cfg.jamBlockerPenalty = 8;
-    cfg.postProcess = postProcess;
-    cfg.cancel = cancel;
-    DragSolver solver(gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
-                      goalAnchor, cfg);
+    cfg.jam.guideWeight = 8;
+    cfg.jam.blockerPenalty = 8;
+    cfg.postProcess = budget.postProcess;
+    cfg.stop.cancel = cancel;
+    DragSolver solver(board.gridWidth, board.gridHeight, board.shapes,
+                      board.initialAnchors, board.goalIndex, board.goalAnchor,
+                      cfg);
     if (respectJamGate && !solver.jamProfile())
       return {};
     solver.setOnProgress(onArmProgress);
-    return solver.searchBeamJam(maxMs, maxNodes);
+    return solver.searchBeamJam(budget.maxMs, budget.maxNodes);
   }
   default:
     return {};
@@ -239,28 +266,19 @@ runArm(const int arm, const uint8_t gridWidth, const uint8_t gridHeight,
 
 } // namespace cascade
 
-// Races the production solver arms on std::threads and returns the first
+// Races the production solver arms on std::jthreads and returns the first
 // non-empty plan (the others are cancelled cooperatively). Works both natively
 // and under emscripten pthreads. The caller's thread blocks in here, polling
 // per-arm progress atomics and forwarding their sum to `onProgress` — arms
 // themselves never touch the callback, so under emscripten only the calling
 // (module) thread ever crosses into JS.
-inline std::vector<Turn> solveArmsParallel(
-    const uint8_t gridWidth, const uint8_t gridHeight,
-    const std::vector<std::vector<Position>> &shapes,
-    const std::vector<Position> &initialAnchors, const uint8_t goalIndex,
-    const Position goalAnchor, const uint32_t maxMs, const uint32_t maxNodes,
-    const bool postProcess, const std::function<void(uint32_t)> &onProgress,
-    // Measured-bytes ceiling applied to EVERY arm. 0 = unlimited. This matters
-    // most here and nowhere else: under emscripten pthreads all 8 arms share
-    // ONE heap, so an unbounded arm does not merely fail itself — exhausting a
-    // shared wasm heap ABORTS the module, taking down arms that were winning.
-    const uint64_t maxHeapBytes = 0,
-    const uint8_t jamAspect16 = DragSolver::Config{}.jamAspect16,
-    const uint8_t jamDensityPct = DragSolver::Config{}.jamDensityPct,
-    std::vector<cascade::ArmOutcome> *outcomes = nullptr) {
+inline std::vector<Turn>
+solveArmsParallel(const cascade::Board &board, const cascade::Budget &budget,
+                  const std::function<void(uint32_t)> &onProgress,
+                  std::vector<cascade::ArmOutcome> *outcomes = nullptr) {
   using cascade::ARMS;
-  if (cascade::alreadySolved(initialAnchors, goalIndex, goalAnchor)) {
+  if (cascade::alreadySolved(board.initialAnchors, board.goalIndex,
+                             board.goalAnchor)) {
     if (outcomes)
       outcomes->clear();
     return {};
@@ -269,7 +287,7 @@ inline std::vector<Turn> solveArmsParallel(
   std::atomic winner{-1};
   std::atomic finished{0};
   std::array<std::atomic<uint32_t>, ARMS> progress = {};
-  std::vector<Turn> results[ARMS];
+  std::array<std::vector<Turn>, ARMS> results = {};
 
   const auto claimWin = [&](const int arm) {
     if (int expected = -1; winner.compare_exchange_strong(expected, arm))
@@ -277,17 +295,24 @@ inline std::vector<Turn> solveArmsParallel(
   };
 
   std::array<std::atomic<uint32_t>, ARMS> armMs = {};
-  std::array<std::thread, ARMS> threads;
+  // jthread, so an exception escaping between here and the join below still
+  // joins on the way out rather than calling std::terminate. The explicit
+  // join is KEPT: the results are read after it, and relying on the
+  // destructor would let that read race the arms still writing.
+  std::array<std::jthread, ARMS> threads;
   for (int i = 0; i < ARMS; i++) {
-    threads[i] = std::thread([&, i] {
+    // Spelled out rather than `[&, i]`: this is the one lambda here that
+    // outlives its enclosing statement, so what it holds by reference is worth
+    // reading off the capture list. Everything captured by reference outlives
+    // the thread — `solveArmsParallel` blocks on the join below — and the
+    // scalars are copied.
+    threads[i] = std::jthread([&results, &cancel, &progress, &armMs, &finished,
+                               &claimWin, &board, &budget, i] {
       const uint64_t started = cascade::nowMsSteady();
       results[i] = cascade::runArm(
-          i, gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
-          goalAnchor, maxMs, maxNodes, postProcess, maxHeapBytes, &cancel,
-          [&progress, i](const uint32_t n) {
-            progress[i].store(n);
-          },
-          /*respectJamGate=*/true, jamAspect16, jamDensityPct);
+          i, board, budget, &cancel,
+          [&progress, i](const uint32_t n) { progress[i].store(n); },
+          /*respectJamGate=*/true);
       armMs[i].store(static_cast<uint32_t>(cascade::nowMsSteady() - started));
       if (!results[i].empty())
         claimWin(i);
@@ -346,15 +371,9 @@ inline std::vector<Turn> solveArmsParallel(
 // phase outright. Callers must tell the user this phase has started — it is
 // materially slower than the race.
 inline std::vector<Turn> solveArmsSequential(
-    const uint8_t gridWidth, const uint8_t gridHeight,
-    const std::vector<std::vector<Position>> &shapes,
-    const std::vector<Position> &initialAnchors, const uint8_t goalIndex,
-    const Position goalAnchor, const uint32_t maxMsPerArm,
-    const uint32_t totalMaxMs, const uint32_t maxNodes, const bool postProcess,
+    const cascade::Board &board, const cascade::Budget &budget,
     const std::function<void(uint32_t)> &onProgress,
-    const uint64_t maxHeapBytes = 0, std::atomic<bool> *cancel = nullptr,
-    const uint8_t jamAspect16 = DragSolver::Config{}.jamAspect16,
-    const uint8_t jamDensityPct = DragSolver::Config{}.jamDensityPct,
+    std::atomic<bool> *cancel = nullptr,
     std::vector<cascade::ArmOutcome> *outcomes = nullptr,
     // Called as each arm starts. The browser surfaces this so the slow phase
     // visibly progresses; without it the UI sits on one unchanged line for
@@ -368,11 +387,14 @@ inline std::vector<Turn> solveArmsSequential(
   // ORDER below is derived from.
   if (outcomes)
     outcomes->clear();
-  if (cascade::alreadySolved(initialAnchors, goalIndex, goalAnchor))
+  if (cascade::alreadySolved(board.initialAnchors, board.goalIndex,
+                             board.goalAnchor))
     return {};
 
   const uint64_t deadline =
-      totalMaxMs == 0 ? 0 : cascade::nowMsSteady() + totalMaxMs;
+      budget.totalMaxMs == 0
+          ? 0
+          : cascade::nowMsSteady() + budget.totalMaxMs;
   uint32_t carried = 0; // progress from arms already finished
 
   // ORDER is MEASURED, not assumed: all 8 arms were run standalone against
@@ -403,13 +425,14 @@ inline std::vector<Turn> solveArmsSequential(
        const int arm : ORDER) {
     if (cancel && cancel->load())
       return {};
-    uint32_t budget = maxMsPerArm;
+    uint32_t armBudget = budget.maxMs;
     if (deadline != 0) {
       const uint64_t now = cascade::nowMsSteady();
       if (now >= deadline)
         break;
       const auto left = static_cast<uint32_t>(deadline - now);
-      budget = maxMsPerArm == 0 ? left : std::min(maxMsPerArm, left);
+      armBudget =
+          budget.maxMs == 0 ? left : std::min(budget.maxMs, left);
     }
     const uint32_t armBase = carried;
     if (onArmStart)
@@ -419,15 +442,17 @@ inline std::vector<Turn> solveArmsSequential(
     // arms run in series here.
     uint32_t armLast = 0;
     const uint64_t started = cascade::nowMsSteady();
+    // This arm's own slice of the phase budget; everything else is shared.
+    cascade::Budget armSpec = budget;
+    armSpec.maxMs = armBudget;
     auto turns = cascade::runArm(
-        arm, gridWidth, gridHeight, shapes, initialAnchors, goalIndex,
-        goalAnchor, budget, maxNodes, postProcess, maxHeapBytes, cancel,
+        arm, board, armSpec, cancel,
         [&onProgress, &armLast, armBase](const uint32_t n) {
           armLast = n;
           if (onProgress)
             onProgress(armBase + n);
         },
-        /*respectJamGate=*/false, jamAspect16, jamDensityPct);
+        /*respectJamGate=*/false);
     const auto ms = static_cast<uint32_t>(cascade::nowMsSteady() - started);
     if (outcomes)
       outcomes->push_back({.arm = arm,

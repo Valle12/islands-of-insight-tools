@@ -61,19 +61,16 @@ export type RollingBlocksTest = {
   turns: Turn[] | undefined;
 };
 
-/**
- * A match-three cell, encoded as a single index — see
- * `src/pages/match-three-solver/cell.ts` for the constants. 0 is empty, 1 is a
- * fixed obstacle, and 2+ index the fixed symbol list in `symbols.ts`. That
- * list is append-only, which is what lets a saved board keep its meaning as
- * new symbols are added.
- */
-export type MatchThreeCell = number;
-
 export type MatchThreeTest = {
   gridWidth: number;
   gridHeight: number;
-  cells: MatchThreeCell[][];
+  /**
+   * One index per cell: 0 empty, 1 a fixed obstacle, 2+ the append-only symbol
+   * list. `src/pages/match-three-solver/cell.ts` owns that encoding and is
+   * where it is documented — go through `symbolCell` / `symbolIndexOf` /
+   * `isSymbol` rather than the raw `+ 2`.
+   */
+  cells: number[][];
 };
 
 /** An area number is a number; a letter is a single `A`-`Z` character. */

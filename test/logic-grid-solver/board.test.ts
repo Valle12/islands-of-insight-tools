@@ -413,36 +413,49 @@ describe("Board (logic grid)", () => {
   });
 
   describe("Typing on a cell", () => {
-    test("a digit stamps an area number", () => {
-      const board = makeBoard(4, 4, "dark", 0, 1);
-      type(0, 0, "7");
-      expect(board.getSymbols()).toEqual([{ x: 0, y: 0, type: 0, value: 7 }]);
-    });
-
     /**
-     * The ceiling applies to the FIRST digit too, not only to a grown one: a
-     * 2x2 board's area tops out at 4, so a single keystroke can already
-     * overshoot and there is no earlier value to fall back to.
+     * Digits typed on (0, 0) of a square board, as one table because all four
+     * cases are the same three steps with different numbers. What each row is
+     * for, since a table row cannot carry its own comment:
+     *
+     * 1. the plain stamp;
+     * 2. the ceiling applies to the FIRST digit too, not only to a grown one —
+     *    a 2x2 board's area tops out at 4, so a single keystroke can already
+     *    overshoot and there is no earlier value to fall back to;
+     * 3. areas run past nine, so consecutive digits on one cell accumulate;
+     * 4. a grown number that would outgrow the board keeps its earlier value.
      */
-    test("a first digit above the board's area is refused", () => {
-      const board = makeBoard(2, 2, "dark", 0, 1);
-      type(0, 0, "7");
-      expect(board.getSymbols()).toEqual([]);
-    });
+    type DigitCase = [
+      name: string,
+      size: number,
+      digits: string[],
+      expected: { x: number; y: number; type: number; value: number }[],
+    ];
 
-    /** Areas run past nine, so consecutive digits on one cell accumulate. */
-    test("consecutive digits build a multi-digit area", () => {
-      const board = makeBoard(4, 4, "dark", 0, 1);
-      type(0, 0, "1");
-      type(0, 0, "2");
-      expect(board.getSymbols()[0]!.value).toBe(12);
-    });
-
-    test("a number that would outgrow the board is refused", () => {
-      const board = makeBoard(2, 2, "dark", 0, 1);
-      type(0, 0, "3");
-      type(0, 0, "9");
-      expect(board.getSymbols()[0]!.value).toBe(3);
+    test.each<DigitCase>([
+      [
+        "a digit stamps an area number",
+        4,
+        ["7"],
+        [{ x: 0, y: 0, type: 0, value: 7 }],
+      ],
+      ["a first digit above the board's area is refused", 2, ["7"], []],
+      [
+        "consecutive digits build a multi-digit area",
+        4,
+        ["1", "2"],
+        [{ x: 0, y: 0, type: 0, value: 12 }],
+      ],
+      [
+        "a number that would outgrow the board is refused",
+        2,
+        ["3", "9"],
+        [{ x: 0, y: 0, type: 0, value: 3 }],
+      ],
+    ])("%s", (_name, size, digits, expected) => {
+      const board = makeBoard(size, size, "dark", 0, 1);
+      for (const digit of digits) type(0, 0, digit);
+      expect(board.getSymbols()).toEqual(expected);
     });
 
     test("moving to another cell starts a fresh number", () => {

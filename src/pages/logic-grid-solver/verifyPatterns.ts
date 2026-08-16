@@ -39,6 +39,7 @@ import {
   NO_LIGHT_T,
   NO_THREE_DARK_ONE_LIGHT,
   NO_THREE_LIGHT_ONE_DARK,
+  type Held,
   type LogicGridViolation,
   type RuleCheck,
 } from "./verifyCore";
@@ -309,18 +310,23 @@ function hasEll(config: LogicGridTest, cells: number[], color: number) {
   const held = holds(config, cells, color);
   for (let y = 0; y < config.gridHeight; y++) {
     for (let x = 0; x < config.gridWidth; x++) {
-      if (!held(x, y)) continue;
-      const corner =
-        held(x - 1, y - 1) ||
-        held(x - 1, y + 1) ||
-        held(x + 1, y - 1) ||
-        held(x + 1, y + 1);
-      if (!corner) continue;
-      if (held(x - 1, y) && held(x + 1, y)) return true;
-      if (held(x, y - 1) && held(x, y + 1)) return true;
+      if (held(x, y) && isEllAt(held, x, y)) return true;
     }
   }
   return false;
+}
+
+/** The shape test of `hasEll`, for the bar's middle at `(x, y)`. */
+function isEllAt(held: Held, x: number, y: number) {
+  const corner =
+    held(x - 1, y - 1) ||
+    held(x - 1, y + 1) ||
+    held(x + 1, y - 1) ||
+    held(x + 1, y + 1);
+  if (!corner) return false;
+  return (
+    (held(x - 1, y) && held(x + 1, y)) || (held(x, y - 1) && held(x, y + 1))
+  );
 }
 
 function ellProblem(
@@ -407,24 +413,23 @@ function hasLongTee(config: LogicGridTest, cells: number[], color: number) {
   const held = holds(config, cells, color);
   for (let y = 0; y < config.gridHeight; y++) {
     for (let x = 0; x < config.gridWidth; x++) {
-      if (!held(x, y)) continue;
-      if (
-        held(x - 1, y) &&
-        held(x + 1, y) &&
-        ((held(x, y - 1) && held(x, y - 2)) ||
-          (held(x, y + 1) && held(x, y + 2)))
-      )
-        return true;
-      if (
-        held(x, y - 1) &&
-        held(x, y + 1) &&
-        ((held(x - 1, y) && held(x - 2, y)) ||
-          (held(x + 1, y) && held(x + 2, y)))
-      )
-        return true;
+      if (held(x, y) && isLongTeeAt(held, x, y)) return true;
     }
   }
   return false;
+}
+
+/** The shape test of `hasLongTee`, for the crossing at `(x, y)`. */
+function isLongTeeAt(held: Held, x: number, y: number) {
+  const acrossBar = held(x - 1, y) && held(x + 1, y);
+  const downStem =
+    (held(x, y - 1) && held(x, y - 2)) || (held(x, y + 1) && held(x, y + 2));
+  if (acrossBar && downStem) return true;
+
+  const downBar = held(x, y - 1) && held(x, y + 1);
+  const acrossStem =
+    (held(x - 1, y) && held(x - 2, y)) || (held(x + 1, y) && held(x + 2, y));
+  return downBar && acrossStem;
 }
 
 function longTeeProblem(

@@ -69,7 +69,7 @@ export class SolutionView {
     const { steps, legalUpTo } = replayTurns(puzzle, turns);
     this.steps = steps;
     this.playable = legalUpTo;
-    const last = steps[steps.length - 1]!;
+    const last = steps.at(-1)!;
     this.solvedAtEnd = isSolved(puzzle, last.blocks, last.satisfied);
 
     const { signal } = this.controller;

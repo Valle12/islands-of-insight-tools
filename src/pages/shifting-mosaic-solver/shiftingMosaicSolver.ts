@@ -79,7 +79,7 @@ export class ShiftingMosaicSolverEditor {
   private gridWidth = ShiftingMosaicSolverEditor.DEFAULT_GRID_WIDTH;
   private gridHeight = ShiftingMosaicSolverEditor.DEFAULT_GRID_HEIGHT;
   private selectedTool: ShiftingMosaicTool = "obstruction";
-  private board: Board;
+  private readonly board: Board;
   private currentWorker: SolverHandle | null = null;
   // Bumped by stopCurrentWorker, captured by each solve. A callback whose
   // generation is stale belongs to a run the user has already cancelled or

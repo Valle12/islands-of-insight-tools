@@ -644,7 +644,7 @@ Violation symbolProblem(const Model &model, const Bits &dark,
  * holds the dart's own colour, so none of them is ever the other one.
  */
 Violation dartProblem(const Model &model, const Colors &colors) {
-  for (const int id : model.dartClues) {
+  for (const int id : model.walked.dartClues) {
     const Clue &clue = model.puzzle.clues[slot(id)];
     // A dart nobody can read is a dart nothing satisfies. Only reachable from a
     // puzzle that skipped `structureProblem`, which is what names it properly.
@@ -678,7 +678,7 @@ Violation dartProblem(const Model &model, const Colors &colors) {
  */
 Violation lotusProblem(const Model &model, const Colors &colors) {
   using enum Violation;
-  for (const int id : model.lotusClues) {
+  for (const int id : model.walked.lotusClues) {
     const Clue &clue = model.puzzle.clues[slot(id)];
     // A lotus nobody can read is one nothing satisfies. Only reachable from a
     // puzzle that skipped `structureProblem`, which names it properly.
@@ -716,7 +716,7 @@ Violation lotusProblem(const Model &model, const Colors &colors) {
  * this has to catch.
  */
 Violation viewpointProblem(const Model &model, const Colors &colors) {
-  for (const int id : model.viewpointClues) {
+  for (const int id : model.walked.viewpointClues) {
     const Clue &clue = model.puzzle.clues[slot(id)];
     const uint8_t own = colors[slot(clue.index)];
     int count = 1;
@@ -746,7 +746,7 @@ Violation viewpointProblem(const Model &model, const Colors &colors) {
  */
 Violation galaxyProblem(const Model &model, const Colors &colors) {
   using enum Violation;
-  for (const int id : model.galaxyClues) {
+  for (const int id : model.walked.galaxyClues) {
     const Clue &clue = model.puzzle.clues[slot(id)];
     const int gx = columnOf(clue.index);
     const int gy = rowOf(clue.index);

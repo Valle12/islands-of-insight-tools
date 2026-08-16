@@ -152,11 +152,11 @@ void DragSolver::applyRoundConfig(const Round &round, const uint32_t r,
   cfg_.weight = round.weight;
   cfg_.settledOnly = round.settled;
   cfg_.partialExpansionWidth = round.pea;
-  cfg_.jamGuideWeight = round.jamGuide;
-  cfg_.jamBlockerPenalty = round.jamPenalty;
+  cfg_.jam.guideWeight = round.jamGuide;
+  cfg_.jam.blockerPenalty = round.jamPenalty;
   cfg_.sleepSets = round.por;
   cfg_.relevantOnly = round.relevant;
-  cfg_.jamPinRoute = round.pin || saved.jamPinRoute;
+  cfg_.jam.pinRoute = round.pin || saved.jam.pinRoute;
   jamPinned_ = false; // each round pins its own start's route
   // Round 0 of each config keeps the deterministic tie-break; later cycles
   // jitter it so plateaus break differently every time around.
@@ -167,9 +167,9 @@ uint32_t DragSolver::jamRoundCap(const Round &round, const Config &saved,
                                  const uint32_t restarts,
                                  const uint32_t maxNodes) const {
   uint32_t cap = round.nodeCap;
-  if (saved.jamRoundNodeCap != 0) {
-    const uint64_t unit = saved.jamLubyRestarts ? lubyUnit(restarts) : 1;
-    const uint64_t scaled = static_cast<uint64_t>(saved.jamRoundNodeCap) * unit;
+  if (saved.jam.roundNodeCap != 0) {
+    const uint64_t unit = saved.jam.lubyRestarts ? lubyUnit(restarts) : 1;
+    const uint64_t scaled = static_cast<uint64_t>(saved.jam.roundNodeCap) * unit;
     cap = static_cast<uint32_t>(
         std::min<uint64_t>(cap, std::max<uint64_t>(1, scaled)));
   }
@@ -295,7 +295,7 @@ std::vector<Turn> DragSolver::searchJamRestarts(const uint32_t maxMs,
   // rounds. Odd rounds warm-start from an elite's end state instead of the
   // root — successive rounds resume where the best prior round got stuck,
   // with a different config/seed, instead of re-treading the whole prefix.
-  const size_t maxElites = std::max<size_t>(1, cfg_.jamMaxElites);
+  const size_t maxElites = std::max<size_t>(1, cfg_.jam.maxElites);
   std::vector<Elite> elites;
 
   std::vector<Turn> turns;
@@ -313,8 +313,8 @@ std::vector<Turn> DragSolver::searchJamRestarts(const uint32_t maxMs,
     JamRound jr;
     if (!elites.empty() && (r & 1u) != 0) {
       jr.from = &elites[(r >> 1u) % elites.size()];
-      if (cfg_.jamGuideWeight == 0)
-        cfg_.jamGuideWeight = 8;
+      if (cfg_.jam.guideWeight == 0)
+        cfg_.jam.guideWeight = 8;
       perturbFrom(r, jr);
     }
     if (const SegmentResult res = runAStarDrag(jamStartAnchors(jr),
