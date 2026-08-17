@@ -4,6 +4,8 @@ add_executable(logic_grid_tests
     verify_test.cpp
     propagate_test.cpp
     profile_test.cpp
+    routing_test.cpp
+    packing_test.cpp
     reference_test.cpp
     fixtures_test.cpp
 )

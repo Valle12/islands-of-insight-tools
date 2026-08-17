@@ -17,7 +17,7 @@
 namespace lg::arms {
 
 inline constexpr auto kEngines = std::to_array<const char *>(
-    {"cascade", "deduce", "dfs", "forced", "profile"});
+    {"cascade", "deduce", "dfs", "forced", "packing", "profile", "routing"});
 
 struct ArmSpec {
   const char *engine = "cascade";

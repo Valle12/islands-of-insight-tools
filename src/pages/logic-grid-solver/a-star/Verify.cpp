@@ -9,8 +9,16 @@
 #include <array>
 #include <cstdint>
 #include <cstdlib>
+#include <vector>
 
 namespace lg::verify {
+
+bool countMatches(const Model &model, const int actual, const int displayed) {
+  if (model.hasRule(rules::Rule::OffByOne))
+    return std::abs(actual - displayed) == 1;
+  return actual == displayed;
+}
+
 namespace {
 
 using rules::Rule;
@@ -568,14 +576,65 @@ Violation regionSizeProblem(const Model &model, const Bits &dark,
   return wrong ? Violation::RegionSize : Violation::None;
 }
 
-/// Whether an actual count satisfies a numeric clue's DISPLAYED value. Under
-/// `off-by-one` every numeric clue displays its true count ± 1 and never the
-/// truth, so the test is an exact distance of one — a displayed value EQUAL to
-/// the count is then a violation, not a near miss.
-bool countMatches(const Model &model, const int actual, const int displayed) {
-  if (model.hasRule(Rule::OffByOne))
-    return std::abs(actual - displayed) == 1;
-  return actual == displayed;
+/// Every maximal region of `held`, walked region by region for the reason
+/// `everyRegionIs` is: nothing points at a region, so a property of all of them
+/// is only visible from their own side.
+std::vector<Bits> regionsOf(const Bits &held) {
+  std::vector<Bits> regions;
+  Bits seen;
+  for (int i = held.nextSet(0); i >= 0; i = held.nextSet(i + 1)) {
+    if (seen.test(i))
+      continue;
+    const Bits region = component(i, held);
+    seen = seen | region;
+    regions.push_back(region);
+  }
+  return regions;
+}
+
+/// No two regions of `held` congruent. Vacuous at zero regions and at one.
+bool allShapesDiffer(const Bits &held) {
+  std::vector<Bits> keys;
+  for (const Bits &region : regionsOf(held)) {
+    const Bits key = canonicalShape(region);
+    if (std::ranges::contains(keys, key))
+      return false;
+    keys.push_back(key);
+  }
+  return true;
+}
+
+/// Every region of `held` congruent to every other. Vacuous the same way.
+bool allShapesAgree(const Bits &held) {
+  const std::vector<Bits> regions = regionsOf(held);
+  if (regions.empty())
+    return true;
+  const Bits first = canonicalShape(regions.front());
+  return std::ranges::all_of(regions, [&first](const Bits &region) {
+    return canonicalShape(region) == first;
+  });
+}
+
+Violation distinctShapeProblem(const Model &model, const Bits &dark,
+                               const Bits &light) {
+  using enum Rule;
+  using enum Violation;
+  if (model.hasRule(DistinctShapesDark) && !allShapesDiffer(dark))
+    return RegionShapeRepeat;
+  if (model.hasRule(DistinctShapesLight) && !allShapesDiffer(light))
+    return RegionShapeRepeat;
+  return None;
+}
+
+Violation sameShapeProblem(const Model &model, const Bits &dark,
+                           const Bits &light) {
+  using enum Rule;
+  using enum Violation;
+  if (model.hasRule(SameShapeDark) && !allShapesAgree(dark))
+    return RegionShapeMismatch;
+  if (model.hasRule(SameShapeLight) && !allShapesAgree(light))
+    return RegionShapeMismatch;
+  return None;
 }
 
 Violation areaProblem(const Model &model, const Colors &colors,
@@ -737,28 +796,86 @@ Violation viewpointProblem(const Model &model, const Colors &colors) {
  * Every galaxy's region maps to itself under a HALF TURN about the galaxy's
  * own square.
  *
- * The region is the connected same-colour set of squares holding the galaxy's
- * cell, and symmetry means each square's point mirror is on the board,
- * playable and the same colour — which by the region's maximality puts the
- * mirror in the region too. Geometry is re-derived from the clue, the
- * discipline `dartProblem` sets; unlike the lotus there is no readability net,
- * because a galaxy carries no axis or seat that could be unreadable.
+ * The centre may be a square's own centre, a grid line or a corner, and the
+ * turn carries a SIGN. Centred on a square, that square is its own image, so
+ * the sign can only preserve colour and the rule is what it always was.
+ * Centred between squares of DIFFERENT colours it inverts: every cell's image
+ * holds the opposite colour, so the dark region and the light region touching
+ * the centre are each other's image. The sign is read off the home square and
+ * its partner, which always exist — the home square is playable, and its
+ * partner is a square touching the centre too.
+ *
+ * A corner whose two pairs disagree about the sign needs no check of its own:
+ * the second pair's squares are in scope, so their walk demands exactly what
+ * the first pair's sign refuses.
+ *
+ * Geometry is re-derived from the clue, the discipline `dartProblem` sets —
+ * which matters more here than anywhere, since `Galaxy::seats` is a table the
+ * search built and this has to be able to disagree with it. It carries the
+ * lotus's readability net for the same reason the lotus does.
  */
+/// Whether the whole region holding `start` lands on `target`-coloured squares
+/// of the board when turned a half turn about (cx2, cy2).
+bool regionTurnsOnto(const Model &model, const Colors &colors, const int start,
+                     const int cx2, const int cy2, const uint8_t target) {
+  const uint8_t color = colors[slot(start)];
+  const Bits region = component(start, maskOf(model, colors, color));
+  for (int i = region.nextSet(0); i >= 0; i = region.nextSet(i + 1)) {
+    const auto [mx, my] = halfTurn(cx2, cy2, columnOf(i), rowOf(i));
+    if (mx < 0 || mx >= model.width() || my < 0 || my >= model.height())
+      return false;
+    if (colors[slot(cellIndex(mx, my))] != target)
+      return false;
+  }
+  return true;
+}
+
+/// Every square touching the centre, so both regions at an inverting seat are
+/// walked: the turn is an involution, so one region's image LIES IN the other,
+/// but the other may reach further and only its own walk says so.
+bool seatSquaresTurnOnto(const Model &model, const Colors &colors,
+                         const Clue &clue, const int cx2, const int cy2,
+                         const bool invert) {
+  for (int dy = 0; dy <= clue.seat >> 1; dy++) {
+    for (int dx = 0; dx <= (clue.seat & 1); dx++) {
+      const int x = columnOf(clue.index) + dx;
+      const int y = rowOf(clue.index) + dy;
+      if (x >= model.width() || y >= model.height())
+        continue;
+      const int start = cellIndex(x, y);
+      const uint8_t color = colors[slot(start)];
+      if (color == kUnplayable)
+        continue;
+      if (!regionTurnsOnto(model, colors, start, cx2, cy2,
+                           invert ? opposite(color) : color))
+        return false;
+    }
+  }
+  return true;
+}
+
 Violation galaxyProblem(const Model &model, const Colors &colors) {
   using enum Violation;
   for (const int id : model.walked.galaxyClues) {
     const Clue &clue = model.puzzle.clues[slot(id)];
-    const int gx = columnOf(clue.index);
-    const int gy = rowOf(clue.index);
-    const uint8_t color = colors[slot(clue.index)];
-    const Bits region = component(clue.index, maskOf(model, colors, color));
-    for (int i = region.nextSet(0); i >= 0; i = region.nextSet(i + 1)) {
-      const auto [mx, my] = pointMirror(gx, gy, columnOf(i), rowOf(i));
-      if (mx < 0 || mx >= model.width() || my < 0 || my >= model.height())
-        return GalaxyAsymmetric;
-      if (colors[slot(cellIndex(mx, my))] != color)
-        return GalaxyAsymmetric;
-    }
+    if (!isSeat(clue.seat))
+      return GalaxyAsymmetric;
+    const int cx2 = seatX2(clue.index, clue.seat);
+    const int cy2 = seatY2(clue.index, clue.seat);
+
+    // The home square's own image, which is where the SIGN comes from. Off the
+    // board or on a gap, the region holding the clue cannot turn at all.
+    const auto [px, py] = halfTurn(cx2, cy2, columnOf(clue.index),
+                                   rowOf(clue.index));
+    if (px < 0 || px >= model.width() || py < 0 || py >= model.height())
+      return GalaxyAsymmetric;
+    const uint8_t partner = colors[slot(cellIndex(px, py))];
+    if (partner == kUnplayable)
+      return GalaxyAsymmetric;
+
+    if (!seatSquaresTurnOnto(model, colors, clue, cx2, cy2,
+                             colors[slot(clue.index)] != partner))
+      return GalaxyAsymmetric;
   }
   return None;
 }
@@ -853,11 +970,19 @@ const char *describe(const Violation violation) {
     return "A forbidden elbow whose corner is the other colour";
   case GalaxyAsymmetric:
     return "A galaxy symbol's region does not map to itself turned about it";
+  case RegionShapeRepeat:
+    return "Two regions of one colour have the same shape";
+  case RegionShapeMismatch:
+    return "Two regions of one colour have different shapes";
   }
   return "Unknown violation";
 }
 
-Violation check(const Model &model, const Colors &colors) {
+namespace {
+
+/// The half of the list that reads the colouring alone, in the order a board
+/// breaking several of them is NAMED by.
+Violation colorChecks(const Model &model, const Colors &colors) {
   using enum Violation;
   if (const Violation problem = shapeProblem(model, colors); problem != None)
     return problem;
@@ -901,13 +1026,26 @@ Violation check(const Model &model, const Colors &colors) {
   if (const Violation problem = mixedElbowProblem(model, colors);
       problem != None)
     return problem;
+  return None;
+}
 
-  const Bits dark = maskOf(model, colors, kDark);
-  const Bits light = maskOf(model, colors, kLight);
+/// The half that needs the two colour masks, continuing the same list.
+Violation regionChecks(const Model &model, const Colors &colors,
+                       const Bits &dark, const Bits &light) {
+  using enum Violation;
   if (const Violation problem = connectivityProblem(model, dark, light);
       problem != None)
     return problem;
   if (const Violation problem = regionSizeProblem(model, dark, light);
+      problem != None)
+    return problem;
+  // Beside the size rule and ahead of the clue-driven checks, matching the
+  // order of `REGION_CHECKS` in `verifyRegions.ts` — a board breaking both
+  // size and shape has to be NAMED the same on both sides.
+  if (const Violation problem = distinctShapeProblem(model, dark, light);
+      problem != None)
+    return problem;
+  if (const Violation problem = sameShapeProblem(model, dark, light);
       problem != None)
     return problem;
   if (const Violation problem = areaProblem(model, colors, dark, light);
@@ -926,6 +1064,16 @@ Violation check(const Model &model, const Colors &colors) {
   if (const Violation problem = galaxyProblem(model, colors); problem != None)
     return problem;
   return viewpointProblem(model, colors);
+}
+
+} // namespace
+
+Violation check(const Model &model, const Colors &colors) {
+  using enum Violation;
+  if (const Violation problem = colorChecks(model, colors); problem != None)
+    return problem;
+  return regionChecks(model, colors, maskOf(model, colors, kDark),
+                      maskOf(model, colors, kLight));
 }
 
 } // namespace lg::verify

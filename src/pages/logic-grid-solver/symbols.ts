@@ -13,6 +13,24 @@ export type LogicGridValueKind = "number" | "letter" | "none";
 export type LogicGridAims = "none" | "compass" | "axis";
 
 /**
+ * Where a clue's own POINT may sit, and therefore whether it carries a `seat`
+ * key at all.
+ *
+ * `"none"` is the square's centre and nothing else — the only point a clue
+ * with no geometry of its own has. `"cell"` is the lotus: the grid lines and
+ * corners INSIDE its own merged cell, because its axis has to be a line the
+ * tile itself draws. `"board"` is the galaxy: any line or corner of the board,
+ * merged or not, because a half turn about a point needs nothing to hold the
+ * point up.
+ *
+ * Separate from `aims`, and required rather than defaulted, for exactly the
+ * reason `reach` is separate from it: seat-carrying rode on `aims === "axis"`
+ * while the lotus was the only seated kind, and a galaxy — seated, yet aiming
+ * nowhere — is the kind that coincidence mis-reads.
+ */
+export type LogicGridSeating = "none" | "cell" | "board";
+
+/**
  * The geometry a kind's number measures, and therefore what bounds it: the
  * whole `"board"` for an area number, one straight `"line"` for the dart, the
  * `"cross"` of a row and a column for the viewpoint. Ignored by a letter or
@@ -36,6 +54,8 @@ export interface LogicGridSymbolKind {
    * key in the config.
    */
   readonly aims: LogicGridAims;
+  /** Where this kind's point may sit — see `LogicGridSeating`. */
+  readonly seating: LogicGridSeating;
   /**
    * What the number measures. Required rather than defaulted so a new kind has
    * to say — the dart's line bound once rode on `aims: "compass"` because the
@@ -90,6 +110,7 @@ export const SYMBOL_KINDS: readonly LogicGridSymbolKind[] = [
     valueKind: "number",
     minValue: MIN_AREA_VALUE,
     aims: "none",
+    seating: "none",
     reach: "board",
   },
   {
@@ -99,6 +120,7 @@ export const SYMBOL_KINDS: readonly LogicGridSymbolKind[] = [
     valueKind: "letter",
     minValue: 0,
     aims: "none",
+    seating: "none",
     // Inert for a letter, like `minValue`: a letter is not a number and no
     // bound is ever asked of it.
     reach: "board",
@@ -114,6 +136,7 @@ export const SYMBOL_KINDS: readonly LogicGridSymbolKind[] = [
     // colour, which is one of the two cases that fill in immediately.
     minValue: 0,
     aims: "compass",
+    seating: "none",
     reach: "line",
   },
   {
@@ -127,6 +150,9 @@ export const SYMBOL_KINDS: readonly LogicGridSymbolKind[] = [
     valueKind: "none",
     minValue: 0,
     aims: "axis",
+    // Inside its own merged cell only: the axis is a LINE, and a tile has to
+    // be there to draw it.
+    seating: "cell",
     // Inert too: a valueless kind has no number for any reach to bound.
     reach: "board",
   },
@@ -144,6 +170,7 @@ export const SYMBOL_KINDS: readonly LogicGridSymbolKind[] = [
     // `reach: "cross"` says. The first number-carrying kind with no picker
     // since the area number, so its control is chip + field and nothing else.
     aims: "none",
+    seating: "none",
     reach: "cross",
   },
   {
@@ -159,11 +186,14 @@ export const SYMBOL_KINDS: readonly LogicGridSymbolKind[] = [
     valueKind: "none",
     minValue: 0,
     aims: "none",
+    // The centre of 180-degree rotational symmetry, and it may sit anywhere a
+    // point of the board can: a square's centre, the midpoint of an edge, or a
+    // corner where four squares meet. Unlike the lotus's it needs no merged
+    // cell under it — an axis is a LINE a tile has to draw, while a half turn
+    // needs nothing to hold its point up.
+    seating: "board",
     // Inert: a valueless kind has no number for any reach to bound.
     reach: "board",
-    // The centre of 180-degree rotational symmetry for the region holding
-    // it. Always its home square's CENTRE — no seat, even inside a merged
-    // cell — so the whole geometry is one point reflection.
     icon: GALAXY_ICON,
   },
 ];
@@ -413,15 +443,17 @@ export function symbolDirectionError(
 }
 
 /**
- * Whether `seat` is one this clue could carry — the kind-level half. Whether
- * the seat's squares really surround a point of the clue's own merged cell is
- * the validator's question, asked once the shapes are known.
+ * Whether `seat` is one this clue could carry — the kind-level half. WHERE the
+ * seat may sit is asked separately, and differently per `seating`: a `"cell"`
+ * seat has to be surrounded by the clue's own merged cell, which only the
+ * validator can judge once the shapes are known, while a `"board"` seat needs
+ * only the squares it sits between to exist.
  */
 export function symbolSeatError(
   kind: LogicGridSymbolKind,
   seat: unknown,
 ): string | null {
-  if (kind.aims !== "axis") {
+  if (kind.seating === "none") {
     return seat === undefined
       ? null
       : `Only a symmetry symbol carries a seat, and ${kind.label} is not one.`;

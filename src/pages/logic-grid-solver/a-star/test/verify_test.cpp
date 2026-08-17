@@ -1152,4 +1152,162 @@ TEST(Verify, TwoGalaxiesCannotShareARegion) {
             Violation::GalaxyAsymmetric);
 }
 
+// ------------------------------------------------------------ seated galaxies --
+//
+// A galaxy's centre may sit on a grid line or a corner, and the turn then
+// carries a SIGN: with different colours across the centre it INVERTS, so the
+// dark region and the light region touching it are each other's image.
+// Mirrors the seated cases in `test/logic-grid-solver/verify.test.ts`.
+
+TEST(Verify, ASeatedGalaxyTurnsAboutTheGridLine) {
+  // Centre on the seam between the two middle columns of a 4x2. The dark
+  // domino on the left turns onto the dark domino on the right.
+  Puzzle puzzle = test::board({"....", "...."});
+  test::withGalaxy(puzzle, 1, 0, 1);
+  const Model model = buildModel(puzzle);
+  EXPECT_EQ(verify::check(model, test::colors({"DDDD", "LLLL"})),
+            Violation::None);
+  EXPECT_EQ(verify::check(model, test::colors({"DDDL", "LLLL"})),
+            Violation::GalaxyAsymmetric);
+}
+
+/// The colour-INVERTING case: dark above the seam and light below it, so every
+/// square's image holds the opposite colour.
+TEST(Verify, AnInvertingGalaxyTurnsOntoTheOtherColour) {
+  // Centre on the seam under (1,1) of a 3x4, so the turn maps the board onto
+  // itself.
+  Puzzle puzzle = test::board({"...", "...", "...", "..."});
+  test::withGalaxy(puzzle, 1, 1, 2);
+  const Model model = buildModel(puzzle);
+  EXPECT_EQ(verify::check(model, test::colors({"DDD", "DDD", "LLL", "LLL"})),
+            Violation::None);
+  // The dark half's image has to be light throughout: one square that is not
+  // refuses the whole turn.
+  EXPECT_EQ(verify::check(model, test::colors({"DDD", "DDD", "LLL", "LLD"})),
+            Violation::GalaxyAsymmetric);
+}
+
+/// Walking EVERY region touching the centre is load-bearing, not thorough. The
+/// turn is an involution, so one region's image lies IN the other — but the
+/// other may reach further, and only its own walk says so.
+TEST(Verify, BothRegionsAtAnInvertingSeatAreWalked) {
+  Puzzle puzzle = test::board({"....", "...."});
+  test::withGalaxy(puzzle, 1, 0, 3);
+  const Model model = buildModel(puzzle);
+  EXPECT_EQ(verify::check(model, test::colors({"DDLL", "DDLL"})),
+            Violation::None);
+  // Every DARK square still turns onto a light one here — it is the light
+  // region, reaching further than the dark one's image, that breaks.
+  EXPECT_EQ(verify::check(model, test::colors({"DDLL", "DLLL"})),
+            Violation::GalaxyAsymmetric);
+}
+
+/// Seat 0 is the special case rather than the rule: a square is its own image,
+/// so the sign can only preserve colour, and the check is what it always was.
+TEST(Verify, ACentredGalaxyCanOnlyPreserveColour) {
+  Puzzle puzzle = test::board({"...", "...", "..."});
+  test::withGalaxy(puzzle, 1, 1);
+  const Model model = buildModel(puzzle);
+  EXPECT_EQ(verify::check(model, test::colors({"DLD", "LDL", "DLD"})),
+            Violation::None);
+}
+
+/// At a CORNER seat both pairs are in scope, so two pairs that disagree about
+/// the sign refuse each other with no check of their own.
+TEST(Verify, AnInconsistentCornerIsRefused) {
+  Puzzle puzzle = test::board({"..", ".."});
+  test::withGalaxy(puzzle, 0, 0, 3);
+  const Model model = buildModel(puzzle);
+  // Preserving on both diagonals, and inverting on both: each is consistent.
+  EXPECT_EQ(verify::check(model, test::colors({"DL", "LD"})), Violation::None);
+  EXPECT_EQ(verify::check(model, test::colors({"DD", "LL"})), Violation::None);
+  // One pair agrees while the other does not.
+  EXPECT_EQ(verify::check(model, test::colors({"DD", "DL"})),
+            Violation::GalaxyAsymmetric);
+}
+
+// ----------------------------------------------------------- region shapes --
+//
+// "Same shape" is CONGRUENCE — the eight dihedral images, rotations and
+// reflections both — so most of what is worth pinning is which pairs of
+// polyominoes count as one shape. Mirrors the `region shapes` block in
+// `test/logic-grid-solver/verify.test.ts`.
+
+TEST(Verify, CatchesTwoRegionsOfTheSameShape) {
+  EXPECT_EQ(judge({"....", "...."}, {"DLDL", "DLDL"},
+                  {Rule::DistinctShapesDark}),
+            Violation::RegionShapeRepeat);
+  // A vertical domino and a lone square are different shapes.
+  EXPECT_EQ(judge({"....", "...."}, {"DLDL", "DLLL"},
+                  {Rule::DistinctShapesDark}),
+            Violation::None);
+}
+
+TEST(Verify, ARotationIsTheSameShape) {
+  EXPECT_EQ(judge({"....", "....", "...."}, {"DDLL", "LLLD", "LLLD"},
+                  {Rule::DistinctShapesDark}),
+            Violation::RegionShapeRepeat);
+}
+
+/// The decided semantics, and what a rotations-only key would miss.
+TEST(Verify, AReflectionIsTheSameShapeToo) {
+  EXPECT_EQ(judge({"......", "......", "......"},
+                  {"DDLLLL", "LDLLDD", "LLLLDL"}, {Rule::DistinctShapesDark}),
+            Violation::RegionShapeRepeat);
+}
+
+TEST(Verify, TheShapeRulesAreVacuousBelowTwoRegions) {
+  for (const Rule rule : {Rule::DistinctShapesDark, Rule::SameShapeDark}) {
+    // No dark at all, and then exactly one dark region.
+    EXPECT_EQ(judge({"..", ".."}, {"LL", "LL"}, {rule}), Violation::None);
+    EXPECT_EQ(judge({"..", ".."}, {"DD", "DD"}, {rule}), Violation::None);
+  }
+}
+
+TEST(Verify, AShapeRuleReadsOnlyItsOwnColour) {
+  // Two congruent LIGHT dominoes; the dark regions differ.
+  EXPECT_EQ(judge({".....", "....."}, {"LDLDD", "LDLDL"},
+                  {Rule::DistinctShapesDark}),
+            Violation::None);
+  EXPECT_EQ(judge({".....", "....."}, {"LDLDD", "LDLDL"},
+                  {Rule::DistinctShapesLight}),
+            Violation::RegionShapeRepeat);
+}
+
+TEST(Verify, AllRegionsAlikeWantsEveryShapeEqual) {
+  EXPECT_EQ(judge({"....", "...."}, {"DLDL", "DLLL"}, {Rule::SameShapeDark}),
+            Violation::RegionShapeMismatch);
+  EXPECT_EQ(judge({"....", "...."}, {"DLDL", "DLDL"}, {Rule::SameShapeDark}),
+            Violation::None);
+}
+
+/// Both rules of one colour together say it has AT MOST ONE region, which a
+/// board may legally be — so they are two independent flags, not a switch.
+TEST(Verify, BothShapeRulesTogetherAllowOneRegion) {
+  const std::vector<Rule> both{Rule::DistinctShapesDark, Rule::SameShapeDark};
+  EXPECT_EQ(judge({"....", "...."}, {"DLLL", "DLLL"}, both), Violation::None);
+  EXPECT_EQ(judge({"....", "...."}, {"DLDL", "DLDL"}, both),
+            Violation::RegionShapeRepeat);
+}
+
+/// A shape is its SQUARES: two regions with the same footprint are the same
+/// shape however the merges beneath them differ.
+TEST(Verify, AMergedCellDoesNotChangeARegionsShape) {
+  Puzzle puzzle = boardWithRules({"....", "...."}, {Rule::DistinctShapesDark});
+  test::withShape(puzzle, {{0, 0}, {0, 1}});
+  EXPECT_EQ(verify::check(buildModel(puzzle),
+                          test::colors({"DLDL", "DLDL"})),
+            Violation::RegionShapeRepeat);
+}
+
+/// Region size is asked first, so a board breaking both is named for it — the
+/// order `REGION_CHECKS` in `verifyRegions.ts` keeps too.
+TEST(Verify, ARegionSizeBreakIsReportedAheadOfAShapeBreak) {
+  Puzzle puzzle = boardWithRules({"....", "...."}, {Rule::SameShapeDark});
+  test::withAreaRule(puzzle, kDark, 3);
+  EXPECT_EQ(verify::check(buildModel(puzzle),
+                          test::colors({"DLDL", "DLLL"})),
+            Violation::RegionSize);
+}
+
 } // namespace

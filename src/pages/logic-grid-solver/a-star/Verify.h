@@ -72,9 +72,29 @@ enum class Violation : uint8_t {
   /// A galaxy symbol's region does not map to itself under a half turn about
   /// the galaxy's own square.
   GalaxyAsymmetric,
+  /// Two regions of one colour are the same shape where the rule forbids it.
+  /// "Same" is congruence: the eight dihedral images, so an S and a Z are one
+  /// shape.
+  RegionShapeRepeat,
+  /// Two regions of one colour are different shapes where the rule requires
+  /// every one of them congruent.
+  RegionShapeMismatch,
 };
 
 const char *describe(Violation violation);
+
+/**
+ * Whether an actual count satisfies a numeric clue's DISPLAYED value.
+ *
+ * Under `off-by-one` every numeric clue displays its true count ± 1 and never
+ * the truth, so the test is an exact distance of one — a displayed value EQUAL
+ * to the count is then a violation, not a near miss.
+ *
+ * Exported because the profile sweep counts a dart's ray itself and has to
+ * read the number the same way this does, rather than keeping a second reading
+ * that could drift from it.
+ */
+bool countMatches(const Model &model, int actual, int displayed);
 
 /// Whether `colors` is a complete, legal solution of `model`'s puzzle.
 Violation check(const Model &model, const Colors &colors);

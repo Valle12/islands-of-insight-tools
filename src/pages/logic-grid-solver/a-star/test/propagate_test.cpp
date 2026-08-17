@@ -853,4 +853,99 @@ TEST(Propagate, LookAheadThatRunsOutOfTimeProvesNothing) {
   EXPECT_EQ(probeToFixpoint(model, domains, budget), ProbeResult::Aborted);
 }
 
+/**
+ * A galaxy's region cannot contain a cell whose HALF TURN leaves the board, and
+ * that is known before a single cell is coloured. Under "one symbol per area"
+ * it is what tethers the rest: a cell of that colour has to share a region with
+ * some clue, and a galaxy off in a corner can only ever reach the half of the
+ * board that turns back onto itself.
+ *
+ * Here the galaxy sits at x = 3 of a 5x1, so its turn maps x onto `6 - x` and
+ * only x >= 2 comes back onto the board. With `one-symbol-light` on and the
+ * galaxy the only clue, the two cells that do not can be no colour but dark —
+ * settled by deduction alone, with nothing else on the board.
+ */
+TEST(Propagate, AGalaxyCannotReachWhatItsTurnLeavesTheBoard) {
+  Puzzle puzzle =
+      test::board({"....."}, test::ruleSet({Rule::OneSymbolLight}));
+  test::withGalaxy(puzzle, 3, 0);
+  test::withGiven(puzzle, 3, 0, kLight);
+  EXPECT_EQ(deduce(puzzle), Rows({"DD.L."}));
+}
+
+/// ...and the bound is the SYMMETRY's, not a distance: the cells it rules out
+/// are the ones with no image, however close to the clue they are.
+TEST(Propagate, TheGalaxyReachBoundIsTheTurnNotTheDistance) {
+  Puzzle puzzle = test::board({"...", "...", "..."},
+                              test::ruleSet({Rule::OneSymbolLight}));
+  // Centred on the middle, every cell turns onto the board, so nothing is
+  // ruled out and the board stays open.
+  test::withGalaxy(puzzle, 1, 1);
+  test::withGiven(puzzle, 1, 1, kLight);
+  EXPECT_EQ(deduce(puzzle), Rows({"...", ".L.", "..."}));
+}
+
+// ---------------------------------------------------------- region shapes --
+//
+// Everything here turns on CLOSURE: a region no cell can still join. Domains
+// only shrink, so a closed region stays closed and stays exactly itself, which
+// is the only reason a deduction may be made from one at all. The near-miss
+// cases below are the ones `reference_test`'s brute force referees, and they
+// are here as well so a wrong prune names itself.
+
+/// Two regions that can never grow again and have the same shape: a
+/// contradiction, because neither can become anything else.
+TEST(Propagate, TwoClosedRegionsOfOneShapeRefute) {
+  const Puzzle puzzle = test::board({"DLDL", "DLDL"},
+                                    test::ruleSet({Rule::DistinctShapesDark}));
+  EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
+}
+
+/// An open region already matching a closed one has to grow, and where there
+/// is exactly one cell it can grow into, that cell is forced.
+TEST(Propagate, AnOpenRegionMatchingAClosedOneMustGrow) {
+  // Left column: a dark domino walled in by light. Right column: a dark
+  // domino with one open cell beneath it and light everywhere else, so it
+  // must take that cell rather than stop as a second domino.
+  const Puzzle puzzle = test::board({"DLLD", "DLLD", "LLL."},
+                                    test::ruleSet({Rule::DistinctShapesDark}));
+  EXPECT_EQ(deduce(puzzle), Rows({"DLLD", "DLLD", "LLLD"}));
+}
+
+/// Two OPEN regions of one shape prove nothing: they may grow apart, and they
+/// may also grow into each other and become one region.
+TEST(Propagate, TwoOpenRegionsOfOneShapeAreNotRefuted) {
+  const Puzzle puzzle = test::board({"D.D.", "...."},
+                                    test::ruleSet({Rule::DistinctShapesDark}));
+  EXPECT_EQ(deduce(puzzle), Rows({"D.D.", "...."}));
+}
+
+/// With nothing closed there is no target shape, so `sameShape` deduces
+/// nothing at all — taking the first or biggest open region would be exactly
+/// the over-prune this family invites.
+TEST(Propagate, SameShapeWithNothingClosedDeducesNothing) {
+  const Puzzle puzzle =
+      test::board({"D...", "...."}, test::ruleSet({Rule::SameShapeDark}));
+  EXPECT_EQ(deduce(puzzle), Rows({"D...", "...."}));
+}
+
+/// Once one region has closed, its size binds every other — which is
+/// `regionArea` doing the work, borrowed rather than rewritten.
+TEST(Propagate, SameShapeBorrowsTheClosedRegionsSize) {
+  // A closed dark domino on the left; on the right a dark cell whose only
+  // neighbours are light, so it could only ever be a singleton.
+  const Puzzle puzzle = test::board({"DLLD", "DLLL", "LLLL"},
+                                    test::ruleSet({Rule::SameShapeDark}));
+  EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
+}
+
+/// A singleton target must NOT empty the colour: `regionArea`'s isolated-cell
+/// sweep is gated to areas of two or more for exactly this case.
+TEST(Propagate, AClosedSingletonDoesNotEmptyTheColour) {
+  const Puzzle puzzle = test::board({"DLL", "LLL", "LL."},
+                                    test::ruleSet({Rule::SameShapeDark}));
+  // The open corner may still be dark — a second singleton is legal.
+  EXPECT_EQ(deduce(puzzle), Rows({"DLL", "LLL", "LL."}));
+}
+
 } // namespace

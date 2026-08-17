@@ -254,6 +254,121 @@ describe("verifyLogicGrid", () => {
     });
   });
 
+  /**
+   * "Same shape" is CONGRUENCE — the eight dihedral images, rotations and
+   * reflections both — so these cases are mostly about which pairs of
+   * tetrominoes count as one shape. Mirrors the block in
+   * `a-star/test/verify_test.cpp`.
+   */
+  describe("region shapes", () => {
+    test("two identical regions repeat a shape", () => {
+      expect(
+        judge(["....", "...."], ["DLDL", "DLDL"], ["distinct-shapes-dark"]),
+      ).toBe("region-shape-repeat");
+    });
+
+    test("regions of different shapes are fine", () => {
+      // A vertical domino and a lone square.
+      expect(
+        judge(["....", "...."], ["DLDL", "DLLL"], ["distinct-shapes-dark"]),
+      ).toBe("none");
+    });
+
+    test("a rotation is the same shape", () => {
+      // A horizontal domino above, a vertical one to the right.
+      expect(
+        judge(["....", "....", "...."], ["DDLL", "LLLD", "LLLD"], [
+          "distinct-shapes-dark",
+        ]),
+      ).toBe("region-shape-repeat");
+    });
+
+    /** The decided semantics, and the one a rotations-only key would miss. */
+    test("a reflection is the same shape too", () => {
+      // An S-tromino bend and its mirror image.
+      expect(
+        judge(
+          ["......", "......", "......"],
+          ["DDLLLL", "LDLLDD", "LLLLDL"],
+          ["distinct-shapes-dark"],
+        ),
+      ).toBe("region-shape-repeat");
+    });
+
+    test("zero regions and one region are both vacuous", () => {
+      expect(judge(["..", ".."], ["LL", "LL"], ["distinct-shapes-dark"])).toBe(
+        "none",
+      );
+      expect(judge(["..", ".."], ["LL", "LL"], ["same-shape-dark"])).toBe(
+        "none",
+      );
+      expect(judge(["..", ".."], ["DD", "DD"], ["distinct-shapes-dark"])).toBe(
+        "none",
+      );
+      expect(judge(["..", ".."], ["DD", "DD"], ["same-shape-dark"])).toBe(
+        "none",
+      );
+    });
+
+    test("the rule only looks at its own colour", () => {
+      // Two congruent LIGHT dominoes, while the dark regions — a domino and an
+      // L-tromino — are different shapes. Each rule sees only its own.
+      const picture = [".....", "....."];
+      const answer = ["LDLDD", "LDLDL"];
+      expect(judge(picture, answer, ["distinct-shapes-dark"])).toBe("none");
+      expect(judge(picture, answer, ["distinct-shapes-light"])).toBe(
+        "region-shape-repeat",
+      );
+    });
+
+    test("all regions alike wants every shape equal", () => {
+      expect(
+        judge(["....", "...."], ["DLDL", "DLLL"], ["same-shape-dark"]),
+      ).toBe("region-shape-mismatch");
+      expect(
+        judge(["....", "...."], ["DLDL", "DLDL"], ["same-shape-dark"]),
+      ).toBe("none");
+    });
+
+    /** Both rules of one colour say "at most one region", which is a thing a
+     * board may legally be — so they are two independent flags. */
+    test("both rules together allow exactly one region", () => {
+      const rules = ["distinct-shapes-dark", "same-shape-dark"];
+      expect(judge(["....", "...."], ["DLLL", "DLLL"], rules)).toBe("none");
+      expect(judge(["....", "...."], ["DLDL", "DLDL"], rules)).toBe(
+        "region-shape-repeat",
+      );
+    });
+
+    /**
+     * A shape is its SQUARES. Two regions with the same footprint are the same
+     * shape however the merges beneath them differ — the case a key counting
+     * merged cells would call different while every other test here passed.
+     */
+    test("a merged cell does not change a region's shape", () => {
+      const config = board(["....", "...."], ["distinct-shapes-dark"]);
+      // The left domino is one merged cell; the right one is two plain
+      // squares. Same footprint, so the same shape.
+      withShape(config, [
+        [0, 0],
+        [0, 1],
+      ]);
+      expect(verifyLogicGrid(config, painted(["DLDL", "DLDL"]))).toBe(
+        "region-shape-repeat",
+      );
+    });
+
+    /** Region-size is asked first, so a board breaking both is named for it —
+     * the order `Verify.cpp`'s `check` has to keep. */
+    test("a region-size break is reported ahead of a shape break", () => {
+      const config = board(["....", "...."], ["same-shape-dark"]);
+      withAreaRule(config, "dark", 3);
+      expect(verifyLogicGrid(config, painted(["DLDL", "DLLL"]))).toBe(
+        "region-size",
+      );
+    });
+  });
+
   describe("connectivity", () => {
     test("catches a colour in two pieces", () => {
       expect(judge(["...", "..."], ["DLD", "LLL"], ["connect-dark"])).toBe(
@@ -1279,6 +1394,63 @@ describe("verifyLogicGrid", () => {
       expect(verifyLogicGrid(config, painted(["DDD", "LDL", "DDD"]))).toBe(
         "galaxy",
       );
+    });
+
+    /**
+     * A SEATED galaxy: the centre on a grid line or a corner, where the turn
+     * carries a sign. Mirrors the seated block in
+     * `a-star/test/verify_test.cpp`.
+     */
+    test("a seated galaxy turns about the grid line", () => {
+      // Centre on the seam between the two middle columns of a 4x2, so the
+      // dark domino on the left turns onto the dark one on the right.
+      const config = withGalaxy(board(["....", "...."]), 1, 0, 1);
+      expect(verifyLogicGrid(config, painted(["DDDD", "LLLL"]))).toBe("none");
+      expect(verifyLogicGrid(config, painted(["DDDL", "LLLL"]))).toBe("galaxy");
+    });
+
+    /** The colour-INVERTING case, and the user-confirmed semantics: with the
+     * colours across the centre differing, every square's image holds the
+     * opposite colour. */
+    test("an inverting galaxy turns onto the other colour", () => {
+      // Centre on the seam under (1,1) of a 3x4, so the turn maps the board
+      // onto itself: dark above, light below.
+      const config = withGalaxy(board(["...", "...", "...", "..."]), 1, 1, 2);
+      expect(
+        verifyLogicGrid(config, painted(["DDD", "DDD", "LLL", "LLL"])),
+      ).toBe("none");
+      expect(
+        verifyLogicGrid(config, painted(["DDD", "DDD", "LLL", "LLD"])),
+      ).toBe("galaxy");
+    });
+
+    /** Walking EVERY region touching the centre is load-bearing: the turn is
+     * an involution, so one region's image lies IN the other — but the other
+     * may reach further, and only its own walk says so. */
+    test("both regions at an inverting seat are walked", () => {
+      const config = withGalaxy(board(["....", "...."]), 1, 0, 3);
+      expect(verifyLogicGrid(config, painted(["DDLL", "DDLL"]))).toBe("none");
+      // Every DARK square still turns onto a light one; it is the light
+      // region, reaching further, that breaks.
+      expect(verifyLogicGrid(config, painted(["DDLL", "DLLL"]))).toBe("galaxy");
+    });
+
+    /** Seat 0 is the special case rather than the rule: a square is its own
+     * image, so the sign can only preserve colour. */
+    test("a centred galaxy can only preserve colour", () => {
+      const config = withGalaxy(board(["...", "...", "..."]), 1, 1);
+      expect(verifyLogicGrid(config, painted(["DLD", "LDL", "DLD"]))).toBe(
+        "none",
+      );
+    });
+
+    /** At a CORNER both pairs are in scope, so two that disagree about the
+     * sign refuse each other with no check of their own. */
+    test("an inconsistent corner is refused", () => {
+      const config = withGalaxy(board(["..", ".."]), 0, 0, 3);
+      expect(verifyLogicGrid(config, painted(["DL", "LD"]))).toBe("none");
+      expect(verifyLogicGrid(config, painted(["DD", "LL"]))).toBe("none");
+      expect(verifyLogicGrid(config, painted(["DD", "DL"]))).toBe("galaxy");
     });
   });
 

@@ -11,6 +11,7 @@ import { ClueTyping, handleKey, type KeyEdits } from "./boardKeys";
 import { isPlayable, UNKNOWN, UNPLAYABLE } from "./cell";
 import { finishMerge, mergeSquare, splitSquare } from "./mergeEdits";
 import { NO_SHAPE } from "./shapes";
+import { symbolKindAt } from "./symbols";
 import {
   seated,
   seatStroke,
@@ -83,6 +84,10 @@ export class Board {
       applyStroke: (stroke, position) => this.applyStroke(stroke, position),
     };
     this.addListeners();
+    // `#grid` outlives the board, so a replaced board inherits whatever the
+    // last one left on it — including a seam state that belongs to a tool this
+    // one may not have armed.
+    this.syncSeamTargets();
   }
 
   setOffByOne(active: boolean) {
@@ -101,10 +106,37 @@ export class Board {
 
   setSelectedTool(tool: LogicGridTool) {
     this.selection.tool = tool;
+    this.syncSeamTargets();
   }
 
   setSelectedSymbol(index: number) {
     this.selection.symbol = index;
+    this.syncSeamTargets();
+  }
+
+  /**
+   * Opens the seams between the squares to the pointer while a SEATED clue is
+   * armed, and closes them again for everything else.
+   *
+   * A seated clue's whole point is the point BETWEEN squares, so asking the
+   * player to hit the square and lean is backwards — the corner where four
+   * squares meet is the one place a corner-seated galaxy obviously belongs, and
+   * it is exactly the place nothing was listening. The stylesheet grows each
+   * square's hit area by half a seam while this is on, so the seams and their
+   * crossings are covered with no new elements and no change to what a square
+   * IS. Which of the up-to-four overlapping neighbours receives the press does
+   * not matter: `leanOf` reads the pointer's position relative to whichever
+   * one it was and names the same point either way.
+   *
+   * Only while a seated clue is armed, so a paint stroke keeps its exact hit
+   * area — a colour has no meaning in a seam, and widening those targets would
+   * change what a drag across the board paints.
+   */
+  private syncSeamTargets() {
+    const seated =
+      this.selection.tool === "symbol" &&
+      symbolKindAt(this.selection.symbol)?.seating !== "none";
+    this.view.host.toggleAttribute("data-seams", seated);
   }
 
   setSymbolValue(value: LogicGridSymbolValue | null) {

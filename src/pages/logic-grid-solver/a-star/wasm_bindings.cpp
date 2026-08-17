@@ -97,10 +97,25 @@ bool readRules(const val &puzzleVal, Puzzle &puzzle, const char *&error) {
  * a hand-built payload, refused rather than repaired — the deliberate
  * asymmetry with the TS validator, which accepts any order.
  */
-bool readSized(const val &puzzleVal, const char *key, const char *valueKey,
-               const int lo, const int hi, const char *rangeError,
+struct SizedFamily {
+  const char *key = "";
+  const char *valueKey = "";
+  int lo = 0;
+  int hi = 0;
+  const char *rangeError = "";
+  /// Whether a SECOND entry for one colour is a contradiction. Two run bans
+  /// are conjunctive and merely redundant; two area sizes hold together only
+  /// where the colour is absent from the board, all zero of its regions being
+  /// both sizes at once, which is not a puzzle anyone means. Grouped into a
+  /// struct rather than a seventh and eighth parameter: six same-typed
+  /// scalars in a row is already a call nobody can read, and clang-tidy says
+  /// so.
+  bool onePerColor = false;
+};
+
+bool readSized(const val &puzzleVal, const SizedFamily &family,
                std::vector<rules::SizedRule> &into, const char *&error) {
-  const val list = puzzleVal[key];
+  const val list = puzzleVal[family.key];
   if (list.isUndefined() || list.isNull())
     return true;
   const int count = list["length"].as<int>();
@@ -121,14 +136,14 @@ bool readSized(const val &puzzleVal, const char *key, const char *valueKey,
     // out-of-range (or NaN) double to int is undefined behaviour, so the
     // gate has to run first. In range the cast is exact, so the integrality
     // test below still catches fractions.
-    const double raw = opt(entry, valueKey, 0.0);
-    if (!(raw >= lo && raw <= hi)) {
-      error = rangeError;
+    const double raw = opt(entry, family.valueKey, 0.0);
+    if (!(raw >= family.lo && raw <= family.hi)) {
+      error = family.rangeError;
       return false;
     }
     const int value = static_cast<int>(raw);
     if (raw != static_cast<double>(value)) {
-      error = rangeError;
+      error = family.rangeError;
       return false;
     }
     const rules::SizedRule rule{.color = color == "dark" ? kDark : kLight,
@@ -142,20 +157,37 @@ bool readSized(const val &puzzleVal, const char *key, const char *valueKey,
         error = "Sized rules must be listed dark before light, then ascending";
         return false;
       }
+      // Sound only because the order above is already known to be canonical:
+      // every entry of one colour is contiguous, so "the previous entry is
+      // this colour" IS "a second entry for this colour".
+      if (family.onePerColor && into.back().color == rule.color) {
+        error = "Only one area rule per color is allowed";
+        return false;
+      }
     }
     into.push_back(rule);
   }
   return true;
 }
 
+constexpr SizedFamily kAreaFamily{
+    .key = "areas",
+    .valueKey = "size",
+    .lo = rules::kMinAreaSize,
+    .hi = rules::kMaxAreaSize,
+    .rangeError = "An area size must be between 1 and 9999",
+    .onePerColor = true};
+
+constexpr SizedFamily kRunFamily{
+    .key = "runs",
+    .valueKey = "length",
+    .lo = rules::kMinRunLength,
+    .hi = rules::kMaxRunLength,
+    .rangeError = "A run length must be between 2 and 8"};
+
 bool readSizedLists(const val &puzzleVal, Puzzle &puzzle, const char *&error) {
-  return readSized(puzzleVal, "areas", "size", rules::kMinAreaSize,
-                   rules::kMaxAreaSize,
-                   "An area size must be between 1 and 9999", puzzle.areas,
-                   error) &&
-         readSized(puzzleVal, "runs", "length", rules::kMinRunLength,
-                   rules::kMaxRunLength, "A run length must be between 2 and 8",
-                   puzzle.runs, error);
+  return readSized(puzzleVal, kAreaFamily, puzzle.areas, error) &&
+         readSized(puzzleVal, kRunFamily, puzzle.runs, error);
 }
 
 bool readClues(const val &puzzleVal, Puzzle &puzzle, const char *&error) {

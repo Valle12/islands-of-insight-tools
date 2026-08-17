@@ -454,6 +454,8 @@ await Promise.all(
         "Probe.cpp",
         "Search.cpp",
         "Profile.cpp",
+        "Routing.cpp",
+        "Packing.cpp",
         "Underclued.cpp",
         "SolverArms.cpp",
         "SolverClock.cpp",

@@ -27,11 +27,19 @@ constexpr uint8_t kNoTag = 0xFF;
 /// of them. Boards that stay narrow use a few thousand.
 constexpr size_t kDefaultStateCap = 100'000'000;
 
-/// The forced-set pass keeps every layer's frontiers plus two transition
-/// indices per state, so a state costs roughly `sizeof(Frontier)` plus eight
-/// bytes rather than five. The cap is correspondingly tighter.
-constexpr size_t kForcedBytes = 56;
-constexpr size_t kDefaultForcedCap = 12'000'000;
+/// How far back a forbidden arrangement may reach BEYOND the frontier before
+/// the board is declined. The frontier already carries the last `width` cells,
+/// so a two-row pattern costs a bit or two and a tall one costs a row; every
+/// bit doubles the state count in the worst case, which is what the ceiling is
+/// really about. The runtime cap catches what gets past it.
+constexpr int kMaxHistoryBits = 24;
+
+/// How many dart clues the sweep will carry counters for, and how many states
+/// their counters may take together at any one cell. A dart's counter is only
+/// live between the first and last cell of its ray, so darts on different rows
+/// of the sweep cost nothing at all.
+constexpr int kMaxDarts = 4;
+constexpr int kMaxDartStates = 4096;
 
 /**
  * The widest frontier the sweep will take, which is NOT `kMaxSide`.
@@ -63,15 +71,40 @@ struct Frontier {
   std::array<uint8_t, kMaxProfileWidth> cls{};
   /// The letter each class carries, or kNoTag. Indexed by class, not by slot.
   std::array<uint8_t, kProfileClasses> tag{};
-  /// Bit k set when class k is dark.
-  uint32_t darkMask = 0;
   uint8_t classes = 0;
   /// bit0: a dark region has already closed; bit1: a light one has. Reach it
-  /// through `hasClosed` / `closedBit` rather than by hand.
+  /// through `hasClosed` / `closedBit` rather than by hand. Sits HERE, beside
+  /// `classes` and behind the two byte arrays, so the pair fills what would
+  /// otherwise be alignment padding: this struct is copied and compared
+  /// millions of times a sweep, and on the widest board its size is most of
+  /// what the sweep costs.
   std::byte closed{};
+  /// Bit k set when class k is dark.
+  uint32_t darkMask = 0;
+  /**
+   * The colours of the cells that have already left the frontier but a
+   * forbidden arrangement can still reach: bit i is the cell `width + 1 + i`
+   * scan positions back, set when it is dark.
+   *
+   * The frontier's own slots ARE the last `width` cells in scan order, so this
+   * only has to carry what a pattern needs beyond them — one bit for a 2x2, a
+   * row for a three-tall T. Unplayable cells go in as light and are never read:
+   * a pattern instance every one of whose cells is not playable is dropped when
+   * the plan is built, so it can never fire.
+   */
+  uint32_t hist = 0;
+  /// Dark cells counted so far on each dart's ray, in `Plan::darts` order, and
+  /// back to zero once that dart has been checked.
+  std::array<uint8_t, kMaxDarts> darts{};
 
   bool operator==(const Frontier &other) const = default;
 };
+
+/// The forced-set pass keeps every layer's frontiers plus two transition
+/// indices per state, so a state costs `sizeof(Frontier)` plus eight bytes
+/// rather than the trail's five. The cap is correspondingly tighter.
+constexpr size_t kForcedBytes = sizeof(Frontier) + 8;
+constexpr size_t kDefaultForcedCap = 12'000'000;
 
 /// The `closed` bit belonging to a colour. Only kDark and kLight ever close.
 constexpr std::byte closedBit(const uint8_t color) {
@@ -94,6 +127,9 @@ constexpr bool hasClosed(const Frontier &f, const uint8_t color) {
  */
 struct FrontierHash {
   int width = 0;
+  /// How many dart counters carry information on this board. The rest of the
+  /// array is always zero, so leaving it out of the hash is free.
+  int darts = 0;
 
   [[nodiscard]] size_t hashOf(const Frontier &f) const {
     uint64_t hash = 1469598103934665603ULL;
@@ -107,6 +143,10 @@ struct FrontierHash {
       eat(f.tag[slot(k)]);
     for (int i = 0; i < 4; i++)
       eat(static_cast<uint8_t>(f.darkMask >> (8 * i)));
+    for (int i = 0; i < 4; i++)
+      eat(static_cast<uint8_t>(f.hist >> (8 * i)));
+    for (int i = 0; i < darts; i++)
+      eat(f.darts[slot(i)]);
     eat(f.classes);
     eat(std::to_integer<uint8_t>(f.closed));
     return static_cast<size_t>(hash);
@@ -269,6 +309,33 @@ Scan scanOf(const Model &model) {
   return reverse < straight ? flipped : best;
 }
 
+/**
+ * One forbidden arrangement, anchored on the LAST of its cells in scan order.
+ *
+ * `back[i]` counts scan positions back from that cell, so the whole
+ * arrangement is readable the moment the anchor is coloured and never before.
+ * An instance is built per POSITION, which is what lets the plan drop the ones
+ * that would fall off the board or onto a gap: a pattern needing a cell no
+ * colouring ever reaches can never fire, and dropping it here is what keeps
+ * the history short.
+ */
+struct PatternCheck {
+  std::array<uint8_t, rules::kMaxPatternCells> back{};
+  std::array<uint8_t, rules::kMaxPatternCells> color{};
+  uint8_t count = 0;
+};
+
+/// One dart, as the sweep counts it: always the DARK cells on its ray, with
+/// the light reading taken as the rest of the ray, so one counter serves
+/// whichever colour the dart's own square asks for.
+struct DartPlan {
+  /// Counts the sweep accepts, bit per count. `countMatches` is folded in here
+  /// once rather than consulted per state.
+  uint64_t accept = 0;
+  int rayCells = 0;
+  bool wantDark = false;
+};
+
 /// Everything about the puzzle the sweep needs, precomputed once.
 struct Plan {
   Scan scan;
@@ -276,9 +343,165 @@ struct Plan {
   std::vector<uint8_t> letterAt;
   /// The last scan position at which each letter appears; -1 when it does not.
   std::array<int, kLetterCount> lastPos{};
+  /// Arrangements to test when each scan position is coloured.
+  std::vector<std::vector<PatternCheck>> checks;
+  /// Darts whose ray this position is on, and darts this position settles.
+  std::vector<std::vector<uint8_t>> dartInc;
+  std::vector<std::vector<uint8_t>> dartDue;
+  std::vector<DartPlan> darts;
+  uint32_t histMask = 0;
+  int histBits = 0;
   bool connectDark = false;
   bool connectLight = false;
+  /// False when something about the board outgrew what the state can carry.
+  bool usable = true;
 };
+
+/**
+ * The pattern cell that comes LAST in scan order, which every offset is taken
+ * back from.
+ *
+ * Compared as the PAIR (dy, dx) rather than as `dy * width + dx`. The two agree
+ * only while a pattern is narrower than the frontier, and on a 3-wide board a
+ * five-cell run is not — the flattened form would then tie two cells at the
+ * same offset, hand back an anchor that is not last, and leave another cell
+ * with a NEGATIVE distance back from it.
+ */
+int anchorOf(const rules::Pattern &pattern) {
+  int best = 0;
+  for (int i = 1; i < pattern.count; i++) {
+    const auto &[dx, dy, color] = pattern.cells[slot(i)];
+    const auto &[bx, by, unused] = pattern.cells[slot(best)];
+    if (dy > by || (dy == by && dx > bx))
+      best = i;
+  }
+  return best;
+}
+
+/// This pattern laid on the board with its anchor at (x, y), or nothing when
+/// some cell of it falls off the board or onto a square no colouring reaches.
+bool instanceAt(const Model &model, const Scan &scan,
+                const rules::Pattern &pattern, const int x, const int y,
+                PatternCheck &out) {
+  const auto &[ax, ay, unused] = pattern.cells[slot(anchorOf(pattern))];
+  out.count = 0;
+  for (int i = 0; i < pattern.count; i++) {
+    const auto &[dx, dy, color] = pattern.cells[slot(i)];
+    const int cx = x + dx - ax;
+    const int cy = y + dy - ay;
+    if (cx < 0 || cx >= scan.width || cy < 0 || cy >= scan.height)
+      return false;
+    if (!model.playable.test(scan.cellAt(cx, cy)))
+      return false;
+    out.back[slot(out.count)] =
+        static_cast<uint8_t>((y - cy) * scan.width + (x - cx));
+    out.color[slot(out.count)] = color;
+    out.count++;
+  }
+  return true;
+}
+
+/// How far back of the frontier this check's deepest cell reads.
+int deepestOf(const PatternCheck &check) {
+  int deepest = 0;
+  for (int i = 0; i < check.count; i++)
+    deepest = std::max(deepest, static_cast<int>(check.back[slot(i)]));
+  return deepest;
+}
+
+/// Every arrangement the rules forbid, laid out per scan position, and how far
+/// back of the frontier the deepest of them reaches.
+void planPatterns(const Model &model, Plan &plan) {
+  const int cells = plan.scan.width * plan.scan.height;
+  plan.checks.assign(slot(cells), {});
+  // Empty instance lists: the sized families are refused by `applicable`, so
+  // the flag mask is the whole of what this board forbids.
+  const rules::Patterns patterns =
+      rules::patternsFor(model.puzzle.ruleMask, {}, {});
+  int deepest = 0;
+  for (int pos = 0; pos < cells; pos++) {
+    const int x = pos % plan.scan.width;
+    const int y = pos / plan.scan.width;
+    for (const rules::Pattern &pattern : patterns) {
+      if (PatternCheck check;
+          instanceAt(model, plan.scan, pattern, x, y, check)) {
+        deepest = std::max(deepest, deepestOf(check));
+        plan.checks[slot(pos)].push_back(check);
+      }
+    }
+  }
+  plan.histBits = std::max(0, deepest - plan.scan.width);
+  plan.histMask = plan.histBits == 0
+                      ? 0
+                      : static_cast<uint32_t>((uint64_t{1} << plan.histBits) - 1);
+  if (plan.histBits > kMaxHistoryBits)
+    plan.usable = false;
+}
+
+/// The counts a dart accepts, folded into a bitmask so the sweep never has to
+/// consult the model. Counts past the ray's length cannot occur.
+uint64_t acceptedCounts(const Model &model, const int value, const int ray) {
+  uint64_t accept = 0;
+  for (int count = 0; count <= ray; count++) {
+    if (verify::countMatches(model, count, value))
+      accept |= uint64_t{1} << count;
+  }
+  return accept;
+}
+
+/// Every dart, with the positions that feed and settle its counter. False when
+/// the board carries more of them, or more counter states at one cell, than
+/// the frontier will hold.
+bool planDarts(const Model &model, Plan &plan) {
+  const int cells = plan.scan.width * plan.scan.height;
+  plan.dartInc.assign(slot(cells), {});
+  plan.dartDue.assign(slot(cells), {});
+  std::vector<int> first;
+  std::vector<int> last;
+  for (const Clue &clue : model.puzzle.clues) {
+    if (clue.kind != kClueDart)
+      continue;
+    if (plan.darts.size() >= static_cast<size_t>(kMaxDarts))
+      return false;
+    const auto index = static_cast<uint8_t>(plan.darts.size());
+    const auto [stepX, stepY] = kDirectionSteps[slot(clue.direction)];
+    int ray = 0;
+    int firstPos = cells;
+    int lastPos = plan.scan.posOf(clue.index);
+    for (int x = columnOf(clue.index) + stepX, y = rowOf(clue.index) + stepY;
+         x >= 0 && x < model.width() && y >= 0 && y < model.height();
+         x += stepX, y += stepY) {
+      const int cell = cellIndex(x, y);
+      if (!model.playable.test(cell))
+        continue;
+      const int pos = plan.scan.posOf(cell);
+      plan.dartInc[slot(pos)].push_back(index);
+      firstPos = std::min(firstPos, pos);
+      lastPos = std::max(lastPos, pos);
+      ray++;
+    }
+    plan.dartDue[slot(lastPos)].push_back(index);
+    first.push_back(std::min(firstPos, lastPos));
+    last.push_back(lastPos);
+    // `applicable` has already refused a dart whose own square the board does
+    // not paint, so the colour it counts is known here and stays known.
+    const uint8_t own = model.puzzle.givens[slot(clue.index)];
+    plan.darts.push_back({.accept = acceptedCounts(model, clue.value, ray),
+                          .rayCells = ray,
+                          .wantDark = opposite(own) == kDark});
+  }
+
+  for (int pos = 0; pos < cells; pos++) {
+    long long states = 1;
+    for (size_t i = 0; i < plan.darts.size(); i++) {
+      if (first[i] <= pos && pos <= last[i])
+        states *= plan.darts[i].rayCells + 1;
+    }
+    if (states > kMaxDartStates)
+      return false;
+  }
+  return true;
+}
 
 Plan planOf(const Model &model) {
   Plan plan;
@@ -288,9 +511,9 @@ Plan planOf(const Model &model) {
   plan.connectDark = model.hasRule(Rule::ConnectDark);
   plan.connectLight = model.hasRule(Rule::ConnectLight);
 
-  // Letters only, and `applicable` above has already refused any board that
-  // carries anything else — without which a clue this sweep cannot express
-  // would be silently skipped here and the answer claimed as proved.
+  // Letters and darts only, and `applicable` below has already refused any
+  // board that carries anything else — without which a clue this sweep cannot
+  // express would be silently skipped here and the answer claimed as proved.
   for (const Clue &clue : model.puzzle.clues) {
     if (clue.kind != kClueLetter)
       continue;
@@ -299,6 +522,9 @@ Plan planOf(const Model &model) {
     plan.lastPos[slot(clue.value)] =
         std::max(plan.lastPos[slot(clue.value)], pos);
   }
+  planPatterns(model, plan);
+  if (!planDarts(model, plan))
+    plan.usable = false;
   return plan;
 }
 
@@ -313,6 +539,9 @@ Frontier canonicalise(const Frontier &raw, const int width) {
   out.cls.fill(kNoClass);
   out.tag.fill(kNoTag);
   out.closed = raw.closed;
+  // Neither of these is indexed by CLASS, so relabelling must leave them alone.
+  out.hist = raw.hist;
+  out.darts = raw.darts;
 
   uint8_t next = 0;
   for (int j = 0; j < width; j++) {
@@ -512,6 +741,58 @@ bool closeClass(const Plan &plan, Frontier &work, const Site &site) {
   return true;
 }
 
+/**
+ * The colour a cell `back` scan positions before the one being coloured holds.
+ *
+ * Three sources, and the split is the whole reason the extra history is as
+ * short as it is: the cell itself, then the frontier — whose `width` slots ARE
+ * the last `width` cells in scan order — and only past that the history bits.
+ */
+uint8_t colorBack(const Plan &plan, const Frontier &in, const int x,
+                  const int back, const uint8_t current) {
+  if (back == 0)
+    return current;
+  if (back <= plan.scan.width) {
+    const uint8_t cls =
+        in.cls[slot((x - back + plan.scan.width) % plan.scan.width)];
+    return cls == kNoClass ? kUnplayable : colorOf(in, cls);
+  }
+  return ((in.hist >> (back - plan.scan.width - 1)) & 1U) != 0 ? kDark : kLight;
+}
+
+/// Whether colouring this cell completes a forbidden arrangement.
+bool patternsHold(const Plan &plan, const Frontier &in, const Site &site,
+                  const uint8_t color) {
+  for (const PatternCheck &check : plan.checks[slot(site.pos)]) {
+    bool present = true;
+    for (int i = 0; i < check.count && present; i++)
+      present = colorBack(plan, in, site.x, check.back[slot(i)], color) ==
+                check.color[slot(i)];
+    if (present)
+      return false;
+  }
+  return true;
+}
+
+/// Feeds this cell to every dart counting it, then settles the darts this cell
+/// finishes and puts their counters back to zero so states can merge again.
+bool countDarts(const Plan &plan, Frontier &work, const Site &site,
+                const uint8_t color) {
+  for (const uint8_t index : plan.dartInc[slot(site.pos)]) {
+    if (color == kDark)
+      work.darts[slot(index)]++;
+  }
+  for (const uint8_t index : plan.dartDue[slot(site.pos)]) {
+    const auto &[accept, rayCells, wantDark] = plan.darts[slot(index)];
+    const int dark = work.darts[slot(index)];
+    const int count = wantDark ? dark : rayCells - dark;
+    work.darts[slot(index)] = 0;
+    if (((accept >> count) & 1U) == 0)
+      return false;
+  }
+  return true;
+}
+
 /// One cell of the sweep. False when the choice is already illegal.
 bool step(const Plan &plan, const Frontier &in, const int x, const int y,
           const uint8_t color, Frontier &out) {
@@ -521,8 +802,20 @@ bool step(const Plan &plan, const Frontier &in, const int x, const int y,
                   .y = y,
                   .pos = y * width + x,
                   .leaving = in.cls[slot(x)]};
+  if (!patternsHold(plan, in, site, color))
+    return false;
   Frontier work = in;
   bool merged = false;
+  // Before the slot is overwritten: the cell leaving the frontier is the one
+  // the history takes on, and an unplayable one goes in as light — nothing a
+  // pattern can read, since a pattern instance touching a gap was dropped.
+  if (plan.histBits > 0) {
+    const bool leavingDark =
+        site.leaving != kNoClass && colorOf(in, site.leaving) == kDark;
+    work.hist = ((in.hist << 1U) | (leavingDark ? 1U : 0U)) & plan.histMask;
+  }
+  if (!countDarts(plan, work, site, color))
+    return false;
 
   if (color == kUnplayable) {
     work.cls[slot(x)] = kNoClass;
@@ -668,7 +961,9 @@ bool sweepForward(const Model &model, const Plan &plan, Budget &budget,
     std::vector<Frontier> &into = forced.layers[slot(pos + 1)];
     std::vector<int32_t> &link = forced.links[slot(pos)];
     link.assign(from.size() * 2, -1);
-    index.reset(from.size() + from.size() / 2, FrontierHash{width});
+    index.reset(from.size() + from.size() / 2,
+                FrontierHash{.width = width,
+                             .darts = static_cast<int>(plan.darts.size())});
 
     const LinkLayer layer{
         .from = from, .into = into, .index = index, .link = link};
@@ -860,8 +1155,15 @@ void expandOne(const Plan &plan, const Cursor &cursor, const Layer &layer,
  * Listed the other way round, anything new declines by default and costs at
  * worst a re-measurement.
  *
- * What it can express is small and has not grown: letter clues, the two
- * connect rules, and `Underclued`, which is not a colouring rule at all.
+ * What it can express: letter clues, dart clues on a square the puzzle paints,
+ * the two connect rules, `Underclued` — which is not a colouring rule at all —
+ * and every rule whose WHOLE content is a forbidden local arrangement, since
+ * those compile to `patternsFor` and the frontier now carries enough recent
+ * colour to read one. The families deliberately left out are the ones a
+ * pattern table cannot say all of: an area or a run instance (`patternsFor`
+ * itself records that its trominoes are only half of what an area means), the
+ * one-symbol rules, the region-shape rules, and `OffByOne`, which changes what
+ * every count means rather than what any arrangement is.
  */
 bool applicable(const Model &model) {
   // A merged cell spans several squares, and the frontier carries one class
@@ -879,24 +1181,42 @@ bool applicable(const Model &model) {
   // crosses as well as the one it follows.
   if (!model.puzzle.areas.empty() || !model.puzzle.runs.empty())
     return false;
-  // An area clue would need each open class's SIZE in the state, and a dart a
-  // running count along a line the sweep crosses rather than follows.
-  if (std::ranges::any_of(model.puzzle.clues, [](const Clue &clue) {
-        return clue.kind != kClueLetter;
+  // An area clue would need each open class's SIZE in the state. A dart needs
+  // only a running count, but the colour it counts is the opposite of its OWN
+  // square's, so a dart the board leaves unpainted would need that square's
+  // colour carried too, long after it has left the frontier.
+  if (std::ranges::any_of(model.puzzle.clues, [&model](const Clue &clue) {
+        if (clue.kind == kClueLetter)
+          return false;
+        if (clue.kind != kClueDart || !isDirection(clue.direction))
+          return true;
+        const uint8_t own = model.puzzle.givens[slot(clue.index)];
+        return own != kDark && own != kLight;
       }))
     return false;
-  // The pattern rules would each need their own extra state; see the header.
-  // The area rules would need each class's size, like an area clue.
   using enum Rule;
-  constexpr auto kSupported =
-      std::to_array<Rule>({ConnectDark, ConnectLight, Underclued});
+  // Every rule here is a containment rule and nothing else: "this arrangement
+  // never occurs". `patternsFor` is then the whole of what the board forbids,
+  // which is what makes reading it off recent colour sound.
+  constexpr auto kSupported = std::to_array<Rule>(
+      {ConnectDark, ConnectLight, Underclued, NoDark2x2, NoLight2x2,
+       NoCheckerboard, NoDarkLightDark, NoLightDarkLight, NoDarkT, NoLightT,
+       NoThreeDarkOneLight, NoThreeLightOneDark, NoDarkDiagonal,
+       NoLightDiagonal, NoDarkElbow, NoLightElbow, NoDarkEll, NoLightEll,
+       NoDarkAnyDark, NoLightAnyLight, NoLightCrossedDarkT,
+       NoDarkCrossedLightT, NoDarkLongT, NoLightLongT, NoDarkKnight,
+       NoLightKnight, NoDarkLightDarkElbow, NoLightDarkLightElbow});
   for (int index = 0; index < rules::kRuleCount; index++) {
     if (const auto rule = static_cast<Rule>(index);
         model.hasRule(rule) && !std::ranges::contains(kSupported, rule))
       return false;
   }
-  const Scan scan = scanOf(model);
-  return scan.width <= kMaxProfileWidth;
+  if (scanOf(model).width > kMaxProfileWidth)
+    return false;
+  // Last, because it is the only part that costs anything: whether the
+  // arrangements this board forbids reach further back than the state carries,
+  // and whether its darts want more counter states than it will hold.
+  return planOf(model).usable;
 }
 
 Outcome runProfile(const Model &model, const Config &cfg) {
@@ -942,7 +1262,9 @@ Outcome runProfile(const Model &model, const Config &cfg) {
     // Layers grow smoothly, so the previous one is a good guess for this one.
     // Without it a layer of millions rehashes its way up from nothing, which
     // measured as a third of the sweep's time on the widest board.
-    index.reset(prev.size() + prev.size() / 2, FrontierHash{width});
+    index.reset(prev.size() + prev.size() / 2,
+                FrontierHash{.width = width,
+                             .darts = static_cast<int>(plan.darts.size())});
     next.reserve(prev.size() + prev.size() / 2);
     auto &[parent, chose] = trail[slot(pos + 1)];
     parent.reserve(prev.size());

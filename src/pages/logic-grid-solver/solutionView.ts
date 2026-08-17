@@ -2,6 +2,7 @@ import { markGroupJoins } from "../../util/gridOutline";
 import type { LogicGridClue, LogicGridTest } from "../../util/types";
 import { UNKNOWN } from "./cell";
 import { dressCell } from "./cellView";
+import { setGridColumns } from "./gridMetrics";
 import { createOutlineLayer, drawShapeOutlines } from "./outlineLayer";
 
 export interface SolutionViewData {
@@ -61,6 +62,10 @@ export class SolutionView {
     // Fixed tracks for the same reason the editor's renderGrid uses them: a
     // shrinkable track overlaps the fixed-width squares under the outline SVG.
     this.grid.style.gridTemplateColumns = `repeat(${config.gridWidth}, var(--logic-cell))`;
+    // The answer is the same board at the same width, so the card it is shown
+    // in needs the same column count the editor's grid set — stated here too
+    // rather than relied on, since this view outlives no render of its own.
+    setGridColumns(config.gridWidth);
 
     const clues = cluesByPosition(config);
 

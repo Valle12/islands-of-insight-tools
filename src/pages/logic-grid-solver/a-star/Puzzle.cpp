@@ -58,6 +58,27 @@ Problem lotusValueProblem(const Clue &clue) {
              : None;
 }
 
+/// Valueless like the lotus, and its direction is IGNORED like the viewpoint's,
+/// for the viewpoint's reason. Split out of `clueValueProblem` for that one's
+/// cognitive complexity, exactly as the lotus's block was.
+Problem galaxyValueProblem(const Clue &clue, const Puzzle &puzzle) {
+  using enum Problem;
+  if (clue.value != 0)
+    return GalaxyValue;
+  if (!isSeat(clue.seat))
+    return GalaxySeat;
+  // Unlike the lotus's, a galaxy's seat needs no merged cell — only that the
+  // squares it sits between are on the board, which needs the dimensions and
+  // nothing else, so it is asked here rather than after the shapes. There is no
+  // `diagonalSeatValid` twin either: a half turn maps square centres to square
+  // centres at every seat parity, so no seat has to be refused for want of a
+  // mirror.
+  if (((clue.seat & 1) != 0 && columnOf(clue.index) + 1 >= puzzle.width) ||
+      ((clue.seat >> 1) != 0 && rowOf(clue.index) + 1 >= puzzle.height))
+    return GalaxySeatOffBoard;
+  return None;
+}
+
 /**
  * What each kind's `value` — and, for a directed one, its `direction` — may be.
  *
@@ -95,13 +116,8 @@ Problem clueValueProblem(const Clue &clue, const Puzzle &puzzle,
                ? None
                : ViewpointValue;
   }
-  if (clue.kind == kClueGalaxy) {
-    // Valueless like the lotus, and its direction is IGNORED like the
-    // viewpoint's, for the viewpoint's reason. A seat is already refused for
-    // every non-lotus kind by `cluesProblem`, so the number is all that is
-    // left to ask about.
-    return clue.value == 0 ? None : GalaxyValue;
-  }
+  if (clue.kind == kClueGalaxy)
+    return galaxyValueProblem(clue, puzzle);
 
   if (clue.direction < 0 || clue.direction >= kDirectionCount)
     return DartDirection;
@@ -131,8 +147,10 @@ Problem cluesProblem(const Puzzle &puzzle) {
     seen.set(clue.index);
     // A seat on a kind that has none would look like part of the puzzle and
     // change nothing, so it is refused outright — the same rule the TypeScript
-    // validator applies to a stray `direction`.
-    if (clue.kind != kClueLotus && clue.seat != 0)
+    // validator applies to a stray `direction`. WHERE a seat may sit differs
+    // per kind, which is `lotusSeats` and `clueValueProblem`'s galaxy branch;
+    // this only asks whether one is legal at all.
+    if (!carriesSeat(clue.kind) && clue.seat != 0)
       return SeatOnWrongKind;
     if (const Problem problem = clueValueProblem(clue, puzzle, playableCount);
         problem != None)
@@ -521,15 +539,13 @@ void buildViewpoints(Model &model) {
  * every clue `structureProblem` accepts gets its geometry.
  */
 /// The galaxy twin of the lotus's `fillMirror`, and an overload of it because
-/// it means the same thing: the half turn is about the clue's own SQUARE, so
-/// this map needs no seat and no axis. `index` must already be set.
+/// it means the same thing: where every square lands under the clue's own
+/// map. `cx2`/`cy2` must already be set.
 void fillMirror(const Model &model, Galaxy &galaxy) {
   galaxy.mirror.fill(-1);
-  const int gx = columnOf(galaxy.index);
-  const int gy = rowOf(galaxy.index);
   for (int y = 0; y < model.height(); y++) {
     for (int x = 0; x < model.width(); x++) {
-      if (const auto [mx, my] = pointMirror(gx, gy, x, y);
+      if (const auto [mx, my] = halfTurn(galaxy.cx2, galaxy.cy2, x, y);
           mx >= 0 && mx < model.width() && my >= 0 && my < model.height())
         galaxy.mirror[slot(cellIndex(x, y))] =
             static_cast<int16_t>(cellIndex(mx, my));
@@ -537,13 +553,45 @@ void fillMirror(const Model &model, Galaxy &galaxy) {
   }
 }
 
+/// The playable squares touching the centre — see `Galaxy::seats`. One at a
+/// square's own centre, two on a grid line, four at a corner, and the set is
+/// closed under the turn, so a pair with one playable member is caught from
+/// the playable side.
+void fillSeats(const Model &model, Galaxy &galaxy) {
+  const int gx = columnOf(galaxy.index);
+  const int gy = rowOf(galaxy.index);
+  galaxy.seatCount = 0;
+  for (int dy = 0; dy <= galaxy.seat >> 1; dy++) {
+    for (int dx = 0; dx <= (galaxy.seat & 1); dx++) {
+      const int x = gx + dx;
+      const int y = gy + dy;
+      if (x >= model.width() || y >= model.height())
+        continue;
+      if (const int index = cellIndex(x, y); model.playable.test(index)) {
+        galaxy.seats[slot(galaxy.seatCount)] = static_cast<int16_t>(index);
+        galaxy.seatCount++;
+      }
+    }
+  }
+}
+
 void buildGalaxies(Model &model) {
   for (const int id : model.walked.galaxyClues) {
     const Clue &clue = model.puzzle.clues[slot(id)];
+    // The lotus's readability net, which the galaxy now needs for the same
+    // reason: an unreadable seat leaves the clue out of `galaxies` entirely,
+    // and the oracle then refuses every colouring rather than the propagator
+    // turning about a point that means nothing.
+    if (!isSeat(clue.seat))
+      continue;
     Galaxy galaxy;
     galaxy.clueId = id;
     galaxy.index = clue.index;
+    galaxy.seat = clue.seat;
+    galaxy.cx2 = seatX2(clue.index, clue.seat);
+    galaxy.cy2 = seatY2(clue.index, clue.seat);
     fillMirror(model, galaxy);
+    fillSeats(model, galaxy);
     model.walked.galaxies.push_back(galaxy);
   }
 }
@@ -577,16 +625,34 @@ Problem lotusMirrorsFit(const Model &model) {
   return Problem::None;
 }
 
-/// Every square of a galaxy's own cell is in its region whatever the colours,
-/// so each must point-reflect onto a playable square. A PLAIN square always
-/// reflects onto itself, so this can only ever fire through a merged cell —
-/// which is exactly the case worth naming before a single cell is coloured.
+/**
+ * Every square touching a galaxy's centre is in some region whatever the
+ * colours, so each must turn onto a playable square — a board where one
+ * cannot is unsolvable before a single cell is coloured, and saying so by
+ * name beats answering "unsolvable" with no reason.
+ *
+ * Whole CELLS, because a merged one joins with every square it has. At seat 0
+ * a plain square always turns onto itself, which is why this used to fire only
+ * through a merged cell; on a grid line or a corner it fires on plain squares
+ * too — a seated galaxy at the board's edge turns straight off it, and one
+ * seated beside a gap turns onto the gap.
+ */
+/// Whether every square of one seat's cell turns onto a playable square.
+bool mirrorsStayOnBoard(const Model &model, const Galaxy &galaxy,
+                        const Bits &mask) {
+  for (int i = mask.nextSet(0); i >= 0; i = mask.nextSet(i + 1)) {
+    if (const int turned = galaxy.mirror[slot(i)];
+        turned < 0 || !model.playable.test(turned))
+      return false;
+  }
+  return true;
+}
+
 Problem galaxyMirrorsFit(const Model &model) {
   for (const Galaxy &galaxy : model.walked.galaxies) {
-    const Bits mask = model.cellMask(galaxy.index);
-    for (int i = mask.nextSet(0); i >= 0; i = mask.nextSet(i + 1)) {
-      if (const int reflected = galaxy.mirror[slot(i)];
-          reflected < 0 || !model.playable.test(reflected))
+    for (int seat = 0; seat < galaxy.seatCount; seat++) {
+      if (!mirrorsStayOnBoard(model, galaxy,
+                              model.cellMask(galaxy.seats[slot(seat)])))
         return Problem::GalaxyMirrorLeavesBoard;
     }
   }
@@ -760,9 +826,15 @@ const char *describe(const Problem problem) {
                              "of squares its sight can reach"},
       ProblemMessage{.problem = GalaxyValue,
                      .text = "A galaxy symbol carries no number"},
+      ProblemMessage{.problem = GalaxySeat,
+                     .text = "A galaxy symbol's seat is not one of the four "
+                             "points of its square"},
+      ProblemMessage{.problem = GalaxySeatOffBoard,
+                     .text = "A galaxy symbol's seat needs a neighbouring "
+                             "square the board does not have"},
       ProblemMessage{.problem = GalaxyMirrorLeavesBoard,
-                     .text = "A galaxy symbol's own cell reflects off the "
-                             "board or onto an unplayable cell"},
+                     .text = "A cell around a galaxy symbol's centre turns "
+                             "off the board or onto an unplayable cell"},
   };
   // Every enumerator has a message. This must count against `Count` and not
   // against the last real enumerator: measured, an appended one leaves that

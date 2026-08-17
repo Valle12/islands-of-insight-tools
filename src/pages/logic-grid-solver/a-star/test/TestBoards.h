@@ -137,13 +137,16 @@ inline void withViewpoint(Puzzle &puzzle, const int x, const int y,
 }
 
 /**
- * Puts a galaxy on a cell: a symmetry clue with no value, direction or seat at
- * all — its region must map to itself under a half turn about this very
- * square. The `Clue` default direction is left standing, exactly as the
- * viewpoint's is.
+ * Puts a galaxy on a cell: a symmetry clue with no value and no direction.
+ * `seat` shifts its centre half a square right (bit 0) and down (bit 1), which
+ * is how one sits on a grid line or a corner — and unlike a lotus's it needs
+ * no merged cell under it. The `Clue` default direction is left standing,
+ * exactly as the viewpoint's is.
  */
-inline void withGalaxy(Puzzle &puzzle, const int x, const int y) {
-  puzzle.clues.push_back({.index = cellIndex(x, y), .kind = kClueGalaxy});
+inline void withGalaxy(Puzzle &puzzle, const int x, const int y,
+                       const int seat = 0) {
+  puzzle.clues.push_back(
+      {.index = cellIndex(x, y), .kind = kClueGalaxy, .seat = seat});
 }
 
 /**

@@ -64,6 +64,7 @@ export class SizedRuleControls {
         add.before(field);
       });
     }
+    this.syncAddButtons();
   }
 
   /** A sized control is lit while it holds at least one usable value — active
@@ -94,6 +95,7 @@ export class SizedRuleControls {
         }
       });
     }
+    this.syncAddButtons();
   }
 
   /** Drops every value: a resize or a reset is a different puzzle. */
@@ -180,9 +182,14 @@ export class SizedRuleControls {
   private addSlot(key: SizedControlKey) {
     const add = this.addButton(key);
     if (!add) return;
+    // The button is hidden at the cap rather than removed, so a stray click
+    // through the keyboard or a test can still reach it. Refusing here is what
+    // makes the cap a rule and not just a piece of styling.
+    if (sizedControlOf(key).onePerColor && this.values[key].length > 0) return;
     const field = createSizedField(sizedControlOf(key), this.values[key].length);
     this.values[key].push("");
     add.before(field);
+    this.syncAddButtons();
     field.focus();
   }
 
@@ -211,6 +218,28 @@ export class SizedRuleControls {
         survivor.dataset.slot = String(index);
         survivor.setAttribute("aria-label", `${spec.label} value ${index + 1}`);
       });
+    this.syncAddButtons();
+  }
+
+  /**
+   * Shows each `+` exactly where another value would mean something. A
+   * one-per-colour control loses its button the moment it holds a slot — even
+   * an empty one, since that slot is where the number is about to go — and
+   * gets it back when an emptied slot is dropped.
+   *
+   * Called from the two element-creating paths as well as `refresh`, because
+   * neither `addSlot` nor `dropSlot` fires `onValuesChanged`: an empty slot
+   * appearing or leaving changes no download, so the editor is deliberately
+   * not told, and `refresh` does not run after them.
+   */
+  private syncAddButtons() {
+    for (const spec of SIZED_CONTROLS) {
+      const add = this.addButton(spec.key);
+      add?.classList.toggle(
+        "hidden",
+        spec.onePerColor && this.values[spec.key].length > 0,
+      );
+    }
   }
 
   private addButton(key: SizedControlKey) {

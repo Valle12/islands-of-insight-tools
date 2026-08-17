@@ -763,6 +763,10 @@ const char *name(const Rule rule) {
       "no-light-knight",
       "no-dark-light-dark-elbow",
       "no-light-dark-light-elbow",
+      "distinct-shapes-dark",
+      "distinct-shapes-light",
+      "same-shape-dark",
+      "same-shape-light",
   });
   static_assert(kNames.size() == kRuleCount,
                 "every rule needs its id, in index order");

@@ -86,6 +86,85 @@ describe("validateConfig (logic grid)", () => {
     ).toEqual({ ok: false, error: "Galaxy symbols carry no value." });
   });
 
+  /**
+   * A galaxy's centre may sit on a grid line or a corner, so it carries a
+   * seat — and unlike a lotus's it needs no merged cell under it. A seat of 0
+   * is still omitted, the round-trip discipline every optional key follows.
+   */
+  test("a galaxy takes a seat with no merged cell, and omits seat 0", () => {
+    const galaxy = 5;
+    const seated = validateConfig({
+      ...clone(),
+      symbols: [{ x: 0, y: 0, type: galaxy, seat: 3 }],
+    });
+    expect(seated.ok).toBeTrue();
+    if (seated.ok) {
+      expect(seated.config.symbols).toEqual([
+        { x: 0, y: 0, type: galaxy, seat: 3 },
+      ]);
+    }
+    const centred = validateConfig({
+      ...clone(),
+      symbols: [{ x: 0, y: 0, type: galaxy, seat: 0 }],
+    });
+    expect(centred.ok).toBeTrue();
+    if (centred.ok) {
+      expect(centred.config.symbols).toEqual([{ x: 0, y: 0, type: galaxy }]);
+    }
+  });
+
+  /** The seat has to be a real point OF the board: the squares it sits
+   * between must exist. Whether they are PLAYABLE is deliberately not asked —
+   * the solver names that board unsolvable instead. */
+  test("a galaxy seat that runs off the board is refused", () => {
+    const galaxy = 5;
+    const config = clone();
+    // The last playable square of the top row: a seat to its RIGHT has no
+    // square to sit against. (The board's bottom-right corner is a gap, and a
+    // clue on one is refused earlier for a different reason.)
+    const edge = { x: config.gridWidth - 1, y: 0 };
+    expect(
+      validateConfig({
+        ...config,
+        symbols: [{ ...edge, type: galaxy, seat: 1 }],
+      }),
+    ).toEqual({
+      ok: false,
+      error: "Column 3, row 1 carries a seat the board does not surround.",
+    });
+    // ...while a seat DOWNWARD from the same square is a real point, so it is
+    // accepted: the check is per direction, not per square.
+    expect(
+      validateConfig({
+        ...config,
+        symbols: [{ ...edge, type: galaxy, seat: 2 }],
+      }).ok,
+    ).toBeTrue();
+    expect(
+      validateConfig({
+        ...config,
+        symbols: [{ x: 0, y: 0, type: galaxy, seat: 4 }],
+      }),
+    ).toEqual({
+      ok: false,
+      error: "Galaxy seats must be integers between 0 and 3.",
+    });
+  });
+
+  /** A LOTUS seat still needs one, which is the half that did not change. */
+  test("a lotus seat still needs a merged cell", () => {
+    const lotus = 3;
+    expect(
+      validateConfig({
+        ...clone(),
+        symbols: [{ x: 0, y: 0, type: lotus, direction: 0, seat: 1 }],
+      }),
+    ).toEqual({
+      ok: false,
+      error: "Column 1, row 1 carries a seat but no merged cell to sit in.",
+    });
+  });
+
   test("a board with no rules and no clues is still a board", () => {
     const result = validateConfig({
       gridWidth: 1,
@@ -203,9 +282,10 @@ describe("validateConfig (logic grid)", () => {
   test("returns the sized lists in canonical order", () => {
     const result = validateConfig({
       ...clone(),
+      // One area per colour is all the family allows, so the value-within-
+      // colour half of "canonical" is `runs`' to prove.
       areas: [
         { color: "light", size: 3 },
-        { color: "dark", size: 24 },
         { color: "dark", size: 2 },
       ],
       runs: [
@@ -218,7 +298,6 @@ describe("validateConfig (logic grid)", () => {
     if (!result.ok) return;
     expect(result.config.areas).toEqual([
       { color: "dark", size: 2 },
-      { color: "dark", size: 24 },
       { color: "light", size: 3 },
     ]);
     expect(result.config.runs).toEqual([
@@ -228,10 +307,11 @@ describe("validateConfig (logic grid)", () => {
     ]);
   });
 
-  /** Two sizes on one colour is not a contradiction to the FORMAT: it is
-   * satisfied exactly when the colour is absent, and the solver is what says
-   * so — the same honesty rule impossible clue combinations follow. */
-  test("accepts several sizes on one colour", () => {
+  /** Two AREA sizes on one colour hold together only where that colour is
+   * absent from the board — all zero of its regions being both sizes at once
+   * — which is not a puzzle anyone means, so the family takes one per colour
+   * and the file is refused by name. */
+  test("refuses two area sizes on one colour", () => {
     const result = validateConfig({
       ...clone(),
       areas: [
@@ -239,11 +319,28 @@ describe("validateConfig (logic grid)", () => {
         { color: "dark", size: 3 },
       ],
     });
+    expect(result.ok).toBeFalse();
+    if (result.ok) return;
+    expect(result.error).toBe(
+      "Only one area rule per color is allowed, so the dark area cannot be both 2 and 3.",
+    );
+  });
+
+  /** The RUN family is the other way round: two lengths on one colour are two
+   * separate bans, both enforceable and at worst redundant. */
+  test("accepts several run lengths on one colour", () => {
+    const result = validateConfig({
+      ...clone(),
+      runs: [
+        { color: "dark", length: 2 },
+        { color: "dark", length: 4 },
+      ],
+    });
     expect(result.ok).toBeTrue();
     if (!result.ok) return;
-    expect(result.config.areas).toEqual([
-      { color: "dark", size: 2 },
-      { color: "dark", size: 3 },
+    expect(result.config.runs).toEqual([
+      { color: "dark", length: 2 },
+      { color: "dark", length: 4 },
     ]);
   });
 
@@ -742,9 +839,9 @@ describe("The v1 migration", () => {
   });
 
   test("moves every sized index into its family, canonically", () => {
-    // 16 dark area 2, 47 dark area 24, 31 light area 3; 4 dark 1x3,
-    // 3 light 1x2 — written shuffled, read back dark-first and rising.
-    const result = validateConfig(v1([0, 16, 4, 31, 47, 11, 3]));
+    // 16 dark area 2, 31 light area 3; 4 dark 1x3, 3 light 1x2 — written
+    // shuffled, read back dark-first and rising.
+    const result = validateConfig(v1([0, 16, 4, 31, 11, 3]));
     expect(result.ok).toBeTrue();
     if (!result.ok) return;
     expect(result.migratedFrom).toBe(1);
@@ -752,7 +849,6 @@ describe("The v1 migration", () => {
     expect(result.config.rules).toEqual([0, 11]);
     expect(result.config.areas).toEqual([
       { color: "dark", size: 2 },
-      { color: "dark", size: 24 },
       { color: "light", size: 3 },
     ]);
     expect(result.config.runs).toEqual([
@@ -761,25 +857,52 @@ describe("The v1 migration", () => {
     ]);
   });
 
+  /** The migration is mechanical and does not guess: a v1 mask naming two dark
+   * areas rewrites into two dark entries, and the validator — which runs after
+   * it — names the contradiction. Naming both numbers is what makes the
+   * message actionable, since only the author knows which was meant. */
+  test("lets the validator name two area sizes a v1 mask carried", () => {
+    // 16 dark area 2 and 47 dark area 24, both set in one v1 mask.
+    const result = validateConfig(v1([16, 47]));
+    expect(result.ok).toBeFalse();
+    if (result.ok) return;
+    expect(result.error).toBe(
+      "Only one area rule per color is allowed, so the dark area cannot be both 2 and 24.",
+    );
+  });
+
   test("converts all 22 sized indices to the full family lists", () => {
     const sizedIndices = RULES.flatMap((rule, index) =>
       rule.sized ? [index] : [],
     );
     expect(sizedIndices).toHaveLength(22);
-    const result = validateConfig(v1(sizedIndices));
-    expect(result.ok).toBeTrue();
-    if (!result.ok) return;
-    expect(result.config.rules).toEqual([]);
-    const sizes = [2, 3, 4, 5, 6, 7, 24];
-    expect(result.config.areas).toEqual([
-      ...sizes.map(size => ({ color: "dark" as const, size })),
-      ...sizes.map(size => ({ color: "light" as const, size })),
-    ]);
+
+    // The eight RUN indices convert together, because that family keeps its
+    // several-per-colour lists.
+    const runIndices = RULES.flatMap((rule, index) =>
+      rule.sized?.family === "runs" ? [index] : [],
+    );
+    const runs = validateConfig(v1(runIndices));
+    expect(runs.ok).toBeTrue();
+    if (!runs.ok) return;
+    expect(runs.config.rules).toEqual([]);
     const lengths = [2, 3, 4, 5];
-    expect(result.config.runs).toEqual([
+    expect(runs.config.runs).toEqual([
       ...lengths.map(length => ({ color: "dark" as const, length })),
       ...lengths.map(length => ({ color: "light" as const, length })),
     ]);
+
+    // The fourteen AREA indices convert one at a time, since two of them on
+    // one colour is exactly what the family no longer allows.
+    for (const index of sizedIndices.filter(one => !runIndices.includes(one))) {
+      const { family, color, value } = RULES[index]!.sized!;
+      expect(family).toBe("areas");
+      const result = validateConfig(v1([index]));
+      expect(result.ok).toBeTrue();
+      if (!result.ok) return;
+      expect(result.config.rules).toEqual([]);
+      expect(result.config.areas).toEqual([{ color, size: value }]);
+    }
   });
 
   /** A migration runs before any structural check and must not guess: the

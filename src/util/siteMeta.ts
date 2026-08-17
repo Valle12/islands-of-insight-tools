@@ -88,18 +88,23 @@ export const PAGES: readonly PageMeta[] = SOURCE.map(
  *
  * 1920x1005 was the next size up that cleared 951 — and then the galaxy-era
  * rule batch grew logic-grid's rule row to 53 chips and the card to 1205 px,
- * needing 1253. 2400x1257 clears it (exactly 1.5x the 1600x838 frame, so the
- * ratio is unchanged). Note that widening past ~1000 px buys height and
- * nothing else: `#editor-card` is capped at 960 px, so a wider viewport does
- * not reflow the content, it only adds empty margin beside it. That is why
- * the width follows the RATIO and nothing more — measure the card, do not
- * guess.
+ * needing 1253, and 2400x1257 cleared that. The region-shape pairs took the
+ * rule row to 57 and the card to 1239 px, needing 1287; 2560x1341 clears it
+ * (1.6x the 1600x838 frame, so the ratio is unchanged).
+ *
+ * Note that widening past ~1000 px buys height and nothing else:
+ * `#editor-card` stays at 960 px for the board these shots are taken with, so
+ * a wider viewport does not reflow the content, it only adds empty margin
+ * beside it. (Logic-grid and shifting-mosaic DO grow the card past 960 for a
+ * wide grid, but the shot is of a freshly loaded page, whose board is far too
+ * small to reach it.) That is why the width follows the RATIO and nothing
+ * more — measure the card, do not guess.
  *
  * Every page's og:image:width / og:image:height declares these two numbers, and
  * `test/siteMeta.test.ts` fails if they drift apart or from the committed PNGs.
  */
-export const OG_IMAGE_WIDTH = 2400;
-export const OG_IMAGE_HEIGHT = 1257;
+export const OG_IMAGE_WIDTH = 2560;
+export const OG_IMAGE_HEIGHT = 1341;
 
 /** Where the OG screenshots live in `dist/` and in the dev server. */
 export const OG_DIR = "og";

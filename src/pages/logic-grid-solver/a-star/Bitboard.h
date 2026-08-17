@@ -223,4 +223,62 @@ struct Bits {
   return flood(oneCell(index), allowed);
 }
 
+/**
+ * A region's shape, as the one key two regions compare equal on exactly when
+ * they are CONGRUENT: the smallest of its eight dihedral images — the four
+ * rotations and the four reflections — each slid against the top-left corner.
+ *
+ * Every image is a bijection of the region, so all eight hold the same number
+ * of squares: the SIZE is in the key, which is why "the same shape and size"
+ * needs no second test anywhere. Which of the eight is picked is arbitrary and
+ * only has to be deterministic — keys are compared for equality, never for
+ * order — so the words' own ordering is used and nothing reads into it.
+ *
+ * Lives here, beside `flood`, for the reason `mirrorSquare` lives in `Types.h`
+ * while each lotus's mirror MAP stays with its owner: what a dihedral image of
+ * a polyomino IS belongs to the geometry, while what a rule does with one stays
+ * duplicated between `Verify.cpp` and `Propagate.cpp`, so the two can still
+ * only agree by both being right.
+ *
+ * A normalised image always fits: both sides of the bounding box are at most
+ * `kMaxSide`, whichever way a transpose swaps them, so `cellIndex` cannot wrap.
+ */
+[[nodiscard]] inline Bits canonicalShape(const Bits &region) {
+  // (x, y) -> (a*x + b*y, c*x + d*y): identity, three rotations, then the
+  // four reflections.
+  static constexpr std::array<std::array<int, 4>, 8> kDihedral{
+      {{1, 0, 0, 1},
+       {0, -1, 1, 0},
+       {-1, 0, 0, -1},
+       {0, 1, -1, 0},
+       {-1, 0, 0, 1},
+       {1, 0, 0, -1},
+       {0, 1, 1, 0},
+       {0, -1, -1, 0}}};
+
+  Bits best;
+  bool have = false;
+  for (const auto &[a, b, c, d] : kDihedral) {
+    int minX = kMaxSide;
+    int minY = kMaxSide;
+    for (int i = region.nextSet(0); i >= 0; i = region.nextSet(i + 1)) {
+      const int x = a * columnOf(i) + b * rowOf(i);
+      const int y = c * columnOf(i) + d * rowOf(i);
+      minX = std::min(minX, x);
+      minY = std::min(minY, y);
+    }
+    Bits image;
+    for (int i = region.nextSet(0); i >= 0; i = region.nextSet(i + 1)) {
+      const int x = a * columnOf(i) + b * rowOf(i) - minX;
+      const int y = c * columnOf(i) + d * rowOf(i) - minY;
+      image.set(cellIndex(x, y));
+    }
+    if (!have || std::ranges::lexicographical_compare(image.words, best.words)) {
+      best = image;
+      have = true;
+    }
+  }
+  return best;
+}
+
 } // namespace lg

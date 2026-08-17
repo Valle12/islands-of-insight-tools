@@ -27,10 +27,14 @@ using namespace lg;
 /**
  * Enough for every board that comes out at all, and not much more.
  *
- * The slowest captured board that answers needs about eight seconds
- * (`logicGridTest47`, four letter pairs on an 8x8 with no rules, so the search
- * has to guess most of it); everything else is milliseconds. The one board that
- * never answers would otherwise sit here burning whatever it is given.
+ * The slowest captured board is `logicGridTest67` at about 38 s — four letter
+ * pairs on a 15x15 with no rules, which only the profile sweep settles — and
+ * `logicGridTest454`, the 23x21 pillar lattice, takes about 7 s through the
+ * router, `logicGridTest445` about 7 s proving an underclued board and
+ * `logicGridTest476` about 5 s through the packer. Everything else is
+ * milliseconds. The budget is what stops a board
+ * NOT in either of those shapes from sitting here burning whatever it is
+ * given.
  */
 constexpr uint32_t kBudgetMs = 90000;
 
@@ -320,6 +324,32 @@ TEST(LogicGridFixtureIo, RefusesADuplicatedSizedRule) {
                              nlohmann::json{{"color", "dark"}, {"length", 2}}});
   const TempFixture file(document);
   EXPECT_THROW((void)fixtureio::load(file.path()), fixtureio::FixtureError);
+}
+
+/// Two AREA sizes on one colour hold together only where that colour is absent
+/// from the board, so the format takes one per colour. The ENGINE still walks
+/// conjunctive lists — `reference_test` builds them directly — which is why
+/// this is an intake rule and not a `Puzzle` one.
+TEST(LogicGridFixtureIo, RefusesTwoAreasOnOneColor) {
+  nlohmann::json document = oneCellDocument();
+  document["areas"] =
+      nlohmann::json::array({nlohmann::json{{"color", "dark"}, {"size", 2}},
+                             nlohmann::json{{"color", "dark"}, {"size", 3}}});
+  const TempFixture file(document);
+  EXPECT_THROW((void)fixtureio::load(file.path()), fixtureio::FixtureError);
+}
+
+/// ...and the run family is untouched: two bans on one colour are two separate
+/// rules, both enforceable and at worst redundant.
+TEST(LogicGridFixtureIo, AcceptsTwoRunsOnOneColor) {
+  nlohmann::json document = oneCellDocument();
+  document["runs"] =
+      nlohmann::json::array({nlohmann::json{{"color", "dark"}, {"length", 2}},
+                             nlohmann::json{{"color", "dark"}, {"length", 4}}});
+  const TempFixture file(document);
+  const fixtureio::Fixture fixture = fixtureio::load(file.path());
+  EXPECT_EQ(fixture.puzzle.runs.size(), 2U);
+  EXPECT_TRUE(fixture.puzzle.areas.empty());
 }
 
 class LogicGridFixtureTest : public testing::TestWithParam<std::string> {};

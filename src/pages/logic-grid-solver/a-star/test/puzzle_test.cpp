@@ -469,7 +469,8 @@ TEST(Viewpoints, ANumberBeyondItsOwnSightIsNamed) {
   EXPECT_EQ(contradiction(buildModel(puzzle)), Problem::ViewpointExceedsSight);
 }
 
-/// The generic net covers the new kind too: a seat belongs to a lotus alone.
+/// The generic net covers every kind with no point of its own — a seat belongs
+/// to the two SYMMETRY kinds and nothing else.
 TEST(Viewpoints, ASeatIsRefused) {
   Puzzle puzzle = test::board(open());
   puzzle.clues.push_back({.index = cellIndex(0, 0),
@@ -558,14 +559,48 @@ TEST(Galaxies, AValueIsRefused) {
   EXPECT_EQ(structureProblem(puzzle), Problem::GalaxyValue);
 }
 
-TEST(Galaxies, ASeatIsRefused) {
-  // The generic net: a seat on any non-lotus kind is `SeatOnWrongKind`, and a
-  // galaxy — centre-only by definition — is covered without a branch of its
-  // own.
+/// A galaxy's centre may sit on a grid line or a corner, so a seat is accepted
+/// — and unlike a lotus's it needs no merged cell under it, because a half
+/// turn about a point needs nothing to hold the point up.
+TEST(Galaxies, ASeatIsAcceptedWithNoMergedCell) {
+  for (const int seat : {1, 2, 3}) {
+    Puzzle puzzle = test::board(open());
+    test::withGalaxy(puzzle, 0, 0);
+    puzzle.clues.back().seat = seat;
+    EXPECT_EQ(structureProblem(puzzle), Problem::None) << "seat " << seat;
+  }
+}
+
+TEST(Galaxies, ASeatOutOfRangeIsNamed) {
   Puzzle puzzle = test::board(open());
   test::withGalaxy(puzzle, 1, 1);
+  puzzle.clues.back().seat = kSeatCount;
+  EXPECT_EQ(structureProblem(puzzle), Problem::GalaxySeat);
+}
+
+/// The squares a seat sits between have to EXIST — bounds only, and nothing
+/// about whether they are playable, which is the solver's to name.
+TEST(Galaxies, ASeatOffTheBoardIsNamed) {
+  Puzzle rightEdge = test::board(open());
+  test::withGalaxy(rightEdge, 2, 1);
+  rightEdge.clues.back().seat = 1;
+  EXPECT_EQ(structureProblem(rightEdge), Problem::GalaxySeatOffBoard);
+
+  Puzzle bottomEdge = test::board(open());
+  test::withGalaxy(bottomEdge, 1, 2);
+  bottomEdge.clues.back().seat = 2;
+  EXPECT_EQ(structureProblem(bottomEdge), Problem::GalaxySeatOffBoard);
+}
+
+/// A galaxy seated beside a GAP loads: the board is unsolvable, and the solver
+/// says so by name rather than the validator refusing to read the file.
+TEST(Galaxies, ASeatBesideAGapLoadsAndIsNamedLater) {
+  Puzzle puzzle = test::board({"..#", "...", "..."});
+  test::withGalaxy(puzzle, 1, 0);
   puzzle.clues.back().seat = 1;
-  EXPECT_EQ(structureProblem(puzzle), Problem::SeatOnWrongKind);
+  ASSERT_EQ(structureProblem(puzzle), Problem::None);
+  EXPECT_EQ(contradiction(buildModel(puzzle)),
+            Problem::GalaxyMirrorLeavesBoard);
 }
 
 TEST(Galaxies, ADirectionIsIgnored) {

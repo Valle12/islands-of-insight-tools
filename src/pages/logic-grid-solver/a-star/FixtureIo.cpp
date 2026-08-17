@@ -71,6 +71,11 @@ struct SizedFamily {
   int lo = 0;
   int hi = 0;
   const char *rangeError = "";
+  /// Whether a SECOND entry for one colour is a contradiction. Two run bans
+  /// are conjunctive and merely redundant; two area sizes hold together only
+  /// where the colour is absent from the board, all zero of its regions being
+  /// both sizes at once, which is not a puzzle anyone means.
+  bool onePerColor = false;
 };
 
 inline constexpr SizedFamily kAreaFamily{
@@ -78,7 +83,8 @@ inline constexpr SizedFamily kAreaFamily{
     .valueKey = "size",
     .lo = rules::kMinAreaSize,
     .hi = rules::kMaxAreaSize,
-    .rangeError = "An area size is out of range in "};
+    .rangeError = "An area size is out of range in ",
+    .onePerColor = true};
 
 inline constexpr SizedFamily kRunFamily{
     .key = "runs",
@@ -124,6 +130,12 @@ void readSized(const nlohmann::json &document, const SizedFamily &family,
         throw FixtureError("A sized rule is duplicated in " + path);
       if (!rules::sizedLess(into.back(), rule))
         throw FixtureError("Sized rules are out of canonical order in " +
+                           path);
+      // Sound only because the order above is already known to be canonical:
+      // every entry of one colour is contiguous, so "the previous entry is
+      // this colour" IS "a second entry for this colour".
+      if (family.onePerColor && into.back().color == rule.color)
+        throw FixtureError("Only one area rule per color is allowed in " +
                            path);
     }
     into.push_back(rule);
@@ -257,7 +269,7 @@ nlohmann::json cluesToJson(const Puzzle &puzzle) {
     // only off its default, the same discipline again.
     if (kind == kClueDart || kind == kClueLotus)
       entry["direction"] = direction;
-    if (kind == kClueLotus && seat != 0)
+    if (carriesSeat(kind) && seat != 0)
       entry["seat"] = seat;
     symbols.push_back(entry);
   }

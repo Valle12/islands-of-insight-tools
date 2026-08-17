@@ -11,6 +11,7 @@
 #include <array>
 #include <bit>
 #include <cstdint>
+#include <vector>
 
 namespace lg {
 namespace {
@@ -471,6 +472,136 @@ bool propagateRegionAreas(const Model &model, Domains &domains) {
   return true;
 }
 
+// ---------------------------------------------------------- region shapes --
+
+/**
+ * A region that can never gain another square: every cell touching it has
+ * already lost the colour from its domain.
+ *
+ * `possible`, NOT `undecided` — a region walled in by squares that are still
+ * open is not closed, it is merely surrounded by cells that have not chosen.
+ * Domains only ever shrink, so closure is MONOTONE: a closed region stays
+ * closed, and stays exactly this set, for the whole subtree beneath. That is
+ * the single fact every deduction below leans on, and it is also why the whole
+ * family is sound at a complete assignment for free — there `possible` and
+ * `definite` agree, so every region is closed and the checks below ARE the
+ * oracle, which is what keeps `oracleRejections` at zero.
+ */
+bool isClosed(const Domains &domains, const Bits &region, const uint8_t color) {
+  return (region.border() & domains.possible(color)).any() == false;
+}
+
+/**
+ * "No two regions of `color` are the same shape."
+ *
+ * Two CLOSED regions sharing a key is a contradiction — both are final. An
+ * OPEN region whose key already matches a closed one may not stop where it is,
+ * so it has to grow; where it has exactly one way to, that way is forced.
+ *
+ * Nothing else here is sound, and the near misses are worth naming because
+ * only `reference_test`'s brute force would catch getting them wrong:
+ *
+ *   - two OPEN regions of one shape prove nothing. They may grow apart, and
+ *     they may also grow INTO each other and become one region;
+ *   - an open region matching a closed one with two or more ways out is
+ *     required to grow but not required to grow anywhere in particular;
+ *   - "every completion of this region is congruent to a closed one" would be
+ *     a polyomino embedding search, and is deliberately not attempted.
+ */
+bool distinctShapes(const Model &model, Domains &domains, const uint8_t color) {
+  const Bits definite = domains.definite(color);
+  std::vector<Bits> closedKeys;
+  std::vector<Bits> open;
+  Bits seen;
+  for (int i = definite.nextSet(0); i >= 0; i = definite.nextSet(i + 1)) {
+    if (seen.test(i))
+      continue;
+    const Bits region = component(i, definite);
+    seen = seen | region;
+    if (isClosed(domains, region, color)) {
+      const Bits key = canonicalShape(region);
+      if (std::ranges::contains(closedKeys, key))
+        return false;
+      closedKeys.push_back(key);
+    } else {
+      open.push_back(region);
+    }
+  }
+
+  for (const Bits &region : open) {
+    if (!std::ranges::contains(closedKeys, canonicalShape(region)))
+      continue;
+    // One CELL, not one square — `regionArea`'s rule, and for its reason.
+    const Bits frontier = region.border() & domains.possible(color);
+    if (const int only = soleCell(model, frontier);
+        only >= 0 && !domains.assign(only, color))
+      return false;
+  }
+  return true;
+}
+
+/**
+ * "Every region of `color` is the same shape as every other."
+ *
+ * With no region closed there is no target yet and NOTHING is deduced: taking
+ * the biggest or the first open region as the shape is exactly the over-prune
+ * this family invites, and only the brute-force referee would notice.
+ *
+ * Once one region is closed its key `K` is the target, and two consequences
+ * follow. Two closed regions with different keys refute outright. And every
+ * region must then hold `|K|` cells — so the whole already-refereed area
+ * engine applies, gate, outlines, `pruneSmallPieces` and all, for the price of
+ * one call. On top of it, a region already at `|K|` cells cannot grow any
+ * further, so a differing key refutes one pass earlier than waiting for the
+ * outline to close it.
+ */
+bool sameShape(const Model &model, Domains &domains, const uint8_t color) {
+  const Bits definite = domains.definite(color);
+  bool haveKey = false;
+  Bits key;
+  Bits seen;
+  std::vector<Bits> regions;
+  for (int i = definite.nextSet(0); i >= 0; i = definite.nextSet(i + 1)) {
+    if (seen.test(i))
+      continue;
+    const Bits region = component(i, definite);
+    seen = seen | region;
+    regions.push_back(region);
+    if (!isClosed(domains, region, color))
+      continue;
+    const Bits closedKey = canonicalShape(region);
+    if (haveKey && closedKey != key)
+      return false;
+    haveKey = true;
+    key = closedKey;
+  }
+  if (!haveKey)
+    return true;
+
+  const int size = key.count();
+  for (const Bits &region : regions) {
+    // At the target size it can never grow, so its shape is already final.
+    if (region.count() == size && canonicalShape(region) != key)
+      return false;
+  }
+  return regionArea(model, domains, color, size);
+}
+
+bool propagateRegionShapes(const Model &model, Domains &domains) {
+  using enum Rule;
+  if (model.hasRule(DistinctShapesDark) &&
+      !distinctShapes(model, domains, kDark))
+    return false;
+  if (model.hasRule(DistinctShapesLight) &&
+      !distinctShapes(model, domains, kLight))
+    return false;
+  if (model.hasRule(SameShapeDark) && !sameShape(model, domains, kDark))
+    return false;
+  if (model.hasRule(SameShapeLight) && !sameShape(model, domains, kLight))
+    return false;
+  return true;
+}
+
 // ------------------------------------------------------------------ darts --
 
 /**
@@ -599,8 +730,13 @@ bool propagateDarts(const Model &model, Domains &domains) {
  */
 bool mirrorSymmetry(const Model &model, Domains &domains,
                     const std::array<int16_t, kMaxCells> &mirror,
-                    const int index, const uint8_t color) {
-  const uint8_t other = opposite(color);
+                    const int index, const uint8_t color,
+                    const uint8_t target) {
+  // What the image may NOT be. A lotus and a colour-preserving galaxy pass
+  // `target == color`, so this is `opposite(color)` and the fold is exactly
+  // what it always was; an inverting galaxy passes the other colour and the
+  // same two tests read the other way round.
+  const uint8_t wrong = opposite(target);
   const bool wholeColor = model.hasRule(color == kDark ? Rule::ConnectDark
                                                        : Rule::ConnectLight);
   const Bits core = wholeColor ? domains.definite(color)
@@ -609,7 +745,7 @@ bool mirrorSymmetry(const Model &model, Domains &domains,
     const int reflected = mirror[slot(i)];
     if (reflected < 0 || !model.playable.test(reflected))
       return false;
-    if (!domains.exclude(reflected, other))
+    if (!domains.exclude(reflected, wrong))
       return false;
   }
 
@@ -627,7 +763,7 @@ bool mirrorSymmetry(const Model &model, Domains &domains,
     for (int j = mask.nextSet(0); j >= 0; j = mask.nextSet(j + 1)) {
       if (const int reflected = mirror[slot(j)];
           reflected >= 0 && model.playable.test(reflected) &&
-          domains.colorOf(reflected) != other)
+          domains.colorOf(reflected) != wrong)
         continue;
       if (!domains.exclude(i, color))
         return false;
@@ -649,25 +785,81 @@ bool propagateLotuses(const Model &model, Domains &domains) {
     const uint8_t color = domains.colorOf(lotus.index);
     if (color == kUnknown)
       continue;
-    if (!mirrorSymmetry(model, domains, lotus.mirror, lotus.index, color))
+    if (!mirrorSymmetry(model, domains, lotus.mirror, lotus.index, color,
+                        color))
       return false;
   }
   return true;
 }
 
-/// The galaxy's dispatch, the lotus's twice over: skip while its cell's colour
-/// is open — the probe cascade is the game's "uncoloured symmetry" for the
-/// half turn too — and hand the decided case to the shared fold. That two
-/// galaxies can never share a region is deliberately CODED NOWHERE: two half
-/// turns compose to a translation no finite region survives, so it emerges
-/// from this propagator meeting the probe, and the reference sweep referees.
-bool propagateGalaxies(const Model &model, Domains &domains) {
-  for (const Galaxy &galaxy : model.walked.galaxies) {
-    const uint8_t color = domains.colorOf(galaxy.index);
-    if (color == kUnknown)
+/**
+ * Which way a galaxy's half turn takes colour.
+ *
+ * `Unknown` until one PAIR of squares around the centre is decided; a galaxy
+ * at a square's own centre is its own image, so seat 0 can only ever be
+ * `Preserve` — which is why the seatless galaxy is the special case rather
+ * than the rule. `Inconsistent` where two pairs disagree, which no colouring
+ * can satisfy and which is the earliest refutation there is.
+ *
+ * Derived per pass and stored nowhere: the sign depends on the colouring, the
+ * same discipline that keeps `ClueCandidates` out of `Dart`.
+ */
+enum class Sign : uint8_t { Unknown, Preserve, Invert, Inconsistent };
+
+Sign signOf(const Domains &domains, const Galaxy &galaxy) {
+  using enum Sign;
+  Sign sign = Unknown;
+  for (int i = 0; i < galaxy.seatCount; i++) {
+    const int seat = galaxy.seats[slot(i)];
+    const int image = galaxy.mirror[slot(seat)];
+    const uint8_t here = domains.colorOf(seat);
+    const uint8_t there = image < 0 ? kUnknown : domains.colorOf(image);
+    if (here == kUnknown || there == kUnknown)
       continue;
-    if (!mirrorSymmetry(model, domains, galaxy.mirror, galaxy.index, color))
+    const Sign said = here == there ? Preserve : Invert;
+    if (sign != Unknown && sign != said)
+      return Inconsistent;
+    sign = said;
+  }
+  return sign;
+}
+
+/**
+ * The galaxy's dispatch, the lotus's twice over: skip while the SIGN is still
+ * unknown — the probe cascade is the game's "uncoloured symmetry" for the half
+ * turn too — and hand every decided square to the shared fold.
+ *
+ * Stronger than gating on the clue's own cell: at a corner, two squares
+ * decided across the centre unlock the fold even while the clue's own square
+ * is open, and a decided square whose partner is open then forces the partner.
+ *
+ * Deliberately NOT here: the XOR chain. `colour(c) ^ colour(image(c))` is the
+ * same bit for every square in scope, so three decided cells force the fourth
+ * without the sign being known at all. That is a 2-XOR propagator, a new shape
+ * of reasoning in this solver, and it waits for a captured board to ask for it.
+ *
+ * That two galaxies can never share a region is deliberately CODED NOWHERE:
+ * two half turns compose to a translation no finite region survives, so it
+ * emerges from this propagator meeting the probe, and the reference sweep
+ * referees.
+ */
+bool propagateGalaxies(const Model &model, Domains &domains) {
+  using enum Sign;
+  for (const Galaxy &galaxy : model.walked.galaxies) {
+    const Sign sign = signOf(domains, galaxy);
+    if (sign == Inconsistent)
       return false;
+    if (sign == Unknown)
+      continue;
+    for (int i = 0; i < galaxy.seatCount; i++) {
+      const int seat = galaxy.seats[slot(i)];
+      const uint8_t color = domains.colorOf(seat);
+      if (color == kUnknown)
+        continue;
+      const uint8_t target = sign == Invert ? opposite(color) : color;
+      if (!mirrorSymmetry(model, domains, galaxy.mirror, seat, color, target))
+        return false;
+    }
   }
   return true;
 }
@@ -875,14 +1067,37 @@ bool propagateLetters(Domains &domains, const Model &model) {
  * hold `color`.
  *
  * An AREA clue bounds it: its region holds exactly `value` cells, so nothing in
- * it is more than `value - 1` steps away. A letter clue bounds nothing, so its
- * reach is the whole component. Over-approximating is the safe direction —
- * every cell the region could really contain has to be in here, or the caller
- * would rule out a colour that was legal.
+ * it is more than `value - 1` steps away. A GALAXY bounds it a different way:
+ * its region maps onto itself under the half turn, so a cell whose image is off
+ * the board or on a gap can never be in it, whatever the colours — a purely
+ * geometric fact, known before a single cell is decided. A letter clue bounds
+ * nothing, so its reach is the whole component. Over-approximating is the safe
+ * direction — every cell the region could really contain has to be in here, or
+ * the caller would rule out a colour that was legal.
  */
 Bits clueReach(const Model &model, const Domains &domains, const Clue &clue,
                const uint8_t color) {
   const Bits &possible = domains.possible(color);
+  if (clue.kind == kClueGalaxy) {
+    // Walked from the clue's own square through cells that may hold the colour
+    // AND can turn onto the board, so the fill stops at the edge of what the
+    // symmetry allows rather than being trimmed afterwards: a cell reachable
+    // only THROUGH a cell the turn forbids is not reachable at all.
+    const Galaxy *found = nullptr;
+    for (const Galaxy &galaxy : model.walked.galaxies) {
+      if (galaxy.index == clue.index)
+        found = &galaxy;
+    }
+    if (found == nullptr)
+      return component(clue.index, possible);
+    Bits turns;
+    for (int i = possible.nextSet(0); i >= 0; i = possible.nextSet(i + 1)) {
+      if (const int image = found->mirror[slot(i)];
+          image >= 0 && model.playable.test(image))
+        turns.set(i);
+    }
+    return component(clue.index, turns);
+  }
   if (clue.kind != kClueArea)
     return component(clue.index, possible);
 
@@ -1155,6 +1370,12 @@ bool propagateGlobal(const Model &model, Domains &domains) {
   // Outside the `clued` guard below on purpose: a board can carry this rule and
   // no clues at all, and then nothing else here would run.
   if (hasAreaRule(model) && !propagateRegionAreas(model, domains))
+    return false;
+  // Outside the `clued` guard for the same reason, and beside the area rule
+  // because `sameShape` borrows its engine once a region has closed.
+  if ((model.hasRule(DistinctShapesDark) || model.hasRule(DistinctShapesLight) ||
+       model.hasRule(SameShapeDark) || model.hasRule(SameShapeLight)) &&
+      !propagateRegionShapes(model, domains))
     return false;
   if (!model.areaClues.empty() && !propagateAreas(model, domains))
     return false;

@@ -89,6 +89,10 @@ const RULE_ORDER: [number, string][] = [
   [50, "no-light-knight"],
   [51, "no-dark-light-dark-elbow"],
   [52, "no-light-dark-light-elbow"],
+  [53, "distinct-shapes-dark"],
+  [54, "distinct-shapes-light"],
+  [55, "same-shape-dark"],
+  [56, "same-shape-light"],
 ];
 
 /**
@@ -176,6 +180,13 @@ const ROW_PINS: {
       ["pair", "Connect all cells", "connect-dark", "connect-light"],
       ["sized", "area-dark"],
       ["sized", "area-light"],
+      [
+        "pair",
+        "No two regions alike",
+        "distinct-shapes-dark",
+        "distinct-shapes-light",
+      ],
+      ["pair", "All regions alike", "same-shape-dark", "same-shape-light"],
     ],
   },
   {
@@ -313,6 +324,11 @@ describe("RULE_ROW", () => {
       expect([control.min, control.max]).toEqual(
         control.family === "runs" ? [2, 8] : [1, 9999],
       );
+      // Whether a second value per colour means anything is a property of the
+      // FAMILY: two run bans are conjunctive, two area sizes hold only where
+      // the colour is absent. `SizedListSpec.perColor` says the same on the
+      // file's side, and these two must never disagree.
+      expect(control.onePerColor).toBe(control.family === "areas");
       // A sized control draws in the band its rules always lived in.
       const members = RULES.filter(
         rule =>
@@ -515,9 +531,11 @@ describe("symbolValueError", () => {
     expect(symbolValueError(dart, 5, bent)).toBeNull();
   });
 
-  /** The galaxy is valueless like the lotus, and every refusal derives from
-   * its own fields — no validator branch names it. */
-  test("a galaxy refuses value, direction and seat alike", () => {
+  /** The galaxy is valueless and aims nowhere, and every refusal derives from
+   * its own fields — no validator branch names it. It DOES carry a seat: its
+   * centre may sit on a grid line or a corner, so the generic net that refuses
+   * one has to be read off `seating` rather than off `aims`. */
+  test("a galaxy refuses value and direction but takes a seat", () => {
     const galaxy = symbolKindAt(5)!;
     expect(symbolValueError(galaxy, undefined, SIZE)).toBeNull();
     expect(symbolValueError(galaxy, 0, SIZE)).toBe(
@@ -528,10 +546,37 @@ describe("symbolValueError", () => {
       "Only a directed symbol carries a direction, and Galaxy is not one.",
     );
     expect(symbolSeatError(galaxy, undefined)).toBeNull();
-    expect(symbolSeatError(galaxy, 1)).toBe(
-      "Only a symmetry symbol carries a seat, and Galaxy is not one.",
+    expect(symbolSeatError(galaxy, 1)).toBeNull();
+    expect(symbolSeatError(galaxy, 4)).toBe(
+      "Galaxy seats must be integers between 0 and 3.",
     );
     expect(parseSymbolValue(galaxy, "3", SIZE)).toBeNull();
+  });
+
+  /** The seat net still holds for every kind that has no point of its own,
+   * which is what the galaxy's own case used to prove. */
+  test("an unseated kind refuses a seat", () => {
+    expect(symbolSeatError(symbolKindAt(4)!, 1)).toBe(
+      "Only a symmetry symbol carries a seat, and Viewpoint is not one.",
+    );
+    expect(symbolSeatError(symbolKindAt(0)!, 1)).toBe(
+      "Only a symmetry symbol carries a seat, and Area number is not one.",
+    );
+  });
+
+  /** Exactly one kind seats inside its own merged cell and exactly one seats
+   * anywhere on the board — the two halves the capability field exists to keep
+   * apart. */
+  test("seating names the lotus and the galaxy apart", () => {
+    const seatings = SYMBOL_KINDS.map(kind => [kind.id, kind.seating]);
+    expect(seatings).toEqual([
+      ["area", "none"],
+      ["letter", "none"],
+      ["dart", "none"],
+      ["lotus", "cell"],
+      ["viewpoint", "none"],
+      ["galaxy", "board"],
+    ]);
   });
 });
 

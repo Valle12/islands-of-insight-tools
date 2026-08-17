@@ -1,7 +1,9 @@
 #include "SolverArms.h"
 
+#include "Packing.h"
 #include "Profile.h"
 #include "Puzzle.h"
+#include "Routing.h"
 #include "Rules.h"
 #include "Search.h"
 #include "SolverClock.h"
@@ -94,6 +96,46 @@ Outcome runCascade(const Model &model, const Config &cfg) {
     return deduced;
   }
 
+  // The router before the sweep, because where it applies it is milliseconds
+  // and the sweep can be half a minute. It is a CONSTRUCTION: it answers
+  // Solved with a verified colouring or nothing at all, never Unsolvable, so
+  // a board it cannot route falls straight through to the arms that can prove
+  // something. Seed 0 only, like the sweep and for its reason.
+  if (cfg.seed == 0 && routing::applicable(model)) {
+    announce(cfg, "routing");
+    Outcome routed =
+        routing::runRouting(model, withBudget(cfg, legBudget(cfg.maxMs, 15, deadline)));
+    if (routed.status == Status::Solved) {
+      routed.stats.nodesExpanded += deduced.stats.nodesExpanded;
+      routed.arm = "cascade:routing";
+      return routed;
+    }
+    deduced.stats.nodesExpanded += routed.stats.nodesExpanded;
+  }
+
+  // The packer next, for the same reason and on the same terms: a board whose
+  // only constraints are area numbers is a packing question, and the DFS cannot
+  // see one — measured on the captured 11x11 with clues of 24 and 26, 21
+  // million nodes and 13 of 121 cells at both 20 s and 120 s, against well
+  // under a second here. Also a construction, so a board it cannot pack falls
+  // straight through with nothing claimed.
+  if (cfg.seed == 0 && packing::applicable(model)) {
+    announce(cfg, "packing");
+    // A far bigger slice than the router's, and for a reason: where the packer
+    // applies, the arms after it have nothing to offer — the sweep declines a
+    // board of area clues and the DFS is the 21-million-node wander this arm
+    // exists to replace. Costing them budget loses nothing, and where the
+    // packer does NOT apply it declines on one predicate.
+    Outcome packed = packing::runPacking(
+        model, withBudget(cfg, legBudget(cfg.maxMs, 70, deadline)));
+    if (packed.status == Status::Solved) {
+      packed.stats.nodesExpanded += deduced.stats.nodesExpanded;
+      packed.arm = "cascade:packing";
+      return packed;
+    }
+    deduced.stats.nodesExpanded += packed.stats.nodesExpanded;
+  }
+
   // The profile sweep before the DFS, and only where it applies. On a board
   // whose constraints are pure connectivity it answers outright — measured, it
   // takes `logicGridTest47` from about eight seconds to a few milliseconds and
@@ -166,6 +208,10 @@ Outcome solve(const Model &model, const ArmSpec &spec, const Config &cfg) {
     return runDfs(model, armCfg);
   if (std::strcmp(spec.engine, "forced") == 0)
     return runForced(model, armCfg);
+  if (std::strcmp(spec.engine, "packing") == 0)
+    return packing::runPacking(model, armCfg);
+  if (std::strcmp(spec.engine, "routing") == 0)
+    return routing::runRouting(model, armCfg);
   if (std::strcmp(spec.engine, "profile") == 0)
     return model.hasRule(rules::Rule::Underclued)
                ? profile::runProfileForced(model, armCfg)

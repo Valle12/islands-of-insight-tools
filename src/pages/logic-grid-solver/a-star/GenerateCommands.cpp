@@ -293,12 +293,35 @@ bool paintLegal(const Model &model, SeededRng &rng, Colors &colors) {
   return false;
 }
 
+/**
+ * Keeps only the SMALLEST area rule of each colour — the binding one, which is
+ * `smallestArea`'s own argument.
+ *
+ * A v1 mask can name several sizes on one colour, and `splitLegacyMask` is
+ * faithful to it because the ENGINE still walks conjunctive lists. The FORMAT
+ * does not: `fixtureio::load` refuses a second entry per colour, and every
+ * generated board is written and then read straight back through it. The rule
+ * table here draws each of its entries independently, so without this roughly
+ * half of all boards would name two dark or two light areas and fail on the
+ * way back in.
+ *
+ * Runs strictly AFTER every rng decision and draws nothing, so no seed's
+ * stream moves — only what an already-drawn mask MEANS. `splitLegacyMask`
+ * returns its lists sorted, so each colour's entries are contiguous and the
+ * first of a run is its smallest.
+ */
+void keepOneAreaPerColor(std::vector<rules::SizedRule> &areas) {
+  const auto extra = std::ranges::unique(areas, {}, &rules::SizedRule::color);
+  areas.erase(extra.begin(), extra.end());
+}
+
 /// Tears a v1-style mask into the puzzle's modern fields: flags stay in the
 /// mask, sized bits become canonical `areas`/`runs` instances. Runs strictly
 /// AFTER every rng decision and draws nothing — which is what keeps every
 /// seed's board byte-identical across the format change.
 void applyLegacyMask(Puzzle &puzzle, const rules::RuleMask mask) {
   auto [flags, areas, runs] = rules::splitLegacyMask(mask);
+  keepOneAreaPerColor(areas);
   puzzle.ruleMask = flags;
   puzzle.areas = std::move(areas);
   puzzle.runs = std::move(runs);
@@ -457,8 +480,13 @@ bool galaxyHoldsAt(const Model &model, const Colors &colors, const int spot) {
   const int gx = columnOf(spot);
   const int gy = rowOf(spot);
   const Bits region = component(spot, heldBy(model, colors, color));
+  // Seat 0 — the generator places galaxies at a square's own CENTRE and never
+  // on a grid line, so the doubled centre is (2gx, 2gy) and this is the plain
+  // point reflection it always was. A `--galaxy-seats` roll would be an
+  // appended draw behind a `> 0` short circuit, the established pattern, and
+  // is deliberately not one yet.
   for (int i = region.nextSet(0); i >= 0; i = region.nextSet(i + 1)) {
-    const auto [mx, my] = pointMirror(gx, gy, columnOf(i), rowOf(i));
+    const auto [mx, my] = halfTurn(2 * gx, 2 * gy, columnOf(i), rowOf(i));
     if (mx < 0 || mx >= model.width() || my < 0 || my >= model.height())
       return false;
     if (colors[slot(cellIndex(mx, my))] != color)

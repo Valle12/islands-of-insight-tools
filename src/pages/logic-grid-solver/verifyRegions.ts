@@ -13,15 +13,99 @@ import {
   AREA_SYMBOL,
   CONNECT_DARK,
   CONNECT_LIGHT,
+  DISTINCT_SHAPES_DARK,
+  DISTINCT_SHAPES_LIGHT,
   has,
   LETTER_SYMBOL,
   matchesCount,
   ONE_SYMBOL_DARK,
   ONE_SYMBOL_LIGHT,
   region,
+  SAME_SHAPE_DARK,
+  SAME_SHAPE_LIGHT,
   type LogicGridViolation,
   type RuleCheck,
 } from "./verifyCore";
+
+/**
+ * The eight dihedral maps, as `[a, b, c, d]` meaning `(x, y) -> (ax + by,
+ * cx + dy)`: the four rotations and the four reflections. Entry 4 onwards are
+ * what make an S and a Z one shape, and an L and a J one shape.
+ */
+const DIHEDRAL = [
+  [1, 0, 0, 1],
+  [0, -1, 1, 0],
+  [-1, 0, 0, -1],
+  [0, 1, -1, 0],
+  [-1, 0, 0, 1],
+  [1, 0, 0, -1],
+  [0, 1, 1, 0],
+  [0, -1, -1, 0],
+] as const;
+
+/**
+ * A region's shape, as the one key two regions compare equal on exactly when
+ * they are CONGRUENT: the lexicographically smallest of its eight dihedral
+ * images, each slid against the top-left corner and read row by row.
+ *
+ * Every image is a bijection of the region, so all eight hold the same number
+ * of squares — the size is IN the key, which is why "the same shape and size"
+ * needs no separate size test. Which of the eight is picked is arbitrary and
+ * only has to be deterministic: keys are compared for equality and never for
+ * order, so any total order names the same representative for congruent
+ * regions.
+ *
+ * SQUARES, not merged cells. Every other geometric predicate in this file
+ * counts squares, and a merged cell is itself a polyomino rather than a point,
+ * so a region "as a set of cells" has no shape to compare in the first place.
+ * Two regions with the same footprint are therefore the same shape however the
+ * merges beneath them differ, which is what a player sees.
+ */
+function shapeKey(config: LogicGridTest, spread: Set<number>): string {
+  const squares = [...spread].map(cell => [
+    cell % config.gridWidth,
+    Math.floor(cell / config.gridWidth),
+  ]);
+  let best: number[][] | null = null;
+  for (const [a, b, c, d] of DIHEDRAL) {
+    const image = squares.map(([x, y]) => [a * x! + b * y!, c * x! + d * y!]);
+    const minX = Math.min(...image.map(([x]) => x!));
+    const minY = Math.min(...image.map(([, y]) => y!));
+    const slid = image
+      .map(([x, y]) => [x! - minX, y! - minY])
+      .sort((one, two) => one[1]! - two[1]! || one[0]! - two[0]!);
+    if (best === null || less(slid, best)) best = slid;
+  }
+  return best!.map(([x, y]) => `${x},${y}`).join(";");
+}
+
+/** Row-major order over two square lists of the same length. */
+function less(one: number[][], two: number[][]): boolean {
+  for (let i = 0; i < one.length; i++) {
+    const [ax, ay] = one[i]!;
+    const [bx, by] = two[i]!;
+    if (ay !== by) return ay! < by!;
+    if (ax !== bx) return ax! < bx!;
+  }
+  return false;
+}
+
+/** Every maximal region of `color`, each as its own set of flat indices. */
+function regionsOf(
+  config: LogicGridTest,
+  cells: number[],
+  color: number,
+): Set<number>[] {
+  const seen = new Set<number>();
+  const found: Set<number>[] = [];
+  for (let index = 0; index < cells.length; index++) {
+    if (cells[index] !== color || seen.has(index)) continue;
+    const spread = region(config, cells, index);
+    for (const cell of spread) seen.add(cell);
+    found.push(spread);
+  }
+  return found;
+}
 
 function connectivityProblem(
   config: LogicGridTest,
@@ -122,6 +206,56 @@ function symbolCountProblem(
   return "none";
 }
 
+/**
+ * No two regions of one colour are the same shape.
+ *
+ * Vacuous at zero regions and at one, like everything else in this file: the
+ * rule says what two regions may not be, not that two have to exist. A colour
+ * whose rule is off is not looked at, so the two colours never interact.
+ */
+function distinctShapesProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  for (const [index, color] of [
+    [DISTINCT_SHAPES_DARK, DARK],
+    [DISTINCT_SHAPES_LIGHT, LIGHT],
+  ] as const) {
+    if (!has(config, index)) continue;
+    const seen = new Set<string>();
+    for (const spread of regionsOf(config, cells, color)) {
+      const key = shapeKey(config, spread);
+      if (seen.has(key)) return "region-shape-repeat";
+      seen.add(key);
+    }
+  }
+  return "none";
+}
+
+/**
+ * Every region of one colour is the same shape as every other. Vacuous at zero
+ * regions and at one, for the reason above — and legal alongside its opposite,
+ * which together simply say the colour has at most one region.
+ */
+function sameShapeProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  for (const [index, color] of [
+    [SAME_SHAPE_DARK, DARK],
+    [SAME_SHAPE_LIGHT, LIGHT],
+  ] as const) {
+    if (!has(config, index)) continue;
+    let first: string | null = null;
+    for (const spread of regionsOf(config, cells, color)) {
+      const key = shapeKey(config, spread);
+      first ??= key;
+      if (key !== first) return "region-shape-mismatch";
+    }
+  }
+  return "none";
+}
+
 function symbolProblem(
   config: LogicGridTest,
   cells: number[],
@@ -163,6 +297,12 @@ function letterProblem(
 export const REGION_CHECKS: readonly RuleCheck[] = [
   connectivityProblem,
   regionSizeProblem,
+  // The three rule-driven whole-region checks stay together, ahead of the
+  // clue-driven ones. `Verify.cpp`'s `check` calls them at the same point, or
+  // a board breaking both region-size and shape would be NAMED differently on
+  // each side, which the suites assert.
+  distinctShapesProblem,
+  sameShapeProblem,
   areaProblem,
   symbolProblem,
   letterProblem,

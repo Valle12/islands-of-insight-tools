@@ -27,6 +27,7 @@ import {
 import { OFF_BY_ONE } from "./verify";
 import {
   axisIndex,
+  type LogicGridSymbolKind,
   SYMBOL_KIND_COUNT,
   symbolDirectionError,
   symbolKindAt,
@@ -45,7 +46,7 @@ export const MAX_GRID_SIDE = 32;
  * How long the solver may run before it gives up.
  *
  * A properly clued board is usually finished by deduction alone, in
- * milliseconds — nearly all of the 436 captured boards land well under a
+ * milliseconds — nearly all of the 489 captured boards land well under a
  * second. The budget exists for the two cases that are not like that: the
  * underclued mode, where every cell the deduction could not settle costs a search
  * of its own to prove, and the profile sweep on a wide connectivity board.
@@ -214,6 +215,21 @@ interface SizedListSpec {
   readonly min: number;
   readonly max: number;
   readonly duplicate: (color: string, value: number) => string;
+  /**
+   * Built when a SECOND entry names a colour already seen, or null where a
+   * family may hold several. Required rather than optional so a family added
+   * later has to answer the question rather than inherit an answer.
+   *
+   * `runs` may: "no dark 1x2" and "no dark 1x4" are two separate bans, both
+   * enforceable and at worst redundant. `areas` may not: "every dark region
+   * has area 2" and "…area 3" hold together only where dark is ABSENT from
+   * the board, all zero of its regions being both sizes at once, which is not
+   * a puzzle anyone means. `SizedControlSpec.onePerColor` in `rules.ts` is the
+   * same rule on the editor's side.
+   */
+  readonly perColor:
+    | ((color: string, first: number, second: number) => string)
+    | null;
 }
 
 const AREAS_SPEC: SizedListSpec = {
@@ -226,6 +242,8 @@ const AREAS_SPEC: SizedListSpec = {
   max: MAX_AREA_SIZE,
   duplicate: (color, size) =>
     `The ${color} area ${size} rule is listed more than once.`,
+  perColor: (color, first, second) =>
+    `Only one area rule per color is allowed, so the ${color} area cannot be both ${first} and ${second}.`,
 };
 
 const RUNS_SPEC: SizedListSpec = {
@@ -238,6 +256,8 @@ const RUNS_SPEC: SizedListSpec = {
   max: MAX_RUN_LENGTH,
   duplicate: (color, length) =>
     `The ${color} 1x${length} rule is listed more than once.`,
+  // Several bans on one colour are conjunctive and legal — see `perColor`.
+  perColor: null,
 };
 
 /**
@@ -253,6 +273,10 @@ function sizedListError(value: unknown, spec: SizedListSpec): string | null {
     return `${spec.key} must be an array of ${spec.noun}.`;
   }
   const seen = new Set<string>();
+  // The first value each colour brought, for the one-per-colour families. The
+  // exact-duplicate check runs FIRST, so a colour listed twice at the SAME
+  // value keeps reporting the more specific of the two messages.
+  const firstOf = new Map<string, number>();
   for (const entry of value) {
     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
       return `Every ${spec.key} entry must be a JSON object.`;
@@ -268,6 +292,11 @@ function sizedListError(value: unknown, spec: SizedListSpec): string | null {
     const stamp = `${color} ${carried}`;
     if (seen.has(stamp)) return spec.duplicate(color, carried as number);
     seen.add(stamp);
+    const first = firstOf.get(color);
+    if (spec.perColor && first !== undefined) {
+      return spec.perColor(color, first, carried as number);
+    }
+    firstOf.set(color, carried as number);
   }
   return null;
 }
@@ -297,6 +326,48 @@ function rebuiltSized(raw: Record<string, unknown>): Partial<LogicGridTest> {
   if (areas.length > 0) rebuilt.areas = areas;
   if (runs.length > 0) rebuilt.runs = runs;
   return rebuilt;
+}
+
+/**
+ * A diagonal axis on an edge-midpoint seat has no reflection on the square
+ * grid — mirrors would land on square corners — so the combination is refused
+ * here exactly as the solver names it. Whether the seat's squares really
+ * belong to the clue's merged cell is `seatShapeError`'s question.
+ */
+function diagonalSeatError(
+  kind: LogicGridSymbolKind,
+  direction: unknown,
+  seat: unknown,
+): string | null {
+  if (kind.aims !== "axis") return null;
+  const diagonal =
+    direction === axisIndex("diagonal-down") ||
+    direction === axisIndex("diagonal-up");
+  return diagonal && (seat === 1 || seat === 2)
+    ? `A diagonal ${kind.label.toLowerCase()} symbol cannot sit on a grid-line seat.`
+    : null;
+}
+
+/**
+ * A board seat may sit on any grid line or corner, but it must be a real point
+ * OF the board: the squares it sits between have to exist. Whether they are
+ * playable is deliberately not asked — an unplayable neighbour makes the board
+ * unsolvable and the solver names it, the honesty rule two clues with
+ * impossible counts already follow. Asked here rather than in `seatShapeError`
+ * because it needs only the dimensions, never the shapes.
+ */
+function boardSeatError(
+  kind: LogicGridSymbolKind,
+  seat: number,
+  at: { x: number; y: number },
+  size: { gridWidth: number; gridHeight: number },
+): string | null {
+  if (kind.seating !== "board" || seat === 0) return null;
+  const offRight = (seat & 1) !== 0 && at.x + 1 >= size.gridWidth;
+  const offBottom = (seat >> 1) !== 0 && at.y + 1 >= size.gridHeight;
+  return offRight || offBottom
+    ? `Column ${at.x + 1}, row ${at.y + 1} carries a seat the board does not surround.`
+    : null;
 }
 
 /** Returns the first problem with one clue, or null when it is valid. */
@@ -343,19 +414,14 @@ function symbolError(
   const seatProblem = symbolSeatError(kind, raw.seat);
   if (seatProblem !== null) return seatProblem;
 
-  // A diagonal axis on an edge-midpoint seat has no reflection on the square
-  // grid — mirrors would land on square corners — so the combination is
-  // refused here exactly as the solver names it. Whether the seat's squares
-  // really belong to the clue's merged cell is `seatShapeError`'s question.
-  if (kind.aims === "axis") {
-    const diagonal =
-      raw.direction === axisIndex("diagonal-down") ||
-      raw.direction === axisIndex("diagonal-up");
-    if (diagonal && (raw.seat === 1 || raw.seat === 2)) {
-      return `A diagonal ${kind.label.toLowerCase()} symbol cannot sit on a grid-line seat.`;
-    }
-  }
-  return null;
+  const diagonalProblem = diagonalSeatError(kind, raw.direction, raw.seat);
+  if (diagonalProblem !== null) return diagonalProblem;
+  return boardSeatError(
+    kind,
+    (raw.seat as number | undefined) ?? 0,
+    { x, y },
+    { gridWidth, gridHeight },
+  );
 }
 
 /** Returns the first problem with the clue layer, or null when it is valid. */
@@ -518,7 +584,10 @@ function seatShapeError(
 ): string | null {
   for (const symbol of symbols) {
     const seat = symbol.seat ?? 0;
-    if (symbolKindAt(symbol.type)?.aims !== "axis" || seat === 0) continue;
+    // Only a `"cell"` seat has a merged cell to be judged against: a board
+    // seat's point belongs to the grid, and `symbolError` has already checked
+    // the squares it sits between exist.
+    if (symbolKindAt(symbol.type)?.seating !== "cell" || seat === 0) continue;
     const cell = shapes.find(shape =>
       shape.includes(symbol.y * gridWidth + symbol.x),
     );
@@ -619,7 +688,11 @@ export function validateConfig(data: unknown): ConfigParseResult {
   };
 
   if (raw.shapes !== undefined) {
-    const shapesProblem = shapesError(raw.shapes, { gridWidth, gridHeight }, cells);
+    const shapesProblem = shapesError(
+      raw.shapes,
+      { gridWidth, gridHeight },
+      cells,
+    );
     if (shapesProblem !== null) return { ok: false, error: shapesProblem };
     const shapes = (raw.shapes as number[][]).map(shape => [...shape]);
     if (shapes.length > 0) config.shapes = shapes;

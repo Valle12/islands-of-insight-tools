@@ -88,6 +88,18 @@ constexpr bool isValuelessKind(const uint8_t kind) {
   return kind == kClueLotus || kind == kClueGalaxy;
 }
 
+/// The kinds that carry a SEAT — a point of their own that need not be the
+/// square's centre. Named here beside `isValuelessKind` and for its reason:
+/// the intakes, the writer and `cluesProblem` all consult one list, so "a seat
+/// on a kind that has none is an error" and "write no seat key" cannot drift
+/// apart. WHERE the seat may sit is a different question with a different
+/// answer per kind — a lotus's must lie inside its own merged cell, since its
+/// axis is a line a tile has to draw, while a galaxy's needs only to be a
+/// point of the board.
+constexpr bool carriesSeat(const uint8_t kind) {
+  return kind == kClueLotus || kind == kClueGalaxy;
+}
+
 /// Letters arrive as 0..25 rather than as characters: the search never needs
 /// the glyph, and the two boundaries that do convert once.
 inline constexpr int kLetterCount = 26;
@@ -196,14 +208,26 @@ constexpr std::pair<int, int> mirrorSquare(const int axis, const int cx2,
   return {mid - y, mid - x};
 }
 
-/// Where the square (x, y) lands under a HALF TURN about the square (gx, gy)
-/// — the galaxy's geometry. Plain square coordinates: a galaxy sits at its
-/// home square's centre, never on a grid line, so the doubled-coordinate seat
-/// scheme above does not apply to it. Pure geometry with no bounds attached,
-/// like `mirrorSquare`, and shared at the same altitude for the same reason.
-constexpr std::pair<int, int> pointMirror(const int gx, const int gy,
-                                          const int x, const int y) {
-  return {2 * gx - x, 2 * gy - y};
+/**
+ * Where the square (x, y) lands under a HALF TURN about the DOUBLED point
+ * (cx2, cy2) — the galaxy's geometry, in the same doubled coordinates
+ * `mirrorSquare` uses, so a centre on a grid line or a corner is still an
+ * integer. At seat 0 `cx2` is `2 * gx` and this is the plain `2 * gx - x` it
+ * replaces.
+ *
+ * A half turn maps square centres to square centres at EVERY parity of
+ * (cx2, cy2), which is why there is no `diagonalSeatValid` twin here: no seat
+ * a galaxy has to refuse. Pure geometry with no bounds attached, like
+ * `mirrorSquare`, and shared at the same altitude for the same reason.
+ *
+ * Named `halfTurn` rather than the `pointMirror` it replaces because the two
+ * have the same arity and the same types while meaning different things — the
+ * old one took the centre SQUARE — so a missed call site would have compiled
+ * and turned quietly about the wrong point.
+ */
+constexpr std::pair<int, int> halfTurn(const int cx2, const int cy2,
+                                       const int x, const int y) {
+  return {cx2 - x, cy2 - y};
 }
 
 /// A clue as the solver holds it: where it sits, what kind it is, and its

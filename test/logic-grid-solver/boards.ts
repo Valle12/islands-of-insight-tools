@@ -247,16 +247,19 @@ export function withViewpoint(
 
 /**
  * Puts a galaxy on a cell. A second call like the others: a symmetry symbol
- * with no value, direction or seat at all — its region must map to itself
- * under a half turn about this very square. Mirrors `withGalaxy` in the C++
- * `TestBoards.h`.
+ * with no value and no direction. `seat` moves the centre of the turn half a
+ * square right (bit 0) and down (bit 1), which is how one sits on a grid line
+ * or a corner — and unlike a lotus's it needs no merged cell under it. Written
+ * only when non-zero, the round-trip discipline. Mirrors `withGalaxy` in the
+ * C++ `TestBoards.h`.
  */
 export function withGalaxy(
   config: LogicGridTest,
   x: number,
   y: number,
+  seat = 0,
 ): LogicGridTest {
-  config.symbols.push({ x, y, type: GALAXY_SYMBOL });
+  config.symbols.push({ x, y, type: GALAXY_SYMBOL, ...(seat ? { seat } : {}) });
   config.symbols.sort((a, b) => a.y - b.y || a.x - b.x);
   return config;
 }
@@ -816,6 +819,56 @@ export const impossibleBoard = (): LogicGridTest => {
   const config = board(["2...", "....", "....", "...5"], ["connect-dark"]);
   withGiven(config, 0, 0, DARK);
   withGiven(config, 3, 3, DARK);
+  return config;
+};
+
+/**
+ * A SEATED galaxy across the wasm boundary — the only place a galaxy's `seat`
+ * key crosses at all, since every captured galaxy sits at its square's centre.
+ *
+ * The centre is on the seam under (1,1) of a 3x4, so the turn maps the board
+ * onto itself, and the colours across it DIFFER: the turn inverts, and the
+ * dark half above forces the light half below. Underclued, so the answer is
+ * the forced set.
+ */
+export const seatedGalaxyBoard = (): LogicGridTest => {
+  const config = board(["...", "...", "...", "..."], ["underclued"]);
+  withGalaxy(config, 1, 1, 2);
+  withGiven(config, 0, 0, DARK);
+  withGiven(config, 1, 0, DARK);
+  withGiven(config, 2, 0, DARK);
+  return config;
+};
+
+/**
+ * The shape rules across the wasm boundary, which is the ONLY place they can
+ * be seen: no captured board carries a rule index past the galaxy batch, so
+ * the corpus sweep would stay green while these two never crossed at all.
+ *
+ * A dark domino given in the top-left of a 4x2, underclued, with no two dark
+ * regions allowed to be alike. The lone cell at the far corner may still be
+ * dark — a singleton is a different shape from a domino — so the answer is
+ * genuinely partial rather than a board that forces itself.
+ */
+export const distinctShapesBoard = (): LogicGridTest => {
+  const config = board(["D...", "D..."], ["distinct-shapes-dark", "underclued"]);
+  withGiven(config, 0, 0, DARK);
+  withGiven(config, 0, 1, DARK);
+  return config;
+};
+
+/**
+ * The same board under the opposite rule: with every dark region required to
+ * be the same shape, the closed domino fixes the size at two, so a dark
+ * singleton anywhere else is refuted — the deduction `sameShape` borrows from
+ * `regionArea`, seen through the real module.
+ */
+export const sameShapeBoard = (): LogicGridTest => {
+  const config = board(["DL..", "DL.."], ["same-shape-dark", "underclued"]);
+  withGiven(config, 0, 0, DARK);
+  withGiven(config, 0, 1, DARK);
+  withGiven(config, 1, 0, LIGHT);
+  withGiven(config, 1, 1, LIGHT);
   return config;
 };
 
