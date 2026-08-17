@@ -80,8 +80,8 @@ body {
     max(
       var(--logic-card),
       calc(
-        var(--logic-columns, 6) * (var(--logic-cell) + var(--logic-seam)) -
-          var(--logic-seam) + 30px
+        var(--logic-columns, 6) * (var(--logic-cell) + var(--logic-seam))
+          - var(--logic-seam) + 30px
       )
     )
   );

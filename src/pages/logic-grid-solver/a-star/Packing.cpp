@@ -117,15 +117,28 @@ int satisfiedBy(const Bits &shape, const std::vector<Demand> &demands) {
       }));
 }
 
-/// Every connected `size`-cell set of `room` reachable from the demand's
-/// anchor, or nothing when there are more of them than are worth listing.
-BitsSet growAll(const Bits &room, const Demand &demand) {
+/**
+ * Every connected `size`-cell set of `room` reachable from the demand's
+ * anchor, or nothing when there are more of them than are worth listing.
+ *
+ * Three ways to give up, and the PENDING one is not redundant. The other two
+ * bound what this keeps; the stack is what it has queued, and every state
+ * expanded pushes one successor per border cell — so on a big open board the
+ * stack outgrows both caps long before either trips, by hundreds of megabytes
+ * of `Bits`. The budget is the same argument about time: this runs inside
+ * `prepare`, before the packing search that would otherwise be the only thing
+ * watching the clock. Declining early costs a construction nothing.
+ */
+BitsSet growAll(const Bits &room, const Demand &demand, Budget &budget) {
   Bits seedBits;
   seedBits.set(demand.cell);
   BitsSet found;
   BitsSet seen;
   std::vector<Bits> stack{seedBits};
   while (!stack.empty()) {
+    if (budget.exhausted() ||
+        stack.size() > static_cast<std::size_t>(kMaxPendingShapes))
+      return {};
     const Bits current = stack.back();
     stack.pop_back();
     if (current.count() == demand.size) {
@@ -156,9 +169,10 @@ BitsSet growAll(const Bits &room, const Demand &demand) {
  * minute.
  */
 std::vector<Bits> shapesFor(const Bits &room, const Demand &demand,
-                            const std::vector<Demand> &demands) {
+                            const std::vector<Demand> &demands,
+                            Budget &budget) {
   std::vector<Bits> shapes;
-  for (const Bits &shape : growAll(room, demand)) {
+  for (const Bits &shape : growAll(room, demand, budget)) {
     if (!demand.required.isSubsetOf(shape))
       continue;
     if (std::ranges::all_of(demands, [&demand, &shape](const Demand &other) {
@@ -211,10 +225,16 @@ public:
     // has more shapes than are worth listing. Either way the board is declined,
     // which a construction is always free to do.
     if (!std::ranges::all_of(small_, [this, &demands](const Demand &demand) {
-          options_.push_back(shapesFor(terms_.room, demand, demands));
+          options_.push_back(
+              shapesFor(terms_.room, demand, demands, budget_));
           return !options_.back().empty();
-        }))
+        })) {
+      // Told apart the way every arm here tells them apart: an enumeration cut
+      // short by the clock has shown nothing at all, while a list this board
+      // simply cannot fill is a real decline.
+      stopped_ = budget_.expired();
       return false;
+    }
     if (big_.empty())
       orderByChoice();
     noteEconomical(demands);

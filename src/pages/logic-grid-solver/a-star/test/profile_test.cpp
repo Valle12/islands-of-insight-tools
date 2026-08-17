@@ -237,7 +237,7 @@ TEST(Profile, DeclinesGalaxies) {
  */
 TEST(Profile, DeclinesEveryRuleItDoesNotName) {
   using enum Rule;
-  const std::vector<Rule> supportedRules = {
+  const std::vector supportedRules = {
       ConnectDark,          ConnectLight,        Underclued,
       NoDark2x2,            NoLight2x2,          NoCheckerboard,
       NoDarkLightDark,      NoLightDarkLight,    NoDarkT,

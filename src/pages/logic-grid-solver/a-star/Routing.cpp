@@ -178,8 +178,15 @@ struct Round {
 std::vector<int> shortestPath(const Round &round, const int self,
                               const Bits &from, const Bits &to,
                               const Bits &otherTerminals) {
-  constexpr int kUnreached = INT32_MAX;
-  std::vector<int> dist(kMaxCells, kUnreached);
+  // 64-bit, and not for tidiness. One `step` below is a PRODUCT of the two
+  // prices, and both of them grow with the round: history reaches `kMaxRounds`
+  // and the pressure factor `1 + 2 * (nets - 1) * (kPressureBase + kMaxRounds
+  // / kPressureGrowth)`, so a single step reaches about 1.9e7 and a path of a
+  // few hundred cells sums past `INT32_MAX`. Signed overflow is undefined, and
+  // a wrapped negative distance would break the one invariant Dijkstra has —
+  // late rounds would re-relax cells forever without making progress.
+  constexpr int64_t kUnreached = INT64_MAX;
+  std::vector<int64_t> dist(kMaxCells, kUnreached);
   std::vector<int> prev(kMaxCells, -1);
   // A bucket queue would be tighter, but the cells are few and the costs are
   // small integers; a sorted scan of the open set is simpler to read and never
@@ -217,13 +224,14 @@ std::vector<int> shortestPath(const Round &round, const int self,
       // noise of the same size as the base step swamps the very differences
       // the price exists to express. Variation between rounds comes from the
       // order the nets are rerouted in, which is shuffled.
-      const int step =
+      const int64_t step =
           otherTerminals.test(next)
               ? kBlocked
-              : (1 + round.board.history[slot(next)] * kHistoryStep) *
+              : static_cast<int64_t>(
+                    1 + round.board.history[slot(next)] * kHistoryStep) *
                     (1 + pressureAt(round.board, next, self) *
                              round.pressureCost);
-      if (const int through = dist[slot(cell)] + step;
+      if (const int64_t through = dist[slot(cell)] + step;
           through < dist[slot(next)]) {
         dist[slot(next)] = through;
         prev[slot(next)] = cell;

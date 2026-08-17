@@ -469,26 +469,21 @@ TEST(Verify, DifferentLettersMayShareAColour) {
   EXPECT_EQ(judge({"a.b", "..."}, {"DLD", "LLL"}, {}), Violation::None);
 }
 
+/**
+ * Every violation is worded, and EXHAUSTIVELY — a loop to `Count` rather than a
+ * hand-kept roster, which is what the `switch` this replaced used to guarantee.
+ * `describe`'s own `static_assert` only counts its rows, so a table with one
+ * enumerator written twice and another missed would still be the right SIZE
+ * and the missed one would describe itself as "Unknown violation".
+ */
 TEST(Verify, EveryViolationHasAMessage) {
-  EXPECT_STREQ(verify::describe(Violation::None), "");
-  EXPECT_STRNE(verify::describe(Violation::AreaSize), "");
-  EXPECT_STRNE(verify::describe(Violation::LetterShared), "");
-  EXPECT_STRNE(verify::describe(Violation::RegionSize), "");
-  EXPECT_STRNE(verify::describe(Violation::CellSplit), "");
-  EXPECT_STRNE(verify::describe(Violation::DartCount), "");
-  EXPECT_STRNE(verify::describe(Violation::Triple), "");
-  EXPECT_STRNE(verify::describe(Violation::Tee), "");
-  EXPECT_STRNE(verify::describe(Violation::LotusAsymmetric), "");
-  EXPECT_STRNE(verify::describe(Violation::ThreeOne), "");
-  EXPECT_STRNE(verify::describe(Violation::Diagonal), "");
-  EXPECT_STRNE(verify::describe(Violation::Elbow), "");
-  EXPECT_STRNE(verify::describe(Violation::Ell), "");
-  EXPECT_STRNE(verify::describe(Violation::DistancePair), "");
-  EXPECT_STRNE(verify::describe(Violation::MixedTee), "");
-  EXPECT_STRNE(verify::describe(Violation::LongTee), "");
-  EXPECT_STRNE(verify::describe(Violation::Knight), "");
-  EXPECT_STRNE(verify::describe(Violation::MixedElbow), "");
-  EXPECT_STRNE(verify::describe(Violation::GalaxyAsymmetric), "");
+  using enum Violation;
+  EXPECT_STREQ(verify::describe(None), "");
+  for (int index = 1; index < std::to_underlying(Count); index++) {
+    const auto violation = static_cast<Violation>(index);
+    EXPECT_STRNE(verify::describe(violation), "") << index;
+    EXPECT_STRNE(verify::describe(violation), "Unknown violation") << index;
+  }
 }
 
 /// A dart on `(0, 0)` aimed along the top row, and a colouring to judge.
@@ -1284,7 +1279,7 @@ TEST(Verify, AllRegionsAlikeWantsEveryShapeEqual) {
 /// Both rules of one colour together say it has AT MOST ONE region, which a
 /// board may legally be — so they are two independent flags, not a switch.
 TEST(Verify, BothShapeRulesTogetherAllowOneRegion) {
-  const std::vector<Rule> both{Rule::DistinctShapesDark, Rule::SameShapeDark};
+  const std::vector both{Rule::DistinctShapesDark, Rule::SameShapeDark};
   EXPECT_EQ(judge({"....", "...."}, {"DLLL", "DLLL"}, both), Violation::None);
   EXPECT_EQ(judge({"....", "...."}, {"DLDL", "DLDL"}, both),
             Violation::RegionShapeRepeat);

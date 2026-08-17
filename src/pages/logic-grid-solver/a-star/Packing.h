@@ -55,6 +55,12 @@ inline constexpr int kMaxShapeCells = 8;
 /// board is declined rather than paid for.
 inline constexpr int kMaxShapesPerClue = 200000;
 
+/// How many states that enumeration may keep PENDING. Not the same bound as
+/// the one above and not implied by it: that caps what the walk KEEPS, while
+/// every state it expands queues one successor per border cell, so the pending
+/// stack outgrows it long before it trips.
+inline constexpr int kMaxPendingShapes = 200000;
+
 /**
  * Whether this board is one the packer can usefully try.
  *

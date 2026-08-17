@@ -9,6 +9,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdlib>
+#include <utility>
 #include <vector>
 
 namespace lg::verify {
@@ -905,77 +906,113 @@ Violation letterProblem(const Model &model, const Colors &colors,
   return Violation::None;
 }
 
+/// One row of `describe`'s table. Named members so a row reads as a sentence
+/// and an enumerator INSERTED rather than appended cannot silently shift every
+/// message after it onto the wrong violation.
+struct ViolationMessage {
+  Violation violation;
+  const char *text;
+};
+
 } // namespace
 
+/**
+ * A table rather than a `switch`, and for the reason `Puzzle.cpp`'s `describe`
+ * is one: the switch's value was the compiler telling you about a `Violation`
+ * nobody had worded, and the `static_assert` below says the same thing louder.
+ * It fires on exactly the omission `-Wswitch` caught — an enumerator added with
+ * no message — on the native build as well as the clang one, and the lookup is
+ * by enumerator, so the table may be written in any order.
+ */
 const char *describe(const Violation violation) {
   using enum Violation;
-  switch (violation) {
-  case None:
-    return "";
-  case Incomplete:
-    return "A playable cell was left uncoloured";
-  case ShapeChanged:
-    return "The board's gaps do not match the puzzle";
-  case GivenChanged:
-    return "A cell that was already painted came back a different colour";
-  case Square:
-    return "A forbidden 2x2 block of one colour";
-  case Run:
-    return "A forbidden run of one colour";
-  case Checkerboard:
-    return "A forbidden checkerboard";
-  case Disconnected:
-    return "A colour that must be connected is in more than one piece";
-  case AreaSize:
-    return "An area number does not match the size of its region";
-  case LetterSplit:
-    return "Cells with the same letter are in different regions";
-  case LetterShared:
-    return "One region holds two different letters";
-  case AreaWithoutSymbol:
-    return "An area that must carry one symbol carries none";
-  case AreaWithManySymbols:
-    return "An area that must carry one symbol carries several";
-  case RegionSize:
-    return "A region does not have the area its colour's rule requires";
-  case CellSplit:
-    return "A merged cell came back in two colours";
-  case DartCount:
-    return "A dart does not count what its line really holds";
-  case Triple:
-    return "A forbidden line of three alternating colours";
-  case Tee:
-    return "A forbidden T of one colour";
-  case LotusAsymmetric:
-    return "A symmetry symbol's region does not mirror across its axis";
-  case ThreeOne:
-    return "A forbidden 2x2 of three of one colour and one of the other";
-  case Diagonal:
-    return "A forbidden corner touch of one colour";
-  case ViewpointCount:
-    return "A viewpoint's number does not match the squares it can see";
-  case Elbow:
-    return "A forbidden elbow of one colour";
-  case Ell:
-    return "A forbidden L of one colour";
-  case DistancePair:
-    return "A forbidden pair of one colour two apart";
-  case MixedTee:
-    return "A forbidden T whose crossing is the other colour";
-  case LongTee:
-    return "A forbidden long T of one colour";
-  case Knight:
-    return "A forbidden knight's move of one colour";
-  case MixedElbow:
-    return "A forbidden elbow whose corner is the other colour";
-  case GalaxyAsymmetric:
-    return "A galaxy symbol's region does not map to itself turned about it";
-  case RegionShapeRepeat:
-    return "Two regions of one colour have the same shape";
-  case RegionShapeMismatch:
-    return "Two regions of one colour have different shapes";
-  }
-  return "Unknown violation";
+  static constexpr std::array kMessages{
+      ViolationMessage{.violation = None, .text = ""},
+      ViolationMessage{.violation = Incomplete,
+                       .text = "A playable cell was left uncoloured"},
+      ViolationMessage{.violation = ShapeChanged,
+                       .text = "The board's gaps do not match the puzzle"},
+      ViolationMessage{.violation = GivenChanged,
+                       .text = "A cell that was already painted came back a "
+                               "different colour"},
+      ViolationMessage{.violation = Square,
+                       .text = "A forbidden 2x2 block of one colour"},
+      ViolationMessage{.violation = Run,
+                       .text = "A forbidden run of one colour"},
+      ViolationMessage{.violation = Checkerboard,
+                       .text = "A forbidden checkerboard"},
+      ViolationMessage{.violation = Disconnected,
+                       .text = "A colour that must be connected is in more "
+                               "than one piece"},
+      ViolationMessage{.violation = AreaSize,
+                       .text = "An area number does not match the size of its "
+                               "region"},
+      ViolationMessage{.violation = LetterSplit,
+                       .text = "Cells with the same letter are in different "
+                               "regions"},
+      ViolationMessage{.violation = LetterShared,
+                       .text = "One region holds two different letters"},
+      ViolationMessage{.violation = AreaWithoutSymbol,
+                       .text = "An area that must carry one symbol carries "
+                               "none"},
+      ViolationMessage{.violation = AreaWithManySymbols,
+                       .text = "An area that must carry one symbol carries "
+                               "several"},
+      ViolationMessage{.violation = RegionSize,
+                       .text = "A region does not have the area its colour's "
+                               "rule requires"},
+      ViolationMessage{.violation = CellSplit,
+                       .text = "A merged cell came back in two colours"},
+      ViolationMessage{.violation = DartCount,
+                       .text = "A dart does not count what its line really "
+                               "holds"},
+      ViolationMessage{.violation = Triple,
+                       .text = "A forbidden line of three alternating colours"},
+      ViolationMessage{.violation = Tee, .text = "A forbidden T of one colour"},
+      ViolationMessage{.violation = LotusAsymmetric,
+                       .text = "A symmetry symbol's region does not mirror "
+                               "across its axis"},
+      ViolationMessage{.violation = ThreeOne,
+                       .text = "A forbidden 2x2 of three of one colour and one "
+                               "of the other"},
+      ViolationMessage{.violation = Diagonal,
+                       .text = "A forbidden corner touch of one colour"},
+      ViolationMessage{.violation = ViewpointCount,
+                       .text = "A viewpoint's number does not match the "
+                               "squares it can see"},
+      ViolationMessage{.violation = Elbow,
+                       .text = "A forbidden elbow of one colour"},
+      ViolationMessage{.violation = Ell, .text = "A forbidden L of one colour"},
+      ViolationMessage{.violation = DistancePair,
+                       .text = "A forbidden pair of one colour two apart"},
+      ViolationMessage{.violation = MixedTee,
+                       .text = "A forbidden T whose crossing is the other "
+                               "colour"},
+      ViolationMessage{.violation = LongTee,
+                       .text = "A forbidden long T of one colour"},
+      ViolationMessage{.violation = Knight,
+                       .text = "A forbidden knight's move of one colour"},
+      ViolationMessage{.violation = MixedElbow,
+                       .text = "A forbidden elbow whose corner is the other "
+                               "colour"},
+      ViolationMessage{.violation = GalaxyAsymmetric,
+                       .text = "A galaxy symbol's region does not map to "
+                               "itself turned about it"},
+      ViolationMessage{.violation = RegionShapeRepeat,
+                       .text = "Two regions of one colour have the same shape"},
+      ViolationMessage{.violation = RegionShapeMismatch,
+                       .text = "Two regions of one colour have different "
+                               "shapes"},
+  };
+  // Counted against `Count` and never against the last real enumerator: an
+  // APPENDED one leaves that one's value alone, so the assert would still hold
+  // and the new violation would describe itself as "Unknown violation" — the
+  // exact omission this replaced a switch to keep catching.
+  static_assert(static_cast<int>(kMessages.size()) ==
+                std::to_underlying(Count));
+  const auto found =
+      std::ranges::find(kMessages, violation, &ViolationMessage::violation);
+  return found == kMessages.end() ? "Unknown violation" : found->text;
 }
 
 namespace {

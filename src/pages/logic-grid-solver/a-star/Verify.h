@@ -79,6 +79,10 @@ enum class Violation : uint8_t {
   /// Two regions of one colour are different shapes where the rule requires
   /// every one of them congruent.
   RegionShapeMismatch,
+  /// Never a violation — the count `describe`'s table is asserted against, so
+  /// an enumerator appended with no wording fails the build. It must stay LAST
+  /// and no check may ever return it.
+  Count,
 };
 
 const char *describe(Violation violation);
