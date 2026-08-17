@@ -24,6 +24,7 @@ import {
   deepSearchBoard,
   diagonalBoard,
   distancePairBoard,
+  distinctShapesBoard,
   elbowBoard,
   ellBoard,
   forbiddenTripleBoard,
@@ -39,6 +40,8 @@ import {
   mixedTeeBoard,
   offByOneBoard,
   runEightBoard,
+  sameShapeBoard,
+  seatedGalaxyBoard,
   runFiveBoard,
   solvableBoard,
   teeBoard,
@@ -140,6 +143,16 @@ const CASES: Case[] = [
   // something `verify.ts` throws out rather than answering nothing.
   ["area-one", areaOneBoard],
   ["run-eight", runEightBoard],
+  // The region-shape pair, which no captured board carries — every corpus
+  // rule index stops at the galaxy batch — so this is the only place either
+  // rule crosses into the real module at all.
+  ["distinct-shapes", distinctShapesBoard],
+  ["same-shape", sameShapeBoard],
+  // A galaxy's `seat` key crosses here and NOWHERE else: every captured galaxy
+  // sits at its square's own centre, so without this the corpus sweep would
+  // stay green while the key never crossed — and this one inverts colour, the
+  // half of the rule a module reading the old geometry would get backwards.
+  ["galaxy-seated", seatedGalaxyBoard],
   ["merged-cells", mergedCellBoard],
   ["deep-search", deepSearchBoard],
 ];

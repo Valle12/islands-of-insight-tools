@@ -121,14 +121,17 @@ export function dressClue(
   seat = 0,
 ): void {
   if (kind.icon) {
-    // An ICON kind's clue — the galaxy — is one glyph and nothing else: no
-    // value, no direction, no seat. Every other hook is shed and one is set;
-    // `data-icon` is presence-only, the stylesheet's centring hook, exactly
-    // as `data-viewpoint` is the ring's.
+    // An ICON kind's clue — the galaxy — is one glyph and no value, no
+    // direction and no rotation. It DOES take a seat: its centre may sit on a
+    // grid line or a corner, and `data-seat` slides the glyph onto it exactly
+    // as it slides the lotus's. Every other hook is shed; `data-icon` is
+    // presence-only, the stylesheet's centring hook, exactly as
+    // `data-viewpoint` is the ring's.
     delete element.dataset.direction;
     delete element.dataset.axis;
-    delete element.dataset.seat;
     delete element.dataset.viewpoint;
+    if (seat > 0) element.dataset.seat = String(seat);
+    else delete element.dataset.seat;
     element.dataset.icon = "";
     const glyph = document.createElement("md-icon");
     glyph.className = "cell-galaxy";

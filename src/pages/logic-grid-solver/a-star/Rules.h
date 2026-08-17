@@ -141,9 +141,23 @@ enum class Rule : uint8_t {
   // the other colour and both ends the named one.
   NoDarkLightDarkElbow = 51,
   NoLightDarkLightElbow = 52,
+  // The first rules about the SHAPES of whole regions, and the first family
+  // since the sized ones that adds no row to `patternsFor` at all: they relate
+  // regions arbitrarily far apart, and they read each region's MAXIMALITY, so
+  // no fixed-size window can state them. "Same shape" is CONGRUENCE — the
+  // eight dihedral images, rotations and reflections both — which also fixes
+  // the cardinality, so "shape and size" is one predicate.
+  DistinctShapesDark = 53,
+  DistinctShapesLight = 54,
+  // The opposite, and both of one colour may be set at once: together they say
+  // the colour has AT MOST ONE region, which a board may legally be.
+  SameShapeDark = 55,
+  SameShapeLight = 56,
 };
 
-inline constexpr int kRuleCount = 53;
+/// 57 of the 64 a `RuleMask` holds — seven flag slots left before it has to
+/// widen, which the assert below only reports after the fact.
+inline constexpr int kRuleCount = 57;
 
 /// The active rules as a bit per index. 64 wide because the catalogue reached
 /// exactly 32 rules on a 32-bit mask — the next appended rule would have been

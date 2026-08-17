@@ -26,6 +26,9 @@
      trace a merged cell at the size it is actually drawn, and that changes with
      the viewport — see the media query at the bottom. */
   --logic-cell: 42px;
+  /* The width `#editor-card` has whenever the board does not need more, and
+     the floor it never goes below. Every solver page carries the same 960. */
+  --logic-card: 960px;
 }
 
 body {
@@ -52,8 +55,36 @@ body {
   margin-block: auto;
 }
 
+/**
+ * The card GROWS to fit the board, because the squares cannot shrink to fit
+ * the card: `#grid`'s tracks are exactly `--logic-cell` wide (see `#grid`
+ * below), so on a wide board the only thing that can give is the card. Below
+ * `--logic-card` it stays at the default width — which is what keeps the
+ * committed Open Graph frames, shot on a 6x6 board, current — and above the
+ * viewport `min(100%, …)` hands the overflow back to `#grid-shell`, which
+ * scrolls it.
+ *
+ * `--logic-columns` is written on the root by `gridMetrics.ts`; the rest is
+ * done here rather than in TypeScript so that the mobile breakpoint's smaller
+ * `--logic-cell` needs no second spelling and no resize listener.
+ *
+ * The 30px is `#grid-shell`'s 14px padding and 1px border a side, and that is
+ * ALL of it: `width` here is a CONTENT box — no `box-sizing` on this card, by
+ * design, since making it a border box would narrow the rendered card by 42px
+ * and reflow the rule row the committed Open Graph frames were shot with — so
+ * this card's own padding and border are already outside the number.
+ */
 #editor-card {
-  width: min(100%, 960px);
+  width: min(
+    100%,
+    max(
+      var(--logic-card),
+      calc(
+        var(--logic-columns, 6) * (var(--logic-cell) + var(--logic-seam))
+          - var(--logic-seam) + 30px
+      )
+    )
+  );
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -529,18 +560,83 @@ h2 {
  * of its own — the squares and their invisible bridges keep the clicking —
  * so only the picture moves.
  */
-[data-seat="1"] > .cell-axis,
-[data-seat="3"] > .cell-axis {
+[data-seat="1"],
+[data-seat="3"] {
   --seat-x: calc((var(--logic-cell) + var(--logic-seam)) / 2);
 }
 
-[data-seat="2"] > .cell-axis,
-[data-seat="3"] > .cell-axis {
+[data-seat="2"],
+[data-seat="3"] {
   --seat-y: calc((var(--logic-cell) + var(--logic-seam)) / 2);
 }
 
-[data-seat] > .cell-axis {
+/* Set on the CELL rather than on the glyph, so both seated glyphs read them:
+   the lotus's axis stroke and the galaxy's swirl. Custom properties inherit,
+   so one pair of declarations serves both. */
+[data-seat] > .cell-axis,
+[data-seat] > .cell-galaxy {
   translate: var(--seat-x, 0) var(--seat-y, 0);
+}
+
+/**
+ * The seams, opened to the pointer while a SEATED clue is armed — see
+ * `Board.syncSeamTargets`.
+ *
+ * A seated clue's whole point is the point BETWEEN squares, and the crossing
+ * where four squares meet was the one place nothing was listening. This is the
+ * merged cells' own bridge trick above, widened from one tile to the whole
+ * grid: the same two pseudo-elements, the same "each seam covered once, by the
+ * square left of or above it, and the corner by the top-left of the four", and
+ * the same transparent box that paints nothing. `leanOf` then reads a fraction
+ * past 1 and names the seat, exactly as it does for a press on a bridge.
+ *
+ * Covering each seam ONCE is what makes this work — overlapping halves from
+ * both sides leave the crossing on a boundary between four boxes, where the
+ * hit test picks none of them.
+ *
+ * Only while a seated clue is armed. A colour has no meaning in a seam, and
+ * widening those targets would change what a drag across the board paints.
+ */
+#grid[data-seams] .grid-cell::before,
+#grid[data-seams] .grid-cell::after {
+  content: "";
+  position: absolute;
+  background: transparent;
+  border: 0;
+}
+
+#grid[data-seams] .grid-cell::before {
+  top: 0;
+  /* Past the corner, so the crossing belongs to this square too. */
+  bottom: calc(-1px - var(--logic-seam));
+  left: 100%;
+  width: var(--logic-seam);
+}
+
+#grid[data-seams] .grid-cell::after {
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: var(--logic-seam);
+}
+
+/**
+ * A seated glyph paints OUTSIDE its own square — half a cell right, down or
+ * both — and grid items paint in DOM order, so the squares after it would
+ * cover the overhanging half.
+ *
+ * The lotus never needed this: its seat only ever exists inside a merged cell,
+ * whose squares paint NOTHING (the SVG outline draws the tile). A galaxy's
+ * seat may run between two ordinary squares, which paint a fill and a rim.
+ *
+ * `.grid-cell` is already `position: relative` and nothing on the path clips,
+ * so lifting the cell is the whole fix. The focus ring above stays an explicit
+ * `outline: 2px solid` with a negative offset for the reason stated there —
+ * `outline-style: auto` follows PAINT bounds, and this is now the second glyph
+ * on the board deliberately bigger than its box.
+ */
+.grid-cell[data-seat] {
+  z-index: 1;
 }
 
 /* The picker's own axes are the same glyph at the arrows' picker size, and
@@ -880,6 +976,21 @@ h2 {
   font-weight: 600;
   text-align: center;
   border-right: 1px solid var(--md-sys-color-outline-variant);
+}
+
+/* An area control holds ONE value, so its `+` leaves as soon as that value has
+   a slot — and the field becomes the last thing in the pill, with nothing to
+   its right to draw a bar towards. It gives up the hairline and takes the
+   rounded end the button was carrying, exactly as `.rule-size-add` has it.
+
+   The radius is NOT redundant with the pill's `overflow: hidden`. Clipping
+   fixes the paint and nothing else: a focus ring is an `outline`, which
+   follows the field's OWN border box — square corners on a rounded pill, with
+   the two right-hand ones sliced off by the clip. The radius is what makes the
+   ring follow the shape the player sees. */
+.rule-size:has(+ .rule-size-add.hidden) {
+  border-right: none;
+  border-radius: 0 var(--tool-inner-radius) var(--tool-inner-radius) 0;
 }
 
 .rule-size:focus-visible {

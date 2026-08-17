@@ -55,10 +55,13 @@ struct ViewpointSpec {
   int value = 1;
 };
 
-/// A galaxy: where it sits, and nothing else — no value, direction or seat.
+/// A galaxy: where it sits, and where inside its square the centre of the turn
+/// sits — 0 the square's own centre, 1 and 2 the edges to the right and below,
+/// 3 the corner. No value and no direction.
 struct GalaxySpec {
   int x = 0;
   int y = 0;
+  int seat = 0;
 };
 
 struct Case {
@@ -189,6 +192,27 @@ std::vector<Case> allCases() {
        .picture = {"...", "...", "..."},
        .merges = {{{1, 0}, {2, 0}}},
        .darts = {{.x = 0, .y = 0, .value = 2, .direction = kDirRight}}},
+      // Darts whose OWN square the board paints, which is the only shape the
+      // profile sweep will take one in: what a dart counts is the opposite of
+      // its own colour, so a painted one is a fixed target and the sweep can
+      // carry a running count for it. These three are what referee that count
+      // — the sweep reads the ray a completely different way from the
+      // propagator, one cell at a time in scan order, and a miscount would
+      // otherwise ship as a confident wrong forced set.
+      {.name = "dartOnLight",
+       .picture = {"L..", "...", "..."},
+       .darts = {{.x = 0, .y = 0, .value = 1, .direction = kDirRight}}},
+      // On a DARK square, so the ray counts light cells — the reading the
+      // sweep takes as "the rest of the ray" rather than counting directly.
+      {.name = "dartOnDark",
+       .picture = {"D..", "...", "..."},
+       .darts = {{.x = 0, .y = 0, .value = 1, .direction = kDirDown}}},
+      // Two painted darts crossing each other's line, so both counters are
+      // live at once over cells each of them counts.
+      {.name = "twoDartsPainted",
+       .picture = {"L..", "L..", "..."},
+       .darts = {{.x = 0, .y = 0, .value = 2, .direction = kDirRight},
+                 {.x = 0, .y = 1, .value = 1, .direction = kDirRight}}},
       // Lotuses. The propagator paints (the mirror of everything connected to
       // the lotus through decided cells) and refuses (cells whose reflection
       // can never match), and over-doing EITHER removes real solutions —
@@ -301,6 +325,28 @@ std::vector<Case> allCases() {
        .picture = {"..."},
        .merges = {{{0, 0}, {1, 0}}},
        .galaxies = {{.x = 0, .y = 0}}},
+      // SEATED galaxies: the centre on a grid line or a corner, where the turn
+      // carries a SIGN and may INVERT colour. The propagator reads that sign
+      // off the squares around the centre and folds every region touching it,
+      // so a sign taken too eagerly — or a region left unwalked — removes real
+      // solutions that only this suite can see.
+      {.name = "galaxySeam",
+       .picture = {"...", "...", "..."},
+       .galaxies = {{.x = 0, .y = 1, .seat = 1}}},
+      {.name = "galaxyCorner",
+       .picture = {"...", "...", "..."},
+       .galaxies = {{.x = 0, .y = 0, .seat = 3}}},
+      // A seam centred so the turn maps the whole board onto itself, which is
+      // where an inverting sign has the most to say.
+      {.name = "galaxyFold",
+       .picture = {"..", "..", "..", ".."},
+       .galaxies = {{.x = 0, .y = 1, .seat = 3}}},
+      // A seated galaxy whose seat crosses a merged cell's seam — the case the
+      // lotus refuses and this one allows.
+      {.name = "galaxySeamOverCell",
+       .picture = {"...", "...", "..."},
+       .merges = {{{1, 1}, {2, 1}}},
+       .galaxies = {{.x = 0, .y = 1, .seat = 1}}},
       // A merged cell may carry SEVERAL clues, one per square — the game's
       // harder boards put two darts on one domino. The next five are that
       // capability across the kinds, brute force refereeing what each
@@ -543,6 +589,39 @@ std::vector<Case> allCases() {
       // gate rather than around it.
       {.name = "areaOneAndTwoDark",
        .areas = {{.color = kDark, .value = 1}, {.color = kDark, .value = 2}}},
+      // The SHAPE rules, and this sweep is the only thing that can referee
+      // them: their propagator paints from "this open region has to grow" and
+      // from a target shape DERIVED from whichever region closed first, and
+      // `Verify` can only catch an answer that is not a solution, never a
+      // solution that was thrown away. The near misses it has to prove sound
+      // are two open congruent regions (which may still grow apart, or merge)
+      // and an open region matching a closed one with more than one way out.
+      {.name = "distinctDark", .rules = {DistinctShapesDark}},
+      {.name = "distinctBoth",
+       .rules = {DistinctShapesDark, DistinctShapesLight}},
+      {.name = "distinctAndConnect", .rules = {DistinctShapesDark, ConnectLight}},
+      {.name = "sameShapeDark", .rules = {SameShapeDark}},
+      {.name = "sameShapeBoth", .rules = {SameShapeDark, SameShapeLight}},
+      // Connect makes dark ONE region, so the rule holds vacuously — and the
+      // propagator must not deduce anything from a target it never gets.
+      {.name = "sameShapeAndConnect", .rules = {SameShapeDark, ConnectDark}},
+      // `sameShape` borrows `regionArea` once a region closes, so the pairing
+      // with a real area instance is where a doubled or disagreeing size would
+      // show. Area ONE is the gate `regionArea` guards with `area >= 2`.
+      {.name = "sameShapeAndAreaTwo",
+       .rules = {SameShapeDark},
+       .areas = {{.color = kDark, .value = 2}}},
+      {.name = "sameShapeAndAreaOne",
+       .rules = {SameShapeDark},
+       .areas = {{.color = kDark, .value = 1}}},
+      // Distinct plus an area of one says dark holds AT MOST ONE cell, and
+      // distinct plus same-shape says it has at most one region. Both are
+      // derived facts nothing codes, so brute force is what checks them.
+      {.name = "distinctAndAreaOne",
+       .rules = {DistinctShapesDark},
+       .areas = {{.color = kDark, .value = 1}}},
+      {.name = "distinctAndSameDark",
+       .rules = {DistinctShapesDark, SameShapeDark}},
   };
 
   std::vector<Case> cases;
@@ -590,8 +669,8 @@ Puzzle puzzleFor(const Case &one) {
     test::withLotus(puzzle, x, y, axis, seat);
   for (const auto &[x, y, value] : one.viewpoints)
     test::withViewpoint(puzzle, x, y, value);
-  for (const auto &[x, y] : one.galaxies)
-    test::withGalaxy(puzzle, x, y);
+  for (const auto &[x, y, seat] : one.galaxies)
+    test::withGalaxy(puzzle, x, y, seat);
   return puzzle;
 }
 

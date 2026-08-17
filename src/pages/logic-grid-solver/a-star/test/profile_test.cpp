@@ -7,6 +7,8 @@
 #include "Verify.h"
 
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <string>
 #include <vector>
 
 // The frontier sweep. `reference_test.cpp` is what proves it agrees with brute
@@ -96,9 +98,12 @@ TEST(Profile, DeclinesWhatItCannotExpress) {
   EXPECT_TRUE(takes({"a..", "...", "..a"}, {Rule::ConnectDark}));
   // An area clue would have to carry its region's size in the state.
   EXPECT_FALSE(takes({"3..", "...", "..a"}));
-  // The pattern rules each need their own extra state; see Profile.h.
-  EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::NoDark2x2}));
-  EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::NoCheckerboard}));
+  // A rule whose whole content is a forbidden arrangement IS expressible: the
+  // frontier's slots are the last `width` cells in scan order, so a few bits
+  // of history beside them are enough to read one off.
+  EXPECT_TRUE(takes({"a..", "...", "..a"}, {Rule::NoDark2x2}));
+  EXPECT_TRUE(takes({"a..", "...", "..a"}, {Rule::NoCheckerboard}));
+  EXPECT_TRUE(takes({"a..", "...", "..a"}, {Rule::NoDarkT}));
   // The sized rule instances live OUTSIDE the mask, so the whitelist loop
   // cannot see them and their decline is its own explicit check: a run
   // instance would need a running length along rows the sweep crosses, an
@@ -118,24 +123,73 @@ TEST(Profile, DeclinesWhatItCannotExpress) {
   EXPECT_FALSE(profile::applicable(buildModel(lightArea)));
 }
 
+/// The gate is a WHITELIST, so a rule it has never heard of declines itself —
+/// but the file's own warning is that a denylist looked right until the
+/// catalogue grew, so the newest family is pinned rather than assumed.
+TEST(Profile, DeclinesTheRegionShapeRules) {
+  EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::DistinctShapesDark}));
+  EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::DistinctShapesLight}));
+  EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::SameShapeDark}));
+  EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::SameShapeLight}));
+}
+
 /**
- * A dart, which the sweep cannot express for a reason of its own: its line
- * crosses the sweep rather than following it, so a running count of what the
- * line holds would have to survive in the frontier from one end of the board to
- * the other.
+ * A dart on a square the board does not paint, which the sweep still cannot
+ * express: what a dart counts is the OPPOSITE of its own square's colour, so an
+ * unpainted one would need that colour carried in the state long after the
+ * square has left the frontier.
  *
  * This is the case the gate got wrong when it was a denylist. A dart-only board
- * names no area clue and no listed rule, so it was ACCEPTED, and `planOf` reads
+ * names no area clue and no listed rule, so it was ACCEPTED, and `planOf` read
  * letters only — the dart was then silently ignored and the forced set claimed
  * as proved. Whitelisted, anything unrecognised declines by default.
  */
-TEST(Profile, DeclinesDarts) {
+TEST(Profile, DeclinesADartOnAnUnpaintedSquare) {
   const Puzzle plain = test::board({"a..", "...", "..a"});
   ASSERT_TRUE(profile::applicable(buildModel(plain)));
 
   Puzzle darted = plain;
   test::withDart(darted, 1, 1, 1, kDirRight);
   EXPECT_FALSE(profile::applicable(buildModel(darted)));
+}
+
+/// A dart the board DOES paint has a fixed target colour, so one counter per
+/// ray expresses it, and the sweep takes the board.
+TEST(Profile, SweepsADartOnAPaintedSquare) {
+  Puzzle puzzle = test::board({"...", "...", "..."});
+  test::withGiven(puzzle, 0, 0, kLight);
+  test::withDart(puzzle, 0, 0, 2, kDirRight);
+  const Model model = buildModel(puzzle);
+  ASSERT_TRUE(profile::applicable(model));
+  constexpr Config cfg{.maxMs = 30000};
+  const Outcome outcome = profile::runProfile(model, cfg);
+  ASSERT_EQ(outcome.status, Status::Solved);
+  EXPECT_EQ(verify::check(model, outcome.colors), verify::Violation::None);
+}
+
+/// A dart whose count no colouring can meet: its ray holds two squares and it
+/// asks for three, which the sweep proves impossible rather than declining.
+TEST(Profile, ProvesADartThatCannotBeSatisfiedImpossible) {
+  Puzzle puzzle = test::board({"...", "...", "..."});
+  test::withGiven(puzzle, 0, 0, kLight);
+  test::withDart(puzzle, 0, 0, 3, kDirRight);
+  const Model model = buildModel(puzzle);
+  ASSERT_TRUE(profile::applicable(model));
+  constexpr Config cfg{.maxMs = 30000};
+  EXPECT_EQ(profile::runProfile(model, cfg).status, Status::Unsolvable);
+}
+
+/// An arrangement rule the sweep now reads off its own recent colour. The board
+/// is every 2x2 of a 2x3, so a wrong history would show up as a colouring the
+/// oracle refuses rather than as a slower run.
+TEST(Profile, SweepsAnArrangementRule) {
+  using enum Rule;
+  const std::vector<std::string> picture = {"..", "..", ".."};
+  const Outcome outcome = sweep(picture, {NoDark2x2, NoLight2x2});
+  ASSERT_EQ(outcome.status, Status::Solved);
+  const Model model =
+      buildModel(test::board(picture, test::ruleSet({NoDark2x2, NoLight2x2})));
+  EXPECT_EQ(verify::check(model, outcome.colors), verify::Violation::None);
 }
 
 /// Same refusal for the lotus, whose mirror crosses the sweep in BOTH
@@ -175,9 +229,25 @@ TEST(Profile, DeclinesGalaxies) {
  * And the whitelist itself: every rule the sweep does not name is refused,
  * whatever it is. Without this a rule appended to the catalogue tomorrow would
  * be accepted by default, exactly as `area-four-*` and darts would have been.
+ *
+ * The list is every rule that is a CONTAINMENT rule and nothing else — "this
+ * arrangement never occurs" — because `patternsFor` is then the whole of what
+ * the board forbids. A rule with any region-level content belongs on the other
+ * side of this list however local it looks.
  */
 TEST(Profile, DeclinesEveryRuleItDoesNotName) {
   using enum Rule;
+  const std::vector supportedRules = {
+      ConnectDark,          ConnectLight,        Underclued,
+      NoDark2x2,            NoLight2x2,          NoCheckerboard,
+      NoDarkLightDark,      NoLightDarkLight,    NoDarkT,
+      NoLightT,             NoThreeDarkOneLight, NoThreeLightOneDark,
+      NoDarkDiagonal,       NoLightDiagonal,     NoDarkElbow,
+      NoLightElbow,         NoDarkEll,           NoLightEll,
+      NoDarkAnyDark,        NoLightAnyLight,     NoLightCrossedDarkT,
+      NoDarkCrossedLightT,  NoDarkLongT,         NoLightLongT,
+      NoDarkKnight,         NoLightKnight,       NoDarkLightDarkElbow,
+      NoLightDarkLightElbow};
   for (int index = 0; index < rules::kRuleCount; index++) {
     const auto rule = static_cast<Rule>(index);
     // The 22 sized indices have no mask bit any more — their families arrive
@@ -186,7 +256,7 @@ TEST(Profile, DeclinesEveryRuleItDoesNotName) {
     if (rules::has(rules::kSizedRuleBits, rule))
       continue;
     const bool supported =
-        rule == ConnectDark || rule == ConnectLight || rule == Underclued;
+        std::ranges::find(supportedRules, rule) != supportedRules.end();
     EXPECT_EQ(takes({"a..", "...", "..a"}, {rule}), supported)
         << "rule " << rules::name(rule);
   }

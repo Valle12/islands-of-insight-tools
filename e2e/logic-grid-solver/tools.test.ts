@@ -298,15 +298,15 @@ test.describe("Logic Grid Solver tools", () => {
    * things.
    */
   test("a sized rule takes its number in the row", async ({ page }) => {
+    // Driven through a RUN control, the family that still takes several values
+    // per colour — the area cap has its own test below.
     const control = page.locator(
-      '#rule-row .rule-sized[data-sized-control="area-dark"]',
+      '#rule-row .rule-sized[data-sized-control="run-dark"]',
     );
     await expect(control.locator(".rule-size")).toHaveCount(0);
 
     await control.locator(".rule-size-add").click();
-    const field = page.getByRole("spinbutton", {
-      name: "Dark regions have area value 1",
-    });
+    const field = page.getByRole("spinbutton", { name: "No dark 1x value 1" });
     // The new slot takes focus, so the number can be typed straight away.
     await expect(field).toBeFocused();
     await field.fill("3");
@@ -315,7 +315,7 @@ test.describe("Logic Grid Solver tools", () => {
     // A second instance of the same family and colour is one more "+".
     await control.locator(".rule-size-add").click();
     await page
-      .getByRole("spinbutton", { name: "Dark regions have area value 2" })
+      .getByRole("spinbutton", { name: "No dark 1x value 2" })
       .fill("5");
     await expect(control.locator(".rule-size")).toHaveCount(2);
 
@@ -325,6 +325,43 @@ test.describe("Logic Grid Solver tools", () => {
     await expect(control.locator(".rule-size")).toHaveCount(1);
     await expect(control.locator(".rule-size")).toHaveValue("5");
     await expect(control).toHaveClass(/selected/);
+  });
+
+  /**
+   * "Every dark region has area 2" and "…area 3" hold together only where dark
+   * is absent from the board, so an area control takes ONE value and its "+"
+   * leaves as soon as there is a slot to put a number in. The run family keeps
+   * its button: two bans on one colour are merely redundant.
+   */
+  test("an area control takes one value and its + goes away", async ({
+    page,
+  }) => {
+    const control = page.locator(
+      '#rule-row .rule-sized[data-sized-control="area-dark"]',
+    );
+    const add = control.locator(".rule-size-add");
+    await expect(add).toBeVisible();
+
+    await add.click();
+    const field = page.getByRole("spinbutton", {
+      name: "Dark regions have area value 1",
+    });
+    await expect(field).toBeFocused();
+    await field.fill("3");
+    await expect(control).toHaveClass(/selected/);
+    await expect(add).toBeHidden();
+    await expect(control.locator(".rule-size")).toHaveCount(1);
+
+    // The run control beside it is unaffected.
+    await expect(
+      page.locator('#rule-row .rule-size-add[data-sized-control="run-dark"]'),
+    ).toBeVisible();
+
+    // Emptying the slot and leaving it hands the button back.
+    await field.fill("");
+    await field.blur();
+    await expect(control.locator(".rule-size")).toHaveCount(0);
+    await expect(add).toBeVisible();
   });
 
   /** An out-of-range value marks its own field and arms nothing. */
@@ -778,6 +815,97 @@ test.describe("Logic Grid Solver tools", () => {
       await cell.click();
       await expect(cell).not.toHaveAttribute("data-symbol", /.*/);
       await expect(cell).toHaveAccessibleName("Column 3, Row 3, Unknown");
+    });
+
+    /**
+     * A galaxy's centre may sit on a grid line — and unlike the lotus's it
+     * needs NO merged cell under it, which is the whole point: a half turn
+     * about a point needs nothing to hold the point up.
+     */
+    test("a press near a plain square's seam seats it on the line", async ({
+      page,
+    }) => {
+      await clueChip(page, "galaxy").click();
+      const cell = cellAt(page, 1, 1);
+      const box = (await cell.boundingBox())!;
+      await cell.click({ position: { x: box.width - 2, y: box.height / 2 } });
+      await expect(cell).toHaveAttribute("data-seat", "1");
+      await expect(cell).toHaveAttribute("data-symbol", "galaxy");
+      // The glyph overhangs its neighbour but the CLUE does not move there.
+      await expect(cellAt(page, 2, 1)).not.toHaveAttribute("data-symbol", /.*/);
+    });
+
+    test("a press near a corner seats it on the corner", async ({ page }) => {
+      await clueChip(page, "galaxy").click();
+      const cell = cellAt(page, 1, 1);
+      const box = (await cell.boundingBox())!;
+      // Inside the square's 8px border-radius: the extreme corner is outside
+      // the rounded shape, so a hit test there lands on the grid behind it.
+      await cell.click({ position: { x: box.width - 6, y: box.height - 6 } });
+      await expect(cell).toHaveAttribute("data-seat", "3");
+    });
+
+    /**
+     * The seams between the squares are clickable while a seated clue is
+     * armed, which is what makes a galaxy on a grid line reachable: its point
+     * IS the gap, so asking the player to hit the square and lean is
+     * backwards. The crossing of four squares is the case that matters most —
+     * it is where a corner-seated galaxy obviously belongs.
+     */
+    test("a press in the seam itself seats it on the line", async ({
+      page,
+    }) => {
+      await clueChip(page, "galaxy").click();
+      const cell = cellAt(page, 1, 1);
+      const box = (await cell.boundingBox())!;
+      // Halfway into the 6px seam to the right of (1,1).
+      await page.mouse.click(box.x + box.width + 3, box.y + box.height / 2);
+      await expect(cell).toHaveAttribute("data-symbol", "galaxy");
+      await expect(cell).toHaveAttribute("data-seat", "1");
+    });
+
+    test("a press on the crossing of four squares seats it on the corner", async ({
+      page,
+    }) => {
+      await clueChip(page, "galaxy").click();
+      const cell = cellAt(page, 1, 1);
+      const box = (await cell.boundingBox())!;
+      await page.mouse.click(box.x + box.width + 3, box.y + box.height + 3);
+      await expect(cell).toHaveAttribute("data-seat", "3");
+      // The crossing belongs to the top-left of the four and to nothing else.
+      await expect(cellAt(page, 2, 2)).not.toHaveAttribute("data-symbol", /.*/);
+    });
+
+    /** The seams are open for a SEATED clue and shut for everything else: a
+     * colour has no meaning in a gap, and widening those targets would change
+     * what a drag across the board paints. */
+    test("the seams are shut again for a paint tool", async ({ page }) => {
+      await clueChip(page, "galaxy").click();
+      await expect(page.locator("#grid")).toHaveAttribute("data-seams", "");
+      await tool(page, "dark").click();
+      await expect(page.locator("#grid")).not.toHaveAttribute(
+        "data-seams",
+        /.*/,
+      );
+
+      // ...and a press in the seam paints nothing.
+      const box = (await cellAt(page, 1, 1).boundingBox())!;
+      await page.mouse.click(box.x + box.width + 3, box.y + box.height / 2);
+      await expect(cellAt(page, 1, 1)).toHaveAttribute("data-color", "unknown");
+      await expect(cellAt(page, 2, 1)).toHaveAttribute("data-color", "unknown");
+    });
+
+    /** A seat at the board's edge has no square to sit against, so the press
+     * falls back to the square's own centre rather than being refused. */
+    test("a seat that would leave the board falls back to the centre", async ({
+      page,
+    }) => {
+      await clueChip(page, "galaxy").click();
+      const cell = cellAt(page, 5, 5);
+      const box = (await cell.boundingBox())!;
+      await cell.click({ position: { x: box.width - 2, y: box.height / 2 } });
+      await expect(cell).toHaveAttribute("data-symbol", "galaxy");
+      await expect(cell).not.toHaveAttribute("data-seat", /.*/);
     });
   });
 });

@@ -14,7 +14,11 @@ import {
   turnsInstead,
 } from "./clueEdits";
 import { NO_SHAPE } from "./shapes";
-import { isDiagonalAxis, symbolKindAt } from "./symbols";
+import {
+  isDiagonalAxis,
+  type LogicGridSeating,
+  symbolKindAt,
+} from "./symbols";
 
 /**
  * What one button press MEANS, before anything is written: which stroke a tool
@@ -192,11 +196,12 @@ export function seatStroke(
   if (stroke.kind !== "clue" || !stroke.clue) {
     return { stroke, home: position };
   }
-  if (symbolKindAt(stroke.clue.type)?.aims !== "axis") {
+  const seating = symbolKindAt(stroke.clue.type)?.seating;
+  if (!seating || seating === "none") {
     return { stroke, home: position };
   }
   const axis = stroke.clue.direction ?? null;
-  const snapped = snapSeat(layers, event, position, axis, rectOf);
+  const snapped = snapSeat(layers, event, position, axis, seating, rectOf);
   return {
     stroke: {
       kind: "clue",
@@ -222,6 +227,7 @@ function snapSeat(
   event: PointerEvent,
   position: Position,
   axis: number | null,
+  seating: LogicGridSeating,
   rectOf: () => DOMRect | null,
 ): { home: Position; seat: number } {
   const centre = { home: position, seat: 0 };
@@ -231,23 +237,38 @@ function snapSeat(
   const { home, lean } = leanOf(event, position, rect);
   if (lean === 0) return centre;
 
-  // A home that moved must still be a square of the SAME cell, or the lean
-  // walked out of it.
-  const id = layers.cellIdAt(position);
-  if (id === NO_SHAPE) return centre;
-  const moved = home.x !== position.x || home.y !== position.y;
-  if (moved && layers.cellIdAt(home) !== id) {
-    return centre;
+  // Both merged-cell tests are the LOTUS's: a home that moved must still be a
+  // square of the same cell, or the lean walked out of it. A galaxy's point
+  // belongs to the board rather than to a tile, so it leans across a seam that
+  // no shape spans.
+  if (seating === "cell") {
+    const id = layers.cellIdAt(position);
+    if (id === NO_SHAPE) return centre;
+    const moved = home.x !== position.x || home.y !== position.y;
+    if (moved && layers.cellIdAt(home) !== id) {
+      return centre;
+    }
   }
-  return seatLegalAt(layers, home, lean, axis) ? { home, seat: lean } : centre;
+  return seatLegalAt(layers, home, lean, axis, seating)
+    ? { home, seat: lean }
+    : centre;
 }
 
 /**
- * Whether `seat` really sits inside `home`'s merged cell — the same rule
- * the validator enforces, asked before a stroke stamps it: a seam seat
- * needs the square beyond it as a shape-mate, a corner at least three of
- * its four squares, and the two diagonal axes refuse the seam seats their
- * reflection cannot exist on.
+ * Whether `seat` is a point this clue can really sit on, asked before a stroke
+ * stamps it — the same rule the validator enforces, and it differs by kind.
+ *
+ * A `"cell"` seat is the lotus's: its axis is a LINE, so a tile has to be
+ * there to draw it. The seam seat needs the square beyond it as a shape-mate,
+ * a corner at least three of its four squares, and the two diagonal axes
+ * refuse the seam seats their reflection cannot exist on.
+ *
+ * A `"board"` seat is the galaxy's, and asks only that the squares it sits
+ * between EXIST: a half turn about a point needs nothing to hold the point up,
+ * so no merged cell and no axis come into it. Whether those squares are
+ * playable is deliberately not asked — a gap painted beside a seated galaxy
+ * later would break the invariant anyway, and the solver names that board
+ * unsolvable rather than the editor refusing to draw it.
  *
  * Exported although only this file calls it, so the suites can ask it directly
  * rather than reaching through a `Board`.
@@ -257,8 +278,17 @@ export function seatLegalAt(
   home: Position,
   seat: number,
   axis: number | null,
+  seating: LogicGridSeating,
 ): boolean {
   if (seat === 0) return true;
+  if (seating === "none") return false;
+  if (seating === "board") {
+    const onBoard = (x: number, y: number) =>
+      x < layers.gridWidth && y < layers.gridHeight;
+    if (seat === 1) return onBoard(home.x + 1, home.y);
+    if (seat === 2) return onBoard(home.x, home.y + 1);
+    return onBoard(home.x + 1, home.y + 1);
+  }
   if (axis !== null && isDiagonalAxis(axis) && (seat === 1 || seat === 2)) {
     return false;
   }
@@ -291,13 +321,14 @@ export function seated(
   clue: LogicGridClue | null,
   position: Position,
 ): LogicGridClue | null {
-  if (!clue || symbolKindAt(clue.type)?.aims !== "axis") return clue;
+  const seating = clue ? symbolKindAt(clue.type)?.seating : undefined;
+  if (!clue || !seating || seating === "none") return clue;
   const seat = clue.seat ?? 0;
   const axis = clue.direction ?? null;
   return clueOf(
     clue.type,
     undefined,
     axis,
-    seatLegalAt(layers, position, seat, axis) ? seat : 0,
+    seatLegalAt(layers, position, seat, axis, seating) ? seat : 0,
   );
 }

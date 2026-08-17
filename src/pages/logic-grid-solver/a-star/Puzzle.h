@@ -133,14 +133,31 @@ struct Viewpoint {
   std::array<std::vector<int16_t>, kDirectionCount> rays;
 };
 
-/// One galaxy's geometry, worked out once like a lotus's mirrors: where every
-/// square of the board lands under a HALF TURN about the galaxy's own square.
-/// Plain square coordinates — a galaxy has no seat, so no doubled scheme.
-/// See `Model::galaxies`.
+/**
+ * One galaxy's geometry, worked out once like a lotus's: the turn's centre in
+ * DOUBLED coordinates — so a centre on a grid line or a corner is still an
+ * integer — and where every square of the board lands under a half turn about
+ * it. See `Model::galaxies`.
+ */
 struct Galaxy {
   int clueId = 0;
   int index = 0;
-  /// The strided index each square reflects to, or -1 for off the board.
+  int seat = 0;
+  int cx2 = 0;
+  int cy2 = 0;
+  /**
+   * The PLAYABLE squares touching the centre — one at a square's own centre,
+   * two on a grid line, four at a corner — and the whole of what "scope"
+   * means: every region holding one of these is turned, and each of them is
+   * its own partner's image, which is what pins the SIGN of the turn.
+   *
+   * An unplayable one is dropped: it holds no colour and lies in no region.
+   * Its partner, when playable, is still in this list and still demands a
+   * mirror the gap cannot give, which is where that board is refused.
+   */
+  std::array<int16_t, 4> seats{};
+  int seatCount = 0;
+  /// The strided index each square turns onto, or -1 for off the board.
   std::array<int16_t, kMaxCells> mirror{};
 };
 
@@ -392,6 +409,8 @@ enum class Problem : uint8_t {
   ViewpointValue,
   ViewpointExceedsSight,
   GalaxyValue,
+  GalaxySeat,
+  GalaxySeatOffBoard,
   GalaxyMirrorLeavesBoard,
   /// Not a problem — the count, which `describe`'s table asserts itself
   /// against so an enumerator appended above without a message stops

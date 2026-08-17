@@ -93,7 +93,7 @@ private:
 
 void printUsage() {
   std::cerr << "usage: logic_grid --fixture <path> [--engine "
-               "cascade|deduce|dfs|forced]\n"
+               "cascade|deduce|dfs|forced|packing|profile|routing]\n"
                "                  [--budget-ms N] [--max-nodes N] "
                "[--max-heap-bytes N]\n"
                "                  [--seed N] [--brute] [--quiet] [--json]\n"

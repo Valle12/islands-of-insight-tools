@@ -82,7 +82,11 @@ TEST(Rules, IndicesMirrorTheCatalogue) {
   EXPECT_EQ(std::to_underlying(Rule::NoLightKnight), 50);
   EXPECT_EQ(std::to_underlying(Rule::NoDarkLightDarkElbow), 51);
   EXPECT_EQ(std::to_underlying(Rule::NoLightDarkLightElbow), 52);
-  EXPECT_EQ(rules::kRuleCount, 53);
+  EXPECT_EQ(std::to_underlying(Rule::DistinctShapesDark), 53);
+  EXPECT_EQ(std::to_underlying(Rule::DistinctShapesLight), 54);
+  EXPECT_EQ(std::to_underlying(Rule::SameShapeDark), 55);
+  EXPECT_EQ(std::to_underlying(Rule::SameShapeLight), 56);
+  EXPECT_EQ(rules::kRuleCount, 57);
 }
 
 TEST(Rules, NamesAreTheIdsFromTheCatalogue) {
@@ -139,6 +143,23 @@ TEST(Rules, NamesAreTheIdsFromTheCatalogue) {
                "no-dark-light-dark-elbow");
   EXPECT_STREQ(rules::name(Rule::NoLightDarkLightElbow),
                "no-light-dark-light-elbow");
+  EXPECT_STREQ(rules::name(Rule::DistinctShapesDark), "distinct-shapes-dark");
+  EXPECT_STREQ(rules::name(Rule::DistinctShapesLight), "distinct-shapes-light");
+  EXPECT_STREQ(rules::name(Rule::SameShapeDark), "same-shape-dark");
+  EXPECT_STREQ(rules::name(Rule::SameShapeLight), "same-shape-light");
+}
+
+/// The shape family compiles into NO forbidden arrangements, and that is a
+/// decision rather than an omission: the table may only hold rules a bounded
+/// window can state, and these relate regions arbitrarily far apart and read
+/// each region's maximality.
+TEST(Rules, TheShapeRulesAreNotTableRules) {
+  using enum Rule;
+  EXPECT_TRUE(patternsForMask(rules::bit(DistinctShapesDark) |
+                              rules::bit(DistinctShapesLight) |
+                              rules::bit(SameShapeDark) |
+                              rules::bit(SameShapeLight))
+                  .empty());
 }
 
 TEST(Rules, SmallestAreaReadsOnlyItsColour) {

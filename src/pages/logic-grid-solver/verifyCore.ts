@@ -47,7 +47,9 @@ export type LogicGridViolation =
   | "long-tee"
   | "knight"
   | "mixed-elbow"
-  | "galaxy";
+  | "galaxy"
+  | "region-shape-repeat"
+  | "region-shape-mismatch";
 
 /** What every rule family's checker looks like. */
 export type RuleCheck = (
@@ -123,6 +125,14 @@ export const NO_LIGHT_KNIGHT = ruleIndex("no-light-knight");
 export const NO_DARK_LIGHT_DARK_ELBOW = ruleIndex("no-dark-light-dark-elbow");
 
 export const NO_LIGHT_DARK_LIGHT_ELBOW = ruleIndex("no-light-dark-light-elbow");
+
+export const DISTINCT_SHAPES_DARK = ruleIndex("distinct-shapes-dark");
+
+export const DISTINCT_SHAPES_LIGHT = ruleIndex("distinct-shapes-light");
+
+export const SAME_SHAPE_DARK = ruleIndex("same-shape-dark");
+
+export const SAME_SHAPE_LIGHT = ruleIndex("same-shape-light");
 
 export const ONE_SYMBOL_DARK = ruleIndex("one-symbol-dark");
 

@@ -380,17 +380,38 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
   `{x, y, type, value}` (+ optional `direction`, `seat`) — that is what makes the
   game's colourless clue representable. `shapes.ts` fuses squares into **merged
   cells**, flat `y * gridWidth + x` indices, **row-major** unlike `cells`.
+- **Kind-level dispatch reads a CAPABILITY field**, never an id and never a
+  neighbouring capability that happens to coincide. `symbols.ts` carries four:
+  `valueKind`, `aims`, `reach` and `seating`. Seat-carrying rode on
+  `aims === "axis"` while the lotus was the only seated kind, and the galaxy —
+  seated on any grid line, yet aiming nowhere — is exactly the kind that
+  coincidence mis-read; `reach` was split off `aims` earlier for the same
+  reason. C++ mirrors it with `isValuelessKind` / `carriesSeat` in `Types.h`.
 - **`rules.ts` and `symbols.ts` are append-only catalogues** (like
   `match-three-solver/symbols.ts`): a config stores the INDEX, so appending is
   always safe and inserting or reordering silently rewrites every puzzle ever
   saved. The validator **rejects** an unknown index rather than ignoring it.
   `RuleMask` is `uint64_t` and the CLI's `--rules` an `int64_t` because rule 31's
-  bit is past a positive `int`.
+  bit is past a positive `int`. **`kRuleCount` is 57 of the 64 a mask holds** —
+  seven flag slots left, and the `static_assert` only reports after the fact.
+- **A propagator whose target comes from the NODE rather than the puzzle is
+  sound only while the fact it reads is monotone.** The region-shape family
+  (rules 53–56) takes its target shape from the first CLOSED region — one no
+  cell can still join, `possible` and never `undecided` — and closure only ever
+  holds harder as domains shrink. Nothing at runtime can catch getting that
+  wrong: `Verify` sees an answer that is not a solution, never a solution
+  thrown away, so **`reference_test.cpp` is the whole net** and a rule set
+  there has to land with the propagator.
 - **Since config format v2 the two SIZED rule families are data, not indices**:
   `rules` holds flags only, and `areas?: {color, size: 1..9999}[]` /
   `runs?: {color, length: 2..8}[]` carry the numbers — omitted when empty,
-  dark before light then ascending, several instances per colour legal and
-  conjunctive. The 22 retired indices are refused in `rules` by name; they
+  dark before light then ascending. **Several `runs` instances per colour are
+  legal and conjunctive; `areas` takes ONE per colour**, refused by name on
+  all three intakes — but the reducers and both oracles keep WALKING the list,
+  because `splitLegacyMask`, `reference_test.cpp` and the migration still
+  produce several, and `GenerateCommands.cpp`'s `keepOneAreaPerColor` is what
+  stops a drawn mask writing a board `fixtureio::load` would then refuse.
+  The 22 retired indices are refused in `rules` by name; they
   survive in `RULES` (with `sized` markers) and the C++ enum as v1 bit
   positions, translated by the first real `MIGRATIONS` entry and by
   `rules::splitLegacyMask`, which is what keeps the CLI's `--rules` masks and
@@ -470,6 +491,64 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
   look-ahead proves nothing** (`ProbeResult` is tri-state); **`Profile::
   applicable` is a WHITELIST on both axes** — anything unrecognised must decline,
   or it reports a superset as proof.
+- **The sweep reads a forbidden ARRANGEMENT off recent colour, and counts a
+  painted DART.** Its frontier's slots are exactly the last `width` cells in
+  scan order, so a pattern needs only the few bits beyond them that
+  `Frontier::hist` carries — one for a 2x2, a row for a three-tall T — and the
+  whitelist therefore takes every rule whose entire content is "this
+  arrangement never occurs", which is what `patternsFor` compiles. A rule with
+  any region-level content stays out however local it looks: an area or a run
+  instance (`patternsFor` records that its trominoes are only half of an
+  area), the one-symbol rules, the shape rules, `OffByOne`. A dart needs one
+  running count of the DARK cells on its ray, the light reading taken as the
+  rest — but only where the puzzle paints the dart's OWN square, since what it
+  counts is the opposite of that colour. This is what settles
+  `logicGridTest487`, 13x7 underclued with connect-dark, no-dark-T and two
+  darts: 23 of 91 cells PROVEN in 26 ms, where `forced` never found even one
+  witness in 30 M nodes. Every widening of that whitelist owes
+  `reference_test.cpp` rule sets, which is the only thing that can catch it.
+- **Letter boards get a third arm, and it is a CONSTRUCTION rather than a
+  search.** `Routing.cpp` routes each letter group a region of its own by
+  negotiated congestion — route every net through the cheapest cells, charge
+  for the ones two nets both want, repeat with the price rising — and paints
+  everything it did not claim the other colour. It runs in the cascade between
+  `deduce` and `profile`, answers only `Solved` or `Unsolved` (a construction
+  that fails proves nothing, so it may never say `Unsolvable`), and every
+  colouring it builds goes through `verify::check` before it is returned, which
+  is what makes a permissive gate safe. It is what settles `logicGridTest454`,
+  the 23x21 pillar lattice the DFS never finished at any budget and whose
+  frontier is too wide for the sweep; boards whose letters are pinned to
+  DIFFERENT colours are out of its shape and fall through to `profile`.
+- **Region-clued boards get a FOURTH arm, a construction on the same terms.**
+  `Packing.cpp` handles a board whose every clue names a REGION rather than a
+  cell — an area number, or a letter — on a square the puzzle already paints:
+  that is nothing but a packing question, regions of exactly the demanded
+  sizes with no two of a colour touching, because what is left over is the
+  other colour. It runs in the cascade right after `routing`, answers only
+  `Solved` or `Unsolved`, and verifies its colouring like the router does.
+  **A letter carries no size of its own**, so a board with letters needs the
+  single `areas` instance that gives every region of the colour one; that is
+  `logicGridTest481`, the 12x12 whose twelve dark regions are the twelve free
+  pentominoes, and where `distinct-shapes-dark` is a filter on what may be
+  placed next while `connect-light` is a test the finished packing has to
+  pass. Givens that carry no clue are read rather than refused: one in the
+  clue colour is a square some region must swallow, one in the other colour a
+  square none may claim — which is what makes `logicGridTest482`, the same
+  board with a player's own deductions painted in, land in the same arm. With
+  no big demand to crowd, the demands are ordered FEWEST SHAPES FIRST.
+  Three more things carry it, and all three were
+  measured on `logicGridTest476`, the 11x11 with clues of 24 and 26 that the
+  DFS leaves at 13 of 121 cells after 21 M nodes: clues small enough are tried
+  as whole SHAPES compact-first (what the big regions need is room); the big
+  ones are never enumerated but decided by a LOOKAHEAD that is monotone in the
+  free space, which is what makes running it on a PARTIAL placement a sound
+  prune; and the small clues are ordered NEAREST A BIG CLUE FIRST, without
+  which the prune only bites at the bottom of the tree — 7 s against minutes.
+  Two clues of one value may share ONE region, and that board has no packing
+  at all unless its two 3-clues do, so neither the search nor the room-left
+  bound may assume a region per clue. Its cascade slice is 70%, not the
+  router's 15%, because where it applies the arms after it have nothing to
+  offer.
 - **The DFS keeps its own stack and must not go back to recursing**; the lg wasm
   variants set `STACK_SIZE` (threaded: `DEFAULT_PTHREAD_STACK_SIZE`) to 1 MB.
   `deepSearchBoard` goes through the real wasm on every run because **only the
@@ -570,7 +649,10 @@ in nine places, one of them a **cwd-relative** literal in
 `e2e/shifting-mosaic-solver/config.test.ts`.
 
 **`test/resources/logic-grid-solver/` holds boards captured from the game and
-NOTHING else** (436 of them, 3×2 to 26×19, no two the same puzzle); anything a
+NOTHING else** (489 of them, 3×2 to 26×19; no two the same puzzle bar one deliberate
+pair — 481 and 482 are the same 12x12, the second with a player's own
+deductions painted in, which is what exercises the packer's reading of a
+given that carries no clue); anything a
 test invents lives in `test/logic-grid-solver/boards.ts`, imported by the unit
 **and** e2e suites so a board cannot drift between them. **The split is the
 point**: a sweep over the corpus measures the solver against real puzzles, and a

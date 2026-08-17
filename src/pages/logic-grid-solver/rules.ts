@@ -366,6 +366,40 @@ export const RULES: readonly LogicGridRule[] = [
     label: "No light-dark-light elbow",
     group: "arrangement",
   },
+  // Two rules about the SHAPES of whole regions, which is a thing no
+  // arrangement rule can say: they relate regions arbitrarily far apart, and
+  // they read each region's MAXIMALITY, so neither compiles into the pattern
+  // table the way every entry above does.
+  //
+  // "Same shape" means CONGRUENT — the eight dihedral images, rotations AND
+  // reflections — so an S and a Z are one shape and an L and a J are one
+  // shape. Congruence fixes the cardinality too, which is why "shape and
+  // size" is one predicate with no separate size test anywhere.
+  {
+    id: "distinct-shapes-dark",
+    label: "No two dark regions have the same shape",
+    group: "region",
+  },
+  {
+    id: "distinct-shapes-light",
+    label: "No two light regions have the same shape",
+    group: "region",
+  },
+  // The opposite of the pair above, and both of one colour may be on at once:
+  // together they say that colour has AT MOST ONE region, which is an ordinary
+  // thing for a board to be — `connect-dark` says it on its own — and a puzzle
+  // may well use the pair to tell the player exactly that. So they are two
+  // independent flags, not two sides of a switch.
+  {
+    id: "same-shape-dark",
+    label: "All dark regions have the same shape",
+    group: "region",
+  },
+  {
+    id: "same-shape-light",
+    label: "All light regions have the same shape",
+    group: "region",
+  },
 ];
 
 /** How many rules a puzzle can draw from — every known one. */
@@ -437,6 +471,18 @@ export interface SizedControlSpec {
   readonly label: string;
   readonly min: number;
   readonly max: number;
+  /**
+   * Whether a SECOND value for this colour would contradict the first, and so
+   * whether the control drops its `+` once it holds one.
+   *
+   * The two families answer differently. Two run rules are two separate bans —
+   * "no dark 1x2" and "no dark 1x4" are both enforceable and merely redundant.
+   * Two area rules are not: "every dark region has area 2" and "…area 3" hold
+   * together only where dark is ABSENT from the board, which is not a puzzle
+   * anyone means. `SizedListSpec.perColor` in `config.ts` is the same rule on
+   * the file's side.
+   */
+  readonly onePerColor: boolean;
 }
 
 export interface RuleRowSized {
@@ -481,6 +527,7 @@ export const RULE_ROW: readonly RuleRowBand[] = [
           label: "No dark 1x",
           min: MIN_RUN_LENGTH,
           max: MAX_RUN_LENGTH,
+          onePerColor: false,
         },
       },
       {
@@ -492,6 +539,7 @@ export const RULE_ROW: readonly RuleRowBand[] = [
           label: "No light 1x",
           min: MIN_RUN_LENGTH,
           max: MAX_RUN_LENGTH,
+          onePerColor: false,
         },
       },
       { kind: "single", id: "no-checkerboard" },
@@ -575,6 +623,7 @@ export const RULE_ROW: readonly RuleRowBand[] = [
           label: "Dark regions have area",
           min: MIN_AREA_SIZE,
           max: MAX_AREA_SIZE,
+          onePerColor: true,
         },
       },
       {
@@ -586,7 +635,20 @@ export const RULE_ROW: readonly RuleRowBand[] = [
           label: "Light regions have area",
           min: MIN_AREA_SIZE,
           max: MAX_AREA_SIZE,
+          onePerColor: true,
         },
+      },
+      {
+        kind: "pair",
+        label: "No two regions alike",
+        dark: "distinct-shapes-dark",
+        light: "distinct-shapes-light",
+      },
+      {
+        kind: "pair",
+        label: "All regions alike",
+        dark: "same-shape-dark",
+        light: "same-shape-light",
       },
     ],
   },

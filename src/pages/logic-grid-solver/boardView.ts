@@ -2,6 +2,7 @@ import type { Position } from "../../util/types";
 import { markGroupJoins } from "../../util/gridOutline";
 import { dressCell } from "./cellView";
 import type { BoardLayers } from "./boardLayers";
+import { setGridColumns } from "./gridMetrics";
 import { createOutlineLayer, drawShapeOutlines } from "./outlineLayer";
 
 /**
@@ -51,6 +52,7 @@ export class BoardView {
     // blank space. Fixed tracks keep grid, cells and SVG the same width and
     // let #grid-shell do the scrolling.
     this.host.style.gridTemplateColumns = `repeat(${this.layers.gridWidth}, var(--logic-cell))`;
+    setGridColumns(this.layers.gridWidth);
 
     // One fragment, one insertion: appending cell by cell to a live #grid
     // makes the browser lay out the whole grid on every one of them.

@@ -621,27 +621,61 @@ describe("LogicGridSolverEditor", () => {
       expect(fields[1]!.getAttribute("aria-invalid")).toBe("true");
     });
 
+    // Driven through a RUN control, the family that still takes several values
+    // per colour — an area control has only ever one slot to renumber.
     test("leaving an emptied slot removes it and renumbers the rest", () => {
-      sizedAdd("area-dark").click();
-      setSizedValue("area-dark", 0, "2");
-      sizedAdd("area-dark").click();
-      setSizedValue("area-dark", 1, "5");
+      sizedAdd("run-dark").click();
+      setSizedValue("run-dark", 0, "2");
+      sizedAdd("run-dark").click();
+      setSizedValue("run-dark", 1, "5");
 
-      setSizedValue("area-dark", 0, "");
+      setSizedValue("run-dark", 0, "");
       // Still there while focused: clearing keeps the field for more digits.
-      expect(sizedFields("area-dark")).toHaveLength(2);
+      expect(sizedFields("run-dark")).toHaveLength(2);
 
-      sizedFields("area-dark")[0]!.dispatchEvent(
+      sizedFields("run-dark")[0]!.dispatchEvent(
         new Event("focusout", { bubbles: true }),
       );
 
-      const fields = sizedFields("area-dark");
+      const fields = sizedFields("run-dark");
       expect(fields).toHaveLength(1);
       expect(fields[0]!.value).toBe("5");
       expect(fields[0]!.dataset.slot).toBe("0");
       expect(fields[0]!.getAttribute("aria-label")).toBe(
-        "Dark regions have area value 1",
+        "No dark 1x value 1",
       );
+    });
+
+    /**
+     * "Every dark region has area 2" and "…area 3" hold together only where
+     * dark is absent from the board, so an area control takes ONE value and
+     * gives up its `+` as soon as it has a slot to put one in. The run family
+     * keeps its button: two bans on one colour are merely redundant.
+     */
+    test("an area control drops its + at one value and a run control does not", () => {
+      expect(sizedAdd("area-dark").classList.contains("hidden")).toBeFalse();
+
+      sizedAdd("area-dark").click();
+      setSizedValue("area-dark", 0, "3");
+      expect(sizedAdd("area-dark").classList.contains("hidden")).toBeTrue();
+      expect(sizedFields("area-dark")).toHaveLength(1);
+
+      // A click that reaches the hidden button anyway adds nothing: the cap is
+      // a rule, not a piece of styling.
+      sizedAdd("area-dark").click();
+      expect(sizedFields("area-dark")).toHaveLength(1);
+
+      sizedAdd("run-dark").click();
+      setSizedValue("run-dark", 0, "3");
+      expect(sizedAdd("run-dark").classList.contains("hidden")).toBeFalse();
+
+      // Emptying the area slot and leaving it hands the button back.
+      setSizedValue("area-dark", 0, "");
+      sizedFields("area-dark")[0]!.dispatchEvent(
+        new Event("focusout", { bubbles: true }),
+      );
+      expect(sizedFields("area-dark")).toHaveLength(0);
+      expect(sizedAdd("area-dark").classList.contains("hidden")).toBeFalse();
     });
 
     /**
@@ -995,23 +1029,29 @@ describe("LogicGridSolverEditor", () => {
      * whatever order it was typed in.
      */
     test("writes sized values as family entries in canonical order", async () => {
+      // Dark before light across the areas; values ascending within the runs,
+      // which is the family that can still hold two of one colour.
       sizedAdd("area-light").click();
       setSizedValue("area-light", 0, "3");
       sizedAdd("area-dark").click();
       setSizedValue("area-dark", 0, "5");
-      sizedAdd("area-dark").click();
-      setSizedValue("area-dark", 1, "2");
+      sizedAdd("run-dark").click();
+      setSizedValue("run-dark", 0, "4");
+      sizedAdd("run-dark").click();
+      setSizedValue("run-dark", 1, "2");
 
       byId("download-config").click();
 
       const written = JSON.parse(await blobs[0]!.text()) as LogicGridTest;
       expect(written.rules).toEqual([]);
       expect(written.areas).toEqual([
-        { color: "dark", size: 2 },
         { color: "dark", size: 5 },
         { color: "light", size: 3 },
       ]);
-      expect("runs" in written).toBeFalse();
+      expect(written.runs).toEqual([
+        { color: "dark", length: 2 },
+        { color: "dark", length: 4 },
+      ]);
     });
   });
 
