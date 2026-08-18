@@ -328,7 +328,11 @@
               <!-- The color the left button paints, exactly as `#color-row`
                    arms the board's. The right button clears whatever it finds,
                    which is why there is no eraser here. -->
-              <div id="pattern-colors" class="tool-row" role="group"
+              <!-- A `fieldset` rather than a div carrying `role="group"`: it
+                   IS a group of controls, the implicit role comes with the
+                   element, and `aria-label` names it without a `legend` the
+                   dialog has no room to show. -->
+              <fieldset id="pattern-colors" class="tool-row"
                 aria-label="Pattern color">
                 <button
                   class="tool-button icon-tool pattern-color selected"
@@ -350,7 +354,7 @@
                 >
                   <span class="swatch" data-swatch="light"></span>
                 </button>
-              </div>
+              </fieldset>
             </div>
             <div id="pattern-grid" aria-label="Pattern squares"></div>
             <div id="pattern-error" role="alert"></div>

@@ -82,12 +82,12 @@ const MARKUP = `
       min="1" max="32"></md-outlined-text-field>
     <md-outlined-text-field id="pattern-height" type="number" value="2"
       min="1" max="32"></md-outlined-text-field>
-    <div id="pattern-colors">
+    <fieldset id="pattern-colors">
       <button class="tool-button pattern-color selected" type="button"
         data-pattern-color="dark" aria-pressed="true"></button>
       <button class="tool-button pattern-color" type="button"
         data-pattern-color="light" aria-pressed="false"></button>
-    </div>
+    </fieldset>
     <div id="pattern-grid"></div>
     <div id="pattern-error"></div>
     <md-text-button id="pattern-clear">Clear</md-text-button>

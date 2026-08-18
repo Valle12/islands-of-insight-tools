@@ -1322,9 +1322,16 @@ h2 {
 
 /* The armed color, drawn exactly as `#color-row`'s chips are — they are the
    same control, and a second look would say they were not. */
+/* A `fieldset`, reset to the box the div it replaced drew: the element is for
+   the grouping semantics, not for its default chrome. `min-inline-size` is the
+   one that is easy to miss — a fieldset defaults to `min-content`, which stops
+   it shrinking inside the flex row above. */
 #pattern-colors {
   gap: 4px;
-  padding-bottom: 6px;
+  margin: 0;
+  padding: 0 0 6px;
+  border: 0;
+  min-inline-size: 0;
 }
 
 #pattern-grid {

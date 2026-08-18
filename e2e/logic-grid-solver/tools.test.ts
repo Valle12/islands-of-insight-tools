@@ -339,6 +339,19 @@ test.describe("Logic Grid Solver tools", () => {
    * The right button is the eraser, which is the half of the gesture a unit
    * test in a stub DOM cannot show is wired to a real press.
    */
+  /**
+   * The two color chips are a `fieldset`, not a div carrying `role="group"`:
+   * the grouping semantics come with the element. What has to survive that is
+   * the accessible NAME, which a fieldset takes from `aria-label` when it has
+   * no `legend` — and this dialog has no room to show one.
+   */
+  test("the pattern colors are a named group", async ({ page }) => {
+    await page.locator("#rule-row .rule-pattern-add").click();
+    await expect(
+      page.getByRole("group", { name: "Pattern color" }),
+    ).toHaveCount(1);
+  });
+
   test("the right button paints the other color", async ({ page }) => {
     await page.locator("#rule-row .rule-pattern-add").click();
     const square = page.locator('#pattern-grid .pattern-cell[data-at="0"]');

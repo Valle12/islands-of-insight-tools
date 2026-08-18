@@ -778,6 +778,33 @@ function seatShapeError(
  * every captured fixture predates it, and `config.test.ts` asserts they all
  * round-trip byte-identically.
  */
+/**
+ * The symbols as they are STORED, which is not quite as they arrived.
+ *
+ * `value`, `direction` and `seat` are each spread only when the clue has one,
+ * for the same reason `shapes` is omitted: every captured fixture predates the
+ * optional keys and has to keep round-tripping byte-identically. A seat of 0
+ * normalizes back to absent, like an empty `shapes` — it means the square's
+ * own center, which is what absent means.
+ *
+ * A function of its own rather than three spreads inside `validateConfig`, and
+ * that is not only tidiness: a conditional spread IS a ternary, and one inside
+ * a callback costs its own nesting on top. Three of them were most of what put
+ * that function over the complexity limit, and here they sit at depth zero.
+ */
+function rebuiltSymbols(
+  symbols: readonly LogicGridSymbol[],
+): LogicGridSymbol[] {
+  return symbols.map(symbol => ({
+    x: symbol.x,
+    y: symbol.y,
+    type: symbol.type,
+    ...(symbol.value === undefined ? {} : { value: symbol.value }),
+    ...(symbol.direction === undefined ? {} : { direction: symbol.direction }),
+    ...(symbol.seat ? { seat: symbol.seat } : {}),
+  }));
+}
+
 export function validateConfig(data: unknown): ConfigParseResult {
   // First of all, and before a single structural check: a migration is exactly
   // what makes an older file's shape make sense to the rules below.
@@ -816,19 +843,7 @@ export function validateConfig(data: unknown): ConfigParseResult {
   if (symbolsProblem !== null) return { ok: false, error: symbolsProblem };
 
   const rules = [...(raw.rules as number[])].sort((a, b) => a - b);
-  // `value`, `direction` and `seat` are each spread only when the clue has
-  // one, for the same reason `shapes` is omitted below: every captured
-  // fixture predates the optional keys and has to keep round-tripping
-  // byte-identically. A seat of 0 normalizes back to absent, like an empty
-  // `shapes` — it means the square's own center, which is what absent means.
-  const symbols = (raw.symbols as LogicGridSymbol[]).map(symbol => ({
-    x: symbol.x,
-    y: symbol.y,
-    type: symbol.type,
-    ...(symbol.value === undefined ? {} : { value: symbol.value }),
-    ...(symbol.direction === undefined ? {} : { direction: symbol.direction }),
-    ...(symbol.seat ? { seat: symbol.seat } : {}),
-  }));
+  const symbols = rebuiltSymbols(raw.symbols as LogicGridSymbol[]);
 
   // `version` FIRST, and always the current one — whatever the file said, what
   // comes out of here is the shape this build stores. The sized lists sit

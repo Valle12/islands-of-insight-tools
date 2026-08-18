@@ -203,16 +203,23 @@ inline void withRunRule(Puzzle &puzzle, const uint8_t color,
  * The same spelling `kLegacyPatterns` uses, so a shape reads the same in a
  * test as it does in the catalog.
  */
+/// The color one character of a picture names: 'D' dark, 'L' light, and
+/// anything else a square the pattern says nothing about.
+inline uint8_t patternSquare(const char square) {
+  if (square == 'D')
+    return kDark;
+  if (square == 'L')
+    return kLight;
+  return kUnknown;
+}
+
 inline rules::DrawnPattern pattern(const std::vector<std::string> &picture) {
   rules::DrawnPattern drawn;
   drawn.height = static_cast<int>(picture.size());
   drawn.width = picture.empty() ? 0 : static_cast<int>(picture.front().size());
   for (const std::string &row : picture) {
-    for (const char square : row) {
-      drawn.cells.push_back(square == 'D'   ? kDark
-                            : square == 'L' ? kLight
-                                            : kUnknown);
-    }
+    for (const char square : row)
+      drawn.cells.push_back(patternSquare(square));
   }
   return drawn;
 }
