@@ -779,6 +779,43 @@ function seatShapeError(
  * round-trip byte-identically.
  */
 /**
+ * The first thing wrong with the rule layer, or `null`.
+ *
+ * One check rather than four, because a file states its rules across all four
+ * keys: `rules` carries the flags, `areas` and `runs` the numbers the two
+ * sized families used to spell as catalog positions, and `patterns` the
+ * arrangements a player draws. The order is the order a reader meets them.
+ */
+function ruleLayerError(raw: Record<string, unknown>): string | null {
+  return (
+    rulesError(raw.rules) ??
+    sizedListError(raw.areas, AREAS_SPEC) ??
+    sizedListError(raw.runs, RUNS_SPEC) ??
+    patternsError(raw.patterns)
+  );
+}
+
+/**
+ * The first thing wrong with WHERE the clues sit, or `null`.
+ *
+ * Both questions are answered against the MERGED CELLS, which is why they are
+ * one check and why it has to run after `shapesError` has passed: a seat is
+ * judged against the cell it sits in, and two galaxies may not share a cell
+ * however many squares that cell spans.
+ */
+function placementError(
+  symbols: LogicGridSymbol[],
+  shapes: number[][],
+  gridWidth: number,
+  gridHeight: number,
+): string | null {
+  return (
+    seatShapeError(symbols, shapes, gridWidth, gridHeight) ??
+    galaxyCellError(symbols, shapes, gridWidth, gridHeight)
+  );
+}
+
+/**
  * The symbols as they are STORED, which is not quite as they arrived.
  *
  * `value`, `direction` and `seat` are each spread only when the clue has one,
@@ -820,15 +857,9 @@ export function validateConfig(data: unknown): ConfigParseResult {
   if (cellsProblem !== null) return { ok: false, error: cellsProblem };
   const cells = raw.cells as number[][];
 
-  const rulesProblem = rulesError(raw.rules);
-  if (rulesProblem !== null) return { ok: false, error: rulesProblem };
-  const areasProblem = sizedListError(raw.areas, AREAS_SPEC);
-  if (areasProblem !== null) return { ok: false, error: areasProblem };
-  const runsProblem = sizedListError(raw.runs, RUNS_SPEC);
-  if (runsProblem !== null) return { ok: false, error: runsProblem };
-  const patternsProblem = patternsError(raw.patterns);
-  if (patternsProblem !== null) return { ok: false, error: patternsProblem };
-  // Read AFTER `rulesError`, so the list is known to be well formed: a file
+  const ruleProblem = ruleLayerError(raw);
+  if (ruleProblem !== null) return { ok: false, error: ruleProblem };
+  // Read AFTER the rule layer, so the list is known to be well formed: a file
   // with rule 32 on may carry a displayed 0 — and one without it may not,
   // whatever build wrote it.
   const offByOne = (raw.rules as number[]).includes(OFF_BY_ONE);
@@ -869,23 +900,17 @@ export function validateConfig(data: unknown): ConfigParseResult {
     if (shapes.length > 0) config.shapes = shapes;
   }
 
-  // After the shapes: a seat is judged against the merged cell it sits in,
-  // and a board with no shapes at all has nowhere for one.
-  const seatProblem = seatShapeError(
+  // After the shapes, both of them: a board with no shapes at all has nowhere
+  // for either question to come out differently.
+  const placementProblem = placementError(
     symbols,
     config.shapes ?? [],
     gridWidth,
     gridHeight,
   );
-  if (seatProblem !== null) return { ok: false, error: seatProblem };
-
-  const galaxyProblem = galaxyCellError(
-    config.symbols ?? [],
-    config.shapes ?? [],
-    gridWidth,
-    gridHeight,
-  );
-  if (galaxyProblem !== null) return { ok: false, error: galaxyProblem };
+  if (placementProblem !== null) {
+    return { ok: false, error: placementProblem };
+  }
 
   // The number is reported only when the file really was older, so the page
   // can say the copy on disk is out of date without claiming it of every load.
