@@ -3,7 +3,7 @@ import type { PhasicDialTest } from "../../util/types";
 import { Button } from "./button";
 
 /**
- * The number of dial colours the game has (blue, red, green, yellow, cyan,
+ * The number of dial colors the game has (blue, red, green, yellow, cyan,
  * purple). `PhasicDialSolver.dialOrder` renders one row per dial, so a config
  * asking for more than this has no icon to draw and cannot be entered by hand
  * either.

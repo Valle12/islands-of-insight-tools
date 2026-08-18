@@ -227,7 +227,7 @@ describe("SolutionView", () => {
       expect(byId("solution-step-counter").textContent).toBe("Step 2 of 2");
     });
 
-    test("greys out the rolls a broken witness never reaches", () => {
+    test("grays out the rolls a broken witness never reaches", () => {
       // Two rolls right from x=0 on a 2-wide board: the second falls off.
       const puzzle: Puzzle = {
         gridWidth: 2,

@@ -144,7 +144,7 @@ export function searchRollingBlocksWasm(
   // small machine is slower but never less capable (the shifting-mosaic
   // lesson). The list collapses only where one module races the same arms
   // itself: on an isolated page, or on a machine with a single slot, where
-  // spawning them one at a time would just serialise the portfolio.
+  // spawning them one at a time would just serialize the portfolio.
   const configs =
     crossOriginIsolatedPage() || armPoolSize(PORTFOLIO.length) === 1
       ? [{ engine: "cascade", maxMs: SOLVE_BUDGET_MS }]

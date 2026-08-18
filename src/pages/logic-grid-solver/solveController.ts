@@ -162,7 +162,7 @@ export class SolveController {
       this.solutionStatus.textContent = "No solution";
       this.solutionMessage.textContent = result.reason
         ? `This board cannot be completed: ${result.reason.toLowerCase()}.`
-        : "No colouring of this board satisfies every rule and clue. Every " +
+        : "No coloring of this board satisfies every rule and clue. Every " +
           "puzzle in the game is solvable, so something on the board is not " +
           "what the game showed.";
       return;

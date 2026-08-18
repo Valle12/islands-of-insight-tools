@@ -124,7 +124,7 @@ But both arms hit a hard ceiling that TIME DOES NOT MOVE: corridor 2→2 across 
 2x budget, jam 5→5 across a 3x budget (3x rounds, 3.2x expansions, identical
 maxProgress AND minJamTerm). Band 5 / jam 8 is a wall, not a budget edge.
 **29534 stays open.** Kept as an opt-in knob (default preserves current
-behaviour bit-for-bit; NOT wired into any production arm — doing so would change
+behavior bit-for-bit; NOT wired into any production arm — doing so would change
 band synthesis on every 0-cut board with a 4-7 anchor path and needs the full
 44-fixture + fuzz regression first). Unlike recombination below this is NOT
 "ruled out": it demonstrably deepens the attack (0→5) and any future
@@ -304,7 +304,7 @@ Everything below was measured against `--engine parallel`, a CLI engine added
 in this work that calls `solveArmsParallel` directly — the SAME function the
 threaded wasm build runs for a cross-origin-isolated page. The older campaigns
 used `--engine cascade`, the SEQUENTIAL chain, which is a different algorithm;
-measuring that and reporting it as browser behaviour was an error corrected
+measuring that and reporting it as browser behavior was an error corrected
 here.
 
 | campaign | seeds | config | result |

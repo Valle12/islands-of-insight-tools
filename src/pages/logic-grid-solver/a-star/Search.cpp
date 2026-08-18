@@ -39,9 +39,9 @@ namespace {
 struct Frame {
   Domains::Snapshot snapshot;
   int cell = 0;
-  /// The colour tried first here — the last one that worked at this cell.
+  /// The color tried first here — the last one that worked at this cell.
   uint8_t first = kDark;
-  /// How many of the two colours have been taken; 2 means the frame is spent.
+  /// How many of the two colors have been taken; 2 means the frame is spent.
   uint8_t tried = 0;
 };
 
@@ -52,7 +52,7 @@ struct Frame {
  * nothing it learned is not complete, and "there is no solution" — the claim
  * every underclued answer is built out of — is only worth anything from a
  * search that walked the whole space. Diversity comes from starting each run
- * at a different colour instead (`randomPhase`), which changes the order the
+ * at a different color instead (`randomPhase`), which changes the order the
  * space is walked in without changing what walking it out proves.
  */
 class Dfs {
@@ -208,7 +208,7 @@ private:
     return false;
   }
 
-  /// Takes the next colour at the deepest open frame, dropping it when both are
+  /// Takes the next color at the deepest open frame, dropping it when both are
   /// spent. True when the branch propagated, which is the one case that leaves
   /// a fresh node to look at.
   bool takeNextBranch(std::vector<Frame> &stack) {
@@ -245,7 +245,7 @@ private:
    * often as it was when this recursed. `fresh` says whether the current
    * domains are a node nobody has expanded yet: true right after a branch was
    * taken and propagated, false when the last thing that happened was a
-   * failure, a leaf, or a frame running out of colours — all of which mean
+   * failure, a leaf, or a frame running out of colors — all of which mean
    * back up and take the next branch.
    */
   bool descend() {

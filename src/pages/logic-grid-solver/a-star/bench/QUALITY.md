@@ -5,11 +5,11 @@
 | Claim | Checked by |
 |---|---|
 | An answer satisfies every rule and clue | `Verify.cpp` at every complete assignment, `verify.ts` before anything is drawn |
-| The search did not lose a solution along the way | `Reference.cpp` — brute force over the whole colouring space |
+| The search did not lose a solution along the way | `Reference.cpp` — brute force over the whole coloring space |
 
 The second is the one worth being careful about. `Verify` catches an answer
 that is not a solution; **nothing at runtime catches a propagator that removes a
-colouring which was one.** In normal mode that surfaces only as a different
+coloring which was one.** In normal mode that surfaces only as a different
 valid answer. Underclued, it is a wrong answer that looks entirely reasonable:
 "this cell is forced" is a claim that no other solution exists, so a propagator
 that quietly deleted the other solution makes the claim come out true.
@@ -27,9 +27,9 @@ exact **forced sets**, not on one answer:
   vacuous cases that look like coverage: the 1x5 pair came with the 5-wide
   `wide` shape because every other shape here is at most four across.
 - `bun run fuzz:lg` does the same on generated boards, where the sharpest check
-  needs no enumeration at all: the generator colours the board first and reads
+  needs no enumeration at all: the generator colors the board first and reads
   the clues off the result, so **every cell reported forced must match that
-  colouring**.
+  coloring**.
 
 ## The captured corpus
 
@@ -46,7 +46,7 @@ exact **forced sets**, not on one answer:
   symmetries, both for exact equality and by cell distance; nothing came within
   12%. Worth knowing how that check can lie: comparing only the clue layer
   reported four "duplicate" 7×7 boards, because boards with no clues and no gaps
-  all look alike once you throw the colours away. The colour layer IS the puzzle
+  all look alike once you throw the colors away. The color layer IS the puzzle
   on an underclued board.
 - `ctest -L logic-grid`: **287 tests**, with the clang-tidy gate enforced on
   every TU and reporting nothing.
@@ -95,11 +95,11 @@ shape with room is perfectly solvable.
 
 **What actually solves it** is `Profile.cpp`, a connectivity-profile sweep: walk
 the board cell by cell, and keep only what the rest of it needs to know about
-the part already decided — the colour of each frontier cell, which frontier
+the part already decided — the color of each frontier cell, which frontier
 cells share a region, and which letter each of those regions carries. Partial
-colourings that agree on that are interchangeable and collapse into one state,
+colorings that agree on that are interchangeable and collapse into one state,
 so the cost becomes the number of distinct frontiers instead of the number of
-colourings. Measured on this corpus:
+colorings. Measured on this corpus:
 
 | board | before | after |
 |---|---|---|
@@ -152,7 +152,7 @@ regression:
 Those are the numbers to beat when a propagator changes.
 
 **One trap, learned by writing it wrong.** The first version of the campaign
-compared the solver's *complete* answer against the generator's colouring and
+compared the solver's *complete* answer against the generator's coloring and
 reported 110 "divergences" out of 150. All of them were the harness: a clued
 board usually has many solutions, and the generator holds one of them, so two
 different valid answers prove nothing. The witness comparison applies to
@@ -172,7 +172,7 @@ The shape of the risk, for whoever measures first:
 
 - **Connectivity is the hard constraint**, and the profile sweep is the answer
   to it wherever it applies — which is boards with no area clues and no pattern
-  rules. Outside that gate a plain DFS is still bad at proving "this colour
+  rules. Outside that gate a plain DFS is still bad at proving "this color
   cannot be connected here", and the two open moves remain: teaching the sweep
   area clues (each open region would have to carry its size) or learning the cut
   as a clause in the DFS. Neither is built.

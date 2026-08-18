@@ -1,7 +1,7 @@
 # Toolchain notes: SEO metadata, the clang-tidy gate, the IDE diagnostics bridge
 
 Long-form notes split out of `CLAUDE.md`, which keeps the digest. See also
-`CLION-INSPECTIONS.md` for the C++ inspection catalogue.
+`CLION-INSPECTIONS.md` for the C++ inspection catalog.
 
 ## SEO and site metadata
 
@@ -21,7 +21,7 @@ Five things are load-bearing and easy to undo:
 
 The Open Graph screenshots live in `images/og/` and are **committed**. `bun run og:capture` re-shoots them, and it drives Playwright's **CLI under node** rather than its API: `chromium.launch()` hangs forever under bun — no error, no timeout — which is also why `bun run e2e` shells out to `playwright test`. Its flags (`--light`, `--full-page`, `--width`, `--height`, `--out`) are for looking at variations locally; the defaults are what the meta tags declare, and the script warns when they are overridden.
 
-Two things about that capture size. **Chromium renders light unless told otherwise**, whatever the host OS prefers, so the scheme is always passed explicitly — the committed shots are `dark`. And **the frame is 2400x1257, not the usual 1200x630**: Open Graph wants 1.91:1 and a scraper centre-crops anything else, so a taller screenshot loses its edges rather than showing more. Widening at that ratio is the only way to fit a taller page in, which is why the size has grown twice — 1200x630 cut every solver off mid-grid, 1600x838 fitted five pages, logic-grid then needed 951 px and lost its rules and Solve button, and the galaxy-era rule batch grew its card to 1205 px again.
+Two things about that capture size. **Chromium renders light unless told otherwise**, whatever the host OS prefers, so the scheme is always passed explicitly — the committed shots are `dark`. And **the frame is 2400x1257, not the usual 1200x630**: Open Graph wants 1.91:1 and a scraper center-crops anything else, so a taller screenshot loses its edges rather than showing more. Widening at that ratio is the only way to fit a taller page in, which is why the size has grown twice — 1200x630 cut every solver off mid-grid, 1600x838 fitted five pages, logic-grid then needed 951 px and lost its rules and Solve button, and the galaxy-era rule batch grew its card to 1205 px again.
 
 **A new page can therefore force this size up, and the number to measure is the CARD, not the screenshot.** `#editor-card` is capped at `min(100%, 960px)`, so past about 1000 px a wider viewport buys height and nothing else — it does not reflow the content, it just adds empty margin beside it. Measure `#editor-card`'s bounding box plus the body's 24 px padding top and bottom, then pick the smallest 1.91:1 frame that clears it; `document.documentElement.scrollHeight` is **not** that number, because `body { min-height: 100vh }` clamps it up to the viewport and makes an overflowing page look like it fits. Changing the size means `OG_IMAGE_WIDTH`/`HEIGHT` in `siteMeta.ts`, the `og:image:width`/`height` tags in **every** `index.html`, and a re-run of `bun run og:capture`. `test/siteMeta.test.ts` checks the declared tags, the constants and the committed PNG headers all agree.
 
@@ -69,13 +69,13 @@ Two traps, both measured:
   it is complaining about**. One already-correct cast in the whole file is
   what settled that case; the tool caught up afterwards.
 
-**A header is not independently analysed.** Sonar's C++ analysis runs over
+**A header is not independently analyzed.** Sonar's C++ analysis runs over
 translation units, so `getDiagnostics` on a focused `.h` reports nothing
 whether it is clean or merely never compiled on its own — the two are
 indistinguishable. The header's code IS covered when a `.cpp` that includes
-it is analysed, so the honest reading of an empty header result is "no
-findings reported, covered indirectly via N analysed TUs", not "clean".
-Analyse the `.cpp` files first for this reason.
+it is analyzed, so the honest reading of an empty header result is "no
+findings reported, covered indirectly via N analyzed TUs", not "clean".
+Analyze the `.cpp` files first for this reason.
 
 **`wasm_bindings.cpp` is invisible to every tool above and reports clean
 because of it.** It is in no CMake target and no `compile_commands.json` —
@@ -88,7 +88,7 @@ held the same `using enum Status` finding SonarLint had just reported in
 `main.cpp`. **The blind spot covers any header reached only from a wasm TU
 too** — `MemoryProbe.h`'s emscripten branch carried two `modernize-use-auto`
 findings nothing else in the toolchain could reach. `CLION-INSPECTIONS.md` has
-the wasm32-target clang-tidy invocation that does analyse it.
+the wasm32-target clang-tidy invocation that does analyze it.
 
 **So: for C++ changes, finish by asking the user to open and focus each changed file in CLion, then call `getDiagnostics` (no `uri`) and check the file is actually listed before concluding it is clean.** For TS/JS this hand-off is unnecessary — `analyze_code_snippet` covers it headlessly.
 

@@ -3,13 +3,13 @@
 #include "Puzzle.h"
 #include "Search.h"
 
-// A region PACKER for boards whose colour is decided region by region.
+// A region PACKER for boards whose color is decided region by region.
 //
 // A board whose every clue names a REGION rather than a cell — an area number,
 // or a letter saying "these cells share one region and no other letter's do" —
 // and whose clue cells the puzzle already paints, asks one question and only
 // one: can regions of exactly the demanded sizes be laid out so that no two of
-// the same colour touch? What is left over is the other colour, and where the
+// the same color touch? What is left over is the other color, and where the
 // board says nothing more about it that is the answer rather than an
 // approximation.
 //
@@ -41,7 +41,7 @@
 //
 // Like the router it is a CONSTRUCTION: it answers `Solved` or `Unsolved` and
 // never `Unsolvable`, because failing to build a packing proves nothing about
-// whether one exists. And like the router, every colouring it builds goes
+// whether one exists. And like the router, every coloring it builds goes
 // through `verify::check` before it is returned, so a construction that misread
 // the board yields nothing rather than something wrong.
 namespace lg::packing {
@@ -67,14 +67,14 @@ inline constexpr int kMaxPendingShapes = 200000;
  * The gate is about not wasting budget, NOT about correctness — the witness is
  * verified either way. It asks for exactly the shape the construction assumes:
  * every clue an area number or a letter, no merged cells (it packs squares),
- * every clue cell painted by the puzzle in ONE colour, and no rule beyond the
- * two connect rules and a shape rule on that same colour. A letter demand has
+ * every clue cell painted by the puzzle in ONE color, and no rule beyond the
+ * two connect rules and a shape rule on that same color. A letter demand has
  * no size of its own, so a board carrying letters also needs the single
- * `areas` instance that gives every region of the colour one.
+ * `areas` instance that gives every region of the color one.
  *
  * Cells the puzzle paints that carry no clue are allowed and mean what they
- * say: one in the clue colour has to end up inside some region, one in the
- * other colour may never be claimed by any.
+ * say: one in the clue color has to end up inside some region, one in the
+ * other color may never be claimed by any.
  */
 [[nodiscard]] bool applicable(const Model &model);
 

@@ -21,18 +21,33 @@ using verify::Violation;
  * instances through the same translation the CLI's `--rules` speaks, so every
  * historical pin keeps exercising exactly the constraint it always did —
  * through the intake path a legacy mask really takes — rather than a bit the
- * oracle no longer reads. Cases about the NEW sizes build their instances
- * directly with `withAreaRule`/`withRunRule`.
+ * oracle no longer reads. The same now goes for the ten arrangements retired
+ * in version 3, which become drawn `patterns`. Cases about the NEW sizes build
+ * their instances directly with `withAreaRule`/`withRunRule`.
  */
+/**
+ * What a shape retired into `patterns` is NAMED by now.
+ *
+ * The five controls that left the catalog in format version 3 — diagonal,
+ * L, crossed T, knight's move, mixed elbow — arrive as drawings, and the
+ * oracle checks a drawing as a drawing: one violation for all of them, since
+ * what a board broke is a shape the config carries and no enumerator could
+ * spell. The cases below still SAY the rule they were written for, so what
+ * they assert is unchanged — the oracle catches the shape — only its report
+ * has one name.
+ */
+constexpr auto kDrawn = Violation::CustomPattern;
+
 Puzzle boardWithRules(const std::vector<std::string> &picture,
                       const std::vector<Rule> &active) {
   rules::RuleMask legacy = 0;
   for (const Rule rule : active)
     legacy |= rules::bit(rule);
-  auto [flags, areas, runs] = rules::splitLegacyMask(legacy);
+  auto [flags, areas, runs, patterns] = rules::splitLegacyMask(legacy);
   Puzzle puzzle = test::board(picture, flags);
   puzzle.areas = std::move(areas);
   puzzle.runs = std::move(runs);
+  puzzle.patterns = std::move(patterns);
   return puzzle;
 }
 
@@ -43,15 +58,15 @@ Violation judge(const std::vector<std::string> &picture,
   return verify::check(model, test::colors(painted));
 }
 
-TEST(Verify, AcceptsAnyColouringWhenNothingIsAsked) {
+TEST(Verify, AcceptsAnyColoringWhenNothingIsAsked) {
   EXPECT_EQ(judge({"..", ".."}, {"DD", "DD"}, {}), Violation::None);
 }
 
-TEST(Verify, RefusesAnUncolouredCell) {
+TEST(Verify, RefusesAnUncoloredCell) {
   EXPECT_EQ(judge({"..", ".."}, {"D.", "DD"}, {}), Violation::Incomplete);
 }
 
-TEST(Verify, RefusesAColouredGap) {
+TEST(Verify, RefusesAColoredGap) {
   EXPECT_EQ(judge({".#", ".."}, {"DD", "DD"}, {}), Violation::ShapeChanged);
 }
 
@@ -108,9 +123,9 @@ TEST(Verify, CatchesARegionSmallerThanItsArea) {
             Violation::RegionSize);
 }
 
-/// All zero of an empty colour's regions are the right size, the same way an
-/// empty colour is vacuously connected.
-TEST(Verify, AnEmptyColourHasNoAreasToGetWrong) {
+/// All zero of an empty color's regions are the right size, the same way an
+/// empty color is vacuously connected.
+TEST(Verify, AnEmptyColorHasNoAreasToGetWrong) {
   EXPECT_EQ(judge({"..", ".."}, {"DD", "DD"}, {Rule::AreaTwoLight}),
             Violation::None);
 }
@@ -158,15 +173,15 @@ TEST(Verify, CatchesAnAreaFiveRegionOfTheWrongSize) {
   EXPECT_EQ(
       judge({"......", "......"}, {"DDDDLL", "LLLLLL"}, {Rule::AreaFiveDark}),
       Violation::RegionSize);
-  // The same colouring judged from the other side: light is one region of 7.
+  // The same coloring judged from the other side: light is one region of 7.
   EXPECT_EQ(
       judge({"......", "......"}, {"DDDDDL", "LLLLLL"}, {Rule::AreaFiveLight}),
       Violation::RegionSize);
 }
 
-/// Not a contradiction: every one of a colour's ZERO regions is both sizes at
-/// once, so the pair is satisfied exactly when the colour is absent.
-TEST(Verify, BothSizesOnOneColourLeaveOnlyTheEmptyColouring) {
+/// Not a contradiction: every one of a color's ZERO regions is both sizes at
+/// once, so the pair is satisfied exactly when the color is absent.
+TEST(Verify, BothSizesOnOneColorLeaveOnlyTheEmptyColoring) {
   const std::vector both{Rule::AreaTwoDark, Rule::AreaFourDark};
   EXPECT_EQ(judge({"....", "...."}, {"LLLL", "LLLL"}, both), Violation::None);
   EXPECT_EQ(judge({"....", "...."}, {"DDLL", "DDLL"}, both),
@@ -175,7 +190,7 @@ TEST(Verify, BothSizesOnOneColourLeaveOnlyTheEmptyColouring) {
             Violation::RegionSize);
 }
 
-/// A run instance of SIX — the first length past the v1 catalogue. The oracle
+/// A run instance of SIX — the first length past the v1 catalog. The oracle
 /// walks the instance list, so a new length is a new value, not a new row.
 TEST(Verify, CatchesARunOfSixByInstance) {
   Puzzle six = test::board({"......", "......"});
@@ -231,10 +246,10 @@ TEST(Verify, CatchesAnAreaEightRegionOfTheWrongSize) {
             Violation::RegionSize);
 }
 
-/// Two DIRECT instances on one colour — the legacy pair above spelled as
+/// Two DIRECT instances on one color — the legacy pair above spelled as
 /// values. Every instance runs: a domino satisfies area two and still breaks
 /// area three.
-TEST(Verify, TwoAreaInstancesOnOneColourBothRun) {
+TEST(Verify, TwoAreaInstancesOnOneColorBothRun) {
   Puzzle domino = test::board({"...."});
   test::withAreaRule(domino, kDark, 2);
   test::withAreaRule(domino, kDark, 3);
@@ -289,7 +304,7 @@ TEST(Verify, CatchesAForbiddenTripleInEitherDirection) {
             Violation::None);
 }
 
-TEST(Verify, ATripleNamesTheColourAtItsEnds) {
+TEST(Verify, ATripleNamesTheColorAtItsEnds) {
   // The same line, judged under each rule: L-D-L is the OTHER rule's shape.
   EXPECT_EQ(judge({"...", "..."}, {"LDL", "DDD"}, {Rule::NoDarkLightDark}),
             Violation::None);
@@ -335,7 +350,7 @@ TEST(Verify, TheTwoTeeRulesAreSeparateSwitches) {
 TEST(Verify, CatchesAThreeOneSquare) {
   EXPECT_EQ(judge({"..", ".."}, {"DD", "DL"}, {Rule::NoThreeDarkOneLight}),
             Violation::ThreeOne);
-  // All four of one colour is a different arrangement, and an even split too.
+  // All four of one color is a different arrangement, and an even split too.
   EXPECT_EQ(judge({"..", ".."}, {"DD", "DD"}, {Rule::NoThreeDarkOneLight}),
             Violation::None);
   EXPECT_EQ(judge({"..", ".."}, {"DD", "LL"}, {Rule::NoThreeDarkOneLight}),
@@ -358,8 +373,8 @@ TEST(Verify, TheTwoThreeOneRulesAreSeparateSwitches) {
             Violation::ThreeOne);
 }
 
-/// Three of a colour around a gap is legal: the rule wants a FULL 2x2 split
-/// three and one, and a gap is neither colour.
+/// Three of a color around a gap is legal: the rule wants a FULL 2x2 split
+/// three and one, and a gap is neither color.
 TEST(Verify, AGapNeverCompletesAThreeOne) {
   EXPECT_EQ(judge({"..", ".#"}, {"DD", "D#"}, {Rule::NoThreeDarkOneLight}),
             Violation::None);
@@ -367,35 +382,35 @@ TEST(Verify, AGapNeverCompletesAThreeOne) {
 
 TEST(Verify, CatchesADiagonalTouchOnEitherDiagonal) {
   EXPECT_EQ(judge({"..", ".."}, {"DL", "LD"}, {Rule::NoDarkDiagonal}),
-            Violation::Diagonal);
+            kDrawn);
   EXPECT_EQ(judge({"..", ".."}, {"LD", "DL"}, {Rule::NoDarkDiagonal}),
-            Violation::Diagonal);
+            kDrawn);
   EXPECT_EQ(judge({"...", "..."}, {"DDD", "LLL"}, {Rule::NoDarkDiagonal}),
             Violation::None);
 }
 
-/// The literal reading: being joined through an orthogonal neighbour does not
+/// The literal reading: being joined through an orthogonal neighbor does not
 /// excuse the touch, so an L-bend and a filled 2x2 both break the rule and
-/// every legal region of the colour is a straight bar.
+/// every legal region of the color is a straight bar.
 TEST(Verify, AConnectedBendStillBreaksTheDiagonalRule) {
   EXPECT_EQ(judge({"..", ".."}, {"DD", "DL"}, {Rule::NoDarkDiagonal}),
-            Violation::Diagonal);
+            kDrawn);
   EXPECT_EQ(judge({"..", ".."}, {"DD", "DD"}, {Rule::NoDarkDiagonal}),
-            Violation::Diagonal);
+            kDrawn);
 }
 
 TEST(Verify, TheTwoDiagonalRulesAreSeparateSwitches) {
   EXPECT_EQ(judge({"..", ".."}, {"DD", "LD"}, {Rule::NoLightDiagonal}),
             Violation::None);
   EXPECT_EQ(judge({"..", ".."}, {"DD", "LD"}, {Rule::NoDarkDiagonal}),
-            Violation::Diagonal);
+            kDrawn);
 }
 
 /// The touch is the squares' geometry, not the board's: two cells meeting only
 /// across a gap's corner still meet.
 TEST(Verify, ATouchAcrossAGapsCornerStillCounts) {
   EXPECT_EQ(judge({".#", "#."}, {"D#", "#D"}, {Rule::NoDarkDiagonal}),
-            Violation::Diagonal);
+            kDrawn);
 }
 
 /// The area-THREE pair, appended after five. `everyRegionIs` and the family
@@ -410,19 +425,19 @@ TEST(Verify, CatchesAnAreaThreeRegionOfTheWrongSize) {
             Violation::RegionSize);
   EXPECT_EQ(judge({"....", "...."}, {"DDDD", "LLLL"}, {Rule::AreaThreeDark}),
             Violation::RegionSize);
-  // The same first colouring judged from the other side: light is a three too.
+  // The same first coloring judged from the other side: light is a three too.
   EXPECT_EQ(judge({"...", "..."}, {"DDD", "LLL"}, {Rule::AreaThreeLight}),
             Violation::None);
 }
 
-TEST(Verify, CatchesADisconnectedColour) {
+TEST(Verify, CatchesADisconnectedColor) {
   EXPECT_EQ(judge({"...", "..."}, {"DLD", "LLL"}, {Rule::ConnectDark}),
             Violation::Disconnected);
   EXPECT_EQ(judge({"...", "..."}, {"DDD", "LLL"}, {Rule::ConnectDark}),
             Violation::None);
 }
 
-TEST(Verify, AnEmptyColourIsConnected) {
+TEST(Verify, AnEmptyColorIsConnected) {
   // Vacuously one region — which is what lets an all-dark board be legal while
   // connect-light is switched on.
   EXPECT_EQ(judge({"..", ".."}, {"DD", "DD"}, {Rule::ConnectLight}),
@@ -444,8 +459,8 @@ TEST(Verify, ChecksAnAreaNumberAgainstItsRegion) {
             Violation::AreaSize);
 }
 
-TEST(Verify, AnAreaNumberTakesTheColourOfItsCell) {
-  // The same clue, the same board, the other colour: still two cells.
+TEST(Verify, AnAreaNumberTakesTheColorOfItsCell) {
+  // The same clue, the same board, the other color: still two cells.
   EXPECT_EQ(judge({"2..", "..."}, {"LLD", "DDD"}, {}), Violation::None);
 }
 
@@ -464,8 +479,8 @@ TEST(Verify, RefusesTwoLettersInOneRegion) {
   EXPECT_EQ(judge({"a.b", "..."}, {"DLD", "LLL"}, {}), Violation::None);
 }
 
-TEST(Verify, DifferentLettersMayShareAColour) {
-  // Two dark regions, kept apart by light: different letters, same colour.
+TEST(Verify, DifferentLettersMayShareAColor) {
+  // Two dark regions, kept apart by light: different letters, same color.
   EXPECT_EQ(judge({"a.b", "..."}, {"DLD", "LLL"}, {}), Violation::None);
 }
 
@@ -486,7 +501,7 @@ TEST(Verify, EveryViolationHasAMessage) {
   }
 }
 
-/// A dart on `(0, 0)` aimed along the top row, and a colouring to judge.
+/// A dart on `(0, 0)` aimed along the top row, and a coloring to judge.
 Violation judgeDart(const std::vector<std::string> &picture,
                     const std::vector<std::string> &painted, const int value,
                     const int direction = kDirRight) {
@@ -495,20 +510,20 @@ Violation judgeDart(const std::vector<std::string> &picture,
   return verify::check(buildModel(puzzle), test::colors(painted));
 }
 
-TEST(Verify, ADartCountsTheOtherColourAlongItsLine) {
+TEST(Verify, ADartCountsTheOtherColorAlongItsLine) {
   EXPECT_EQ(judgeDart({"....."}, {"DLLDD"}, 2), Violation::None);
   EXPECT_EQ(judgeDart({"....."}, {"DLLDD"}, 3), Violation::DartCount);
 }
 
-/// The two colourings differ ONLY in the dart's own square, and the same line
+/// The two colorings differ ONLY in the dart's own square, and the same line
 /// of `LLLD` reads as three lights from a dark dart and one dark from a light.
-TEST(Verify, ADartTakesTheColourOfItsOwnCell) {
+TEST(Verify, ADartTakesTheColorOfItsOwnCell) {
   EXPECT_EQ(judgeDart({"....."}, {"DLLLD"}, 3), Violation::None);
   EXPECT_EQ(judgeDart({"....."}, {"LLLLD"}, 3), Violation::DartCount);
   EXPECT_EQ(judgeDart({"....."}, {"LLLLD"}, 1), Violation::None);
 }
 
-TEST(Verify, ADartOfZeroPaintsItsWholeLineItsOwnColour) {
+TEST(Verify, ADartOfZeroPaintsItsWholeLineItsOwnColor) {
   EXPECT_EQ(judgeDart({"....."}, {"DDDDD"}, 0), Violation::None);
   EXPECT_EQ(judgeDart({"....."}, {"DDDDL"}, 0), Violation::DartCount);
 }
@@ -541,7 +556,7 @@ TEST(Verify, ADartCountsAMergedCellOncePerSquare) {
             Violation::DartCount);
 }
 
-/// A lotus on the centre of a 3x3, and a colouring to judge.
+/// A lotus on the center of a 3x3, and a coloring to judge.
 Violation judgeLotus(const std::vector<std::string> &painted, const int axis) {
   Puzzle puzzle = test::board({"...", "...", "..."});
   test::withLotus(puzzle, 1, 1, axis);
@@ -556,7 +571,7 @@ TEST(Verify, ALotusRegionMustMirrorAcrossItsAxis) {
             Violation::LotusAsymmetric);
 }
 
-/// The "\" axis through the centre transposes the board.
+/// The "\" axis through the center transposes the board.
 TEST(Verify, ADiagonalLotusMirrorsItsRegion) {
   EXPECT_EQ(judgeLotus({"LDL", "DDL", "LLD"}, kAxisDiagonalDown),
             Violation::None);
@@ -603,7 +618,7 @@ TEST(Verify, ASeamSeatMirrorsAcrossTheGridLine) {
             Violation::LotusAsymmetric);
 }
 
-/// A corner seat on a 2x2 cell carries the diagonals: the block's centre is a
+/// A corner seat on a 2x2 cell carries the diagonals: the block's center is a
 /// corner point, and the "\" through it transposes the board.
 TEST(Verify, ACornerSeatCarriesTheDiagonals) {
   Puzzle puzzle = test::board({"...", "...", "..."});
@@ -629,7 +644,7 @@ TEST(Verify, TwoLotusesEachHoldTheRegionToTheirOwnAxis) {
             Violation::LotusAsymmetric);
 }
 
-/// A viewpoint on `(x, y)` holding `value`, and a colouring to judge.
+/// A viewpoint on `(x, y)` holding `value`, and a coloring to judge.
 Violation judgeViewpoint(const std::vector<std::string> &picture,
                          const std::vector<std::string> &painted, const int x,
                          const int y, const int value) {
@@ -653,9 +668,9 @@ TEST(Verify, AViewpointSeesInAllFourDirections) {
             Violation::ViewpointCount);
 }
 
-/// The two colourings differ ONLY in the viewpoint's own square, and the same
+/// The two colorings differ ONLY in the viewpoint's own square, and the same
 /// line reads as three lights from a light one and as one square from a dark.
-TEST(Verify, AViewpointTakesTheColourOfItsOwnCell) {
+TEST(Verify, AViewpointTakesTheColorOfItsOwnCell) {
   EXPECT_EQ(judgeViewpoint({"....."}, {"LLLDD"}, 0, 0, 3), Violation::None);
   EXPECT_EQ(judgeViewpoint({"....."}, {"DLLDD"}, 0, 0, 1), Violation::None);
   EXPECT_EQ(judgeViewpoint({"....."}, {"DLLDD"}, 0, 0, 3),
@@ -672,7 +687,7 @@ TEST(Verify, SightStopsAtAGap) {
 
 /**
  * A merged cell along a ray contributes every square the sight crosses — and
- * the squares of the viewpoint's OWN cell count too, being its own colour by
+ * the squares of the viewpoint's OWN cell count too, being its own color by
  * definition, which is where it differs from a dart's line.
  */
 TEST(Verify, AViewpointCountsAMergedCellOncePerSquare) {
@@ -722,7 +737,7 @@ Violation judgeMerged(const std::vector<std::string> &picture,
   return verify::check(buildModel(puzzle), test::colors(painted));
 }
 
-TEST(Verify, RefusesAMergedCellInTwoColours) {
+TEST(Verify, RefusesAMergedCellInTwoColors) {
   EXPECT_EQ(judgeMerged({"..", ".."}, {{0, 0}, {1, 0}}, {"DL", "LL"}, {}),
             Violation::CellSplit);
   EXPECT_EQ(judgeMerged({"..", ".."}, {{0, 0}, {1, 0}}, {"DD", "LL"}, {}),
@@ -766,7 +781,7 @@ TEST(Verify, AnAreaClueCountsTheSquaresOfTheCellsInItsRegion) {
 TEST(Verify, AMergedCellIsAdjacentToWhateverAnyOfItsSquaresTouches) {
   // The merged cell is the left column; its lower square at (0,1) touches the
   // plain dark square at (1,1), so all the dark is one region and "connect all
-  // dark" holds. A plain board with the same colouring would come out the same,
+  // dark" holds. A plain board with the same coloring would come out the same,
   // which is the point: fusing changes the VARIABLES, not the geometry the
   // rules read.
   EXPECT_EQ(judgeMerged({"..", ".."}, {{0, 0}, {0, 1}}, {"DL", "DD"},
@@ -775,7 +790,7 @@ TEST(Verify, AMergedCellIsAdjacentToWhateverAnyOfItsSquaresTouches) {
 }
 
 TEST(Verify, CatchesAForbiddenElbow) {
-  // All four orientations: a 2x2 with one square the other colour.
+  // All four orientations: a 2x2 with one square the other color.
   EXPECT_EQ(judge({"..", ".."}, {"DD", "DL"}, {Rule::NoDarkElbow}),
             Violation::Elbow);
   EXPECT_EQ(judge({"..", ".."}, {"DD", "LD"}, {Rule::NoDarkElbow}),
@@ -791,7 +806,7 @@ TEST(Verify, CatchesAForbiddenElbow) {
             Violation::None);
   EXPECT_EQ(judge({"..", ".."}, {"DL", "LD"}, {Rule::NoDarkElbow}),
             Violation::None);
-  // Separate switches per colour.
+  // Separate switches per color.
   EXPECT_EQ(judge({"..", ".."}, {"DD", "DL"}, {Rule::NoLightElbow}),
             Violation::None);
   EXPECT_EQ(judge({"..", ".."}, {"LL", "LD"}, {Rule::NoLightElbow}),
@@ -811,21 +826,21 @@ TEST(Verify, CatchesAForbiddenEllInEitherHandedness) {
   // A vertical bar with a foot at its lower end, and the mirrored form.
   EXPECT_EQ(judge({"...", "...", "..."}, {"DLL", "DLL", "DDL"},
                   {Rule::NoDarkEll}),
-            Violation::Ell);
+            kDrawn);
   EXPECT_EQ(judge({"...", "...", "..."}, {"LLD", "LLD", "LDD"},
                   {Rule::NoDarkEll}),
-            Violation::Ell);
+            kDrawn);
   // A horizontal bar with a foot at its left end.
   EXPECT_EQ(judge({"...", "...", "..."}, {"DDD", "DLL", "LLL"},
                   {Rule::NoDarkEll}),
-            Violation::Ell);
+            kDrawn);
   EXPECT_EQ(judge({"...", "...", "..."}, {"DLL", "DDD", "LLL"},
                   {Rule::NoDarkEll}),
-            Violation::Ell);
-  // Separate switches per colour — on a board whose LIGHT cells hold no L of
+            kDrawn);
+  // Separate switches per color — on a board whose LIGHT cells hold no L of
   // their own, since a 3x3 complement of an L contains one.
   EXPECT_EQ(judge({"....", "...."}, {"DDDL", "LLDL"}, {Rule::NoDarkEll}),
-            Violation::Ell);
+            kDrawn);
   EXPECT_EQ(judge({"....", "...."}, {"DDDL", "LLDL"}, {Rule::NoLightEll}),
             Violation::None);
 }
@@ -846,7 +861,7 @@ TEST(Verify, TheNearShapesAreNotAnEll) {
 TEST(Verify, CatchesAPairTwoApartWhateverLiesBetween) {
   EXPECT_EQ(judge({"..."}, {"DLD"}, {Rule::NoDarkAnyDark}),
             Violation::DistancePair);
-  // The middle being the SAME colour does not excuse the ends: the ban is
+  // The middle being the SAME color does not excuse the ends: the ban is
   // positional, so a straight three breaks it too.
   EXPECT_EQ(judge({"..."}, {"DDD"}, {Rule::NoDarkAnyDark}),
             Violation::DistancePair);
@@ -856,7 +871,7 @@ TEST(Verify, CatchesAPairTwoApartWhateverLiesBetween) {
   EXPECT_EQ(judge({"..."}, {"DDL"}, {Rule::NoDarkAnyDark}), Violation::None);
   EXPECT_EQ(judge({"...", "..."}, {"DLL", "LLD"}, {Rule::NoDarkAnyDark}),
             Violation::None);
-  // Separate switches per colour.
+  // Separate switches per color.
   EXPECT_EQ(judge({"..."}, {"LDL"}, {Rule::NoDarkAnyDark}), Violation::None);
   EXPECT_EQ(judge({"..."}, {"LDL"}, {Rule::NoLightAnyLight}),
             Violation::DistancePair);
@@ -873,10 +888,10 @@ TEST(Verify, AGapBetweenDoesNotLiftTheBan) {
 TEST(Verify, CatchesALightCrossedDarkT) {
   // Dark bar ends and stem around a light crossing, and its rotation.
   EXPECT_EQ(judge({"...", "..."}, {"DLD", "LDL"}, {Rule::NoLightCrossedDarkT}),
-            Violation::MixedTee);
+            kDrawn);
   EXPECT_EQ(judge({"..", "..", ".."}, {"DL", "LD", "DL"},
                   {Rule::NoLightCrossedDarkT}),
-            Violation::MixedTee);
+            kDrawn);
   // A monochrome T is not a mixed one, and a gap never stands in for the
   // crossing — every cell of the shape is named outright.
   EXPECT_EQ(judge({"...", "..."}, {"DDD", "LDL"}, {Rule::NoLightCrossedDarkT}),
@@ -888,12 +903,12 @@ TEST(Verify, CatchesALightCrossedDarkT) {
 TEST(Verify, TheTwoMixedTeeRulesAreSeparateSwitches) {
   // Dark arms around a light crossing, with no light T anywhere.
   EXPECT_EQ(judge({"...", "..."}, {"DLD", "DDL"}, {Rule::NoLightCrossedDarkT}),
-            Violation::MixedTee);
+            kDrawn);
   EXPECT_EQ(judge({"...", "..."}, {"DLD", "DDL"}, {Rule::NoDarkCrossedLightT}),
             Violation::None);
   // And the mirrored shape under the mirrored rule.
   EXPECT_EQ(judge({"...", "..."}, {"LDL", "LLD"}, {Rule::NoDarkCrossedLightT}),
-            Violation::MixedTee);
+            kDrawn);
 }
 
 TEST(Verify, CatchesALongTee) {
@@ -904,7 +919,7 @@ TEST(Verify, CatchesALongTee) {
   EXPECT_EQ(judge({"...", "...", "..."}, {"DLL", "DDD", "DLL"},
                   {Rule::NoDarkLongT}),
             Violation::LongTee);
-  // Separate switches per colour.
+  // Separate switches per color.
   EXPECT_EQ(judge({"...", "...", "..."}, {"DDD", "LDL", "LDL"},
                   {Rule::NoLightLongT}),
             Violation::None);
@@ -925,25 +940,25 @@ TEST(Verify, CatchesAKnightsMovePair) {
   // All four geometries: two down one across, and two across one down.
   EXPECT_EQ(judge({"...", "...", "..."}, {"DLL", "LLL", "LDL"},
                   {Rule::NoDarkKnight}),
-            Violation::Knight);
+            kDrawn);
   EXPECT_EQ(judge({"...", "...", "..."}, {"LLD", "LLL", "LDL"},
                   {Rule::NoDarkKnight}),
-            Violation::Knight);
+            kDrawn);
   EXPECT_EQ(judge({"...", "...", "..."}, {"DLL", "LLD", "LLL"},
                   {Rule::NoDarkKnight}),
-            Violation::Knight);
+            kDrawn);
   EXPECT_EQ(judge({"...", "...", "..."}, {"LLD", "DLL", "LLL"},
                   {Rule::NoDarkKnight}),
-            Violation::Knight);
+            kDrawn);
   // A diagonal touch is not a knight's move.
   EXPECT_EQ(judge({"...", "...", "..."}, {"DLL", "LDL", "LLL"},
                   {Rule::NoDarkKnight}),
             Violation::None);
-  // Separate switches per colour — with a gap thinning the board so the LIGHT
+  // Separate switches per color — with a gap thinning the board so the LIGHT
   // cells hold no knight pair of their own, which on a full 3x3 they would.
   EXPECT_EQ(judge({"..", "..", ".#"}, {"LD", "LL", "D#"},
                   {Rule::NoDarkKnight}),
-            Violation::Knight);
+            kDrawn);
   EXPECT_EQ(judge({"..", "..", ".#"}, {"LD", "LL", "D#"},
                   {Rule::NoLightKnight}),
             Violation::None);
@@ -954,21 +969,21 @@ TEST(Verify, CatchesAKnightsMovePair) {
 TEST(Verify, AKnightPairAcrossAGapStillCounts) {
   EXPECT_EQ(judge({".#.", "...", "..."}, {"D#L", "LLL", "LDL"},
                   {Rule::NoDarkKnight}),
-            Violation::Knight);
+            kDrawn);
 }
 
 TEST(Verify, CatchesAMixedElbow) {
   // Two dark ends at a right angle around a light corner, twice oriented.
   EXPECT_EQ(judge({"..", ".."}, {"DL", "LD"}, {Rule::NoDarkLightDarkElbow}),
-            Violation::MixedElbow);
+            kDrawn);
   EXPECT_EQ(judge({"..", ".."}, {"LD", "DL"}, {Rule::NoDarkLightDarkElbow}),
-            Violation::MixedElbow);
+            kDrawn);
   // A STRAIGHT dark-light-dark is the triple rule's shape, not this one's.
   EXPECT_EQ(judge({"..."}, {"DLD"}, {Rule::NoDarkLightDarkElbow}),
             Violation::None);
   // A 2x2 checkerboard contains BOTH mixed elbows, so either rule fires on it.
   EXPECT_EQ(judge({"..", ".."}, {"DL", "LD"}, {Rule::NoLightDarkLightElbow}),
-            Violation::MixedElbow);
+            kDrawn);
 }
 
 TEST(Verify, TheTwoMixedElbowRulesAreSeparateSwitches) {
@@ -976,7 +991,7 @@ TEST(Verify, TheTwoMixedElbowRulesAreSeparateSwitches) {
   // rest of the board is solid dark, so no dark corner has two light sides.
   EXPECT_EQ(judge({"...", "..."}, {"DLD", "DDD"},
                   {Rule::NoDarkLightDarkElbow}),
-            Violation::MixedElbow);
+            kDrawn);
   EXPECT_EQ(judge({"...", "..."}, {"DLD", "DDD"},
                   {Rule::NoLightDarkLightElbow}),
             Violation::None);
@@ -1089,14 +1104,14 @@ TEST(Verify, OffByOneLeavesLettersAlone) {
             Violation::LetterSplit);
 }
 
-/// A galaxy on the centre of a 3x3, and a colouring to judge.
+/// A galaxy on the center of a 3x3, and a coloring to judge.
 Violation judgeGalaxy(const std::vector<std::string> &painted) {
   Puzzle puzzle = test::board({"...", "...", "..."});
   test::withGalaxy(puzzle, 1, 1);
   return verify::check(buildModel(puzzle), test::colors(painted));
 }
 
-/// The accepted colouring is 180-degree symmetric but symmetric across NO
+/// The accepted coloring is 180-degree symmetric but symmetric across NO
 /// single axis — the shape that tells a half turn apart from every mirror a
 /// lotus could ask for.
 TEST(Verify, AGalaxyRegionMustMapToItselfTurnedHalfway) {
@@ -1133,9 +1148,9 @@ TEST(Verify, AGalaxyRegionMayNotReflectOntoAGap) {
 }
 
 /// Two galaxies in one region: the region would need to map to itself about
-/// both centres, which only an infinite region could — the composition of two
+/// both centers, which only an infinite region could — the composition of two
 /// half turns is a translation. The oracle needs no code for that: the far
-/// galaxy's square turns off the board about the near one's centre.
+/// galaxy's square turns off the board about the near one's center.
 TEST(Verify, TwoGalaxiesCannotShareARegion) {
   Puzzle puzzle = test::board({"...", "...", "..."});
   test::withGalaxy(puzzle, 1, 0);
@@ -1149,13 +1164,13 @@ TEST(Verify, TwoGalaxiesCannotShareARegion) {
 
 // ------------------------------------------------------------ seated galaxies --
 //
-// A galaxy's centre may sit on a grid line or a corner, and the turn then
-// carries a SIGN: with different colours across the centre it INVERTS, so the
+// A galaxy's center may sit on a grid line or a corner, and the turn then
+// carries a SIGN: with different colors across the center it INVERTS, so the
 // dark region and the light region touching it are each other's image.
 // Mirrors the seated cases in `test/logic-grid-solver/verify.test.ts`.
 
 TEST(Verify, ASeatedGalaxyTurnsAboutTheGridLine) {
-  // Centre on the seam between the two middle columns of a 4x2. The dark
+  // Center on the seam between the two middle columns of a 4x2. The dark
   // domino on the left turns onto the dark domino on the right.
   Puzzle puzzle = test::board({"....", "...."});
   test::withGalaxy(puzzle, 1, 0, 1);
@@ -1166,10 +1181,10 @@ TEST(Verify, ASeatedGalaxyTurnsAboutTheGridLine) {
             Violation::GalaxyAsymmetric);
 }
 
-/// The colour-INVERTING case: dark above the seam and light below it, so every
-/// square's image holds the opposite colour.
-TEST(Verify, AnInvertingGalaxyTurnsOntoTheOtherColour) {
-  // Centre on the seam under (1,1) of a 3x4, so the turn maps the board onto
+/// The color-INVERTING case: dark above the seam and light below it, so every
+/// square's image holds the opposite color.
+TEST(Verify, AnInvertingGalaxyTurnsOntoTheOtherColor) {
+  // Center on the seam under (1,1) of a 3x4, so the turn maps the board onto
   // itself.
   Puzzle puzzle = test::board({"...", "...", "...", "..."});
   test::withGalaxy(puzzle, 1, 1, 2);
@@ -1182,7 +1197,7 @@ TEST(Verify, AnInvertingGalaxyTurnsOntoTheOtherColour) {
             Violation::GalaxyAsymmetric);
 }
 
-/// Walking EVERY region touching the centre is load-bearing, not thorough. The
+/// Walking EVERY region touching the center is load-bearing, not thorough. The
 /// turn is an involution, so one region's image lies IN the other — but the
 /// other may reach further, and only its own walk says so.
 TEST(Verify, BothRegionsAtAnInvertingSeatAreWalked) {
@@ -1198,8 +1213,8 @@ TEST(Verify, BothRegionsAtAnInvertingSeatAreWalked) {
 }
 
 /// Seat 0 is the special case rather than the rule: a square is its own image,
-/// so the sign can only preserve colour, and the check is what it always was.
-TEST(Verify, ACentredGalaxyCanOnlyPreserveColour) {
+/// so the sign can only preserve color, and the check is what it always was.
+TEST(Verify, ACenteredGalaxyCanOnlyPreserveColor) {
   Puzzle puzzle = test::board({"...", "...", "..."});
   test::withGalaxy(puzzle, 1, 1);
   const Model model = buildModel(puzzle);
@@ -1259,7 +1274,7 @@ TEST(Verify, TheShapeRulesAreVacuousBelowTwoRegions) {
   }
 }
 
-TEST(Verify, AShapeRuleReadsOnlyItsOwnColour) {
+TEST(Verify, AShapeRuleReadsOnlyItsOwnColor) {
   // Two congruent LIGHT dominoes; the dark regions differ.
   EXPECT_EQ(judge({".....", "....."}, {"LDLDD", "LDLDL"},
                   {Rule::DistinctShapesDark}),
@@ -1276,7 +1291,7 @@ TEST(Verify, AllRegionsAlikeWantsEveryShapeEqual) {
             Violation::None);
 }
 
-/// Both rules of one colour together say it has AT MOST ONE region, which a
+/// Both rules of one color together say it has AT MOST ONE region, which a
 /// board may legally be — so they are two independent flags, not a switch.
 TEST(Verify, BothShapeRulesTogetherAllowOneRegion) {
   const std::vector both{Rule::DistinctShapesDark, Rule::SameShapeDark};

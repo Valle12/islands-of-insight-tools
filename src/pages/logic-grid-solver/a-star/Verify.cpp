@@ -64,11 +64,11 @@ Violation shapeProblem(const Model &model, const Colors &colors) {
 }
 
 /**
- * Every square of a merged cell holds one colour.
+ * Every square of a merged cell holds one color.
  *
  * Nothing the SEARCH produces can break this — `Domains::exclude` fans out over
  * the cell, so its squares are decided together — but this oracle also gates
- * colourings that never went through a domain: a fixture's own `solution` key,
+ * colorings that never went through a domain: a fixture's own `solution` key,
  * the page's `verify` export taking an arbitrary array from JS, and brute
  * force. So this is the one place that says out loud what a merged cell IS,
  * and it is what lets every check below go on speaking about squares.
@@ -109,7 +109,7 @@ Violation squareProblem(const Model &model, const Colors &colors) {
 
 /// The longest straight run of `color` anywhere, in either direction. Counting
 /// once is simpler than asking about each forbidden length separately, and an
-/// unplayable cell breaks a run because it never equals a colour.
+/// unplayable cell breaks a run because it never equals a color.
 int longestRun(const Model &model, const Colors &colors, const uint8_t color) {
   int best = 0;
   for (int y = 0; y < model.height(); y++) {
@@ -146,8 +146,8 @@ Violation runProblem(const Model &model, const Colors &colors) {
   return broken ? Violation::Run : Violation::None;
 }
 
-/// A 2x2 whose diagonals are each one colour, and different from each other.
-/// All four must be real colours: two gaps on one diagonal would otherwise
+/// A 2x2 whose diagonals are each one color, and different from each other.
+/// All four must be real colors: two gaps on one diagonal would otherwise
 /// read as a matching pair.
 bool hasCheckerboard(const Model &model, const Colors &colors) {
   for (int y = 0; y + 1 < model.height(); y++) {
@@ -166,8 +166,8 @@ bool hasCheckerboard(const Model &model, const Colors &colors) {
   return false;
 }
 
-/// A line of three alternating colours with `color` at both ends, in either
-/// direction. Both colours are named outright, so a gap can never take part in
+/// A line of three alternating colors with `color` at both ends, in either
+/// direction. Both colors are named outright, so a gap can never take part in
 /// one: `kUnplayable` equals neither.
 bool hasTriple(const Model &model, const Colors &colors, const uint8_t color) {
   const uint8_t other = opposite(color);
@@ -199,7 +199,7 @@ Violation tripleProblem(const Model &model, const Colors &colors) {
 }
 
 /// A T of `color`: a straight three with a fourth cell on the middle's other
-/// side. Scanned from the CENTRE, which sees all four rotations as a bar plus
+/// side. Scanned from the CENTER, which sees all four rotations as a bar plus
 /// a stem — and sees the T inside a plus, which contains one.
 bool hasTee(const Model &model, const Colors &colors, const uint8_t color) {
   const auto held = [&model, &colors, color](const int x, const int y) {
@@ -230,7 +230,7 @@ Violation teeProblem(const Model &model, const Colors &colors) {
   return None;
 }
 
-/// A 2x2 holding exactly three of `color` and one of the other. Both colours
+/// A 2x2 holding exactly three of `color` and one of the other. Both colors
 /// are counted outright, so a 2x2 touching a gap can never qualify: a
 /// `kUnplayable` square equals neither.
 bool hasThreeOne(const Model &model, const Colors &colors,
@@ -262,8 +262,8 @@ Violation threeOneProblem(const Model &model, const Colors &colors) {
 }
 
 /// Two cells of `color` touching corner to corner, anywhere at all — being
-/// joined through an orthogonal neighbour does not excuse the touch, which is
-/// what makes every region of the colour a straight bar. Scanned from each
+/// joined through an orthogonal neighbor does not excuse the touch, which is
+/// what makes every region of the color a straight bar. Scanned from each
 /// cell's two DOWNWARD diagonals, so every pair is seen exactly once.
 bool hasDiagonal(const Model &model, const Colors &colors,
                  const uint8_t color) {
@@ -319,7 +319,7 @@ Violation elbowProblem(const Model &model, const Colors &colors) {
 
 /// An L-tetromino of `color`, either handedness: a straight three with a
 /// fourth cell perpendicular at one END. Scanned from the bar's middle like
-/// the T. Every diagonal neighbour of the middle is orthogonally adjacent to
+/// the T. Every diagonal neighbor of the middle is orthogonally adjacent to
 /// exactly one end of either bar, so "a bar plus any diagonal of its middle"
 /// is precisely an L — all eight orientations — while a foot at the middle
 /// itself would be a T, which this never matches.
@@ -355,7 +355,7 @@ Violation ellProblem(const Model &model, const Colors &colors) {
 }
 
 /// Two cells of `color` exactly two apart in a straight line. Only the two END
-/// squares are read — whatever lies between them, the other colour or even a
+/// squares are read — whatever lies between them, the other color or even a
 /// gap, does not lift the ban, which is what "purely positional" means.
 /// Scanned rightward and downward only, so every pair is seen exactly once.
 bool hasDistancePair(const Model &model, const Colors &colors,
@@ -385,7 +385,7 @@ Violation distancePairProblem(const Model &model, const Colors &colors) {
 }
 
 /// A T whose CROSSING — the bar's middle, where the stem attaches — holds the
-/// other colour while the bar's ends and the stem hold `color`. Scanned from
+/// other color while the bar's ends and the stem hold `color`. Scanned from
 /// the crossing, which sees all four rotations; every cell is named outright,
 /// so a gap can never stand in for the crossing.
 bool hasMixedTee(const Model &model, const Colors &colors,
@@ -411,7 +411,7 @@ bool hasMixedTee(const Model &model, const Colors &colors,
 
 Violation mixedTeeProblem(const Model &model, const Colors &colors) {
   using enum Violation;
-  // The rule's id names the ARMS' colour last: a "light-crossed dark T" is
+  // The rule's id names the ARMS' color last: a "light-crossed dark T" is
   // three dark cells around a light crossing.
   if (model.hasRule(Rule::NoLightCrossedDarkT) &&
       hasMixedTee(model, colors, kDark))
@@ -487,8 +487,8 @@ Violation knightProblem(const Model &model, const Colors &colors) {
 }
 
 /// A bent tromino whose CORNER — the square touching both others — holds the
-/// other colour while both ends hold `color`. Scanned from the corner: any
-/// vertical neighbour of it paired with any horizontal one is a right angle,
+/// other color while both ends hold `color`. Scanned from the corner: any
+/// vertical neighbor of it paired with any horizontal one is a right angle,
 /// which covers the four orientations. A straight line through the corner has
 /// no such pair, so a mixed TRIPLE never matches.
 bool hasMixedElbow(const Model &model, const Colors &colors,
@@ -522,7 +522,82 @@ Violation mixedElbowProblem(const Model &model, const Colors &colors) {
   return None;
 }
 
-/// An empty colour is vacuously one region, which is what lets a board be
+/**
+ * Whether one drawn arrangement sits with its box's top-left corner at
+ * (ox, oy), in the orientation `image` names — bit 0 transposes, bits 1 and 2
+ * flip the result's axes, which between them are the eight dihedral images.
+ *
+ * That geometry is worked out again HERE rather than borrowed from
+ * `rules::dihedralImages`. This oracle shares the puzzle with the search and
+ * nothing else — not the reducers, not the compiled clause list, and not the
+ * compiler's idea of what a drawn pattern means. "A drawn pattern forbids its
+ * rotations and reflections too" is a claim, so it is stated twice and the two
+ * can only agree by both being right. Same discipline as `runProblem`
+ * re-measuring the longest run rather than asking `shortestRun`.
+ *
+ * Squares the pattern does not name are skipped, so nothing is asserted about
+ * them — a gap under one is fine. A gap under a square the pattern DOES name
+ * simply fails to match, since `colors` holds kUnplayable there and a pattern
+ * only ever wants kDark or kLight.
+ */
+bool matchesAt(const Colors &colors, const rules::DrawnPattern &pattern,
+               const int image, const int ox, const int oy) {
+  const bool swap = (image & 1) != 0;
+  const int width = swap ? pattern.height : pattern.width;
+  const int height = swap ? pattern.width : pattern.height;
+  for (int y = 0; y < pattern.height; y++) {
+    for (int x = 0; x < pattern.width; x++) {
+      const uint8_t want = pattern.cells[slot(y * pattern.width + x)];
+      if (want != kDark && want != kLight)
+        continue;
+      int nx = swap ? y : x;
+      int ny = swap ? x : y;
+      if ((image & 2) != 0)
+        nx = width - 1 - nx;
+      if ((image & 4) != 0)
+        ny = height - 1 - ny;
+      if (colors[slot(cellIndex(ox + nx, oy + ny))] != want)
+        return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Whether that arrangement occurs ANYWHERE on the board, in that orientation.
+ *
+ * The image's own box is what the scan is bounded by, so the transposition is
+ * worked out here as well as in `matchesAt` — three lines each, and each for
+ * its own reason: this one to know where the box still fits, that one to know
+ * where a square of it lands.
+ */
+bool holdsDrawn(const Model &model, const Colors &colors,
+                const rules::DrawnPattern &pattern, const int image) {
+  const bool swap = (image & 1) != 0;
+  const int width = swap ? pattern.height : pattern.width;
+  const int height = swap ? pattern.width : pattern.height;
+  for (int oy = 0; oy + height <= model.height(); oy++)
+    for (int ox = 0; ox + width <= model.width(); ox++)
+      if (matchesAt(colors, pattern, image, ox, oy))
+        return true;
+  return false;
+}
+
+/// The puzzle's OWN drawn patterns, walked in full — the same discipline
+/// `runProblem` follows for `puzzle.runs`. There is one violation name for all
+/// of them because what a board broke is a shape the config carries, which no
+/// enumerator could spell.
+Violation customPatternProblem(const Model &model, const Colors &colors) {
+  for (const rules::DrawnPattern &pattern : model.puzzle.patterns) {
+    for (int image = 0; image < 8; image++) {
+      if (holdsDrawn(model, colors, pattern, image))
+        return Violation::CustomPattern;
+    }
+  }
+  return Violation::None;
+}
+
+/// An empty color is vacuously one region, which is what lets a board be
 /// legally all-dark while `connect-light` is switched on.
 bool isOneRegion(const Bits &cells) {
   const int first = cells.nextSet(0);
@@ -547,7 +622,7 @@ Violation connectivityProblem(const Model &model, const Bits &dark,
  * Walked region by region for the same reason the symbol count is: this is a
  * property of a REGION and nothing points at the one that broke, so both halves
  * — too big and too small — are only visible from the region's own side. An
- * empty colour passes vacuously, all zero of its regions being the right size,
+ * empty color passes vacuously, all zero of its regions being the right size,
  * which is what lets an all-dark board be legal while the light rule is on.
  */
 bool everyRegionIs(const Bits &held, const int area) {
@@ -569,7 +644,7 @@ Violation regionSizeProblem(const Model &model, const Bits &dark,
   // does not ask the reducers, for the same reason it does not read the
   // compiled clause list: it is meant to agree with the search by arriving
   // separately, never by sharing its tables. Every instance runs, so both
-  // sizes on one colour are satisfied only by an absent colour.
+  // sizes on one color are satisfied only by an absent color.
   const bool wrong = std::ranges::any_of(
       model.puzzle.areas, [&dark, &light](const rules::SizedRule &rule) {
         return !everyRegionIs(rule.color == kDark ? dark : light, rule.value);
@@ -689,7 +764,7 @@ Violation symbolProblem(const Model &model, const Bits &dark,
 }
 
 /**
- * Every dart counts the squares of the OTHER colour along its own line.
+ * Every dart counts the squares of the OTHER color along its own line.
  *
  * The line runs from the dart's square to the edge of the board, and a gap is
  * stepped over rather than stopping it — a dart sees past a hole exactly as the
@@ -701,7 +776,7 @@ Violation symbolProblem(const Model &model, const Bits &dark,
  * can only prove the two agree, and a wrongly built line is exactly the kind of
  * mistake this has to be able to catch. The dart's own cell needs no special
  * case for the same reason it needs none in the search — every square of it
- * holds the dart's own colour, so none of them is ever the other one.
+ * holds the dart's own color, so none of them is ever the other one.
  */
 Violation dartProblem(const Model &model, const Colors &colors) {
   for (const int id : model.walked.dartClues) {
@@ -728,9 +803,9 @@ Violation dartProblem(const Model &model, const Colors &colors) {
 /**
  * Every lotus's region maps to itself across the lotus's axis.
  *
- * The region is the connected same-colour set of squares holding the lotus's
+ * The region is the connected same-color set of squares holding the lotus's
  * cell, and symmetry means the mirror of each of its squares is on the board,
- * playable and the same colour — which by the region's maximality puts the
+ * playable and the same color — which by the region's maximality puts the
  * mirror in the region too. Geometry is re-derived from the clue here rather
  * than read off `Model::lotuses`, the discipline `dartProblem` sets: an oracle
  * sharing the search's precomputed tables could only prove the two agree, and
@@ -763,12 +838,12 @@ Violation lotusProblem(const Model &model, const Colors &colors) {
 
 /**
  * Every viewpoint counts the squares it can SEE: its own square, plus the
- * leading run of its own colour along each of the four directions. Sight stops
- * at the first square of the other colour, at a gap — unlike a dart's line,
+ * leading run of its own color along each of the four directions. Sight stops
+ * at the first square of the other color, at a gap — unlike a dart's line,
  * which steps over one — and at the edge of the board. Squares are counted one
  * at a time, so a merged cell contributes exactly the squares the sight
  * crosses, wherever the rest of it lies; its own cell's squares count like any
- * others, being the counted colour by definition.
+ * others, being the counted color by definition.
  *
  * Walked from the clue rather than read off `Model::viewpoints`, the
  * discipline `dartProblem` sets: an oracle sharing the search's precomputed
@@ -797,14 +872,14 @@ Violation viewpointProblem(const Model &model, const Colors &colors) {
  * Every galaxy's region maps to itself under a HALF TURN about the galaxy's
  * own square.
  *
- * The centre may be a square's own centre, a grid line or a corner, and the
- * turn carries a SIGN. Centred on a square, that square is its own image, so
- * the sign can only preserve colour and the rule is what it always was.
- * Centred between squares of DIFFERENT colours it inverts: every cell's image
- * holds the opposite colour, so the dark region and the light region touching
- * the centre are each other's image. The sign is read off the home square and
+ * The center may be a square's own center, a grid line or a corner, and the
+ * turn carries a SIGN. Centered on a square, that square is its own image, so
+ * the sign can only preserve color and the rule is what it always was.
+ * Centered between squares of DIFFERENT colors it inverts: every cell's image
+ * holds the opposite color, so the dark region and the light region touching
+ * the center are each other's image. The sign is read off the home square and
  * its partner, which always exist — the home square is playable, and its
- * partner is a square touching the centre too.
+ * partner is a square touching the center too.
  *
  * A corner whose two pairs disagree about the sign needs no check of its own:
  * the second pair's squares are in scope, so their walk demands exactly what
@@ -815,7 +890,7 @@ Violation viewpointProblem(const Model &model, const Colors &colors) {
  * search built and this has to be able to disagree with it. It carries the
  * lotus's readability net for the same reason the lotus does.
  */
-/// Whether the whole region holding `start` lands on `target`-coloured squares
+/// Whether the whole region holding `start` lands on `target`-colored squares
 /// of the board when turned a half turn about (cx2, cy2).
 bool regionTurnsOnto(const Model &model, const Colors &colors, const int start,
                      const int cx2, const int cy2, const uint8_t target) {
@@ -831,7 +906,7 @@ bool regionTurnsOnto(const Model &model, const Colors &colors, const int start,
   return true;
 }
 
-/// Every square touching the centre, so both regions at an inverting seat are
+/// Every square touching the center, so both regions at an inverting seat are
 /// walked: the turn is an involution, so one region's image LIES IN the other,
 /// but the other may reach further and only its own walk says so.
 bool seatSquaresTurnOnto(const Model &model, const Colors &colors,
@@ -884,8 +959,8 @@ Violation galaxyProblem(const Model &model, const Colors &colors) {
 /**
  * Every cell of one letter in one region, and no region holding two letters.
  *
- * The subset test does double duty: a group cell painted the other colour is
- * not in the seed's region either, so "same letter, same colour" needs no
+ * The subset test does double duty: a group cell painted the other color is
+ * not in the seed's region either, so "same letter, same color" needs no
  * separate check.
  */
 Violation letterProblem(const Model &model, const Colors &colors,
@@ -929,20 +1004,20 @@ const char *describe(const Violation violation) {
   static constexpr std::array kMessages{
       ViolationMessage{.violation = None, .text = ""},
       ViolationMessage{.violation = Incomplete,
-                       .text = "A playable cell was left uncoloured"},
+                       .text = "A playable cell was left uncolored"},
       ViolationMessage{.violation = ShapeChanged,
                        .text = "The board's gaps do not match the puzzle"},
       ViolationMessage{.violation = GivenChanged,
                        .text = "A cell that was already painted came back a "
-                               "different colour"},
+                               "different color"},
       ViolationMessage{.violation = Square,
-                       .text = "A forbidden 2x2 block of one colour"},
+                       .text = "A forbidden 2x2 block of one color"},
       ViolationMessage{.violation = Run,
-                       .text = "A forbidden run of one colour"},
+                       .text = "A forbidden run of one color"},
       ViolationMessage{.violation = Checkerboard,
                        .text = "A forbidden checkerboard"},
       ViolationMessage{.violation = Disconnected,
-                       .text = "A colour that must be connected is in more "
+                       .text = "A color that must be connected is in more "
                                "than one piece"},
       ViolationMessage{.violation = AreaSize,
                        .text = "An area number does not match the size of its "
@@ -959,50 +1034,53 @@ const char *describe(const Violation violation) {
                        .text = "An area that must carry one symbol carries "
                                "several"},
       ViolationMessage{.violation = RegionSize,
-                       .text = "A region does not have the area its colour's "
+                       .text = "A region does not have the area its color's "
                                "rule requires"},
       ViolationMessage{.violation = CellSplit,
-                       .text = "A merged cell came back in two colours"},
+                       .text = "A merged cell came back in two colors"},
       ViolationMessage{.violation = DartCount,
                        .text = "A dart does not count what its line really "
                                "holds"},
       ViolationMessage{.violation = Triple,
-                       .text = "A forbidden line of three alternating colours"},
-      ViolationMessage{.violation = Tee, .text = "A forbidden T of one colour"},
+                       .text = "A forbidden line of three alternating colors"},
+      ViolationMessage{.violation = Tee, .text = "A forbidden T of one color"},
       ViolationMessage{.violation = LotusAsymmetric,
                        .text = "A symmetry symbol's region does not mirror "
                                "across its axis"},
       ViolationMessage{.violation = ThreeOne,
-                       .text = "A forbidden 2x2 of three of one colour and one "
+                       .text = "A forbidden 2x2 of three of one color and one "
                                "of the other"},
       ViolationMessage{.violation = Diagonal,
-                       .text = "A forbidden corner touch of one colour"},
+                       .text = "A forbidden corner touch of one color"},
       ViolationMessage{.violation = ViewpointCount,
                        .text = "A viewpoint's number does not match the "
                                "squares it can see"},
       ViolationMessage{.violation = Elbow,
-                       .text = "A forbidden elbow of one colour"},
-      ViolationMessage{.violation = Ell, .text = "A forbidden L of one colour"},
+                       .text = "A forbidden elbow of one color"},
+      ViolationMessage{.violation = Ell, .text = "A forbidden L of one color"},
       ViolationMessage{.violation = DistancePair,
-                       .text = "A forbidden pair of one colour two apart"},
+                       .text = "A forbidden pair of one color two apart"},
       ViolationMessage{.violation = MixedTee,
                        .text = "A forbidden T whose crossing is the other "
-                               "colour"},
+                               "color"},
       ViolationMessage{.violation = LongTee,
-                       .text = "A forbidden long T of one colour"},
+                       .text = "A forbidden long T of one color"},
       ViolationMessage{.violation = Knight,
-                       .text = "A forbidden knight's move of one colour"},
+                       .text = "A forbidden knight's move of one color"},
       ViolationMessage{.violation = MixedElbow,
                        .text = "A forbidden elbow whose corner is the other "
-                               "colour"},
+                               "color"},
       ViolationMessage{.violation = GalaxyAsymmetric,
                        .text = "A galaxy symbol's region does not map to "
                                "itself turned about it"},
       ViolationMessage{.violation = RegionShapeRepeat,
-                       .text = "Two regions of one colour have the same shape"},
+                       .text = "Two regions of one color have the same shape"},
       ViolationMessage{.violation = RegionShapeMismatch,
-                       .text = "Two regions of one colour have different "
+                       .text = "Two regions of one color have different "
                                "shapes"},
+      ViolationMessage{.violation = CustomPattern,
+                       .text = "A forbidden pattern this puzzle draws occurs "
+                               "on the board"},
   };
   // Counted against `Count` and never against the last real enumerator: an
   // APPENDED one leaves that one's value alone, so the assert would still hold
@@ -1017,15 +1095,15 @@ const char *describe(const Violation violation) {
 
 namespace {
 
-/// The half of the list that reads the colouring alone, in the order a board
+/// The half of the list that reads the coloring alone, in the order a board
 /// breaking several of them is NAMED by.
 Violation colorChecks(const Model &model, const Colors &colors) {
   using enum Violation;
   if (const Violation problem = shapeProblem(model, colors); problem != None)
     return problem;
-  // Before anything below, which all read the colouring one SQUARE at a time
+  // Before anything below, which all read the coloring one SQUARE at a time
   // and are only entitled to do so once a merged cell is known to hold one
-  // colour. (`shapeProblem` here means the board's GAPS, not a merged cell —
+  // color. (`shapeProblem` here means the board's GAPS, not a merged cell —
   // it runs first so a gap or a repainted given is still named as such.)
   if (const Violation problem = fusedProblem(model, colors); problem != None)
     return problem;
@@ -1034,7 +1112,7 @@ Violation colorChecks(const Model &model, const Colors &colors) {
   if (const Violation problem = runProblem(model, colors); problem != None)
     return problem;
   // The implied checkerboard rule is deliberately NOT applied here. When both
-  // colours are connected a checkerboard already breaks one of them, so the
+  // colors are connected a checkerboard already breaks one of them, so the
   // connectivity test below catches it — and leaving it out keeps this file
   // free of anything the pattern compiler derived.
   if (model.hasRule(Rule::NoCheckerboard) && hasCheckerboard(model, colors))
@@ -1063,10 +1141,17 @@ Violation colorChecks(const Model &model, const Colors &colors) {
   if (const Violation problem = mixedElbowProblem(model, colors);
       problem != None)
     return problem;
+  // LAST, so no board that was already breaking a named rule starts being
+  // named for a drawn pattern instead. The order here decides only WHICH
+  // violation a board breaking several is reported for, and the suites assert
+  // those names.
+  if (const Violation problem = customPatternProblem(model, colors);
+      problem != None)
+    return problem;
   return None;
 }
 
-/// The half that needs the two colour masks, continuing the same list.
+/// The half that needs the two color masks, continuing the same list.
 Violation regionChecks(const Model &model, const Colors &colors,
                        const Bits &dark, const Bits &light) {
   using enum Violation;

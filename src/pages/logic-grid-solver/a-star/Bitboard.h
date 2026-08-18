@@ -7,11 +7,11 @@
 #include <bit>
 #include <cstdint>
 
-// A set of cells as 1024 bits, and the four neighbour shifts everything here
+// A set of cells as 1024 bits, and the four neighbor shifts everything here
 // is built out of.
 //
 // Every interesting propagator in this solver is a flood fill — the region
-// behind an area clue, the cells a colour can still reach, the component a
+// behind an area clue, the cells a color can still reach, the component a
 // letter group has to live in. At the fixed 32-cell row pitch (see kStride)
 // one 64-bit word holds exactly two rows, which makes all four shifts trivial:
 //
@@ -240,7 +240,7 @@ struct Bits {
  * duplicated between `Verify.cpp` and `Propagate.cpp`, so the two can still
  * only agree by both being right.
  *
- * A normalised image always fits: both sides of the bounding box are at most
+ * A normalized image always fits: both sides of the bounding box are at most
  * `kMaxSide`, whichever way a transpose swaps them, so `cellIndex` cannot wrap.
  */
 [[nodiscard]] inline Bits canonicalShape(const Bits &region) {

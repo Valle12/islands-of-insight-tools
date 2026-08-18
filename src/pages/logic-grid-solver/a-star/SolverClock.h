@@ -18,7 +18,7 @@ inline uint64_t nowMs() {
 // sentinel every search entry point uses.
 //
 // Deliberately NOT inline and defined in SolverClock.cpp. With the ternary
-// visible, a data-flow analyser can fold maxMs to 0 for callers it can see and
+// visible, a data-flow analyzer can fold maxMs to 0 for callers it can see and
 // then report the budget guards in the search as dead code (this happened in
 // the shifting-mosaic solver, 18 findings). Keeping the body in another TU
 // leaves the value genuinely unknown, which is the truth.

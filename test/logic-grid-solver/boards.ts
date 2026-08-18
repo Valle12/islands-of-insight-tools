@@ -6,12 +6,17 @@ import {
 } from "../../src/pages/logic-grid-solver/cell";
 import { CONFIG_VERSION } from "../../src/pages/logic-grid-solver/config";
 import {
+  canonicalPatterns,
+  patternFromPicture,
+} from "../../src/pages/logic-grid-solver/patterns";
+import {
   RULES,
   type SizedRuleColor,
 } from "../../src/pages/logic-grid-solver/rules";
 import { SYMBOL_KINDS } from "../../src/pages/logic-grid-solver/symbols";
 import type {
   LogicGridAreaRule,
+  LogicGridPattern,
   LogicGridRunRule,
   LogicGridTest,
 } from "../../src/util/types";
@@ -40,7 +45,7 @@ const ruleIndex = (id: string) => {
  * what `validateConfig` returns, so a board here matches a real download. */
 const colorRank = (color: SizedRuleColor) => (color === "dark" ? 0 : 1);
 
-/** Same discipline for the clue catalogue, which is append-only too. */
+/** Same discipline for the clue catalog, which is append-only too. */
 const symbolIndex = (id: string) => {
   const index = SYMBOL_KINDS.findIndex(kind => kind.id === id);
   if (index < 0) throw new Error(`boards.ts asks for an unknown symbol: ${id}`);
@@ -57,15 +62,15 @@ const GALAXY_SYMBOL = symbolIndex("galaxy");
 /**
  * A puzzle from a picture, one string per row:
  *
- *   '.'      an uncoloured cell        '#'      a gap in the board
+ *   '.'      an uncolored cell        '#'      a gap in the board
  *   'D'/'L'  a cell already painted    '1'-'9'  an area number
  *   'a'-'z'  a letter clue
  *
- * A clue always lands on an uncoloured cell, which is the colourless clue the
+ * A clue always lands on an uncolored cell, which is the colorless clue the
  * game actually shows; `withGiven` paints one afterwards when a test needs a
- * clue whose colour is already known.
+ * clue whose color is already known.
  */
-/** The grid half of `board`: the colouring and the clues, read off the picture. */
+/** The grid half of `board`: the coloring and the clues, read off the picture. */
 function parseGlyphs(rows: string[]) {
   const gridHeight = rows.length;
   const gridWidth = rows[0]!.length;
@@ -89,18 +94,31 @@ function parseGlyphs(rows: string[]) {
 }
 
 /**
- * The rule half. A caller still names every rule by its catalogue id; the sized
+ * The rule half. A caller still names every rule by its catalog id; the sized
  * ones leave for their family lists here, exactly as the migration rewrites a
  * v1 file.
+ */
+/**
+ * A rule list torn into the shape the format stores it in.
+ *
+ * The lists below still SAY names like `no-dark-1x3` and `no-dark-diagonal`,
+ * because that is how a board reads — but the sized families left `rules` in
+ * format version 2 and the ten rarest arrangements in version 3, so those ids
+ * become `areas`/`runs` instances and drawn `patterns` here. The same
+ * translation `splitLegacyMask` does for the CLI's masks, so every board keeps
+ * refereeing exactly the constraint it always did through the intake path a
+ * real file takes.
  */
 function parseRules(ruleIds: string[]) {
   const flags: number[] = [];
   const areas: LogicGridAreaRule[] = [];
   const runs: LogicGridRunRule[] = [];
+  const patterns: LogicGridPattern[] = [];
   for (const id of ruleIds) {
     const index = ruleIndex(id);
-    const sized = RULES[index]!.sized;
-    if (!sized) flags.push(index);
+    const { sized, drawn } = RULES[index]!;
+    if (drawn) patterns.push(patternFromPicture(drawn.squares));
+    else if (!sized) flags.push(index);
     else if (sized.family === "areas") {
       areas.push({ color: sized.color, size: sized.value });
     } else runs.push({ color: sized.color, length: sized.value });
@@ -109,12 +127,12 @@ function parseRules(ruleIds: string[]) {
   runs.sort(
     (a, b) => colorRank(a.color) - colorRank(b.color) || a.length - b.length,
   );
-  return { flags, areas, runs };
+  return { flags, areas, runs, patterns: canonicalPatterns(patterns) };
 }
 
 export function board(rows: string[], ruleIds: string[] = []): LogicGridTest {
   const { gridWidth, gridHeight, cells, symbols } = parseGlyphs(rows);
-  const { flags, areas, runs } = parseRules(ruleIds);
+  const { flags, areas, runs, patterns } = parseRules(ruleIds);
   return {
     // Current by construction: these boards stand in for files the editor
     // itself could have written, and every one of those carries the tag.
@@ -124,13 +142,14 @@ export function board(rows: string[], ruleIds: string[] = []): LogicGridTest {
     rules: flags.toSorted((a, b) => a - b),
     ...(areas.length > 0 ? { areas } : {}),
     ...(runs.length > 0 ? { runs } : {}),
+    ...(patterns.length > 0 ? { patterns } : {}),
     cells,
     symbols,
   };
 }
 
 /**
- * Adds a regions-have-area rule directly — the road to sizes the catalogue
+ * Adds a regions-have-area rule directly — the road to sizes the catalog
  * never had a chip for, like 1 or 8. Keeps the list canonical, so the board
  * still reads like a real download.
  */
@@ -142,6 +161,25 @@ export function withAreaRule(
   config.areas = [...(config.areas ?? []), { color, size }].sort(
     (a, b) => colorRank(a.color) - colorRank(b.color) || a.size - b.size,
   );
+  return config;
+}
+
+/**
+ * Adds a forbidden arrangement DRAWN rather than named, written as a picture:
+ * '.' a square the pattern does not name, 'D' and 'L' the two colors.
+ *
+ * The road to any shape at all, which is what the drawn `patterns` key
+ * replaced a per-rule append cycle with. Keeps the list canonical, so the
+ * board still reads like a real download.
+ */
+export function withPattern(
+  config: LogicGridTest,
+  picture: string[],
+): LogicGridTest {
+  config.patterns = canonicalPatterns([
+    ...(config.patterns ?? []),
+    patternFromPicture(picture),
+  ]);
   return config;
 }
 
@@ -231,7 +269,7 @@ export function withLotus(
 /**
  * Puts a viewpoint on a cell. A second call like the others: a counting clue
  * with no direction at all, whose number is its own square plus the leading
- * same-colour run along each of the four rays. Mirrors `withViewpoint` in the
+ * same-color run along each of the four rays. Mirrors `withViewpoint` in the
  * C++ `TestBoards.h`.
  */
 export function withViewpoint(
@@ -247,7 +285,7 @@ export function withViewpoint(
 
 /**
  * Puts a galaxy on a cell. A second call like the others: a symmetry symbol
- * with no value and no direction. `seat` moves the centre of the turn half a
+ * with no value and no direction. `seat` moves the center of the turn half a
  * square right (bit 0) and down (bit 1), which is how one sits on a grid line
  * or a corner — and unlike a lotus's it needs no merged cell under it. Written
  * only when non-zero, the round-trip discipline. Mirrors `withGalaxy` in the
@@ -280,7 +318,7 @@ export function withArea(
   return config;
 }
 
-/** A colouring in the flat row-major layout an answer arrives in. */
+/** A coloring in the flat row-major layout an answer arrives in. */
 export function painted(rows: string[]): number[] {
   const flat: number[] = [];
   for (const row of rows) {
@@ -295,8 +333,8 @@ export function painted(rows: string[]): number[] {
 }
 
 /**
- * A board with a solution: nine cells of one colour somewhere in a 5x5, with
- * both colours connected and no dark 2x2. Not unique, and nothing should
+ * A board with a solution: nine cells of one color somewhere in a 5x5, with
+ * both colors connected and no dark 2x2. Not unique, and nothing should
  * assume it is — what it is for is exercising a full answer end to end.
  */
 export const solvableBoard = (): LogicGridTest =>
@@ -307,7 +345,7 @@ export const solvableBoard = (): LogicGridTest =>
 
 /**
  * An underclued board with something genuinely forced: the area-one clue sits
- * on a cell that is already dark, so its two neighbours can only be light,
+ * on a cell that is already dark, so its two neighbors can only be light,
  * while most of the board is free either way.
  */
 export const undercluedBoard = (): LogicGridTest => {
@@ -324,7 +362,7 @@ export const undercluedBoard = (): LogicGridTest => {
  * Five wide, so the 1x5 run rules have somewhere they can fire, with four of
  * the top row already dark — which forces the fifth light and no other cell.
  *
- * It is the shortest path from the append-only catalogue to the compiled
+ * It is the shortest path from the append-only catalog to the compiled
  * module: the wasm boundary rejects a rule index it does not know, and an
  * engine that silently ignored one would answer `DDDDD` and be thrown out by
  * `verify.ts`. Either kind of drift fails here rather than on a real puzzle.
@@ -335,7 +373,7 @@ export const runFiveBoard = (): LogicGridTest =>
 /**
  * Four columns two deep with both area rules on, which the vertical dominoes
  * `DLDL` satisfy: four regions of exactly two, none of them touching another of
- * its own colour.
+ * its own color.
  *
  * It plays `runFiveBoard`'s role for the newest pair. Half of each rule compiles
  * into forbidden trominoes and half is a propagator, so a board carrying it
@@ -357,7 +395,7 @@ export const areaFourBoard = (): LogicGridTest =>
 
 /**
  * The two dark givens sit a cell apart under "no dark-light-dark", so the
- * middle of the top row cannot be light — the first MIXED-colour clause
+ * middle of the top row cannot be light — the first MIXED-color clause
  * (checkerboards aside) forcing a cell through the real module.
  */
 export const forbiddenTripleBoard = (): LogicGridTest => {
@@ -412,7 +450,7 @@ export const threeOneBoard = (): LogicGridTest => {
 
 /**
  * A dark given in the middle under "no dark diagonal": all four of its
- * diagonal neighbours are forced light, whatever else happens. The two-cell
+ * diagonal neighbors are forced light, whatever else happens. The two-cell
  * diagonal patterns' trip through the boundary — the first clauses whose
  * cells are not orthogonally contiguous.
  */
@@ -454,7 +492,7 @@ export const dartBoard = (): LogicGridTest => {
  * reading can satisfy.
  *
  * The line holds four squares, three of which are one cell. Asking for three of
- * the other colour forces that cell light and the last square dark — while a
+ * the other color forces that cell light and the last square dark — while a
  * dart that counted CELLS could never reach three at all. So this board is a
  * solution exactly under the rule the engine claims to implement.
  */
@@ -546,7 +584,7 @@ export const mergedCellBoard = (): LogicGridTest => {
 };
 
 /**
- * A symmetry symbol whose own colour is given, with one dark neighbour above:
+ * A symmetry symbol whose own color is given, with one dark neighbor above:
  * the region must mirror across the horizontal axis, so the square below is
  * forced dark while the rest of the board stays free. The lotus's
  * `direction`-as-axis crosses the boundary nowhere else — every captured
@@ -604,7 +642,7 @@ export const viewpointBoard = (): LogicGridTest => {
 /**
  * A viewpoint whose right ray crosses a merged 1x3 bar, with a value only the
  * per-SQUARE reading can satisfy: four means three more squares seen, which is
- * exactly the bar — so it joins the viewpoint's colour whole, and the square
+ * exactly the bar — so it joins the viewpoint's color whole, and the square
  * past it is the stop. A count that took the bar as ONE thing could never
  * reach four on this board.
  */
@@ -623,9 +661,9 @@ export const viewpointOverMergedBoard = (): LogicGridTest => {
 /**
  * A viewpoint ON a merged cell, on the end of an L whose third square lies on
  * no ray through it. Underclued, so the answer IS the forced set: the clue's
- * own square and its two ray neighbours are decided — the cell-mate on the
+ * own square and its two ray neighbors are decided — the cell-mate on the
  * left ray counts and the one diagonal to it counts only through the cell's
- * one-colour rule, while the far corner the count never reaches stays
+ * one-color rule, while the far corner the count never reaches stays
  * undecided. Pure line geometry, read off the answer.
  */
 export const viewpointOnMergedBoard = (): LogicGridTest => {
@@ -658,7 +696,7 @@ export const viewpointOnMergedBoard = (): LogicGridTest => {
  * corners — so it lives here rather than in the captured corpus.
  */
 /**
- * A galaxy on the centre with its column's top already dark: the half turn
+ * A galaxy on the center with its column's top already dark: the half turn
  * forces the square below it dark. Kind 5 crosses the wasm boundary nowhere
  * else — every captured board predates it.
  */
@@ -675,7 +713,7 @@ export const galaxyBoard = (): LogicGridTest => {
  * mirror is taken about the SQUARE, never the cell's middle: the cell-mate
  * turns onto the top-right corner, and the whole row below turns off the
  * board — so the forced set is the top row dark and the middle row light,
- * which an arm mirroring about the cell's centre could not produce.
+ * which an arm mirroring about the cell's center could not produce.
  */
 export const galaxyOverMergedBoard = (): LogicGridTest => {
   const config = board(["...", "...", "..."], ["underclued"]);
@@ -762,9 +800,9 @@ export const areaTwentyFourBoard = (): LogicGridTest =>
   );
 
 /**
- * An area of ONE — a size the catalogue never had a chip for, legal since the
+ * An area of ONE — a size the catalog never had a chip for, legal since the
  * format stores the number itself. Every dark region is a singleton, so the
- * given's neighbour is forced light while the far cell stays free either way;
+ * given's neighbor is forced light while the far cell stays free either way;
  * underclued, so the answer IS that forced set. This is the board that fails
  * loudly if the engine's isolated-singleton sweep ever runs at size one,
  * where the singleton is the only legal shape rather than a refutation.
@@ -775,7 +813,7 @@ export const areaOneBoard = (): LogicGridTest => {
 };
 
 /**
- * A forbidden run of EIGHT, past every catalogued length: seven dark givens
+ * A forbidden run of EIGHT, past every cataloged length: seven dark givens
  * in a nine-wide row force the eighth cell light — the first time an
  * eight-cell clause fires as a DIRECT run rule rather than an area's implied
  * one — and the ninth stays free; underclued, so the answer says exactly
@@ -824,10 +862,10 @@ export const impossibleBoard = (): LogicGridTest => {
 
 /**
  * A SEATED galaxy across the wasm boundary — the only place a galaxy's `seat`
- * key crosses at all, since every captured galaxy sits at its square's centre.
+ * key crosses at all, since every captured galaxy sits at its square's center.
  *
- * The centre is on the seam under (1,1) of a 3x4, so the turn maps the board
- * onto itself, and the colours across it DIFFER: the turn inverts, and the
+ * The center is on the seam under (1,1) of a 3x4, so the turn maps the board
+ * onto itself, and the colors across it DIFFER: the turn inverts, and the
  * dark half above forces the light half below. Underclued, so the answer is
  * the forced set.
  */
@@ -874,7 +912,7 @@ export const sameShapeBoard = (): LogicGridTest => {
 
 /**
  * Every part of the download format in one board — painted cells of both
- * colours, a gap, an area number and a letter — for the tests that care about
+ * colors, a gap, an area number and a letter — for the tests that care about
  * loading rather than solving.
  */
 export const formatSample = (): LogicGridTest => {
@@ -886,3 +924,45 @@ export const formatSample = (): LogicGridTest => {
   withGiven(config, 3, 3, DARK);
   return config;
 };
+
+/**
+ * A forbidden 3x3 of light — nine squares, which is past what the pattern
+ * table could hold before it went variable length, and the shape that started
+ * all this. Small enough that a coloring exists: dark can take any of the
+ * board's 3x3 windows apart.
+ */
+export const bigPatternBoard = (): LogicGridTest =>
+  withPattern(board(["....", "....", "....", "...."], ["connect-dark"]), [
+    "LLL",
+    "LLL",
+    "LLL",
+  ]);
+
+/**
+ * A drawn shape naming BOTH colors, which nothing in `rules` can state now
+ * that the mixed elbow is retired — and the shape the migration writes for
+ * rule 51, so this is that rule crossing the wasm boundary as a drawing.
+ */
+export const mixedPatternBoard = (): LogicGridTest =>
+  withPattern(board(["...", "...", "..."]), ["LD", "D."]);
+
+/**
+ * A pattern too TALL for the sweep's frontier on this board, so
+ * `profile::applicable` declines and the cascade falls through to the DFS. A
+ * correct answer either way, which is the point: the sweep declining is not a
+ * failure, and a sweep that DIDN'T decline would read a truncated distance.
+ */
+export const deepPatternBoard = (): LogicGridTest =>
+  withPattern(
+    board([
+      "........",
+      "........",
+      "........",
+      "........",
+      "........",
+      "........",
+      "........",
+      "........",
+    ]),
+    ["D.", "..", "..", "..", ".D"],
+  );

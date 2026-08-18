@@ -22,19 +22,22 @@ using rules::Rule;
 
 /**
  * One forbidden arrangement, read as the clause "at least one of these cells
- * holds the other colour".
+ * holds the other color".
  *
  * Nothing matches -> already satisfied. One cell left undecided and every
- * other one matching -> that cell must take the other colour. Everything
+ * other one matching -> that cell must take the other color. Everything
  * matching -> the arrangement is on the board, which is the contradiction the
  * rule exists to forbid.
  */
-bool propagateClause(Domains &domains, const Clause &clause) {
+bool propagateClause(const Model &model, Domains &domains,
+                     const Clause &clause) {
   int freeCell = -1;
   uint8_t freeColor = kUnknown;
+  const auto cells = model.literals(clause);
+  const auto colors = model.colorsOf(clause);
   for (int i = 0; i < clause.count; i++) {
-    const int cell = clause.cells[slot(i)];
-    const uint8_t want = clause.colors[slot(i)];
+    const int cell = cells[slot(i)];
+    const uint8_t want = colors[slot(i)];
     const uint8_t held = domains.colorOf(cell);
     if (held == want)
       continue;
@@ -46,7 +49,7 @@ bool propagateClause(Domains &domains, const Clause &clause) {
     freeColor = want;
   }
   // Reaching here with no free cell means every cell matched: any cell holding
-  // the other colour returned above.
+  // the other color returned above.
   if (freeCell < 0)
     return false;
   return domains.exclude(freeCell, freeColor);
@@ -57,7 +60,7 @@ bool propagateClausesAt(const Model &model, Domains &domains, const int cell) {
   const int to = model.clauseStart[slot(cell + 1)];
   for (int k = from; k < to; k++) {
     if (const int id = model.clauseIndex[slot(k)];
-        !propagateClause(domains, model.clauses[slot(id)]))
+        !propagateClause(model, domains, model.clauses[slot(id)]))
       return false;
   }
   return true;
@@ -87,7 +90,7 @@ bool assignAll(Domains &domains, const Bits &cells, const uint8_t color) {
  * cell that cannot be reached from them at all can never hold it.
  *
  * The second half is the strong one, and it needs at least one cell already
- * holding the colour — with none, an empty colour class is a legal answer and
+ * holding the color — with none, an empty color class is a legal answer and
  * nothing is unreachable.
  */
 bool connectColor(Domains &domains, const uint8_t color) {
@@ -102,8 +105,8 @@ bool connectColor(Domains &domains, const uint8_t color) {
 }
 
 /**
- * A connected colour carrying an area number has that many cells IN TOTAL, so
- * the whole colour class is counted rather than one region.
+ * A connected color carrying an area number has that many cells IN TOTAL, so
+ * the whole color class is counted rather than one region.
  *
  * The clues' candidate sets are intersected exactly, never read as an
  * interval — with everything decided at a displayed value itself, both of its
@@ -158,8 +161,8 @@ bool cardinality(const Model &model, Domains &domains, const uint8_t color) {
   return true;
 }
 
-/// One pass over the perimeter: the decided colour per cycle slot (kUnknown
-/// where the square is open), how many cyclic transitions those colours make,
+/// One pass over the perimeter: the decided color per cycle slot (kUnknown
+/// where the square is open), how many cyclic transitions those colors make,
 /// and the first and last decided slots. `first`/`last` stay -1 while NOTHING
 /// is decided — safe to index unchecked wherever `transitions` reached two,
 /// which takes at least two decided squares.
@@ -186,7 +189,7 @@ BorderScan scanBorder(const Domains &domains, const std::vector<int16_t> &cycle,
       scan.first = i;
     scan.last = i;
   }
-  // The cycle closes, so the last decided square's colour meets the first's.
+  // The cycle closes, so the last decided square's color meets the first's.
   if (decided >= 2 &&
       scan.state[slot(scan.first)] != scan.state[slot(scan.last)])
     scan.transitions++;
@@ -195,14 +198,14 @@ BorderScan scanBorder(const Domains &domains, const std::vector<int16_t> &cycle,
 
 /**
  * The two-arc lemma, `Model::borderCycle`'s comment carries the proof: with
- * both colours connected, the decided colours around the outer perimeter form
+ * both colors connected, the decided colors around the outer perimeter form
  * at most one arc each — more than two cyclic transitions refutes, and an
  * undecided perimeter square strictly inside one arc cannot take the other
- * colour, because transitions of a cyclic subsequence never exceed the full
+ * color, because transitions of a cyclic subsequence never exceed the full
  * sequence's, so any completion would carry the four arcs with it.
  *
  * `connectColor` is what equals the oracle at a complete assignment; this
- * refuses only colourings the lemma proves disconnected, so refusals stay a
+ * refuses only colorings the lemma proves disconnected, so refusals stay a
  * subset of the oracle's and `oracleRejections` stays 0.
  */
 bool borderArcs(const Model &model, Domains &domains) {
@@ -218,25 +221,24 @@ bool borderArcs(const Model &model, Domains &domains) {
   if (n > 4 * kMaxSide)
     return true;
 
-  const BorderScan scan = scanBorder(domains, cycle, n);
-  if (scan.transitions > 2)
+  const auto [state, transitions, first, last] = scanBorder(domains, cycle, n);
+  if (transitions > 2)
     return false;
-  if (scan.transitions < 2)
+  if (transitions < 2)
     return true;
 
-  // Exactly two arcs: an open square whose decided neighbours (cyclically)
-  // agree sits inside one of them, and taking the other colour would start a
-  // third. Both directions' nearest decided colour, then one pass.
-  const std::array<uint8_t, 4 * kMaxSide> &state = scan.state;
+  // Exactly two arcs: an open square whose decided neighbors (cyclically)
+  // agree sits inside one of them, and taking the other color would start a
+  // third. Both directions' nearest decided color, then one pass.
   std::array<uint8_t, 4 * kMaxSide> before{};
   std::array<uint8_t, 4 * kMaxSide> after{};
-  uint8_t running = state[slot(scan.last)];
+  uint8_t running = state[slot(last)];
   for (int i = 0; i < n; i++) {
     before[slot(i)] = running;
     if (state[slot(i)] != kUnknown)
       running = state[slot(i)];
   }
-  running = state[slot(scan.first)];
+  running = state[slot(first)];
   for (int i = n - 1; i >= 0; i--) {
     after[slot(i)] = running;
     if (state[slot(i)] != kUnknown)
@@ -273,7 +275,7 @@ bool outline(Domains &domains, const Bits &region, const uint8_t color) {
 }
 
 /**
- * The clue's colour is still open. Either colour that cannot reach the number
+ * The clue's color is still open. Either color that cannot reach the number
  * at all is ruled out — and when both are, the board is contradictory.
  *
  * This is the only shape a hypothesis may take here: a conclusion drawn under
@@ -284,9 +286,9 @@ bool areaColorChoice(const Model &model, Domains &domains, const Clue &clue) {
   const ClueCandidates candidates = model.candidatesFor(clue);
   if (candidates.empty())
     return false;
-  // A colour fits when the region could reach the SMALLEST candidate at all;
+  // A color fits when the region could reach the SMALLEST candidate at all;
   // whether it lands on a candidate exactly is `areaKnownColor`'s question
-  // once the colour is settled.
+  // once the color is settled.
   const int least = candidates.lo();
   const bool darkFits =
       component(clue.index, domains.possible(kDark)).count() >= least;
@@ -394,24 +396,24 @@ bool pruneSmallPieces(Domains &domains, const uint8_t color, const int area) {
  * An area CLUE names one region and knows where it is; this names all of them
  * and nothing points at any, so it is the same reasoning walked region by
  * region — which is why the body below is `areaKnownColor` applied to each
- * piece of the colour rather than to one clue's.
+ * piece of the color rather than to one clue's.
  *
  * Half of an area-TWO rule also compiles into forbidden trominoes, and this
  * still runs beside them: the clauses are cheaper per firing, and duplicating
  * a deduction costs nothing but a little time. Area FOUR has no clauses at all
  * — the same argument there asks for 61 pentominoes — so for that size this is
- * the whole of the rule. Either way it is not an optimisation: with a complete
- * colouring `possible` and `definite` agree, so an oversized region hits `size
+ * the whole of the rule. Either way it is not an optimization: with a complete
+ * coloring `possible` and `definite` agree, so an oversized region hits `size
  * > area` and an undersized one hits `room < area`, which is what keeps
  * `oracleRejections` at zero.
  */
 bool regionArea(const Model &model, Domains &domains, const uint8_t color,
                 const int area) {
-  // A cell that MAY hold the colour with nothing beside it that could ever
+  // A cell that MAY hold the color with nothing beside it that could ever
   // join it is a region of one. Four shifts find every such cell at once, so
   // the common case never reaches a flood fill below. Sound for any area of
   // two or more — and ONLY those: at area one the isolated singleton IS the
-  // legal shape, and this sweep would exclude the colour from exactly the
+  // legal shape, and this sweep would exclude the color from exactly the
   // cells the rule wants it on. Everything below the gate is area-1-sound:
   // an oversized region fails `size > area`, a definite singleton's outline
   // is excluded, and the undersized branches cannot fire at one.
@@ -462,9 +464,9 @@ bool regionArea(const Model &model, Domains &domains, const uint8_t color,
 }
 
 bool propagateRegionAreas(const Model &model, Domains &domains) {
-  // Every instance runs, so BOTH sizes on for one colour run both — which is
-  // right: the only colourings that survive are the ones with none of that
-  // colour at all, and a single "the area is N" number could not say that.
+  // Every instance runs, so BOTH sizes on for one color run both — which is
+  // right: the only colorings that survive are the ones with none of that
+  // color at all, and a single "the area is N" number could not say that.
   for (const auto &[color, area] : model.puzzle.areas) {
     if (!regionArea(model, domains, color, area))
       return false;
@@ -476,7 +478,7 @@ bool propagateRegionAreas(const Model &model, Domains &domains) {
 
 /**
  * A region that can never gain another square: every cell touching it has
- * already lost the colour from its domain.
+ * already lost the color from its domain.
  *
  * `possible`, NOT `undecided` — a region walled in by squares that are still
  * open is not closed, it is merely surrounded by cells that have not chosen.
@@ -605,9 +607,9 @@ bool propagateRegionShapes(const Model &model, Domains &domains) {
 // ------------------------------------------------------------------ darts --
 
 /**
- * A dart counts the squares of the other colour along its own line, and once
- * its own colour is settled that is an exact cardinality constraint: `value` of
- * the line's squares hold `other` and the rest hold the dart's colour.
+ * A dart counts the squares of the other color along its own line, and once
+ * its own color is settled that is an exact cardinality constraint: `value` of
+ * the line's squares hold `other` and the rest hold the dart's color.
  *
  * Walked one CELL at a time rather than one square at a time, which costs the
  * same and says more. A merged cell puts `w` squares on the line at once, so
@@ -648,7 +650,7 @@ bool dartCardinality(const Model &model, Domains &domains, const Dart &dart,
     const int weight = (mask & dart.ray).count();
     // Taking this cell overshoots every candidate still open; leaving it out
     // undershoots them all. Both at once is a contradiction, and it reports
-    // itself: the exclusion leaves the cell holding one colour and the
+    // itself: the exclusion leaves the cell holding one color and the
     // assignment then asks for the other, which empties the domain.
     if (held + weight > feasible.hi() && !domains.exclude(i, other))
       return false;
@@ -659,7 +661,7 @@ bool dartCardinality(const Model &model, Domains &domains, const Dart &dart,
 }
 
 /**
- * The dart's own colour is still open, so it does not yet say which colour it
+ * The dart's own color is still open, so it does not yet say which color it
  * counts. Either assumption that cannot be satisfied at all is ruled out.
  *
  * Same shape and same discipline as `areaColorChoice`: a conclusion drawn under
@@ -700,24 +702,24 @@ bool propagateDarts(const Model &model, Domains &domains) {
 /**
  * The shared engine of the two SYMMETRY clues — the lotus's mirror across an
  * axis and the galaxy's half turn about its own square. Both require the
- * connected same-colour region holding the clue to map to itself under the
+ * connected same-color region holding the clue to map to itself under the
  * clue's mirror map, and the whole fold below reads nothing but that map:
  * which geometry built it stays with the owner.
  *
- * With the clue's own colour decided this propagates in both directions at
+ * With the clue's own color decided this propagates in both directions at
  * once. Every square already connected to the clue through DECIDED cells is
  * certainly in the region whatever happens next, so its mirror must take the
- * same colour — the game's "opposing cells", with "opposing nulls" as the
+ * same color — the game's "opposing cells", with "opposing nulls" as the
  * refutation when the mirror leaves the board. And a cell beside that core
- * would JOIN the region the moment it took the colour, so one of its squares
- * reflecting somewhere the colour can never be keeps the whole cell out.
+ * would JOIN the region the moment it took the color, so one of its squares
+ * reflecting somewhere the color can never be keeps the whole cell out.
  *
- * With the colour's CONNECT rule on, both nets widen to the whole board: every
- * solution holds the colour in ONE region, and the clue's own cell is in it,
- * so the region is provably the entire colour. A decided square then mirrors
+ * With the color's CONNECT rule on, both nets widen to the whole board: every
+ * solution holds the color in ONE region, and the clue's own cell is in it,
+ * so the region is provably the entire color. A decided square then mirrors
  * wherever it lies, connected to the clue or not, and EVERY undecided cell is
- * fringe — including one whose mirror is already the other colour, which is
- * how the fold reaches the opposite colour too: the mirror of a decided dark
+ * fringe — including one whose mirror is already the other color, which is
+ * how the fold reaches the opposite color too: the mirror of a decided dark
  * square cannot take light, so it goes dark. One symmetry clue plus one
  * connectivity rule folds the board in half, which is the coupling the
  * viewpoint-era boards lean on hardest.
@@ -732,9 +734,9 @@ bool mirrorSymmetry(const Model &model, Domains &domains,
                     const std::array<int16_t, kMaxCells> &mirror,
                     const int index, const uint8_t color,
                     const uint8_t target) {
-  // What the image may NOT be. A lotus and a colour-preserving galaxy pass
+  // What the image may NOT be. A lotus and a color-preserving galaxy pass
   // `target == color`, so this is `opposite(color)` and the fold is exactly
-  // what it always was; an inverting galaxy passes the other colour and the
+  // what it always was; an inverting galaxy passes the other color and the
   // same two tests read the other way round.
   const uint8_t wrong = opposite(target);
   const bool wholeColor = model.hasRule(color == kDark ? Rule::ConnectDark
@@ -751,7 +753,7 @@ bool mirrorSymmetry(const Model &model, Domains &domains,
 
   // Whole CELLS on the fringe, because a merged cell joins with every square
   // it has. `colorOf(reflected) == other` is a DECIDED other only — an open
-  // mirror may yet take the colour, so it restricts nothing.
+  // mirror may yet take the color, so it restricts nothing.
   Bits seen;
   const Bits fringe = wholeColor ? domains.undecided()
                                  : core.grown() & domains.undecided();
@@ -774,10 +776,10 @@ bool mirrorSymmetry(const Model &model, Domains &domains,
 }
 
 /**
- * With the lotus's cell still open nothing fires, on purpose: which colour its
+ * With the lotus's cell still open nothing fires, on purpose: which color its
  * region even is is unknown. The probe cascade covers that case — trying both
- * colours of the lotus's cell runs this propagator under each hypothesis and
- * keeps what both agree on, which is exactly the game's "uncoloured symmetry"
+ * colors of the lotus's cell runs this propagator under each hypothesis and
+ * keeps what both agree on, which is exactly the game's "uncolored symmetry"
  * technique falling out of machinery that already existed.
  */
 bool propagateLotuses(const Model &model, Domains &domains) {
@@ -793,22 +795,22 @@ bool propagateLotuses(const Model &model, Domains &domains) {
 }
 
 /**
- * Which way a galaxy's half turn takes colour.
+ * Which way a galaxy's half turn takes color.
  *
- * `Unknown` until one PAIR of squares around the centre is decided; a galaxy
- * at a square's own centre is its own image, so seat 0 can only ever be
+ * `Unknown` until one PAIR of squares around the center is decided; a galaxy
+ * at a square's own center is its own image, so seat 0 can only ever be
  * `Preserve` — which is why the seatless galaxy is the special case rather
- * than the rule. `Inconsistent` where two pairs disagree, which no colouring
+ * than the rule. `Inconsistent` where two pairs disagree, which no coloring
  * can satisfy and which is the earliest refutation there is.
  *
- * Derived per pass and stored nowhere: the sign depends on the colouring, the
+ * Derived per pass and stored nowhere: the sign depends on the coloring, the
  * same discipline that keeps `ClueCandidates` out of `Dart`.
  */
 enum class Sign : uint8_t { Unknown, Preserve, Invert, Inconsistent };
 
 Sign signOf(const Domains &domains, const Galaxy &galaxy) {
   using enum Sign;
-  Sign sign = Unknown;
+  auto sign = Sign::Unknown;
   for (int i = 0; i < galaxy.seatCount; i++) {
     const int seat = galaxy.seats[slot(i)];
     const int image = galaxy.mirror[slot(seat)];
@@ -826,14 +828,14 @@ Sign signOf(const Domains &domains, const Galaxy &galaxy) {
 
 /**
  * The galaxy's dispatch, the lotus's twice over: skip while the SIGN is still
- * unknown — the probe cascade is the game's "uncoloured symmetry" for the half
+ * unknown — the probe cascade is the game's "uncolored symmetry" for the half
  * turn too — and hand every decided square to the shared fold.
  *
  * Stronger than gating on the clue's own cell: at a corner, two squares
- * decided across the centre unlock the fold even while the clue's own square
+ * decided across the center unlock the fold even while the clue's own square
  * is open, and a decided square whose partner is open then forces the partner.
  *
- * Deliberately NOT here: the XOR chain. `colour(c) ^ colour(image(c))` is the
+ * Deliberately NOT here: the XOR chain. `color(c) ^ color(image(c))` is the
  * same bit for every square in scope, so three decided cells force the fourth
  * without the sign being known at all. That is a 2-XOR propagator, a new shape
  * of reasoning in this solver, and it waits for a captured board to ask for it.
@@ -856,8 +858,8 @@ bool propagateGalaxies(const Model &model, Domains &domains) {
       const uint8_t color = domains.colorOf(seat);
       if (color == kUnknown)
         continue;
-      const uint8_t target = sign == Invert ? opposite(color) : color;
-      if (!mirrorSymmetry(model, domains, galaxy.mirror, seat, color, target))
+      if (const uint8_t target = sign == Invert ? opposite(color) : color;
+          !mirrorSymmetry(model, domains, galaxy.mirror, seat, color, target))
         return false;
     }
   }
@@ -893,8 +895,8 @@ RayReach rayReach(const Domains &domains, const std::vector<int16_t> &ray,
 }
 
 /**
- * A viewpoint's count with its own colour settled: one for its own square plus
- * the leading same-colour run along each ray. Each run is bracketed between
+ * A viewpoint's count with its own color settled: one for its own square plus
+ * the leading same-color run along each ray. Each run is bracketed between
  * its `held` and its `room`, so the total is too, and the two bounds prune in
  * both directions — "too few squares left to see" is the game's viewpoint
  * expansion, and "already seeing every one of them" is what caps a ray.
@@ -902,7 +904,7 @@ RayReach rayReach(const Domains &domains, const std::vector<int16_t> &ray,
  * Beyond the refutation, each ray is bracketed AGAINST the other three: it
  * must supply at least what the others cannot (`lo`) and at most what they can
  * spare (`hi`). The first `lo` squares are then visible in every completion
- * and take the colour; and a ray already decided out to its cap must stop
+ * and take the color; and a ray already decided out to its cap must stop
  * there, so the square beyond loses it. Both forces fan over a merged cell
  * through `Domains::exclude`, and a cell straddling a boundary reports the
  * contradiction itself, exactly as in `dartCardinality`.
@@ -959,10 +961,10 @@ bool viewpointSight(const Model &model, Domains &domains,
 }
 
 /**
- * The viewpoint's own colour is still open, so it does not yet say which
- * colour it counts. Either assumption that cannot be satisfied at all is ruled
+ * The viewpoint's own color is still open, so it does not yet say which
+ * color it counts. Either assumption that cannot be satisfied at all is ruled
  * out — the refute-only-yourself shape of `dartColorChoice`, and the probe
- * cascade does the rest, exactly as it does for an uncoloured lotus.
+ * cascade does the rest, exactly as it does for an uncolored lotus.
  */
 bool viewpointColorChoice(const Model &model, Domains &domains,
                           const Viewpoint &viewpoint) {
@@ -1020,9 +1022,9 @@ bool paintGroup(Domains &domains, const LetterGroup &group,
 }
 
 /**
- * Every cell of one letter shares a region, so they share a colour — which is
- * the strongest letter deduction there is and needs no colour to be known
- * first. Once the colour is known they also have to be able to reach each
+ * Every cell of one letter shares a region, so they share a color — which is
+ * the strongest letter deduction there is and needs no color to be known
+ * first. Once the color is known they also have to be able to reach each
  * other through cells that may still hold it.
  */
 bool letterGroup(Domains &domains, const LetterGroup &group) {
@@ -1069,17 +1071,17 @@ bool propagateLetters(Domains &domains, const Model &model) {
  * An AREA clue bounds it: its region holds exactly `value` cells, so nothing in
  * it is more than `value - 1` steps away. A GALAXY bounds it a different way:
  * its region maps onto itself under the half turn, so a cell whose image is off
- * the board or on a gap can never be in it, whatever the colours — a purely
+ * the board or on a gap can never be in it, whatever the colors — a purely
  * geometric fact, known before a single cell is decided. A letter clue bounds
  * nothing, so its reach is the whole component. Over-approximating is the safe
  * direction — every cell the region could really contain has to be in here, or
- * the caller would rule out a colour that was legal.
+ * the caller would rule out a color that was legal.
  */
 Bits clueReach(const Model &model, const Domains &domains, const Clue &clue,
                const uint8_t color) {
   const Bits &possible = domains.possible(color);
   if (clue.kind == kClueGalaxy) {
-    // Walked from the clue's own square through cells that may hold the colour
+    // Walked from the clue's own square through cells that may hold the color
     // AND can turn onto the board, so the fill stops at the edge of what the
     // symmetry allows rather than being trimmed afterwards: a cell reachable
     // only THROUGH a cell the turn forbids is not reachable at all.
@@ -1126,7 +1128,7 @@ Bits clueReach(const Model &model, const Domains &domains, const Clue &clue,
  * The first is a refutation: a finished piece already holding two clues can
  * never be legal. The second is where the work is, and it is the one that
  * paints: every cell of `color` has to end up sharing a region with a clue, so
- * a cell no clue can even REACH — through cells that may still take the colour,
+ * a cell no clue can even REACH — through cells that may still take the color,
  * and within an area number's own span — cannot hold it.
  *
  * That second half is also "tethering" and, once the pattern clauses see the
@@ -1153,7 +1155,7 @@ bool oneSymbolPerArea(const Model &model, Domains &domains,
 
   Bits reachable;
   for (const Clue &clue : model.puzzle.clues) {
-    // A clue whose own cell cannot take this colour anchors no region of it.
+    // A clue whose own cell cannot take this color anchors no region of it.
     if (!domains.mayBe(clue.index, color))
       continue;
     reachable = reachable | clueReach(model, domains, clue, color);
@@ -1173,7 +1175,7 @@ bool propagateSymbolCounts(const Model &model, Domains &domains) {
 
 // ----------------------------------------------------------------- merges --
 
-/// What colouring one cell would join together.
+/// What coloring one cell would join together.
 struct MergeInfo {
   int total = 0;
   int minArea = 0;
@@ -1200,7 +1202,7 @@ void absorb(MergeInfo &info, const int size, const int areaHi,
     info.minArea = areaHi;
 }
 
-/// Whatever clue one square of the cell being coloured carries. An area clue
+/// Whatever clue one square of the cell being colored carries. An area clue
 /// contributes its LARGEST candidate count — the weakest sound bound for the
 /// too-big test, and the reason this no longer reads `areaValueAt`: under
 /// `off-by-one` a displayed 0 is a real clue whose one candidate is 1, which
@@ -1221,7 +1223,7 @@ void absorbSquare(MergeInfo &info, const Model &model, const int index) {
 
 /// The regions a PLAIN square touches: at most four, so a scalar walk and a
 /// four-entry seen list, which is what keeps this hot loop cheap.
-void absorbPlainNeighbours(MergeInfo &info, const Regions &regions,
+void absorbPlainNeighbors(MergeInfo &info, const Regions &regions,
                            const int cell) {
   std::array seen{-1, -1, -1, -1};
   int found = 0;
@@ -1245,7 +1247,7 @@ void absorbPlainNeighbours(MergeInfo &info, const Regions &regions,
 /// The regions a MERGED cell touches. It is adjacent to whatever any of its
 /// squares touches, so the count is not bounded by four and the seen list above
 /// cannot be reused.
-void absorbMergedNeighbours(MergeInfo &info, const Regions &regions,
+void absorbMergedNeighbors(MergeInfo &info, const Regions &regions,
                             const Bits &mask, MergeScratch &scratch) {
   scratch.pass++;
   const Bits edge = mask.border();
@@ -1269,7 +1271,7 @@ MergeInfo mergeAround(const Model &model, const Regions &regions,
 
   if (model.shapeAt[slot(cell)] < 0) {
     absorbSquare(info, model, cell);
-    absorbPlainNeighbours(info, regions, cell);
+    absorbPlainNeighbors(info, regions, cell);
     return info;
   }
 
@@ -1277,7 +1279,7 @@ MergeInfo mergeAround(const Model &model, const Regions &regions,
   // A merged cell may carry a clue on any of its squares — several, even.
   for (int i = mask.nextSet(0); i >= 0; i = mask.nextSet(i + 1))
     absorbSquare(info, model, i);
-  absorbMergedNeighbours(info, regions, mask, scratch);
+  absorbMergedNeighbors(info, regions, mask, scratch);
   return info;
 }
 
@@ -1297,16 +1299,16 @@ bool regionsConsistent(const Regions &regions) {
 }
 
 /**
- * Colouring a cell joins it to every piece of that colour it touches. When the
+ * Coloring a cell joins it to every piece of that color it touches. When the
  * result would outgrow the smallest area number among them, or would put two
- * letters in one region, the cell cannot take that colour.
+ * letters in one region, the cell cannot take that color.
  *
  * This is the "near-miss" family of hand techniques — separating different
  * areas, not overloading one, keeping different letters apart — as a single
  * rule over the labelled pieces.
  *
  * A global area RULE is one more source of that same number, and cheaply worth
- * having: `regionArea` walks whole components, so it cannot see that colouring
+ * having: `regionArea` walks whole components, so it cannot see that coloring
  * one particular cell is what would weld two legal pieces into an illegal one.
  * The smallest active area is the binding bound, since the rules are
  * conjunctive.
@@ -1314,7 +1316,7 @@ bool regionsConsistent(const Regions &regions) {
 bool mergeLimits(const Model &model, Domains &domains, const Regions &regions,
                  const uint8_t color) {
   // "Exactly one means less than two": with the rule on, a cell that would weld
-  // two clued pieces of this colour into one is a cell that cannot take it.
+  // two clued pieces of this color into one is a cell that cannot take it.
   const bool oneSymbol = model.hasRule(
       color == kDark ? Rule::OneSymbolDark : Rule::OneSymbolLight);
   const int ruleArea = rules::smallestArea(model.puzzle.areas, color);
@@ -1341,8 +1343,8 @@ bool mergeLimits(const Model &model, Domains &domains, const Regions &regions,
 }
 
 bool propagateMerges(const Model &model, Domains &domains) {
-  // Each pass only ever takes cells OUT of its own colour, so the labelling it
-  // is reading stays true for the whole pass; the other colour is relabelled
+  // Each pass only ever takes cells OUT of its own color, so the labelling it
+  // is reading stays true for the whole pass; the other color is relabelled
   // when its turn comes.
   for (const uint8_t color : {kDark, kLight}) {
     const Regions regions = labelRegions(domains.definite(color), model);
@@ -1439,8 +1441,10 @@ bool applyGivens(const Model &model, Domains &domains) {
   // them: a 1x3 bar that is ONE cell under "no dark 1x3" compiles to the single
   // literal "this cell is not dark", so the whole bar is settled before
   // anything has to be guessed. One linear scan, at the root only.
-  for (const auto &[cells, colors, count] : model.clauses) {
-    if (count == 1 && !domains.exclude(cells.front(), colors.front()))
+  for (const Clause &clause : model.clauses) {
+    if (clause.count == 1 &&
+        !domains.exclude(model.literals(clause).front(),
+                         model.colorsOf(clause).front()))
       return false;
   }
   return propagate(model, domains);

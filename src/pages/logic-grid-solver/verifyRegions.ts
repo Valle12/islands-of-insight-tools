@@ -1,4 +1,4 @@
-// The rules about REGIONS — maximal orthogonally-connected runs of one colour —
+// The rules about REGIONS — maximal orthogonally-connected runs of one color —
 // and the clues that count them.
 //
 // What makes these a family is that none of them can be answered from a cell:
@@ -117,7 +117,7 @@ function connectivityProblem(
   ] as const) {
     if (!has(config, index)) continue;
     const held = cells.flatMap((cell, i) => (cell === color ? [i] : []));
-    // An empty colour is vacuously one region, which is what lets an all-dark
+    // An empty color is vacuously one region, which is what lets an all-dark
     // board be legal while "connect all light cells" is switched on.
     if (held.length === 0) continue;
     if (region(config, cells, held[0]!).size !== held.length)
@@ -131,7 +131,7 @@ function connectivityProblem(
  *
  * Region by region, like `symbolCountProblem` and for the same reason: nothing
  * points at a region, so both halves of "exactly" — too big and too small — are
- * only visible from the region's own side. A colour with no cells at all has no
+ * only visible from the region's own side. A color with no cells at all has no
  * regions and is legal: the rule says how big a region is, not that one has to
  * exist.
  */
@@ -207,11 +207,11 @@ function symbolCountProblem(
 }
 
 /**
- * No two regions of one colour are the same shape.
+ * No two regions of one color are the same shape.
  *
  * Vacuous at zero regions and at one, like everything else in this file: the
- * rule says what two regions may not be, not that two have to exist. A colour
- * whose rule is off is not looked at, so the two colours never interact.
+ * rule says what two regions may not be, not that two have to exist. A color
+ * whose rule is off is not looked at, so the two colors never interact.
  */
 function distinctShapesProblem(
   config: LogicGridTest,
@@ -233,9 +233,9 @@ function distinctShapesProblem(
 }
 
 /**
- * Every region of one colour is the same shape as every other. Vacuous at zero
+ * Every region of one color is the same shape as every other. Vacuous at zero
  * regions and at one, for the reason above — and legal alongside its opposite,
- * which together simply say the colour has at most one region.
+ * which together simply say the color has at most one region.
  */
 function sameShapeProblem(
   config: LogicGridTest,

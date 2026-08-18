@@ -55,7 +55,7 @@ describe("Board (logic grid)", () => {
 
   /**
    * `MouseEvent` rather than `Event`: the board reads `event.button` to tell
-   * the two colours apart, and a bare Event carries none.
+   * the two colors apart, and a bare Event carries none.
    */
   function press(x: number, y: number, button = LEFT) {
     cellAt(x, y).dispatchEvent(
@@ -98,7 +98,7 @@ describe("Board (logic grid)", () => {
   });
 
   describe("Initial state", () => {
-    test("starts fully uncoloured and unclued", () => {
+    test("starts fully uncolored and unclued", () => {
       const board = makeBoard(2, 2);
       expect(board.getCells()).toEqual([
         [UNKNOWN, UNKNOWN],
@@ -122,7 +122,7 @@ describe("Board (logic grid)", () => {
   });
 
   describe("Mouse buttons", () => {
-    test("left paints the selected colour, right paints the other", () => {
+    test("left paints the selected color, right paints the other", () => {
       const board = makeBoard(3, 1);
       press(0, 0, LEFT);
       release();
@@ -143,7 +143,7 @@ describe("Board (logic grid)", () => {
       expect(board.getCells()[1]![0]).toBe(DARK);
     });
 
-    test("right-clicking a gap tool erases instead of colouring", () => {
+    test("right-clicking a gap tool erases instead of coloring", () => {
       const board = makeBoard(2, 1, "unplayable");
       press(0, 0, LEFT);
       release();
@@ -164,7 +164,7 @@ describe("Board (logic grid)", () => {
   });
 
   describe("Re-clicking erases", () => {
-    test("pressing the same button on the same colour clears it", () => {
+    test("pressing the same button on the same color clears it", () => {
       const board = makeBoard(2, 1);
       press(0, 0, LEFT);
       release();
@@ -173,7 +173,7 @@ describe("Board (logic grid)", () => {
       expect(board.getCells()[0]![0]).toBe(UNKNOWN);
     });
 
-    test("the other button still paints its own colour", () => {
+    test("the other button still paints its own color", () => {
       const board = makeBoard(2, 1);
       press(0, 0, LEFT);
       release();
@@ -239,7 +239,7 @@ describe("Board (logic grid)", () => {
   });
 
   describe("Keyboard painting", () => {
-    /** Colouring is the page's main task, so it cannot be pointer-only. */
+    /** Coloring is the page's main task, so it cannot be pointer-only. */
     test.each(["Enter", " "])("%s applies the selected tool", key => {
       const board = makeBoard(2, 2);
       type(0, 0, key);
@@ -252,7 +252,7 @@ describe("Board (logic grid)", () => {
       expect(board.getCells()[1]![1]).toBe(LIGHT);
     });
 
-    test("pressing it again on the same colour clears the cell", () => {
+    test("pressing it again on the same color clears the cell", () => {
       const board = makeBoard(2, 2);
       type(0, 0, "Enter");
       type(0, 0, "Enter");
@@ -328,7 +328,7 @@ describe("Board (logic grid)", () => {
       expect(board.getSymbols()).toEqual([]);
     });
 
-    test("right-clicking lifts a clue and leaves the colour", () => {
+    test("right-clicking lifts a clue and leaves the color", () => {
       const board = makeBoard(2, 2, "symbol", 1, "C");
       press(0, 0, LEFT);
       release();
@@ -350,7 +350,7 @@ describe("Board (logic grid)", () => {
       expect(board.getSymbols()).toEqual([]);
     });
 
-    test("colouring over a clue keeps it", () => {
+    test("coloring over a clue keeps it", () => {
       const board = makeBoard(2, 2, "symbol", 0, 2);
       press(0, 0, LEFT);
       release();
@@ -507,7 +507,7 @@ describe("Board (logic grid)", () => {
       expect(board.getSymbols()).toEqual([]);
     });
 
-    test("Backspace removes the clue and keeps the colour", () => {
+    test("Backspace removes the clue and keeps the color", () => {
       const board = makeBoard(2, 2, "dark", 0, 1);
       press(0, 0, LEFT);
       release();
@@ -886,8 +886,8 @@ describe("Board (logic grid)", () => {
     });
 
     /** Leaning towards a square that is not a shape-mate has no seam to sit
-     * on, so the press falls back to the square's own centre. */
-    test("a seat the shape cannot carry falls back to the centre", () => {
+     * on, so the press falls back to the square's own center. */
+    test("a seat the shape cannot carry falls back to the center", () => {
       const board = makeLotusBoard(0);
       withMergedColumn(board);
       pressAt(0, 0, 38, 20);
@@ -898,7 +898,7 @@ describe("Board (logic grid)", () => {
 
     /** A diagonal axis has no reflection on a grid-line seat, so the seam is
      * skipped rather than defined. */
-    test("a diagonal axis refuses the seam and sits at the centre", () => {
+    test("a diagonal axis refuses the seam and sits at the center", () => {
       const board = makeLotusBoard(1);
       withMergedColumn(board);
       pressAt(0, 0, 20, 38);
@@ -975,6 +975,156 @@ describe("Board (logic grid)", () => {
       const glyph = cellAt(1, 1).querySelector("md-icon");
       expect(glyph?.className).toBe("cell-galaxy");
       expect(glyph?.textContent).toBe("cyclone");
+    });
+
+    /**
+     * A SEATED galaxy lies across the squares its center sits between, and
+     * those squares may be different colors — where one glyph of one color
+     * is invisible over half of itself. So it is stamped once per square,
+     * each copy clipped to its own part and inked against what is UNDER it
+     * rather than against the cell that carries the clue.
+     *
+     * `data-under` names the square's color, not the ink: the stylesheet
+     * turns that into `--logic-ink-on-dark` and its twin, so there is one
+     * palette rather than two.
+     */
+    test("a seated galaxy is inked per square it lies across", () => {
+      const board = makeBoard(3, 3, "symbol", GALAXY, null);
+      board.loadConfig({
+        version: 1,
+        gridWidth: 3,
+        gridHeight: 3,
+        rules: [],
+        // Column-major: (0,0) dark, (1,0) light — the pair the seam runs
+        // between, and the case a single-color glyph cannot survive.
+        cells: [
+          [DARK, UNKNOWN, UNKNOWN],
+          [LIGHT, UNKNOWN, UNKNOWN],
+          [UNKNOWN, UNKNOWN, UNKNOWN],
+        ],
+        symbols: [{ x: 0, y: 0, type: GALAXY, seat: 1 }],
+      });
+      board.renderGrid();
+      const glyphs = [
+        ...cellAt(0, 0).querySelectorAll<HTMLElement>("md-icon.cell-galaxy"),
+      ];
+      expect(glyphs.map(glyph => glyph.dataset.part)).toEqual([
+        "left",
+        "right",
+      ]);
+      expect(glyphs.map(glyph => glyph.dataset.under)).toEqual([
+        "dark",
+        "light",
+      ]);
+    });
+
+    /**
+     * The squares a seated galaxy lies across are drawn as ONE tile, the way a
+     * merged cell is: the outline layer paints them and the squares themselves
+     * paint nothing, so the color changes at the edge where they meet rather
+     * than across the seam between them. `cell-pair-*` is a SECOND grouping —
+     * they are not one cell, and their seam keeps its own hit target.
+     */
+    test("a seated galaxy joins its squares into one drawn tile", () => {
+      const board = makeBoard(3, 3, "symbol", GALAXY, null);
+      board.loadConfig({
+        version: 1,
+        gridWidth: 3,
+        gridHeight: 3,
+        rules: [],
+        cells: [
+          [DARK, UNKNOWN, UNKNOWN],
+          [LIGHT, UNKNOWN, UNKNOWN],
+          [UNKNOWN, UNKNOWN, UNKNOWN],
+        ],
+        symbols: [{ x: 0, y: 0, type: GALAXY, seat: 1 }],
+      });
+      board.renderGrid();
+      expect(cellAt(0, 0).classList).toContain("cell-pair-right");
+      expect(cellAt(1, 0).classList).toContain("cell-pair-left");
+      // The square below is not in the tile, and must not have been joined.
+      expect(cellAt(0, 1).classList).not.toContain("cell-pair-top");
+      // Two fills, one per color, plus nothing else: the tile is one path per
+      // color its squares hold.
+      const fills = [
+        ...document.querySelectorAll<SVGPathElement>("#grid .shape-outline path"),
+      ];
+      expect(fills.map(path => path.dataset.color).sort()).toEqual([
+        "dark",
+        "light",
+      ]);
+    });
+
+    /** Re-seating it to the center has to reach the PARTNER square, which
+     * carries no clue of its own and so nothing else would repaint. */
+    test("unseating a galaxy unjoins both squares", () => {
+      const board = makeBoard(3, 3, "symbol", GALAXY, null);
+      board.loadConfig({
+        version: 1,
+        gridWidth: 3,
+        gridHeight: 3,
+        rules: [],
+        cells: [
+          [DARK, UNKNOWN, UNKNOWN],
+          [LIGHT, UNKNOWN, UNKNOWN],
+          [UNKNOWN, UNKNOWN, UNKNOWN],
+        ],
+        symbols: [{ x: 0, y: 0, type: GALAXY, seat: 1 }],
+      });
+      board.renderGrid();
+      expect(cellAt(1, 0).classList).toContain("cell-pair-left");
+      // A press in the middle of its own square re-seats it there: a seat is
+      // part of what `sameClue` compares, so this is a move, not a lift.
+      press(0, 0);
+      expect(board.getSymbols()).toEqual([{ x: 0, y: 0, type: GALAXY }]);
+      expect(cellAt(0, 0).classList).not.toContain("cell-pair-right");
+      expect(cellAt(1, 0).classList).not.toContain("cell-pair-left");
+    });
+
+    /** A corner seat lies across FOUR squares, so it is four copies. */
+    test("a corner-seated galaxy is inked per quarter", () => {
+      const board = makeBoard(3, 3, "symbol", GALAXY, null);
+      board.loadConfig({
+        version: 1,
+        gridWidth: 3,
+        gridHeight: 3,
+        rules: [],
+        cells: [
+          [DARK, LIGHT, UNKNOWN],
+          [LIGHT, DARK, UNKNOWN],
+          [UNKNOWN, UNKNOWN, UNKNOWN],
+        ],
+        symbols: [{ x: 0, y: 0, type: GALAXY, seat: 3 }],
+      });
+      board.renderGrid();
+      const glyphs = [
+        ...cellAt(0, 0).querySelectorAll<HTMLElement>("md-icon.cell-galaxy"),
+      ];
+      expect(glyphs.map(glyph => glyph.dataset.part)).toEqual([
+        "top-left",
+        "top-right",
+        "bottom-left",
+        "bottom-right",
+      ]);
+      expect(glyphs.map(glyph => glyph.dataset.under)).toEqual([
+        "dark",
+        "light",
+        "light",
+        "dark",
+      ]);
+    });
+
+    /** UNSEATED, the glyph is inside one square: one copy, and the cell's own
+     * ink color is already the contrasting one. */
+    test("an unseated galaxy stays one glyph", () => {
+      const board = makeBoard(3, 3, "symbol", GALAXY, null);
+      press(1, 1);
+      const glyphs = [
+        ...cellAt(1, 1).querySelectorAll<HTMLElement>("md-icon.cell-galaxy"),
+      ];
+      expect(glyphs).toHaveLength(1);
+      expect(glyphs[0]!.dataset.part).toBeUndefined();
+      expect(glyphs[0]!.dataset.under).toBeUndefined();
     });
 
     /** Nothing to turn, so the dart's turns-instead rule never fires and the
@@ -1162,7 +1312,7 @@ describe("Board (logic grid)", () => {
       expect(board.getShapes()).toBeUndefined();
     });
 
-    test("a merged cell takes one colour for all of its squares", () => {
+    test("a merged cell takes one color for all of its squares", () => {
       const board = makeBoard(4, 3, "merge");
       mergeAcross([
         [0, 0],
@@ -1301,11 +1451,11 @@ describe("Board (logic grid)", () => {
     });
 
     /**
-     * A merged cell holds one colour, and the squares coming together may
-     * disagree about colours and clues — so restructuring clears rather than
+     * A merged cell holds one color, and the squares coming together may
+     * disagree about colors and clues — so restructuring clears rather than
      * picking a winner nobody could predict.
      */
-    test("merging clears the colour and clue of everything it touches", () => {
+    test("merging clears the color and clue of everything it touches", () => {
       const board = makeBoard(4, 3, "dark");
       press(0, 0, LEFT);
       release();
@@ -1370,9 +1520,9 @@ describe("Board (logic grid)", () => {
     });
 
     /**
-     * Colouring cannot be pointer-only on this page, and nor should merging be.
+     * Coloring cannot be pointer-only on this page, and nor should merging be.
      * A keystroke has no drag, so it joins the focused square to a fixed
-     * neighbour: the one to its LEFT, or the one ABOVE when it is in column 0.
+     * neighbor: the one to its LEFT, or the one ABOVE when it is in column 0.
      * Walk the shape and press Enter on each square.
      */
     test("Enter joins a square to the cell before it", () => {

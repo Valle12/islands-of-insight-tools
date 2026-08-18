@@ -65,11 +65,11 @@ void absorbClue(Regions &regions, const Model &model, const int id,
   hi = merged.hi();
 }
 
-/// Queues every unlabelled orthogonal neighbour inside `set`. The bounds test
+/// Queues every unlabelled orthogonal neighbor inside `set`. The bounds test
 /// is on x and y rather than on membership: at a fixed row pitch, stepping off
 /// the left edge lands on the previous row's right edge, which is in `set`
 /// often enough to matter.
-void pushNeighbours(const Bits &set, Regions &regions, std::vector<int> &stack,
+void pushNeighbors(const Bits &set, Regions &regions, std::vector<int> &stack,
                     const int cell, const int id) {
   const int x = columnOf(cell);
   const int y = rowOf(cell);
@@ -109,7 +109,7 @@ Regions labelRegions(const Bits &set, const Model &model) {
       stack.pop_back();
       regions.size[slot(id)]++;
       absorbClue(regions, model, id, cell);
-      pushNeighbours(set, regions, stack, cell, id);
+      pushNeighbors(set, regions, stack, cell, id);
     }
   }
   return regions;

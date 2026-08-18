@@ -5,7 +5,7 @@ import { parseFlags, runCli } from "./solverCli";
 /**
  * Generate a board, solve it, and check the things that have to hold.
  *
- * The generator colours the board FIRST and reads the clues off the result, so
+ * The generator colors the board FIRST and reads the clues off the result, so
  * every board it writes has a witness — which is what makes the checks below
  * sharp rather than merely self-consistent:
  *
@@ -19,7 +19,7 @@ import { parseFlags, runCli } from "./solverCli";
  *      which compares the whole solution set rather than one witness.
  *
  * What may NOT be asserted: that the solver's answer equals the generated
- * colouring. The same clue set usually admits others, and pinning that would
+ * coloring. The same clue set usually admits others, and pinning that would
  * fail on a correct solver.
  */
 
@@ -93,7 +93,7 @@ function parseArgs(argv: string[]) {
      */
     lotus: 0,
     /**
-     * And for a VIEWPOINT, whose count is read off the colouring like a
+     * And for a VIEWPOINT, whose count is read off the coloring like a
      * dart's — every roll that fires places one, so `--darts`-like numbers
      * give `--darts`-like yield. 0 draws nothing, as ever.
      */
@@ -193,7 +193,7 @@ async function solve(opts: Options, path: string): Promise<Report | null> {
   return json as Report | null;
 }
 
-/** The generated board's own colouring, in the flat row-major layout. */
+/** The generated board's own coloring, in the flat row-major layout. */
 function witnessOf(fixture: Record<string, unknown>): number[] {
   const width = Number(fixture.gridWidth);
   const height = Number(fixture.gridHeight);
@@ -234,7 +234,7 @@ function divergences(
     problems.push("the forced set does not match brute force");
 
   // The witness comparison applies to FORCED cells only. A complete answer is
-  // one solution out of many — the generator's colouring is another, and the
+  // one solution out of many — the generator's coloring is another, and the
   // two disagreeing says nothing. A cell reported forced is a claim that every
   // solution agrees on it, and the generator holds one, so that one must agree.
   if (report.status !== "deduced") return problems;
@@ -262,7 +262,7 @@ for (let i = 0; i < opts.count; i++) {
   const seed = opts.seedBase + i;
   const path = resolve(outDir, `logicGridFuzz${seed}.json`);
   if (!(await generate(opts, path, seed))) {
-    // Some rule sets admit no colouring at all — the perfect checkerboard the
+    // Some rule sets admit no coloring at all — the perfect checkerboard the
     // two 1x2 rules force, then forbidden by rule 11. Skipping is right; a
     // generator that saved the last candidate under a success line would not
     // be.

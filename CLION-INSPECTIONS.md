@@ -94,7 +94,7 @@ in namespace 'std'` is a broken invocation, not a codebase problem** — fix
 
 **`wasm_bindings.cpp` needs its own invocation, and nothing else reaches
 it.** It is in no CMake target and no compile database, so neither the gate
-nor SonarLint nor Inspect Code has anything to analyse it with — see the
+nor SonarLint nor Inspect Code has anything to analyze it with — see the
 `getDiagnostics` section in `CLAUDE.md`. Target wasm32 against the emsdk
 sysroot, isolated from the MSVC headers: without `-nostdinc -nostdinc++`
 the driver mixes the two and buries the output under `typedef redefinition`
@@ -110,7 +110,7 @@ $sr = "<emsdk>\upstream\emscripten\cache\sysroot"
 ```
 
 The `--header-filter` matters here: this is the only way headers reached
-solely from a wasm TU get analysed at all (`MemoryProbe.h`'s emscripten
+solely from a wasm TU get analyzed at all (`MemoryProbe.h`'s emscripten
 branch, for one).
 
 Everything else in the checklist has no tidy equivalent — it must be
@@ -244,7 +244,7 @@ the idiom that satisfies them:
   callee actually throws and catch those by name. `fixtureio::load` raises
   exactly `FixtureError` and `nlohmann::json::exception`, so `loadFixture`
   in match-three's `main.cpp` catches the two and shares one local lambda
-  for the report-and-emit. Narrowing a catch is a behaviour change: drive
+  for the report-and-emit. Narrowing a catch is a behavior change: drive
   every failure path once afterward (missing file, malformed document,
   out-of-range value) and confirm each still reports.
 - **A `const std::string &` parameter that is only compared** becomes
@@ -346,7 +346,7 @@ Note the JSON shape: a measure's value for a PR is in `periods[0].value`, NOT
   which is the constrained form of the same conversion and what the rule asks
   for. **A union of the two structs was tried and rejected**: `PrivateUsage`
   sits outside their common initial sequence, so reading it back through the
-  `_EX` member after the API wrote through the base one is undefined behaviour.
+  `_EX` member after the API wrote through the base one is undefined behavior.
   Be honest about what the current spelling is — a spelling, not extra safety.
 - `#include <yvals_core.h>` under `#ifdef __clang__` in the gtest TUs is the
   clang+MSVC-STL `__cpp_lib_is_pointer_interconvertible` workaround. Removing it
@@ -442,7 +442,7 @@ Note the JSON shape: a measure's value for a PR is in `periods[0].value`, NOT
   `StateTable.h` copies WAS fixed, because there the block size is a
   compile-time constant and `std::unique_ptr<std::array<Entry, kBlockSize>>`
   is a drop-in; `NodeKey`'s spill buffer is runtime-sized, and `std::vector`
-  (24 bytes) would destroy the inline-buffer optimisation the struct exists for.
+  (24 bytes) would destroy the inline-buffer optimization the struct exists for.
 - **`cpp:S1448` method counts** — `DragSolver.h` (129), `shifting-mosaic/AStar.h`
   (66), `rolling-blocks/AStar.h` (44). Not reducible by grouping at all, and
   splitting the classes would undo work that is already recorded: `DragSolver`'s
@@ -461,5 +461,5 @@ Note the JSON shape: a measure's value for a PR is in `periods[0].value`, NOT
   targeted site is a **compile error** — `DragSolverConfig` shares field names
   (`maxHeapBytes`, `cancel`, `postProcess`, `weight`) with `AStar::Config`, and
   the build caught every one of the collisions — and `ctest` plus the fuzz
-  sweep cover the behaviour. Grouping by holder name needs care for the same
+  sweep cover the behavior. Grouping by holder name needs care for the same
   reason: `cfg`/`cfg_`/`c` mean *different types* depending on the file.

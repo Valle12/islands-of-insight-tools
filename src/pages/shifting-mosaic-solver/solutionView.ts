@@ -285,7 +285,7 @@ export class SolutionView {
     // Route the line through the block's footprint centroid. The grid pitch
     // is NOT uniform — goal and destination cells carry thicker borders, so
     // their rows are taller — so map each (fractional) cell coordinate to
-    // pixels by interpolating measured cell centres, never a constant pitch.
+    // pixels by interpolating measured cell centers, never a constant pitch.
     const shape = this.data.shapes[step.blockId]!;
     let cox = 0;
     let coy = 0;

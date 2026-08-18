@@ -14,7 +14,7 @@
 // where greedy, the beam, the dive and the deepening prover had between them
 // never produced a single witness at any budget. NRPA holds the records on
 // SameGame and Morpion Solitaire, and SameGame is close enough to this puzzle
-// (clear groups of like-coloured blocks under gravity) that the transfer is not
+// (clear groups of like-colored blocks under gravity) that the transfer is not
 // a coincidence.
 //
 // How it works: a POLICY assigns a weight to every move, playouts sample moves
@@ -232,7 +232,7 @@ public:
       barren = best_.left < before ? 0 : barren + 1;
     }
     // ONLY a complete line. `best_` tracks the fewest blocks left because that
-    // is the score NRPA optimises, so it is usually a partial line — and an
+    // is the score NRPA optimizes, so it is usually a partial line — and an
     // arm's `moves` is a solution or nothing at all. Returning the partial one
     // sent a move list that does not clear the board out through the CLI, which
     // is exactly what the corpus test caught.

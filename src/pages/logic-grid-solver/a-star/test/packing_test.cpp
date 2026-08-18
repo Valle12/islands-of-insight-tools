@@ -22,7 +22,7 @@ Outcome pack(const Puzzle &puzzle) {
 }
 
 /// Paints every clue cell of a picture-built board, which is what the packer's
-/// gate asks for: the clue colours are the puzzle's to say, not the search's.
+/// gate asks for: the clue colors are the puzzle's to say, not the search's.
 void paintClues(Puzzle &puzzle, const uint8_t color) {
   for (const Clue &clue : puzzle.clues)
     puzzle.givens[slot(clue.index)] = color;
@@ -30,7 +30,7 @@ void paintClues(Puzzle &puzzle, const uint8_t color) {
 
 /// Two area clues that cannot both be satisfied without keeping their regions
 /// apart. The packer lays them out and paints everything else dark.
-TEST(Packing, PacksTwoAreasOnOneColour) {
+TEST(Packing, PacksTwoAreasOnOneColor) {
   Puzzle puzzle = test::board({"2..2", "....", "...."});
   paintClues(puzzle, kLight);
   const Outcome outcome = pack(puzzle);
@@ -84,7 +84,7 @@ TEST(Packing, LetsTwoEqualCluesShareARegion) {
 TEST(Packing, NeverClaimsUnsolvable) {
   // A 4 and a 5 on a 3x3. Different values, so they cannot share a region the
   // way two 4s could, and nine cells of board leave nothing to separate nine
-  // cells of region with. No colouring exists — and the packer still may not
+  // cells of region with. No coloring exists — and the packer still may not
   // say so.
   Puzzle puzzle = test::board({"4.5", "...", "..."});
   paintClues(puzzle, kLight);
@@ -96,7 +96,7 @@ TEST(Packing, NeverClaimsUnsolvable) {
 /// The gate declines everything the construction does not model. Each of these
 /// would otherwise be packed and then thrown away by the oracle.
 TEST(Packing, DeclinesWhatItDoesNotModel) {
-  // A rule: "every cell no region claimed takes the other colour" breaks all
+  // A rule: "every cell no region claimed takes the other color" breaks all
   // but the emptiest rule set.
   Puzzle ruled = test::board({"2..2", "....", "...."}, test::ruleSet({Rule::NoDark2x2}));
   paintClues(ruled, kLight);
@@ -114,12 +114,12 @@ TEST(Packing, DeclinesWhatItDoesNotModel) {
   test::withShape(merged, {{0, 1}, {1, 1}});
   EXPECT_FALSE(packing::applicable(buildModel(merged)));
 
-  // An unpainted clue cell: with the colour unknown, "everything else takes the
-  // other colour" names no colour at all.
+  // An unpainted clue cell: with the color unknown, "everything else takes the
+  // other color" names no color at all.
   Puzzle bare = test::board({"2..2", "....", "...."});
   EXPECT_FALSE(packing::applicable(buildModel(bare)));
 
-  // Clue cells pinned to BOTH colours - a different construction, and no
+  // Clue cells pinned to BOTH colors - a different construction, and no
   // captured board has asked for it yet.
   Puzzle mixed = test::board({"2..2", "....", "...."});
   paintClues(mixed, kLight);
@@ -137,8 +137,8 @@ TEST(Packing, DeclinesWhatItDoesNotModel) {
   EXPECT_TRUE(packing::applicable(buildModel(fine)));
 }
 
-/// A given that carries no clue is not a decline: one in the clue colour is a
-/// cell some region has to swallow, one in the other colour a square no region
+/// A given that carries no clue is not a decline: one in the clue color is a
+/// cell some region has to swallow, one in the other color a square no region
 /// may touch. Both are what the captured 12x12 looks like once a player has
 /// worked part of it out by hand.
 TEST(Packing, ReadsGivensThatCarryNoClue) {
@@ -151,14 +151,14 @@ TEST(Packing, ReadsGivensThatCarryNoClue) {
   ASSERT_EQ(outcome.status, Status::Solved);
   EXPECT_EQ(verify::check(model, outcome.colors), verify::Violation::None);
   // The unclued light square joined the 2 beside it rather than being painted
-  // over, which is the only way a colouring of this board verifies.
+  // over, which is the only way a coloring of this board verifies.
   EXPECT_EQ(outcome.colors[slot(cellIndex(1, 0))], kLight);
 }
 
-/// A cell the board paints the OTHER colour is a square no region may claim,
+/// A cell the board paints the OTHER color is a square no region may claim,
 /// so a board that walls a clue in has no packing — and the arm still may not
 /// call it unsolvable.
-TEST(Packing, KeepsRegionsOffTheOtherColour) {
+TEST(Packing, KeepsRegionsOffTheOtherColor) {
   Puzzle walled = test::board({"2..2", "....", "...."});
   paintClues(walled, kLight);
   test::withGiven(walled, 1, 0, kDark);
@@ -206,7 +206,7 @@ TEST(Packing, NeverJoinsTwoLetters) {
 }
 
 /// The shape rule, which is a filter on what may be placed next rather than
-/// anything the finished colouring is checked for. Two dark triominoes on a
+/// anything the finished coloring is checked for. Two dark triominoes on a
 /// 3x5, one straight and one bent, is the only reading `distinct-shapes` allows.
 TEST(Packing, KeepsTwoRegionsFromTakingTheSameShape) {
   Puzzle puzzle =
@@ -221,10 +221,10 @@ TEST(Packing, KeepsTwoRegionsFromTakingTheSameShape) {
   EXPECT_EQ(verify::check(model, outcome.colors), verify::Violation::None);
 }
 
-/// A shape rule on the colour the packing merely LEAVES OVER is declined: the
+/// A shape rule on the color the packing merely LEAVES OVER is declined: the
 /// search steers none of those regions, so it could only build something the
 /// oracle then throws away.
-TEST(Packing, DeclinesAShapeRuleOnTheOtherColour) {
+TEST(Packing, DeclinesAShapeRuleOnTheOtherColor) {
   Puzzle puzzle =
       test::board({"3....", ".....", "....3"},
                   test::ruleSet({Rule::DistinctShapesLight}));
@@ -235,8 +235,8 @@ TEST(Packing, DeclinesAShapeRuleOnTheOtherColour) {
 
 /// `connect-light` is neither a filter nor an afterthought: the packer tests it
 /// on the finished packing and backtracks, since a run of regions that cuts the
-/// other colour in two is otherwise a perfectly good packing.
-TEST(Packing, KeepsTheOtherColourInOnePiece) {
+/// other color in two is otherwise a perfectly good packing.
+TEST(Packing, KeepsTheOtherColorInOnePiece) {
   Puzzle puzzle =
       test::board({".3.", "...", ".3."}, test::ruleSet({Rule::ConnectLight}));
   test::withAreaRule(puzzle, kDark, 3);

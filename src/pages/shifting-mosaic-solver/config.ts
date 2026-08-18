@@ -8,7 +8,7 @@ import type { Position, ShiftingMosaicTest } from "../../util/types";
 /**
  * Hard ceiling on either grid side. The C++ solver packs one grid row into a
  * single `uint64_t` (BitGrid), so 64 columns is a real algorithmic limit —
- * `rows[r] << a.x` is undefined behaviour beyond it and DragSolver's search
+ * `rows[r] << a.x` is undefined behavior beyond it and DragSolver's search
  * entry points bail out with an empty plan, which the UI cannot distinguish
  * from "no solution". The wasm boundary additionally narrows the dimensions to
  * `uint8_t` and every coordinate to `int8_t`, so anything past this would be

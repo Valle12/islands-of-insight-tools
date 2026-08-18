@@ -112,7 +112,7 @@ test.describe("Shifting Mosaic Solver", () => {
     const c01 = await box(0, 1);
     const cFar = await box(42, 15);
 
-    // Neighbouring cells never overlap — each starts at/after the previous
+    // Neighboring cells never overlap — each starts at/after the previous
     // one ends (this is exactly what broke with fixed-width cells).
     expect(c10.x).toBeGreaterThanOrEqual(c00.x + c00.width - 0.5);
     expect(c01.y).toBeGreaterThanOrEqual(c00.y + c00.height - 0.5);

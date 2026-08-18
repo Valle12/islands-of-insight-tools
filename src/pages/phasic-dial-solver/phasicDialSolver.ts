@@ -19,7 +19,7 @@ const DEFAULT_MAX = 3;
 
 /**
  * The order the game unlocks dials in; purple is the sixth and last. A dial's
- * colour is therefore fixed by its position, which is why the page can only
+ * color is therefore fixed by its position, which is why the page can only
  * ever drop the LAST one.
  */
 const DIALS: readonly DialDescriptor[] = [
@@ -187,7 +187,7 @@ export class PhasicDialSolver {
     this.render();
   }
 
-  /** Drops the last dial — colours are positional, so no other one can go. */
+  /** Drops the last dial — colors are positional, so no other one can go. */
   private removeDial() {
     if (this.dialCount <= MIN_DIALS) return;
     this.maxValues.pop();

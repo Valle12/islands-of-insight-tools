@@ -46,7 +46,7 @@ struct CliOptions {
   /// The same for a symmetry symbol, placed only where its region really
   /// mirrors. 0 draws nothing, so every old seed reproduces.
   int lotus = 0;
-  /// And for a viewpoint, whose count is read off the colouring. 0 draws
+  /// And for a viewpoint, whose count is read off the coloring. 0 draws
   /// nothing, so every old seed reproduces.
   int viewpoints = 0;
   /// And for a galaxy, placed only where its region really turns onto itself.

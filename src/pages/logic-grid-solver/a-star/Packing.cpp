@@ -50,14 +50,14 @@ enum class ShapeRule : uint8_t { None, Distinct, Same };
 /// The board as the packer reads it, once.
 struct Terms {
   /// Every square a region may claim: playable, minus what the puzzle paints
-  /// the other colour.
+  /// the other color.
   Bits room;
-  /// Every square painted the clue colour. Each has to end up in some region,
-  /// since a claimed cell is the only cell that colour ever reaches.
+  /// Every square painted the clue color. Each has to end up in some region,
+  /// since a claimed cell is the only cell that color ever reaches.
   Bits mustCover;
   uint8_t color = kDark;
   ShapeRule shapes = ShapeRule::None;
-  /// Whether the clue colour, and the other one, have to come out as one
+  /// Whether the clue color, and the other one, have to come out as one
   /// region each.
   bool connectClue = false;
   bool connectRest = false;
@@ -85,7 +85,7 @@ std::vector<int> cellsOf(const Bits &bits) {
   return out;
 }
 
-/// Whether a set is all one region. Empty passes: a colour with no cells at
+/// Whether a set is all one region. Empty passes: a color with no cells at
 /// all has no two regions to keep together.
 bool oneComponent(const Bits &set) {
   const int first = set.nextSet(0);
@@ -134,7 +134,7 @@ BitsSet growAll(const Bits &room, const Demand &demand, Budget &budget) {
   seedBits.set(demand.cell);
   BitsSet found;
   BitsSet seen;
-  std::vector<Bits> stack{seedBits};
+  std::vector stack{seedBits};
   while (!stack.empty()) {
     if (budget.exhausted() ||
         stack.size() > static_cast<std::size_t>(kMaxPendingShapes))
@@ -245,7 +245,7 @@ public:
    * The claimed cells of a full packing, or nothing.
    *
    * The ECONOMICAL reading first: every demand takes a shape satisfying as many
-   * as it possibly can, so same-valued neighbours share one region rather than
+   * as it possibly can, so same-valued neighbors share one region rather than
    * taking one each. Fewer regions means less halo and so more room, which is
    * exactly what the big clues are short of — and on the captured 11x11 the
    * shared reading is the only one that packs at all. The general pass follows
@@ -435,7 +435,7 @@ private:
     BitsSet seen;
     Bits seedBits;
     seedBits.set(head.cell);
-    std::vector<Bits> stack{seedBits};
+    std::vector stack{seedBits};
     while (!stack.empty()) {
       if (budget_.exhausted()) {
         stopped_ = true;
@@ -512,7 +512,7 @@ private:
   }
 
   /// What a finished packing still has to satisfy: everything the board paints
-  /// in the clue colour claimed, and each connect rule met. Neither can be read
+  /// in the clue color claimed, and each connect rule met. Neither can be read
   /// off a partial placement, so both land here.
   [[nodiscard]] bool finished(const Bits &regions) const {
     if (!terms_.mustCover.isSubsetOf(regions))
@@ -528,9 +528,9 @@ private:
       stopped_ = true;
       return false;
     }
-    // A cell the board paints the clue colour that no region may claim any more
+    // A cell the board paints the clue color that no region may claim any more
     // — it borders one, and joining would merge the two — can never take that
-    // colour, and nothing further down puts it back.
+    // color, and nothing further down puts it back.
     if (blocked.intersects(terms_.mustCover))
       return false;
     const Bits free = terms_.room.without(used).without(blocked);
@@ -556,7 +556,7 @@ private:
       const Bits &shape = shapes[k];
       if (shape.intersects(used) || shape.intersects(blocked))
         continue;
-      // Touching an existing region of this colour would merge the two into
+      // Touching an existing region of this color would merge the two into
       // one, which is a different region size than either demand asked for.
       if (shape.border().intersects(used))
         continue;
@@ -587,9 +587,9 @@ private:
   bool stopped_ = false;
 };
 
-/// Every claimed cell takes the clues' colour and every other playable one the
+/// Every claimed cell takes the clues' color and every other playable one the
 /// opposite, which is what makes the claimed regions the ONLY regions of that
-/// colour — exactly the packing the search just built.
+/// color — exactly the packing the search just built.
 Colors paint(const Model &model, const Bits &claimed, const uint8_t color) {
   Colors colors{};
   colors.fill(kUnplayable);
@@ -599,7 +599,7 @@ Colors paint(const Model &model, const Bits &claimed, const uint8_t color) {
   return colors;
 }
 
-/// The one colour every clue cell is painted, or kUnknown when the board does
+/// The one color every clue cell is painted, or kUnknown when the board does
 /// not paint them all the same.
 uint8_t clueColorOf(const Model &model) {
   uint8_t color = kUnknown;
@@ -614,12 +614,12 @@ uint8_t clueColorOf(const Model &model) {
   return color;
 }
 
-/// The size every region of the clue colour has, or 0 when the board does not
+/// The size every region of the clue color has, or 0 when the board does not
 /// say. Zero is not a legal size, so it doubles as "no instance" safely.
 int uniformSize(const Model &model, const uint8_t color) {
-  for (const rules::SizedRule &area : model.puzzle.areas)
-    if (area.color == color)
-      return area.value;
+  for (const auto &[areaColor, value] : model.puzzle.areas)
+    if (areaColor == color)
+      return value;
   return 0;
 }
 
@@ -627,9 +627,9 @@ int uniformSize(const Model &model, const uint8_t color) {
  * The rules the packing expresses, or false when the board carries one it does
  * not.
  *
- * A shape rule is taken only on the CLUE colour: the other colour is whatever
+ * A shape rule is taken only on the CLUE color: the other color is whatever
  * the packing leaves over, and the search steers none of it. A connect rule on
- * either colour is fine — neither prunes, both are tested on the finished
+ * either color is fine — neither prunes, both are tested on the finished
  * packing.
  */
 bool readRules(const Model &model, Terms &terms) {
@@ -640,7 +640,7 @@ bool readRules(const Model &model, Terms &terms) {
   if (model.hasRule(distinct))
     terms.shapes = ShapeRule::Distinct;
   if (model.hasRule(same)) {
-    // Both at once says the colour has at most one region — a legal board, but
+    // Both at once says the color has at most one region — a legal board, but
     // not one the two filters below can express together, so it is declined.
     if (terms.shapes != ShapeRule::None)
       return false;
@@ -725,14 +725,14 @@ Reading readBoard(const Model &model) {
   reading.terms.color = clueColorOf(model);
   if (reading.terms.color == kUnknown)
     return reading;
-  // One instance, and on the clue colour: an instance on the OTHER colour
+  // One instance, and on the clue color: an instance on the OTHER color
   // would size the regions the packing merely leaves over, which it never
-  // enumerates and so cannot honour.
+  // enumerates and so cannot honor.
   const int uniform = uniformSize(model, reading.terms.color);
   if (model.puzzle.areas.size() > (uniform == 0 ? 0U : 1U))
     return reading;
   // A letter says which cells share a region, never how big it is, so a board
-  // carrying one needs the instance that gives every region of the colour a
+  // carrying one needs the instance that gives every region of the color a
   // size.
   if (uniform == 0 &&
       std::ranges::any_of(model.puzzle.clues, [](const Clue &clue) {

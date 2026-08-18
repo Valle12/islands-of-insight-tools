@@ -19,7 +19,7 @@
  * version 1 file into a version 2 one, entry 1 turns 2 into 3, and a version 1
  * file on a version 4 build runs all three in order. Reordering or removing an
  * entry re-reads every file ever saved, for exactly the reason the rule and
- * clue catalogues may only be appended to.
+ * clue catalogs may only be appended to.
  *
  * Deriving the current version from the list's LENGTH rather than declaring it
  * separately is deliberate: a bump with no migration would leave old files

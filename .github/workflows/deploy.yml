@@ -116,7 +116,7 @@ jobs:
           fi
 
       # Everything below is the fallback path. It stays unconditional where it
-      # is cheap, so a miss degrades to exactly the old behaviour — a full
+      # is cheap, so a miss degrades to exactly the old behavior — a full
       # build — and never to a wrong artifact.
       #
       # Same key as test.yml's wasm job, so a push to main populates what this

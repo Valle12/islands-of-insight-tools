@@ -2,7 +2,7 @@
 // space with no strings mixed into it. The two structural values take the
 // first two slots and the symbols follow: the symbol at index `i` of
 // `symbols.ts` is stored as `FIRST_SYMBOL + i`. That keeps a board's
-// serialised form uniform and makes "is this a block?" a single comparison.
+// serialized form uniform and makes "is this a block?" a single comparison.
 
 export const EMPTY = 0;
 export const BLOCKED = 1;

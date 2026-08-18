@@ -1,6 +1,6 @@
 /**
  * Captures the Open Graph preview images — one screenshot of each page, at the
- * size and colour scheme the `og:image` tags claim.
+ * size and color scheme the `og:image` tags claim.
  *
  * Run it by hand (`bun run og:capture`) after a visual change worth showing;
  * the results are COMMITTED under `images/og/`. Doing this during `bun run
@@ -21,7 +21,7 @@
  *                       so the scheme is always passed explicitly.
  *   --full-page         capture the entire scrollable page. Shows everything,
  *                       but the result is no longer 1.91:1, and a link scraper
- *                       centre-crops a tall image to that ratio — so this is
+ *                       center-crops a tall image to that ratio — so this is
  *                       for looking, not for committing.
  *   --width  <px>       viewport width  (default OG_IMAGE_WIDTH)
  *   --height <px>       viewport height (default OG_IMAGE_HEIGHT)

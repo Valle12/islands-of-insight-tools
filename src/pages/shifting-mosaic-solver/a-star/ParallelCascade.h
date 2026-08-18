@@ -59,7 +59,7 @@ inline bool alreadySolved(const std::vector<Position> &initialAnchors,
 
 // Per-arm outcome, so a fuzz campaign can answer "which arms actually earn
 // their slot, and how fast" instead of it being guesswork. In the race the
-// losers are cancelled, so their wallMs is a lower bound; in the sequential
+// losers are canceled, so their wallMs is a lower bound; in the sequential
 // phase every number is a true runtime.
 struct ArmOutcome {
   int arm = -1;
@@ -267,7 +267,7 @@ runArm(const int arm, const Board &board, const Budget &budget,
 } // namespace cascade
 
 // Races the production solver arms on std::jthreads and returns the first
-// non-empty plan (the others are cancelled cooperatively). Works both natively
+// non-empty plan (the others are canceled cooperatively). Works both natively
 // and under emscripten pthreads. The caller's thread blocks in here, polling
 // per-arm progress atomics and forwarding their sum to `onProgress` — arms
 // themselves never touch the callback, so under emscripten only the calling
@@ -382,7 +382,7 @@ inline std::vector<Turn> solveArmsSequential(
   // Own the buffer the way solveArmsParallel does. main.cpp's --engine twophase
   // hands the SAME vector to both phases, so appending here without clearing
   // produced 8 race rows followed by up to 8 sequential rows: duplicate arm
-  // ids, two `won:true` entries, and cancelled-loser wallMs (a lower bound)
+  // ids, two `won:true` entries, and canceled-loser wallMs (a lower bound)
   // mixed with true standalone runtimes — corrupting the very telemetry the
   // ORDER below is derived from.
   if (outcomes)

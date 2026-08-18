@@ -98,7 +98,7 @@ Outcome runCascade(const Model &model, const Config &cfg) {
 
   // The router before the sweep, because where it applies it is milliseconds
   // and the sweep can be half a minute. It is a CONSTRUCTION: it answers
-  // Solved with a verified colouring or nothing at all, never Unsolvable, so
+  // Solved with a verified coloring or nothing at all, never Unsolvable, so
   // a board it cannot route falls straight through to the arms that can prove
   // something. Seed 0 only, like the sweep and for its reason.
   if (cfg.seed == 0 && routing::applicable(model)) {

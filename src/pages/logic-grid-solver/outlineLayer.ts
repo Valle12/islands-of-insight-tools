@@ -18,12 +18,26 @@ const DEFAULT_SEAM = 6;
 const DEFAULT_RADIUS = 8;
 const STROKE = 1;
 
+/**
+ * One shape to outline: its squares, and whether an undecided square of it is
+ * drawn as a NEUTRAL part of the tile rather than as the hole it is.
+ *
+ * A merged cell wants the hole — an unpainted one is an outline around
+ * nothing, which is what it has always looked like. A seated galaxy's tile
+ * wants the neutral fill: the shape is drawn as soon as ONE of its squares is
+ * painted, so the others have to read as part of it and plainly not a color.
+ */
+export interface OutlineShape {
+  readonly squares: readonly number[];
+  readonly blank?: boolean;
+}
+
 export interface OutlineRequest {
-  /** Each merged cell's squares, as flat `y * gridWidth + x` indices. */
-  readonly shapes: readonly number[][];
+  /** Each shape's squares, as flat `y * gridWidth + x` indices. */
+  readonly shapes: readonly OutlineShape[];
   readonly gridWidth: number;
   readonly gridHeight: number;
-  /** The colour a square holds, for the fill. */
+  /** The color a square holds, for the fill. */
   readonly colorOf: (square: number) => number;
   /**
    * Whether the solver worked this square out, when the answer view is asking.
@@ -38,10 +52,21 @@ export interface OutlineRequest {
   readonly host: HTMLElement;
 }
 
+/**
+ * One per layer ever built, so the clip ids below cannot collide.
+ *
+ * Two layers are live whenever the answer is open — the editor's is still in
+ * the document behind it — and a clip is reached by id from the whole
+ * document, so two layers numbering their clips from zero would have the
+ * second one's tiles clipped by the first one's rects.
+ */
+let layerCount = 0;
+
 export function createOutlineLayer(): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("class", "shape-outline");
   svg.setAttribute("aria-hidden", "true");
+  svg.dataset.layer = String(layerCount++);
   return svg;
 }
 
@@ -93,16 +118,115 @@ export function drawShapeOutlines(
   }
 
   const fragment = document.createDocumentFragment();
-  for (const shape of shapes) {
+  shapes.forEach((shape, index) => {
+    drawOneShape(fragment, {
+      shape: shape.squares,
+      blank: shape.blank === true,
+      d: outlinePath(shape.squares, gridWidth, geometry),
+      id: `${svg.dataset.layer ?? "0"}-${index}`,
+      gridWidth,
+      geometry,
+      colorOf,
+      deducedAt,
+    });
+  });
+  svg.replaceChildren(fragment);
+}
+
+/** What `drawOneShape` needs, gathered so it takes one argument. */
+interface ShapeRequest {
+  readonly shape: readonly number[];
+  readonly blank: boolean;
+  readonly d: string;
+  readonly id: string;
+  readonly gridWidth: number;
+  readonly geometry: OutlineGeometry;
+  readonly colorOf: (square: number) => number;
+  readonly deducedAt?: (square: number) => boolean;
+}
+
+/**
+ * One tile, as one path per COLOR its squares hold.
+ *
+ * A merged cell is one variable, so its squares never disagree and this draws
+ * the single path it always did. A seated galaxy's tile is the other case: two
+ * squares or four, each its own variable, and the whole reason the tile is
+ * drawn at all is that the color changes across it — at the EDGE where the
+ * squares meet, the way the game draws it, rather than across the seam.
+ *
+ * Each color's copy is clipped to its own squares grown by half the seam, so
+ * the boundary falls exactly on the line between them and the outline's own
+ * rounded edge still cuts every copy. Clipping the whole path rather than
+ * stroking each half separately is what keeps ONE rim around the tile: a clip
+ * cuts the stroke it does not add one.
+ */
+function drawOneShape(
+  fragment: DocumentFragment,
+  request: ShapeRequest,
+): void {
+  const { shape, blank, d, id, gridWidth, geometry, colorOf, deducedAt } =
+    request;
+  const byColor = new Map<number, number[]>();
+  for (const square of shape) {
+    const color = colorOf(square) ?? UNKNOWN;
+    byColor.set(color, [...(byColor.get(color) ?? []), square]);
+  }
+
+  let first = true;
+  for (const [color, squares] of byColor) {
     const path = document.createElementNS(SVG_NS, "path");
-    path.setAttribute("d", outlinePath(shape, gridWidth, geometry));
-    // The first square's colour speaks for the cell: they are one variable, so
-    // they never disagree. Only the NAME goes on the element — the fill and the
-    // rim are in the stylesheet with the squares', so a merged cell and a plain
-    // one cannot drift apart.
-    path.dataset.color = colorId(colorOf(shape[0] ?? 0) ?? UNKNOWN);
-    if (deducedAt?.(shape[0] ?? 0)) path.dataset.deduced = "true";
+    path.setAttribute("d", d);
+    // Only the NAME goes on the element — the fill and the rim are in the
+    // stylesheet with the squares', so a tile and a plain square cannot drift
+    // apart.
+    // An undecided square of a BLANK shape is named apart from an undecided
+    // merged cell, because the two want opposite things: the tile fills the
+    // part neutrally so the shape reads as one, the merged cell leaves the
+    // hole it has always left.
+    path.dataset.color =
+      blank && color === UNKNOWN ? "blank" : colorId(color);
+    if (deducedAt?.(squares[0] ?? 0)) path.dataset.deduced = "true";
+    // The FIRST color is laid whole and unclipped, and the rest are clipped
+    // over it. Two clipped halves would meet on a shared edge, and at a
+    // fractional browser zoom that edge rounds to a hairline of background
+    // down the middle of the tile; painted over a whole base there is nothing
+    // for a seam to show through. A merged cell holds one color and so is the
+    // base alone, exactly as it always was.
+    if (!first) {
+      const clipId = `outline-clip-${id}-${color}`;
+      fragment.appendChild(clipFor(clipId, squares, gridWidth, geometry));
+      path.setAttribute("clip-path", `url(#${clipId})`);
+    }
+    first = false;
     fragment.appendChild(path);
   }
-  svg.replaceChildren(fragment);
+}
+
+/**
+ * The region one color of a tile owns: its squares, each grown by HALF the
+ * seam on every side.
+ *
+ * Half, so two colors meet exactly on the line between their squares — the
+ * one pixel of change the game shows. Growing by the whole seam would make
+ * them overlap and the later copy would win the whole gap.
+ */
+function clipFor(
+  id: string,
+  squares: readonly number[],
+  gridWidth: number,
+  geometry: OutlineGeometry,
+): SVGClipPathElement {
+  const clip = document.createElementNS(SVG_NS, "clipPath");
+  clip.setAttribute("id", id);
+  const pitch = geometry.cell + geometry.gap;
+  const half = geometry.gap / 2;
+  for (const square of squares) {
+    const rect = document.createElementNS(SVG_NS, "rect");
+    rect.setAttribute("x", String((square % gridWidth) * pitch - half));
+    rect.setAttribute("y", String(Math.floor(square / gridWidth) * pitch - half));
+    rect.setAttribute("width", String(geometry.cell + geometry.gap));
+    rect.setAttribute("height", String(geometry.cell + geometry.gap));
+    clip.appendChild(rect);
+  }
+  return clip;
 }

@@ -24,6 +24,8 @@ import {
   deepSearchBoard,
   diagonalBoard,
   distancePairBoard,
+  bigPatternBoard,
+  deepPatternBoard,
   distinctShapesBoard,
   elbowBoard,
   ellBoard,
@@ -36,6 +38,7 @@ import {
   lotusBoard,
   lotusOverMergedBoard,
   mergedCellBoard,
+  mixedPatternBoard,
   mixedElbowBoard,
   mixedTeeBoard,
   offByOneBoard,
@@ -82,7 +85,7 @@ const CASES: Case[] = [
   // the only board here that six-cell clause even fits on — the first pattern
   // to need `kMaxPatternCells` above five crosses the boundary right here.
   ["area-five", areaFiveBoard],
-  // The mixed-colour triple and the T: both are new pattern families, so each
+  // The mixed-color triple and the T: both are new pattern families, so each
   // gets the same shortest-path-through-the-module board the runs have.
   ["forbidden-triple", forbiddenTripleBoard],
   ["tee", teeBoard],
@@ -102,7 +105,7 @@ const CASES: Case[] = [
   ["dart", dartBoard],
   ["dart-over-merged", dartOverMergedBoard],
   // ...and this one for where the clue SITS: a dart on a chosen square of a
-  // merged cell is a different puzzle from the same dart on its neighbour, so
+  // merged cell is a different puzzle from the same dart on its neighbor, so
   // it is the one board the whole "keep the square the file names" rule can be
   // read off the answer.
   ["dart-in-merged", dartInMergedBoard],
@@ -138,20 +141,32 @@ const CASES: Case[] = [
   ["area-seven", areaSevenBoard],
   ["area-twenty-four", areaTwentyFourBoard],
   // The format 2 sized keys cross the boundary only from here: an area and a
-  // run the retired catalogue never spelled — `areas`/`runs` entries with the
+  // run the retired catalog never spelled — `areas`/`runs` entries with the
   // number as data — so a module that quietly dropped either key would answer
   // something `verify.ts` throws out rather than answering nothing.
   ["area-one", areaOneBoard],
   ["run-eight", runEightBoard],
-  // The region-shape pair, which no captured board carries — every corpus
-  // rule index stops at the galaxy batch — so this is the only place either
-  // rule crosses into the real module at all.
+  // The region-shape pair. Six captured boards carry `distinct-shapes-dark`
+  // and one `same-shape-dark` since the packer arrived, but nothing captured
+  // carries either LIGHT one, so these stay the shortest path in.
   ["distinct-shapes", distinctShapesBoard],
   ["same-shape", sameShapeBoard],
-  // A galaxy's `seat` key crosses here and NOWHERE else: every captured galaxy
-  // sits at its square's own centre, so without this the corpus sweep would
-  // stay green while the key never crossed — and this one inverts colour, the
-  // half of the rule a module reading the old geometry would get backwards.
+  // The `patterns` key. One captured board carries it — `logicGridTest489`,
+  // the 11x11 whose 3x3-light ban is what this whole key exists for — but that
+  // one is the SLOW lane's, so these three stay the fast lane's only senders,
+  // and each sends something the others do not. The 3x3 is NINE squares
+  // — past what a clause could hold before the literals went variable length,
+  // and the shape this whole key exists for. The mixed one names both colors
+  // in one shape, which no surviving rule can state. The deep one reaches
+  // further back than the sweep's frontier carries, so it is where
+  // `profile::applicable` has to decline rather than read a truncated
+  // distance and hand back a confident wrong proof.
+  ["big-pattern", bigPatternBoard],
+  ["mixed-pattern", mixedPatternBoard],
+  ["deep-pattern", deepPatternBoard],
+  // One captured galaxy carries a seat (`logicGridTest467`), but none carries
+  // an INVERTING one — the half of the rule a module reading the old geometry
+  // would get backwards — so this stays the only board that sends it.
   ["galaxy-seated", seatedGalaxyBoard],
   ["merged-cells", mergedCellBoard],
   ["deep-search", deepSearchBoard],
@@ -254,13 +269,13 @@ describe("logic-grid wasm", () => {
   }, 30_000);
 
   /**
-   * An area of ONE — a size no catalogue chip could spell, legal since the
-   * format stores the number. The given's neighbour is forced light while the
+   * An area of ONE — a size no catalog chip could spell, legal since the
+   * format stores the number. The given's neighbor is forced light while the
    * far cell stays free. This is the pin on the engine's isolated-singleton
    * sweep, a REFUTATION at every size but one: run at one, it deletes the
    * only legal region shape and the board reads unsolvable instead.
    */
-  test("an area of one forces the neighbour and keeps its singleton", async () => {
+  test("an area of one forces the neighbor and keeps its singleton", async () => {
     const wasm = await loadWasm();
     const config = areaOneBoard();
     const result = wasm.solve(toPuzzle(config), {

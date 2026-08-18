@@ -18,7 +18,7 @@ namespace mt::generate {
 
 struct Options {
   uint32_t seed = 0;
-  /// "random" spreads symbols uniformly; "cluster" biases toward a neighbour's
+  /// "random" spreads symbols uniformly; "cluster" biases toward a neighbor's
   /// symbol, which makes boards far more often solvable.
   std::string kind = "random";
   /// 0 picks one. A pinned value is CLAMPED to the engine's ceiling — `width`

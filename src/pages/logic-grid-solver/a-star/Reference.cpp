@@ -11,7 +11,7 @@
 namespace lg::reference {
 namespace {
 
-/// Drops every cell the two colourings disagree on back to kUnknown, which is
+/// Drops every cell the two colorings disagree on back to kUnknown, which is
 /// the running intersection an underclued answer is made of.
 void intersect(Colors &forced, const Colors &found, const std::vector<int> &cells) {
   for (const int index : cells) {
@@ -38,9 +38,9 @@ Answer enumerate(const Model &model) {
   // Cells already painted are givens, so they are not enumerated over — which
   // also means a fully painted board costs one verification.
   //
-  // One bit per CELL, not per square: a merged cell takes one colour for all of
+  // One bit per CELL, not per square: a merged cell takes one color for all of
   // its squares, so enumerating them separately would spend almost the whole
-  // space on colourings the puzzle cannot express, and `kMaxFreeCells` would
+  // space on colorings the puzzle cannot express, and `kMaxFreeCells` would
   // stop meaning what it says. The comparison set stays square-granular,
   // because that is what an answer is compared against.
   std::vector<int> playable;

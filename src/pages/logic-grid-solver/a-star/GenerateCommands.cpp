@@ -32,8 +32,8 @@ inline constexpr int kNoisePercent = 8;
 /// still regenerates the board it always did.
 inline constexpr uint32_t kShapeSalt = 0x5EA'11EDU;
 
-/// The rules that constrain a colouring. `Underclued` is not one of them: it
-/// changes what the answer is, never which colourings are legal.
+/// The rules that constrain a coloring. `Underclued` is not one of them: it
+/// changes what the answer is, never which colorings are legal.
 ///
 /// The ORDER is load-bearing in a way the list itself is not: `emptyBoard` draws
 /// once per entry from the same rng that then feeds the local search, so
@@ -52,7 +52,7 @@ constexpr auto kColorRules = std::to_array<Rule>(
      Rule::NoDarkDiagonal, Rule::NoLightDiagonal, Rule::AreaThreeDark,
      Rule::AreaThreeLight,
      // Appended with the elbow-era batch, in storage order. `OffByOne` is
-     // deliberately NOT here — like `Underclued` it constrains no colouring,
+     // deliberately NOT here — like `Underclued` it constrains no coloring,
      // it changes what the clues' numbers mean — so random masks never carry
      // it and the perturbation draws in `clueOneRegion` stay unreachable for
      // every seed a maskless campaign ever ran.
@@ -102,7 +102,7 @@ int piecesBeyondOne(const Model &model, const Colors &colors,
  * two ways to be legal, and pricing only the growth marooned the walk the
  * moment area TWENTY-FOUR joined the family: on a board that cannot hold a
  * region that big, every shrinking flip scored worse than standing still,
- * while the legal all-other-colour board sat a few flips away downhill.
+ * while the legal all-other-color board sat a few flips away downhill.
  */
 int regionsOffSize(const Model &model, const Colors &colors) {
   int bad = 0;
@@ -159,21 +159,24 @@ std::vector<Bits> offSizeRegions(const Model &model, const Colors &colors) {
   return regions;
 }
 
-bool clauseHolds(const Clause &clause, const Colors &colors) {
+bool clauseHolds(const Model &model, const Clause &clause,
+                 const Colors &colors) {
+  const auto cells = model.literals(clause);
+  const auto wanted = model.colorsOf(clause);
   for (int i = 0; i < clause.count; i++) {
-    if (colors[slot(clause.cells[slot(i)])] != clause.colors[slot(i)])
+    if (colors[slot(cells[slot(i)])] != wanted[slot(i)])
       return false;
   }
   return true;
 }
 
-/// How far this colouring is from legal. Zero means it is a solution of the
+/// How far this coloring is from legal. Zero means it is a solution of the
 /// clue-free board, which is what the generator is looking for.
 int cost(const Model &model, const Colors &colors) {
   using enum Rule;
   int bad = 0;
   for (const Clause &clause : model.clauses)
-    bad += clauseHolds(clause, colors) ? 1 : 0;
+    bad += clauseHolds(model, clause, colors) ? 1 : 0;
   bad += piecesBeyondOne(model, colors, kDark, ConnectDark);
   bad += piecesBeyondOne(model, colors, kLight, ConnectLight);
   bad += regionsOffSize(model, colors);
@@ -190,10 +193,10 @@ void randomise(const Model &model, SeededRng &rng, Colors &colors) {
 /// Flips whichever cell of a broken arrangement leaves the board least broken.
 void repairClause(const Model &model, const Clause &clause, SeededRng &rng,
                   Colors &colors) {
-  int bestCell = clause.cells[0];
+  const auto cells = model.literals(clause);
+  int bestCell = cells.front();
   int bestCost = -1;
-  for (int i = 0; i < clause.count; i++) {
-    const int cell = clause.cells[slot(i)];
+  for (const int cell : cells) {
     const uint8_t was = colors[slot(cell)];
     colors[slot(cell)] = opposite(was);
     const int after = cost(model, colors);
@@ -204,7 +207,7 @@ void repairClause(const Model &model, const Clause &clause, SeededRng &rng,
     }
   }
   if (rng.uniform(0, 99) < kNoisePercent)
-    bestCell = clause.cells[slot(rng.uniform(0, clause.count - 1))];
+    bestCell = cells[slot(rng.uniform(0, clause.count - 1))];
   colors[slot(bestCell)] = opposite(colors[slot(bestCell)]);
 }
 
@@ -261,7 +264,7 @@ bool walk(const Model &model, SeededRng &rng, Colors &colors) {
     std::vector<int> broken;
     int id = 0;
     for (const Clause &clause : model.clauses) {
-      if (clauseHolds(clause, colors))
+      if (clauseHolds(model, clause, colors))
         broken.push_back(id);
       id++;
     }
@@ -294,12 +297,12 @@ bool paintLegal(const Model &model, SeededRng &rng, Colors &colors) {
 }
 
 /**
- * Keeps only the SMALLEST area rule of each colour — the binding one, which is
+ * Keeps only the SMALLEST area rule of each color — the binding one, which is
  * `smallestArea`'s own argument.
  *
- * A v1 mask can name several sizes on one colour, and `splitLegacyMask` is
+ * A v1 mask can name several sizes on one color, and `splitLegacyMask` is
  * faithful to it because the ENGINE still walks conjunctive lists. The FORMAT
- * does not: `fixtureio::load` refuses a second entry per colour, and every
+ * does not: `fixtureio::load` refuses a second entry per color, and every
  * generated board is written and then read straight back through it. The rule
  * table here draws each of its entries independently, so without this roughly
  * half of all boards would name two dark or two light areas and fail on the
@@ -307,7 +310,7 @@ bool paintLegal(const Model &model, SeededRng &rng, Colors &colors) {
  *
  * Runs strictly AFTER every rng decision and draws nothing, so no seed's
  * stream moves — only what an already-drawn mask MEANS. `splitLegacyMask`
- * returns its lists sorted, so each colour's entries are contiguous and the
+ * returns its lists sorted, so each color's entries are contiguous and the
  * first of a run is its smallest.
  */
 void keepOneAreaPerColor(std::vector<rules::SizedRule> &areas) {
@@ -316,15 +319,20 @@ void keepOneAreaPerColor(std::vector<rules::SizedRule> &areas) {
 }
 
 /// Tears a v1-style mask into the puzzle's modern fields: flags stay in the
-/// mask, sized bits become canonical `areas`/`runs` instances. Runs strictly
+/// mask, sized bits become canonical `areas`/`runs` instances, and the ten
+/// retired arrangement bits become canonical drawn `patterns`. Runs strictly
 /// AFTER every rng decision and draws nothing — which is what keeps every
-/// seed's board byte-identical across the format change.
+/// seed's board byte-identical across both format changes. A retired rule
+/// still SITS in `kColorRules` under its v1 name, so the roll that switched it
+/// on consumes the same random number it always did; only what the board
+/// writes out for it has changed.
 void applyLegacyMask(Puzzle &puzzle, const rules::RuleMask mask) {
-  auto [flags, areas, runs] = rules::splitLegacyMask(mask);
+  auto [flags, areas, runs, patterns] = rules::splitLegacyMask(mask);
   keepOneAreaPerColor(areas);
   puzzle.ruleMask = flags;
   puzzle.areas = std::move(areas);
   puzzle.runs = std::move(runs);
+  puzzle.patterns = std::move(patterns);
 }
 
 Puzzle emptyBoard(SeededRng &rng, const Options &options) {
@@ -355,7 +363,7 @@ Puzzle emptyBoard(SeededRng &rng, const Options &options) {
   }
   // One in SIX per entry, recalibrated when the elbow-era batch grew the list
   // from 31 to 51: at the old one-in-four a random mask averaged thirteen
-  // rules, and the local search stopped finding colourings under them at all.
+  // rules, and the local search stopped finding colorings under them at all.
   // One in six keeps the expected count where the campaigns were measured —
   // about eight — and shifts every seed's mask, which the append had already
   // done.
@@ -404,10 +412,10 @@ struct ClueRun {
   int letter = 0;
 };
 
-/// How many squares of the other colour a dart at `spot` aimed `direction`
-/// really sees, read off the colouring so the clue is satisfiable by
+/// How many squares of the other color a dart at `spot` aimed `direction`
+/// really sees, read off the coloring so the clue is satisfiable by
 /// construction. The same walk `Verify` does, and for the same reason: gaps are
-/// stepped over, and the dart's own cell can never be the colour it counts.
+/// stepped over, and the dart's own cell can never be the color it counts.
 int dartValueAt(const Model &model, const Colors &colors, const int spot,
                 const int direction) {
   const auto [stepX, stepY] = kDirectionSteps[slot(direction)];
@@ -424,7 +432,7 @@ int dartValueAt(const Model &model, const Colors &colors, const int spot,
 
 /**
  * Whether the region holding `spot` really mirrors across `axis` through its
- * centre, read off the colouring the way `dartValueAt` reads a count — the
+ * center, read off the coloring the way `dartValueAt` reads a count — the
  * same walk `Verify` does. A lotus has no value to derive; the clue must
  * simply be TRUE where it lands, and this is what says so. Draws nothing.
  */
@@ -451,8 +459,8 @@ bool lotusHoldsAt(const Model &model, const Colors &colors, const int spot,
 }
 
 /**
- * How many squares a viewpoint at `spot` really sees, read off the colouring:
- * its own square plus the leading same-colour run along each of the four rays.
+ * How many squares a viewpoint at `spot` really sees, read off the coloring:
+ * its own square plus the leading same-color run along each of the four rays.
  * The same walk `Verify` does — sight stops at a gap, unlike a dart's line —
  * so the clue is satisfiable by construction, and always at least one.
  */
@@ -471,7 +479,7 @@ int viewpointValueAt(const Model &model, const Colors &colors, const int spot) {
 
 /**
  * Whether the region holding `spot` really maps to itself under a HALF TURN
- * about it, read off the colouring the way `lotusHoldsAt` reads a mirror —
+ * about it, read off the coloring the way `lotusHoldsAt` reads a mirror —
  * the same walk `Verify` does. A galaxy has no value to derive; the clue must
  * simply be TRUE where it lands, and this is what says so. Draws nothing.
  */
@@ -480,8 +488,8 @@ bool galaxyHoldsAt(const Model &model, const Colors &colors, const int spot) {
   const int gx = columnOf(spot);
   const int gy = rowOf(spot);
   const Bits region = component(spot, heldBy(model, colors, color));
-  // Seat 0 — the generator places galaxies at a square's own CENTRE and never
-  // on a grid line, so the doubled centre is (2gx, 2gy) and this is the plain
+  // Seat 0 — the generator places galaxies at a square's own CENTER and never
+  // on a grid line, so the doubled center is (2gx, 2gy) and this is the plain
   // point reflection it always was. A `--galaxy-seats` roll would be an
   // appended draw behind a `> 0` short circuit, the established pattern, and
   // is deliberately not one yet.
@@ -513,7 +521,7 @@ int displayedValue(SeededRng &rng, const rules::RuleMask mask,
 }
 
 /**
- * Puts at most one clue on one region, reading its value off the colouring.
+ * Puts at most one clue on one region, reading its value off the coloring.
  *
  * The `rng` draws here are in a fixed order — the spot, the area roll, the
  * letter roll, the dart roll, the lotus roll, the viewpoint roll, then the
@@ -525,7 +533,7 @@ int displayedValue(SeededRng &rng, const rules::RuleMask mask,
  * and `--galaxies 0` reproducing exactly the boards they always did. The
  * lotus's and the galaxy's satisfiability CHECKS draw nothing, so a failed
  * one costs the region its clue and nothing else; a viewpoint's value is READ
- * off the colouring like a dart's, so its roll is the only number it draws —
+ * off the coloring like a dart's, so its roll is the only number it draws —
  * except under `off-by-one`, where every numeric clue appends ONE more draw
  * to bend its displayed value, unreachable for any mask without that rule.
  * Hash-compare regenerated fixtures across several seeds after touching this.
@@ -586,7 +594,7 @@ void clueOneRegion(ClueRun &run, const ClueChances &chances,
   }
 }
 
-/// Reads clues off the colouring the board was given, so every one of them is
+/// Reads clues off the coloring the board was given, so every one of them is
 /// satisfiable together by construction.
 void deriveClues(const Model &model, const Colors &colors, SeededRng &rng,
                  const bool sparse, const Options &options, Puzzle &puzzle) {
@@ -619,7 +627,7 @@ void deriveClues(const Model &model, const Colors &colors, SeededRng &rng,
 }
 
 /// The squares a shape may grow into: on its border, unclaimed, unclued, and
-/// already carrying the colour the shape holds. Draws nothing — the caller
+/// already carrying the color the shape holds. Draws nothing — the caller
 /// picks from what this returns, which is what keeps the rng stream in
 /// `fuseCells` independent of how the candidates are gathered.
 std::vector<int> growthOptions(const Model &model, const Colors &colors,
@@ -639,22 +647,22 @@ std::vector<int> growthOptions(const Model &model, const Colors &colors,
 }
 
 /**
- * Fuses same-coloured neighbours into merged cells, AFTER the clues have been
- * read off the colouring.
+ * Fuses same-colored neighbors into merged cells, AFTER the clues have been
+ * read off the coloring.
  *
  * Doing it last is what makes it safe rather than merely convenient. The local
  * search never sees a merged cell, so `cost`, `repairClause` and `walk` are
- * untouched; and fusing a connected set that already holds ONE colour cannot
- * invalidate the solution, because the colouring, every region and every area
+ * untouched; and fusing a connected set that already holds ONE color cannot
+ * invalidate the solution, because the coloring, every region and every area
  * count come out exactly as they were. All that changes is which squares have
  * to move together — so the board this writes is still solvable by construction
  * and the `solution` key still verifies.
  *
  * Two things it chooses to respect: at most one clue per merged cell — the
  * MODEL now allows several (one per square), but a fused clue pair changes
- * what the clues mean against the colouring the values were read off, so the
+ * what the clues mean against the coloring the values were read off, so the
  * generator stays single-clue — and one connected polyomino. Growing only
- * into unclued, same-coloured, not-yet-claimed neighbours gives both.
+ * into unclued, same-colored, not-yet-claimed neighbors gives both.
  */
 void fuseCells(const Model &model, const Colors &colors, SeededRng &rng,
                const int percent, Puzzle &puzzle) {

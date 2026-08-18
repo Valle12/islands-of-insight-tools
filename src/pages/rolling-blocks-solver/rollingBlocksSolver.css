@@ -437,7 +437,7 @@ h2 {
 
 #solution-grid-shell {
   display: flex;
-  /* `safe` for the same reason as #grid-shell: centred overflow hides its
+  /* `safe` for the same reason as #grid-shell: centered overflow hides its
      left half beyond the scrollbar's reach. */
   justify-content: safe center;
   padding: 14px;

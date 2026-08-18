@@ -7,17 +7,17 @@
 #include <utility>
 #include <vector>
 
-// The logic-grid solver's shared vocabulary. The colour encoding mirrors
+// The logic-grid solver's shared vocabulary. The color encoding mirrors
 // src/pages/logic-grid-solver/cell.ts exactly — 0 unknown, 1 dark, 2 light,
 // 3 an unplayable gap — because boards cross the wasm boundary as those same
 // integers and every answer must verify under the TypeScript rules the page
 // renders with.
 //
 // A cell carries TWO independent layers, and only the first lives in the grid:
-// the colour here, and at most one clue PER SQUARE in the puzzle's sparse clue
+// the color here, and at most one clue PER SQUARE in the puzzle's sparse clue
 // list — a merged cell may carry several. That is what makes the game's
-// colourless clue representable — a clue on an unknown cell is one whose
-// colour has still to be deduced.
+// colorless clue representable — a clue on an unknown cell is one whose
+// color has still to be deduced.
 namespace lg {
 
 /// Hard ceiling on either grid side, matching MAX_GRID_SIDE in config.ts.
@@ -47,16 +47,16 @@ inline constexpr uint8_t kDark = 1;
 inline constexpr uint8_t kLight = 2;
 inline constexpr uint8_t kUnplayable = 3;
 
-/// The first value past the end of the colour space, matching CELL_LIMIT.
+/// The first value past the end of the color space, matching CELL_LIMIT.
 inline constexpr uint8_t kColorLimit = 4;
 
-/// Whether a cell takes part in the puzzle at all. Gaps take no colour, carry
+/// Whether a cell takes part in the puzzle at all. Gaps take no color, carry
 /// no clue, and act as walls for runs, patterns and connectivity alike.
 constexpr bool isPlayable(const uint8_t color) {
   return color != kUnplayable;
 }
 
-/// The other colour. Only meaningful for kDark and kLight — the two a
+/// The other color. Only meaningful for kDark and kLight — the two a
 /// completion may use.
 constexpr uint8_t opposite(const uint8_t color) {
   return color == kDark ? kLight : kDark;
@@ -89,7 +89,7 @@ constexpr bool isValuelessKind(const uint8_t kind) {
 }
 
 /// The kinds that carry a SEAT — a point of their own that need not be the
-/// square's centre. Named here beside `isValuelessKind` and for its reason:
+/// square's center. Named here beside `isValuelessKind` and for its reason:
 /// the intakes, the writer and `cluesProblem` all consult one list, so "a seat
 /// on a kind that has none is an error" and "write no seat key" cannot drift
 /// apart. WHERE the seat may sit is a different question with a different
@@ -156,18 +156,18 @@ constexpr bool isDiagonalAxis(const int axis) {
 
 /**
  * A lotus's SEAT: where inside its cell the axis point sits, as two
- * half-square offsets — bit 0 half a square right of the home square's centre,
- * bit 1 half a square down. 0 is the centre itself, the only seat a plain cell
+ * half-square offsets — bit 0 half a square right of the home square's center,
+ * bit 1 half a square down. 0 is the center itself, the only seat a plain cell
  * has; 1 and 2 are the midpoints of the edges to the right and below; 3 is the
  * corner where four squares meet. The home square is therefore always the
- * seat's top-left neighbour, which this encoding cannot spell any other way.
+ * seat's top-left neighbor, which this encoding cannot spell any other way.
  */
 inline constexpr int kSeatCount = 4;
 
 constexpr bool isSeat(const int seat) { return seat >= 0 && seat < kSeatCount; }
 
 /// The axis point in DOUBLED board coordinates, so a seat on a grid line is
-/// still an integer: a square's centre is (2x, 2y) and a seam is odd.
+/// still an integer: a square's center is (2x, 2y) and a seam is odd.
 constexpr int seatX2(const int index, const int seat) {
   return 2 * columnOf(index) + (seat & 1);
 }
@@ -176,9 +176,9 @@ constexpr int seatY2(const int index, const int seat) {
 }
 
 /// Whether the diagonal axes exist at this seat at all. They map square
-/// centres to square centres only where the doubled coordinates share a
-/// parity — a square's centre or a corner. On an edge midpoint they would map
-/// centres onto CORNERS, so that combination is refused rather than defined.
+/// centers to square centers only where the doubled coordinates share a
+/// parity — a square's center or a corner. On an edge midpoint they would map
+/// centers onto CORNERS, so that combination is refused rather than defined.
 constexpr bool diagonalSeatValid(const int seat) {
   return seat == 0 || seat == 3;
 }
@@ -211,18 +211,18 @@ constexpr std::pair<int, int> mirrorSquare(const int axis, const int cx2,
 /**
  * Where the square (x, y) lands under a HALF TURN about the DOUBLED point
  * (cx2, cy2) — the galaxy's geometry, in the same doubled coordinates
- * `mirrorSquare` uses, so a centre on a grid line or a corner is still an
+ * `mirrorSquare` uses, so a center on a grid line or a corner is still an
  * integer. At seat 0 `cx2` is `2 * gx` and this is the plain `2 * gx - x` it
  * replaces.
  *
- * A half turn maps square centres to square centres at EVERY parity of
+ * A half turn maps square centers to square centers at EVERY parity of
  * (cx2, cy2), which is why there is no `diagonalSeatValid` twin here: no seat
  * a galaxy has to refuse. Pure geometry with no bounds attached, like
  * `mirrorSquare`, and shared at the same altitude for the same reason.
  *
  * Named `halfTurn` rather than the `pointMirror` it replaces because the two
  * have the same arity and the same types while meaning different things — the
- * old one took the centre SQUARE — so a missed call site would have compiled
+ * old one took the center SQUARE — so a missed call site would have compiled
  * and turned quietly about the wrong point.
  */
 constexpr std::pair<int, int> halfTurn(const int cx2, const int cy2,

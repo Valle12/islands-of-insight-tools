@@ -225,7 +225,7 @@ bool AStar::searchLimitReached(const uint64_t deadline, const uint32_t maxMs,
                                const size_t statesStored,
                                const size_t storeSize) {
   if (cfg_.cancel && cfg_.cancel->load(std::memory_order_relaxed)) {
-    std::cout << "A* cancelled after " << nodesExpanded << " nodes\n";
+    std::cout << "A* canceled after " << nodesExpanded << " nodes\n";
     return true;
   }
   // A multiple of 4096 is also a multiple of 256, so gating this behind the
@@ -247,7 +247,7 @@ bool AStar::searchLimitReached(const uint64_t deadline, const uint32_t maxMs,
   // Last-resort abort tripwire. Only wasm has a ceiling that kills the module
   // rather than failing an allocation, so this exists only there — a real #if,
   // not `if constexpr`, because natively nearHeapLimit() is `return false;` and
-  // every analyser correctly reports the guarded block as dead code.
+  // every analyzer correctly reports the guarded block as dead code.
 #if defined(__EMSCRIPTEN__)
   if (memprobe::nearHeapLimit()) {
     std::cout << "A* stopped at the heap limit after " << nodesExpanded

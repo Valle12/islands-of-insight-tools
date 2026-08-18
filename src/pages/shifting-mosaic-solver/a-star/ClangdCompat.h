@@ -7,7 +7,7 @@
 // P1328 support: _Is_pointer_address_convertible fails to fold to a constant,
 // and every std::pair comparison, std::vector<Position> equality and gtest
 // TEST_P registration in the file reports a phantom "must be initialized by a
-// constant expression" error. Only the IDE analyser is affected — MSVC, GCC
+// constant expression" error. Only the IDE analyzer is affected — MSVC, GCC
 // and emscripten all compile the same code.
 //
 // Requiring _MSC_VER as well narrows this to clangd-against-the-MSVC-STL,

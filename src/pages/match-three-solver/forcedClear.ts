@@ -96,7 +96,7 @@ function intoOneRow(sorted: number[], width: number): number {
 /**
  * The column multiset of a T whose stem sits in column `stem`, within the
  * three-wide window starting at `from`: three blocks in the stem column and one
- * in each of its two neighbours.
+ * in each of its two neighbors.
  */
 function teeTargets(from: number, stem: number): number[] {
   const targets: number[] = [];

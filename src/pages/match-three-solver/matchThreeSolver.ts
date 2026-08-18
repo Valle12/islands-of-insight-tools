@@ -153,7 +153,7 @@ export class MatchThreeSolverEditor {
       // There is never a partial answer to keep: the search ends itself the
       // moment it has one, so reaching this button means nothing was found.
       this.cancelSearch();
-      this.solutionStatus.textContent = "Cancelled";
+      this.solutionStatus.textContent = "Canceled";
     });
 
     document

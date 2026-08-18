@@ -17,7 +17,7 @@
 // The over-pruning net.
 //
 // `Verify` catches an answer that is not a solution. Nothing catches a
-// propagator that quietly removes a colouring which WAS one — in normal mode
+// propagator that quietly removes a coloring which WAS one — in normal mode
 // that only shows up as a different valid answer, and in underclued mode it is
 // a wrong answer that looks completely reasonable. So every board here is
 // enumerated by brute force and the two are compared on the things that would
@@ -31,7 +31,7 @@ using rules::Rule;
 using Merge = std::vector<std::pair<int, int>>;
 
 /// A dart, which the picture cannot say either: where it sits, how many of the
-/// other colour its line holds, and which way it points.
+/// other color its line holds, and which way it points.
 struct DartSpec {
   int x = 0;
   int y = 0;
@@ -55,8 +55,8 @@ struct ViewpointSpec {
   int value = 1;
 };
 
-/// A galaxy: where it sits, and where inside its square the centre of the turn
-/// sits — 0 the square's own centre, 1 and 2 the edges to the right and below,
+/// A galaxy: where it sits, and where inside its square the center of the turn
+/// sits — 0 the square's own center, 1 and 2 the edges to the right and below,
 /// 3 the corner. No value and no direction.
 struct GalaxySpec {
   int x = 0;
@@ -74,6 +74,11 @@ struct Case {
   /// machinery.
   std::vector<rules::SizedRule> areas;
   std::vector<rules::SizedRule> runs;
+  /// Forbidden arrangements stated as drawings — the shapes no rule names any
+  /// more, plus ones no rule ever named. Like the sized instances above, the
+  /// legacy `rules` lists translate into these too where they name one of the
+  /// ten retired arrangements.
+  std::vector<rules::DrawnPattern> patterns;
   std::vector<Merge> merges;
   std::vector<DartSpec> darts;
   std::vector<LotusSpec> lotuses;
@@ -107,6 +112,7 @@ struct RuleSet {
   std::vector<Rule> rules;
   std::vector<rules::SizedRule> areas;
   std::vector<rules::SizedRule> runs;
+  std::vector<rules::DrawnPattern> patterns;
 };
 
 std::vector<Case> allCases() {
@@ -132,7 +138,7 @@ std::vector<Case> allCases() {
       {.name = "wide6", .picture = {"......", "......"}},
       // Merged cells. Everything about them lives on the VARIABLE side — the
       // rules still read the square grid — so what has to be checked is that
-      // fusing squares removes exactly the colourings that split a cell and no
+      // fusing squares removes exactly the colorings that split a cell and no
       // others. Nothing at runtime could tell those two apart.
       {.name = "bar",
        .picture = {"...", "...", "..."},
@@ -194,7 +200,7 @@ std::vector<Case> allCases() {
        .darts = {{.x = 0, .y = 0, .value = 2, .direction = kDirRight}}},
       // Darts whose OWN square the board paints, which is the only shape the
       // profile sweep will take one in: what a dart counts is the opposite of
-      // its own colour, so a painted one is a fixed target and the sweep can
+      // its own color, so a painted one is a fixed target and the sweep can
       // carry a running count for it. These three are what referee that count
       // — the sweep reads the ray a completely different way from the
       // propagator, one cell at a time in scan order, and a miscount would
@@ -223,7 +229,7 @@ std::vector<Case> allCases() {
       {.name = "lotusDiagonal",
        .picture = {"...", "...", "..."},
        .lotuses = {{.x = 1, .y = 1, .axis = kAxisDiagonalDown}}},
-      // Off-centre, so most of the board reflects off an edge — the heaviest
+      // Off-center, so most of the board reflects off an edge — the heaviest
       // use of the "opposing nulls" refusal.
       {.name = "lotusEdge",
        .picture = {"...", "...", "..."},
@@ -246,7 +252,7 @@ std::vector<Case> allCases() {
       {.name = "viewpoint",
        .picture = {"...", "...", "..."},
        .viewpoints = {{.x = 0, .y = 0, .value = 3}}},
-      // The whole cross of the centre square — the game's "maximal viewpoint",
+      // The whole cross of the center square — the game's "maximal viewpoint",
       // where every ray must be seen out to its end.
       {.name = "viewpointMax",
        .picture = {"...", "...", "..."},
@@ -295,7 +301,7 @@ std::vector<Case> allCases() {
       {.name = "galaxy",
        .picture = {"...", "...", "..."},
        .galaxies = {{.x = 1, .y = 1}}},
-      // Off-centre, so most of the board turns off an edge — the heaviest use
+      // Off-center, so most of the board turns off an edge — the heaviest use
       // of the opposing-nulls refusal, the lotusEdge of the half turn.
       {.name = "galaxyEdge",
        .picture = {"...", "...", "..."},
@@ -318,16 +324,16 @@ std::vector<Case> allCases() {
        .picture = {"...", "...", "..."},
        .merges = {{{1, 0}, {2, 0}}},
        .galaxies = {{.x = 0, .y = 0}}},
-      // The own-cell mirror off the board: every colouring fuses the cell into
+      // The own-cell mirror off the board: every coloring fuses the cell into
       // the galaxy's region and its far square turns past the edge, so brute
       // force must count zero solutions and the engine must agree.
       {.name = "galaxyOffCell",
        .picture = {"..."},
        .merges = {{{0, 0}, {1, 0}}},
        .galaxies = {{.x = 0, .y = 0}}},
-      // SEATED galaxies: the centre on a grid line or a corner, where the turn
-      // carries a SIGN and may INVERT colour. The propagator reads that sign
-      // off the squares around the centre and folds every region touching it,
+      // SEATED galaxies: the center on a grid line or a corner, where the turn
+      // carries a SIGN and may INVERT color. The propagator reads that sign
+      // off the squares around the center and folds every region touching it,
       // so a sign taken too eagerly — or a region left unwalked — removes real
       // solutions that only this suite can see.
       {.name = "galaxySeam",
@@ -336,7 +342,7 @@ std::vector<Case> allCases() {
       {.name = "galaxyCorner",
        .picture = {"...", "...", "..."},
        .galaxies = {{.x = 0, .y = 0, .seat = 3}}},
-      // A seam centred so the turn maps the whole board onto itself, which is
+      // A seam centered so the turn maps the whole board onto itself, which is
       // where an inverting sign has the most to say.
       {.name = "galaxyFold",
        .picture = {"..", "..", "..", ".."},
@@ -416,8 +422,8 @@ std::vector<Case> allCases() {
       {.name = "areaFourDark", .rules = {AreaFourDark}},
       {.name = "areaFourBoth", .rules = {AreaFourDark, AreaFourLight}},
       {.name = "areaFourAndConnect", .rules = {AreaFourDark, ConnectLight}},
-      // Both sizes on one colour: legal, and satisfied exactly where that
-      // colour is absent. Worth enumerating precisely because it looks like a
+      // Both sizes on one color: legal, and satisfied exactly where that
+      // color is absent. Worth enumerating precisely because it looks like a
       // contradiction and is not.
       {.name = "areaTwoAndFourDark", .rules = {AreaTwoDark, AreaFourDark}},
       // Area FIVE: the same walk as four, at the first size whose implied run
@@ -427,11 +433,11 @@ std::vector<Case> allCases() {
       {.name = "areaFiveBoth", .rules = {AreaFiveDark, AreaFiveLight}},
       {.name = "areaFiveAndConnect", .rules = {AreaFiveDark, ConnectLight}},
       {.name = "areaFiveAndRun3", .rules = {AreaFiveDark, NoDark1x3}},
-      // The mixed-colour triples and the T — the first table rules to name
-      // both colours since the checkerboard, and the first with a subsumption
+      // The mixed-color triples and the T — the first table rules to name
+      // both colors since the checkerboard, and the first with a subsumption
       // of their own. `tWithRun3` and `tWithAreaTwo` are the subsumed cases:
       // the T patterns are dropped there, and brute force is what proves that
-      // dropping them removed no colouring a full table would have kept.
+      // dropping them removed no coloring a full table would have kept.
       {.name = "noDLD", .rules = {NoDarkLightDark}},
       {.name = "bothTriples", .rules = {NoDarkLightDark, NoLightDarkLight}},
       {.name = "tripleAndConnect", .rules = {NoDarkLightDark, ConnectDark}},
@@ -441,7 +447,7 @@ std::vector<Case> allCases() {
       {.name = "tWithAreaTwo", .rules = {NoDarkT, AreaTwoDark}},
       {.name = "teeAndTriple", .rules = {NoDarkT, NoLightDarkLight}},
       // The 3+1 rules and the three subsumptions each has to prove sound: a
-      // pair rule, an area of exactly two and the colour's diagonal rule all
+      // pair rule, an area of exactly two and the color's diagonal rule all
       // drop the 3+1 instances. `threeOneWithAreaThree` is the near-miss where
       // dropping would be WRONG — an area of three lays out no trominoes, and
       // a bent dark region of three with the odd corner light is legal
@@ -458,8 +464,8 @@ std::vector<Case> allCases() {
        .rules = {NoThreeDarkOneLight, NoDarkDiagonal}},
       // The diagonal rules, whose two-cell clauses subsume the square, the T,
       // the bent trominoes and the checkerboard — each pairing proves its drop
-      // kept every colouring, and the lightSquare one that the drop stays on
-      // its own colour. `diagonalAndConnect` is the shape the rule plays in
+      // kept every coloring, and the lightSquare one that the drop stays on
+      // its own color. `diagonalAndConnect` is the shape the rule plays in
       // the game: straight bars that must also form one region.
       {.name = "diagonalDark", .rules = {NoDarkDiagonal}},
       {.name = "diagonalBoth", .rules = {NoDarkDiagonal, NoLightDiagonal}},
@@ -487,7 +493,7 @@ std::vector<Case> allCases() {
       {.name = "elbowWithDiagonal", .rules = {NoDarkElbow, NoDarkDiagonal}},
       {.name = "elbowWithPair", .rules = {NoDarkElbow, NoDark1x2}},
       // The L rules: both handednesses compiled, and every gate proved to
-      // keep all the colourings a full table would — the area-four pairing is
+      // keep all the colorings a full table would — the area-four pairing is
       // the near-miss where an L-shaped region of four is legal.
       {.name = "ellDark", .rules = {NoDarkEll}},
       {.name = "ellBoth", .rules = {NoDarkEll, NoLightEll}},
@@ -537,9 +543,9 @@ std::vector<Case> allCases() {
       {.name = "mixedElbowWithChecker",
        .rules = {NoDarkLightDarkElbow, NoCheckerboard}},
       // The larger areas. Six is the first size whose implied run of seven
-      // fits only the wide7 board; twenty-four degenerates to "the colour is
+      // fits only the wide7 board; twenty-four degenerates to "the color is
       // absent" on every board here, and BOTH at twenty-four is unsolvable
-      // everywhere — every cell needs a colour — which is exactly worth
+      // everywhere — every cell needs a color — which is exactly worth
       // sweeping because it looks like a special case and is not one.
       {.name = "areaSixDark", .rules = {AreaSixDark}},
       {.name = "areaSixBoth", .rules = {AreaSixDark, AreaSixLight}},
@@ -565,10 +571,10 @@ std::vector<Case> allCases() {
        .rules = {NoDarkElbow, ConnectDark, ConnectLight}},
       {.name = "teeAndConnectBoth",
        .rules = {NoDarkT, ConnectDark, ConnectLight}},
-      // Area ONE — the size the v1 catalogue never had, and the reason
+      // Area ONE — the size the v1 catalog never had, and the reason
       // `regionArea` grew a gate: its isolated-singleton sweep would exclude
       // the very shape this rule wants, and ONLY brute force can tell that
-      // over-pruning from correct propagation. Both colours at once forces a
+      // over-pruning from correct propagation. Both colors at once forces a
       // perfect checkerboard on an open board — two solutions, an empty
       // forced set — and on the `givens` board it is unsolvable outright,
       // its two given corners sharing a parity class. The connect pairing
@@ -584,8 +590,8 @@ std::vector<Case> allCases() {
       // value. Only the wide7 board can even instantiate it; everywhere else
       // it must be a proven no-op, which is exactly a referee's question.
       {.name = "runSixDark", .runs = {{.color = kDark, .value = 6}}},
-      // An area-one/area-two mix on ONE colour: satisfied only where dark is
-      // absent, like every same-colour pair, but reached through the area-one
+      // An area-one/area-two mix on ONE color: satisfied only where dark is
+      // absent, like every same-color pair, but reached through the area-one
       // gate rather than around it.
       {.name = "areaOneAndTwoDark",
        .areas = {{.color = kDark, .value = 1}, {.color = kDark, .value = 2}}},
@@ -622,17 +628,66 @@ std::vector<Case> allCases() {
        .areas = {{.color = kDark, .value = 1}}},
       {.name = "distinctAndSameDark",
        .rules = {DistinctShapesDark, SameShapeDark}},
+      // The drawn patterns. `Verify` gates every complete answer, so the thing
+      // brute force is here for is the SWEEP: `profile::applicable` admits a
+      // board carrying these, and `planPatterns` has to compile them in.
+      // Miss that and the sweep walks a superset of the solutions and reports
+      // the cells they disagree about as PROVEN, which nothing else catches.
+      //
+      // A 2x2 drawn as a pattern, which is also the shape the smallest built-in
+      // rule names — so this is the pair where a drawn clause and a rule clause
+      // both fire, and neither may prune what the other does not.
+      {.name = "drawnSquare",
+       .patterns = {test::pattern({"DD", "DD"})}},
+      {.name = "drawnSquareAndRule",
+       .rules = {NoDark2x2},
+       .patterns = {test::pattern({"DD", "DD"})}},
+      // Connect is the sweep's other admitted rule, and the combination is
+      // what a real underclued board looks like.
+      {.name = "drawnSquareAndConnect",
+       .rules = {ConnectDark},
+       .patterns = {test::pattern({"DD", "DD"})}},
+      {.name = "drawnSquareUnderclued",
+       .rules = {Underclued},
+       .patterns = {test::pattern({"DD", "DD"})}},
+      // An area instance makes `applicable` DECLINE, so this pair checks the
+      // search path with a pattern the sweep never sees.
+      {.name = "drawnSquareAndAreaTwo",
+       .areas = {{.color = kDark, .value = 2}},
+       .patterns = {test::pattern({"DD", "DD"})}},
+      // Two colors in one shape, which only a drawn pattern can state now
+      // that the mixed elbow is retired — and the shape the migration writes
+      // for rule 51, so this is that rule refereed by brute force.
+      {.name = "drawnMixedElbow", .patterns = {test::pattern({"LD", "D."})}},
+      // A square the pattern does NOT name, between two it does: the clause
+      // has to fire across it, gap or no gap.
+      {.name = "drawnKnight",
+       .patterns = {test::pattern({"D.", "..", ".D"})}},
+      // Two patterns at once, in canonical order, and of different colors.
+      {.name = "drawnTwo",
+       .patterns = {test::pattern({"D.", ".D"}),
+                    test::pattern({"L.", "..", ".L"})}},
+      // Three rows tall on a three-wide board, so the arrangement reaches
+      // further back than the frontier holds and `planOf` has to decline the
+      // sweep rather than read a truncated distance.
+      {.name = "drawnTall",
+       .patterns = {test::pattern({"D..", "...", "..D"})}},
+      // A pattern naming ONE square: "no dark cell at all". Degenerate but
+      // legal, and the unit clause is the sharpest thing the propagator does.
+      {.name = "drawnSingle", .patterns = {test::pattern({"D"})}},
   };
 
   std::vector<Case> cases;
   for (const auto &[boardName, picture, merges, darts, lotuses, viewpoints,
                     galaxies] : boards) {
-    for (const auto &[ruleSetName, ruleList, areaList, runList] : ruleSets)
+    for (const auto &[ruleSetName, ruleList, areaList, runList, patternList] :
+         ruleSets)
       cases.push_back({.name = std::string(boardName) + "_" + ruleSetName,
                        .picture = picture,
                        .rules = ruleList,
                        .areas = areaList,
                        .runs = runList,
+                       .patterns = patternList,
                        .merges = merges,
                        .darts = darts,
                        .lotuses = lotuses,
@@ -653,10 +708,14 @@ Puzzle puzzleFor(const Case &one) {
     legacy |= rules::bit(rule);
   // Named apart from `one.areas`/`one.runs`, which are the DIRECT instances
   // layered on next and mean something else.
-  auto [splitFlags, splitAreas, splitRuns] = rules::splitLegacyMask(legacy);
+  auto [splitFlags, splitAreas, splitRuns, splitPatterns] =
+      rules::splitLegacyMask(legacy);
   Puzzle puzzle = test::board(one.picture, splitFlags);
   puzzle.areas = std::move(splitAreas);
   puzzle.runs = std::move(splitRuns);
+  puzzle.patterns = std::move(splitPatterns);
+  for (const rules::DrawnPattern &drawn : one.patterns)
+    test::withPattern(puzzle, drawn);
   for (const auto &[color, value] : one.areas)
     test::withAreaRule(puzzle, color, value);
   for (const auto &[color, value] : one.runs)
@@ -756,11 +815,11 @@ INSTANTIATE_TEST_SUITE_P(
  * Brute force is only a net if it enumerates the same space the engine does.
  * It now enumerates one bit per CELL, which is a claim about `representatives`
  * and `cellMask` — so pin that claim against something that knows only about
- * squares: sweep every colouring of the SQUARES, keep the ones the oracle
+ * squares: sweep every coloring of the SQUARES, keep the ones the oracle
  * accepts, and the survivors must be exactly what `enumerate` produced.
  *
  * This is what makes `Verify::fusedProblem` and `Model::cellMask` mutually
- * load-bearing. Drop the oracle check and the square sweep finds colourings
+ * load-bearing. Drop the oracle check and the square sweep finds colorings
  * that split a cell; get `cellMask` wrong and the two counts part company.
  */
 TEST(Reference, CellEnumerationMatchesSquareEnumeration) {

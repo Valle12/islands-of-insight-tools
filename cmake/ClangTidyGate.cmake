@@ -30,7 +30,7 @@
 #   * The executable is looked up rather than assumed. Plain `clang-tidy` is
 #     not on PATH on this machine; CLion ships one, so search there too.
 #   * It is a no-op under the Visual Studio generator (verified: CMake only
-#     honours CXX_CLANG_TIDY for Makefile and Ninja). The VS-generator build
+#     honors CXX_CLANG_TIDY for Makefile and Ninja). The VS-generator build
 #     dirs therefore report that rather than pretending to run.
 #   * The found binary is asked to validate .clang-tidy first, and /EHsc is
 #     re-supplied on MSVC. See the two comments in the branches below.

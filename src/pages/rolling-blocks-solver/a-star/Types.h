@@ -20,7 +20,7 @@ inline uint16_t positionToIndex(const int8_t x, const int8_t y,
   return static_cast<uint16_t>(x + y * gridWidth);
 }
 
-// Visit a cell's 4-neighbourhood, clipped to the grid — the one copy of the
+// Visit a cell's 4-neighborhood, clipped to the grid — the one copy of the
 // dx/dy boilerplate every board scan otherwise re-spells.
 template <typename Visit>
 void forEachNeighbor(const int width, const int height, const uint16_t idx,

@@ -142,7 +142,7 @@ size_t countSteps(const std::vector<Turn> &turns) {
 //
 // std::atoi reports nothing — a typo'd or out-of-range value silently
 // becomes 0, and the run then measures something other than what the sweep
-// asked for while still looking like it honoured the variable. Every knob
+// asked for while still looking like it honored the variable. Every knob
 // below goes through this instead, and a malformed value fails the test
 // rather than quietly changing the configuration.
 uint32_t envU32(const char *name, const uint32_t fallback) {

@@ -65,7 +65,7 @@ describe("configFile", () => {
     });
   });
 
-  test("downloadJson serialises pretty-printed and names the file", async () => {
+  test("downloadJson serializes pretty-printed and names the file", async () => {
     const blobs: Blob[] = [];
     spyOn(URL, "createObjectURL").mockImplementation((blob: Blob) => {
       blobs.push(blob);

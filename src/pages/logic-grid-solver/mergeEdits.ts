@@ -55,7 +55,7 @@ export function mergeSquare(
   layers.shapes.normalize(from);
   // Only once the target really holds two squares. A single click claims one
   // square into a cell that `finishMerge` then dissolves again, so clearing
-  // here would cost that square its colour and its clue and merge nothing.
+  // here would cost that square its color and its clue and merge nothing.
   // The first real growth step still clears both, because `touched` already
   // carries the target's existing members.
   if (layers.shapes.squaresOf(target).length > 1) clearSquares(host, touched);
@@ -74,13 +74,13 @@ export function finishMerge(host: BoardEdits, target: number, origin: number) {
  * The keyboard's merge gesture: joins this square to the cell beside it — the
  * one to its left, or the one above when there is nothing to the left.
  *
- * A keystroke carries no drag, so it takes a fixed neighbour rather than
+ * A keystroke carries no drag, so it takes a fixed neighbor rather than
  * asking for a direction: the square to the LEFT, or the one ABOVE when there
  * is nothing to the left. Walking a shape and pressing Enter on each square
  * builds any polyomino a pointer could, which is what keeps this tool from
  * being pointer-only — and Backspace takes one back out again.
  */
-export function mergeWithNeighbour(host: BoardEdits, position: Position) {
+export function mergeWithNeighbor(host: BoardEdits, position: Position) {
   const { layers } = host;
   if (!isPlayable(layers.colorAt(position))) return;
   const candidates = [
@@ -114,9 +114,9 @@ export function splitSquare(host: BoardEdits, position: Position) {
 }
 
 /**
- * Everything a merge or a split touched goes back to uncoloured and unclued.
+ * Everything a merge or a split touched goes back to uncolored and unclued.
  *
- * A merged cell holds ONE colour and at most one clue, and the squares coming
+ * A merged cell holds ONE color and at most one clue, and the squares coming
  * together may disagree about both — picking a winner would be a rule nobody
  * could predict from looking at the board. So restructuring clears, and the
  * cell is painted again afterwards.

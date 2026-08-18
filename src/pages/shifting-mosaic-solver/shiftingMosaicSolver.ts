@@ -82,7 +82,7 @@ export class ShiftingMosaicSolverEditor {
   private readonly board: Board;
   private currentWorker: SolverHandle | null = null;
   // Bumped by stopCurrentWorker, captured by each solve. A callback whose
-  // generation is stale belongs to a run the user has already cancelled or
+  // generation is stale belongs to a run the user has already canceled or
   // replaced, and must touch neither the DOM nor currentWorker — nulling the
   // field would orphan the CANCEL path of the run that superseded it.
   private solveGeneration = 0;

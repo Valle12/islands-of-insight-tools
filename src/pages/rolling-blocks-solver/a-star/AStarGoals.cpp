@@ -77,7 +77,7 @@ AStar::groupedMustTouchHeuristic(const std::vector<Block> &blocks,
 // meaningless under the canonical encoding, where physically interchangeable
 // blocks trade identities freely between states; a plain per-cluster minimum
 // let one block "cover" several clusters and blew up goal-bearing fixtures
-// five-fold; a greedy claim in cluster order oscillated between neighbouring
+// five-fold; a greedy claim in cluster order oscillated between neighboring
 // states and was far worse. The optimal matching is the strongest bound of
 // this family AND permutation-symmetric. Subset DP over clusters: dp[S] =
 // cheapest way to serve cluster set S with the blocks seen so far.
@@ -100,7 +100,7 @@ uint32_t AStar::goalDistanceHeuristic(const std::vector<Block> &blocks) {
     relaxMatchingWithBlock(block, numClusters, kInf);
   }
   // The best over all subsets of maximal size that are actually assignable:
-  // clusters no block fits contribute nothing, matching the old behaviour of
+  // clusters no block fits contribute nothing, matching the old behavior of
   // simply leaving them unassigned.
   if (matchDp_[full] < kInf) {
     return static_cast<uint32_t>(matchDp_[full]);

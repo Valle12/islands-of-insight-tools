@@ -23,14 +23,14 @@ import type { MatchThreeTest } from "../../src/util/types";
  * what it does with each kind of answer.
  */
 const searches: { config: MatchThreeTest; handlers: SolveHandlers }[] = [];
-let cancelled = 0;
+let canceled = 0;
 
 mock.module("../../src/pages/match-three-solver/solveClient", () => ({
   searchMatchThree: (config: MatchThreeTest, handlers: SolveHandlers) => {
     searches.push({ config, handlers });
     return {
       cancel: () => {
-        cancelled++;
+        canceled++;
       },
     };
   },
@@ -167,7 +167,7 @@ describe("MatchThreeSolverEditor", () => {
       dialog.open = false;
     };
     searches.length = 0;
-    cancelled = 0;
+    canceled = 0;
     editor = new MatchThreeSolverEditor();
   });
 
@@ -430,9 +430,9 @@ describe("MatchThreeSolverEditor", () => {
       solve();
       byId("solution-cancel").click();
 
-      expect(cancelled).toBe(1);
+      expect(canceled).toBe(1);
       expect(hidden("solution-spinner")).toBeTrue();
-      expect(byId("solution-status").textContent).toBe("Cancelled");
+      expect(byId("solution-status").textContent).toBe("Canceled");
     });
 
     test("the first streamed solution ends the search and opens the viewer", () => {
@@ -440,10 +440,10 @@ describe("MatchThreeSolverEditor", () => {
       solve();
       expect(hidden("solution-view")).toBeTrue();
 
-      // This is the whole behaviour: no second thought, no button to press.
+      // This is the whole behavior: no second thought, no button to press.
       lastSearch().handlers.onBest?.([THE_MOVE]);
 
-      expect(cancelled).toBe(1);
+      expect(canceled).toBe(1);
       expect(hidden("solution-view")).toBeFalse();
       expect(hidden("editor-section")).toBeTrue();
       expect(byId("solution-step-counter").textContent).toBe("Step 1 of 1");
@@ -456,8 +456,8 @@ describe("MatchThreeSolverEditor", () => {
 
       byId("solution-cancel").click();
 
-      expect(cancelled).toBe(1);
-      expect(byId("solution-status").textContent).toBe("Cancelled");
+      expect(canceled).toBe(1);
+      expect(byId("solution-status").textContent).toBe("Canceled");
       expect(hidden("solution-view")).toBeTrue();
     });
 
@@ -477,7 +477,7 @@ describe("MatchThreeSolverEditor", () => {
 
       expect(byId("solution-status").textContent).not.toBe("No solution");
       expect(hidden("solution-panel")).toBeTrue();
-      expect(cancelled).toBe(1);
+      expect(canceled).toBe(1);
     });
 
     test("a best from a board that has moved on is dropped too", () => {
@@ -521,7 +521,7 @@ describe("MatchThreeSolverEditor", () => {
       expect(blockedChip().classList.contains("selected")).toBeTrue();
     });
 
-    test("cancelling leaves the board alone", () => {
+    test("canceling leaves the board alone", () => {
       paint(0, 0);
       toolButton("reset").click();
       byId("reset-cancel").click();

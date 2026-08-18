@@ -37,7 +37,7 @@ struct NodeKey {
   // InlineCapacity, and every move resets len to 0 along with the pointer, so
   // `len > InlineCapacity` implies `heapData != nullptr`. Assert it rather
   // than leave it implicit: callers index the result straight away, and a
-  // reader (human or analyser) cannot otherwise tell this never returns null.
+  // reader (human or analyzer) cannot otherwise tell this never returns null.
   uint16_t *data() {
     if (len <= InlineCapacity)
       return inlineData.data();

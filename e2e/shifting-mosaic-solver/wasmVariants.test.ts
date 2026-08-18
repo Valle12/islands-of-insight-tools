@@ -181,7 +181,7 @@ test.describe("Shifting Mosaic wasm variants", () => {
     // This case only fetches a static asset and has no use for isolation, but
     // it still has to wait for the shim's reload: the page reloads regardless
     // of what the test wants, and the page.evaluate below was being destroyed
-    // by it. A plain goto here was an intermittent failure, not an optimisation.
+    // by it. A plain goto here was an intermittent failure, not an optimization.
     await gotoIsolated(page);
     // The threaded builds IMPORT their memory, so the ceiling lives in the JS
     // glue rather than the wasm memory section — asserting on the descriptor is

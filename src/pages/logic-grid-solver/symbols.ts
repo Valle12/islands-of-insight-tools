@@ -16,7 +16,7 @@ export type LogicGridAims = "none" | "compass" | "axis";
  * Where a clue's own POINT may sit, and therefore whether it carries a `seat`
  * key at all.
  *
- * `"none"` is the square's centre and nothing else — the only point a clue
+ * `"none"` is the square's center and nothing else — the only point a clue
  * with no geometry of its own has. `"cell"` is the lotus: the grid lines and
  * corners INSIDE its own merged cell, because its axis has to be a line the
  * tile itself draws. `"board"` is the galaxy: any line or corner of the board,
@@ -97,10 +97,10 @@ export const GALAXY_ICON = "cyclone";
  * needs no migration: a saved puzzle simply never mentions the indices it does
  * not use.
  *
- * A clue has no colour of its own. It takes the colour of the cell it sits on,
- * so a clue on an `UNKNOWN` cell is exactly the game's colourless clue. The
- * dart leans on that hardest: what it counts is the OTHER colour, so until its
- * own cell is decided the clue does not yet say which colour it is counting.
+ * A clue has no color of its own. It takes the color of the cell it sits on,
+ * so a clue on an `UNKNOWN` cell is exactly the game's colorless clue. The
+ * dart leans on that hardest: what it counts is the OTHER color, so until its
+ * own cell is decided the clue does not yet say which color it is counting.
  */
 export const SYMBOL_KINDS: readonly LogicGridSymbolKind[] = [
   {
@@ -133,7 +133,7 @@ export const SYMBOL_KINDS: readonly LogicGridSymbolKind[] = [
     sample: "3",
     valueKind: "number",
     // Zero is a real dart: it says every square that way holds the dart's own
-    // colour, which is one of the two cases that fill in immediately.
+    // color, which is one of the two cases that fill in immediately.
     minValue: 0,
     aims: "compass",
     seating: "none",
@@ -186,8 +186,8 @@ export const SYMBOL_KINDS: readonly LogicGridSymbolKind[] = [
     valueKind: "none",
     minValue: 0,
     aims: "none",
-    // The centre of 180-degree rotational symmetry, and it may sit anywhere a
-    // point of the board can: a square's centre, the midpoint of an edge, or a
+    // The center of 180-degree rotational symmetry, and it may sit anywhere a
+    // point of the board can: a square's center, the midpoint of an edge, or a
     // corner where four squares meet. Unlike the lotus's it needs no merged
     // cell under it — an axis is a LINE a tile has to draw, while a half turn
     // needs nothing to hold its point up.
@@ -313,7 +313,7 @@ export function axisIndex(id: string | undefined): number {
 
 /** Whether an axis index names one of the two diagonal strokes — the pair a
  * grid-line seat cannot carry, since their reflection would land on square
- * corners. Resolved through the catalogue like everything else here. */
+ * corners. Resolved through the catalog like everything else here. */
 export function isDiagonalAxis(index: number | undefined): boolean {
   return (
     index === axisIndex("diagonal-down") || index === axisIndex("diagonal-up")
@@ -322,8 +322,8 @@ export function isDiagonalAxis(index: number | undefined): boolean {
 
 /**
  * A lotus's SEAT: where inside its merged cell the axis point sits, as two
- * half-square offsets from its home square's centre — bit 0 half a square
- * right, bit 1 half a square down. 0 is the centre itself (and is OMITTED
+ * half-square offsets from its home square's center — bit 0 half a square
+ * right, bit 1 half a square down. 0 is the center itself (and is OMITTED
  * from the config, like a missing `direction`); 1 and 2 are the midpoints of
  * the edges to the right and below; 3 is a corner where squares meet.
  */

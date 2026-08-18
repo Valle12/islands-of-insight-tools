@@ -268,7 +268,7 @@ bool DragSolver::blockIsParked(const uint8_t i, const Position from,
   // count to 5 bits today, but a compiler that folded the shift to 0 would
   // silently skip every block with index >= 32. `por` additionally implies
   // shapes_.size() <= 32, so it can never be true for i >= 32 and sharing the
-  // one guard leaves its behaviour unchanged.
+  // one guard leaves its behavior unchanged.
   if (i < 32) {
     if (!(relevantMask >> i & 1u))
       return true; // relevance-filtered

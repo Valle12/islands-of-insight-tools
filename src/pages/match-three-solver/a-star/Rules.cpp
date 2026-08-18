@@ -289,7 +289,7 @@ bool applyMove(const Board &from, const Move &move, Board &into, Mask &mask,
     return false;
   const int aIndex = move.ay * width + move.ax;
   const int bIndex = move.by * width + move.bx;
-  // b has to be a's right or down neighbour — the only two directions a move
+  // b has to be a's right or down neighbor — the only two directions a move
   // is ever expressed in.
   if (const bool adjacent = (bIndex == aIndex + 1 && move.by == move.ay) ||
                             bIndex == aIndex + width;

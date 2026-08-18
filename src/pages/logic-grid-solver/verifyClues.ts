@@ -27,7 +27,7 @@ import {
 } from "./verifyCore";
 
 /**
- * Every dart counts the squares of the OTHER colour along its own line.
+ * Every dart counts the squares of the OTHER color along its own line.
  *
  * The line runs from the dart's square to the edge of the board, and a gap in
  * the board is stepped over rather than stopping it — a dart sees past a hole
@@ -39,7 +39,7 @@ import {
  * place that says out loud where a dart's line runs, so a solver that built the
  * line wrongly has something to disagree with. The dart's own cell needs no
  * special case for the same reason it needs none in the search — every square
- * of it holds the dart's own colour, so none of them is ever the other one.
+ * of it holds the dart's own color, so none of them is ever the other one.
  */
 function dartProblem(
   config: LogicGridTest,
@@ -67,12 +67,12 @@ function dartProblem(
 
 /**
  * Every viewpoint counts the squares it can SEE: its own square, plus the
- * leading run of its own colour along each of the four directions. Sight
- * stops at the first square of the other colour, at a gap — unlike a dart's
+ * leading run of its own color along each of the four directions. Sight
+ * stops at the first square of the other color, at a gap — unlike a dart's
  * line, which steps over one — and at the edge of the board. Squares are
  * counted one at a time, so a merged cell contributes exactly the squares the
  * sight crosses, wherever the rest of it lies; its own cell's squares count
- * like any others, being the counted colour by definition.
+ * like any others, being the counted color by definition.
  *
  * Walked from the clue like everything in this file: this is the one place
  * that says out loud what a viewpoint sees, so a solver that built its rays
@@ -108,14 +108,14 @@ function viewpointProblem(
   return "none";
 }
 
-/** The colour a turn hands back where it INVERTS. Only ever asked of a real
- * colour: an unplayable square is dropped before this is reached. */
+/** The color a turn hands back where it INVERTS. Only ever asked of a real
+ * color: an unplayable square is dropped before this is reached. */
 function otherColor(color: number): number {
   return color === DARK ? LIGHT : DARK;
 }
 
 /** Where the square (x, y) lands under a half turn about the DOUBLED point
- * (cx2, cy2) — doubled so a centre on a grid line stays an integer, exactly
+ * (cx2, cy2) — doubled so a center on a grid line stays an integer, exactly
  * as `mirrorOf` needs it for an axis. */
 function halfTurnOf(
   cx2: number,
@@ -127,8 +127,8 @@ function halfTurnOf(
 }
 
 /**
- * The playable squares touching a galaxy's centre: one at a square's own
- * centre, two on a grid line, four at a corner. This IS the scope of the rule
+ * The playable squares touching a galaxy's center: one at a square's own
+ * center, two on a grid line, four at a corner. This IS the scope of the rule
  * — every region holding one of them is turned — and each of them is its own
  * partner's mirror, which is what pins the sign.
  */
@@ -144,7 +144,7 @@ function seatSquares(
     for (let dx = 0; dx <= (seat & 1); dx++) {
       const [sx, sy] = [x + dx, y + dy];
       if (sx >= config.gridWidth || sy >= config.gridHeight) continue;
-      // An unplayable square is in no region and holds no colour, so it takes
+      // An unplayable square is in no region and holds no color, so it takes
       // no part. Its PARTNER, if playable, still demands a mirror it cannot
       // have — which that partner's own walk reports.
       if (at(config, cells, sx, sy) === UNPLAYABLE) continue;
@@ -155,13 +155,13 @@ function seatSquares(
 }
 
 /**
- * Which way the turn takes colour, read off the clue's own square and its
+ * Which way the turn takes color, read off the clue's own square and its
  * image: `false` where it preserves, `true` where it inverts, and null where
  * the clue's square cannot turn at all — off the board or onto a gap, either
- * of which no colouring survives.
+ * of which no coloring survives.
  *
  * The pair always exists: the clue's square is playable, and its image is a
- * square touching the centre too. At seat 0 the square IS its own image, so
+ * square touching the center too. At seat 0 the square IS its own image, so
  * the answer can only be `false` — which is why the seatless galaxy is the
  * special case rather than the rule.
  */
@@ -182,9 +182,9 @@ function turnSign(
 }
 
 /**
- * Whether the region holding `start` turns onto a region of the right colour:
- * every square's image on the board, playable, and holding `start`'s colour —
- * or the OTHER colour where the turn inverts. The lotus's `regionMirrors` for
+ * Whether the region holding `start` turns onto a region of the right color:
+ * every square's image on the board, playable, and holding `start`'s color —
+ * or the OTHER color where the turn inverts. The lotus's `regionMirrors` for
  * the half turn, and split out for its reason.
  */
 function regionTurns(
@@ -213,17 +213,17 @@ function regionTurns(
 
 /**
  * Every galaxy's regions map onto one another under a HALF TURN about its
- * centre, which may be a square's own centre, a grid line or a corner.
+ * center, which may be a square's own center, a grid line or a corner.
  *
- * The turn carries a SIGN. With the centre on a square, that square is its own
- * mirror, so the sign can only preserve colour and the rule is what it always
- * was. With the centre between squares of DIFFERENT colours, the turn inverts:
- * every cell's mirror holds the opposite colour, so the dark region and the
- * light region touching the centre are each other's image. The sign is read
+ * The turn carries a SIGN. With the center on a square, that square is its own
+ * mirror, so the sign can only preserve color and the rule is what it always
+ * was. With the center between squares of DIFFERENT colors, the turn inverts:
+ * every cell's mirror holds the opposite color, so the dark region and the
+ * light region touching the center are each other's image. The sign is read
  * off the home square and its partner, which always exist — the home square is
  * playable, and its partner is a seat square too.
  *
- * Scope is every region touching the centre, and walking all of them is
+ * Scope is every region touching the center, and walking all of them is
  * load-bearing rather than thorough: the turn is an involution, so one
  * region's image LIES IN the other, but the other may reach further, and only
  * its own walk says so.
@@ -281,7 +281,7 @@ function lotusReadable(axis: number, seat: number): boolean {
 }
 
 /** Whether the region holding `start` maps to itself across the axis through
- * the doubled point: every square's mirror on the board and the same colour. */
+ * the doubled point: every square's mirror on the board and the same color. */
 function regionMirrors(
   config: LogicGridTest,
   cells: number[],
@@ -308,8 +308,8 @@ function regionMirrors(
 
 /**
  * Every symmetry symbol's region maps to itself across the symbol's axis: the
- * mirror of each square of the connected same-colour region holding it must
- * be on the board, playable, and the same colour — which by the region's
+ * mirror of each square of the connected same-color region holding it must
+ * be on the board, playable, and the same color — which by the region's
  * maximality puts the mirror in the region too. The geometry is worked out
  * from the clue alone, mirroring `lotusProblem` in `a-star/Verify.cpp`; this
  * file shares nothing with the solver on purpose.

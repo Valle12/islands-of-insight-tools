@@ -182,7 +182,7 @@ bool DragSolver::dragBudgetExhausted(const uint64_t deadline,
                                      const bool verbose) {
   if (cfg_.stop.cancel && cfg_.stop.cancel->load(std::memory_order_relaxed)) {
     if (verbose)
-      std::cout << "DragSolver cancelled after " << nodesExpanded
+      std::cout << "DragSolver canceled after " << nodesExpanded
                 << " drag expansions\n";
     return true;
   }
@@ -204,7 +204,7 @@ bool DragSolver::dragBudgetExhausted(const uint64_t deadline,
   // Last-resort abort tripwire — see the twin in AStarSearch.cpp. Wasm-only
   // by #if rather than `if constexpr`: natively nearHeapLimit() is
   // `return false;`, so the guarded block really is dead code there and
-  // `if constexpr` did not stop the analyser saying so.
+  // `if constexpr` did not stop the analyzer saying so.
 #if defined(__EMSCRIPTEN__)
   if (memprobe::nearHeapLimit()) {
     // Independent of maxHeapBytes: an aborting module takes every other arm

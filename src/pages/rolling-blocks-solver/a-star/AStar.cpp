@@ -102,7 +102,7 @@ NodeKey AStar::encodeRecords(const std::vector<Block> &blocks) {
 NodeKey AStar::encodeState(const std::vector<Block> &blocks,
                            const boost::dynamic_bitset<> &mustTouchCells) {
   NodeKey key = encodeRecords(blocks);
-  // The (zero-initialised) ordinal bit block follows the records.
+  // The (zero-initialized) ordinal bit block follows the records.
   uint8_t *d = key.data() + blocks.size() * 5;
   const size_t numOrdinals = cellOfOrdinal_.size();
   for (size_t k = 0; k < numOrdinals; k++) {
@@ -278,7 +278,7 @@ bool AStar::budgetExhausted(const uint64_t deadline,
     return true;
   }
 #if defined(__EMSCRIPTEN__)
-  // Off wasm nearHeapLimit() is a constant false; the guard keeps analysers
+  // Off wasm nearHeapLimit() is a constant false; the guard keeps analyzers
   // from (correctly) flagging the branch as dead code in native builds.
   if (memprobe::nearHeapLimit()) {
     stats_.stoppedOnMemory = true;

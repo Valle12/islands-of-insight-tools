@@ -141,7 +141,7 @@ describe("wireResetDialog", () => {
     expect(dialog().open).toBeFalse();
   });
 
-  test("cancelling closes without running the callback", () => {
+  test("canceling closes without running the callback", () => {
     const onConfirm = mock(() => {});
     wireResetDialog(onConfirm);
     openResetDialog();

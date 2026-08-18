@@ -1,11 +1,11 @@
-// The markup of the editor's two tool rows, and the catalogue lookups they
+// The markup of the editor's two tool rows, and the catalog lookups they
 // need.
 //
 // Split out of `logicGridSolver.ts` because none of it is about the editor:
-// every function here is PURE — catalogue plus board size in, a string out —
+// every function here is PURE — catalog plus board size in, a string out —
 // while the class around it is all DOM handles and selection state. Two rows'
 // worth of string building was a third of that file, and reading it meant
-// scrolling past markup to find the behaviour.
+// scrolling past markup to find the behavior.
 //
 // What is deliberately NOT here: anything that creates a live element or wires
 // a listener. The sized controls' slot fields are built, focused and dropped
@@ -14,11 +14,12 @@
 // is not this file. The label, the divider and the `+` are still written here,
 // because they are part of the row and never change.
 //
-// The row is a DISPLAY catalogue the config format never sees. Only
+// The row is a DISPLAY catalog the config format never sees. Only
 // `ruleRowMarkup` reads `RULE_ROW`; everything else in the page addresses chips
 // by id, so a test that indexes chips by DOM position is what this breaks.
 
-import type { LogicGridTool } from "../../util/types";
+import type { LogicGridPattern, LogicGridTool } from "../../util/types";
+import { colorId } from "./cell";
 import {
   RULE_ROW,
   RULES,
@@ -41,10 +42,10 @@ import {
 } from "./symbols";
 
 /**
- * A rule's position in the append-only catalogue, by its stable id.
+ * A rule's position in the append-only catalog, by its stable id.
  *
  * Resolved through a Map rather than `findIndex` per call: the rule row builds
- * every chip in the catalogue at once, and the row is rebuilt on every board
+ * every chip in the catalog at once, and the row is rebuilt on every board
  * replacement.
  */
 const RULE_INDEX_BY_ID = new Map(RULES.map((rule, index) => [rule.id, index]));
@@ -241,7 +242,7 @@ function singleRuleChip(id: string): string {
 
 /**
  * One segment of a folded pair: the same button a chip always was — same
- * classes, same data attributes, `aria-pressed` — wearing the colour as a
+ * classes, same data attributes, `aria-pressed` — wearing the color as a
  * SWATCH, the paint tools' own visual, and the full rule name as its accessible
  * one.
  */
@@ -258,7 +259,7 @@ function pairSegment(id: string, color: "dark" | "light"): string {
 
 /**
  * A dark/light pair as one control: a shared label and two INDEPENDENT
- * segments, so both colours can be on at once — exactly the two chips it
+ * segments, so both colors can be on at once — exactly the two chips it
  * replaces. The dark segment comes first, whatever the ids spell.
  */
 function rulePair(pair: RuleRowPair): string {
@@ -298,8 +299,80 @@ function ruleControl(entry: RuleRowEntry): string {
 }
 
 /**
+ * A drawn pattern's mini grid — the whole of what identifies it, since a
+ * pattern has no name.
+ *
+ * Only the squares it NAMES are painted; the rest are drawn as the holes they
+ * are, which is how the game shows its own rule icons. The box's dimensions
+ * ride as custom properties so the stylesheet lays the grid out rather than an
+ * inline `grid-template`.
+ */
+export function patternPreviewMarkup(pattern: LogicGridPattern): string {
+  const squares = pattern.cells
+    .map(square => `<span class="pattern-square" data-square="${colorId(square)}"></span>`)
+    .join("");
+  return `<span class="pattern-preview" aria-hidden="true"
+      style="--pattern-width: ${pattern.width}; --pattern-height: ${pattern.height}"
+    >${squares}</span>`;
+}
+
+/**
+ * One drawn pattern's chip: the preview, which toggles it for this board, and
+ * a delete affordance beside it.
+ *
+ * `key` is the pattern's canonical key — the same string two drawings of one
+ * shape share, which is why the library can hold only one of them. Neither
+ * button is a `.tool-button`: see `patternBandMarkup` on why that matters.
+ */
+export function patternChipMarkup(
+  pattern: LogicGridPattern,
+  key: string,
+  description: string,
+): string {
+  return `
+      <div class="pattern-chip" role="group" aria-label="${description}">
+        <button class="pattern-toggle" type="button"
+          data-pattern-key="${key}" aria-pressed="false"
+          title="${description}" aria-label="${description}"
+        >${patternPreviewMarkup(pattern)}</button>
+        <button class="pattern-delete" type="button"
+          data-pattern-key="${key}"
+          title="Delete this pattern" aria-label="Delete ${description}"
+        >×</button>
+      </div>
+    `;
+}
+
+/**
+ * The drawn patterns' end of the ARRANGEMENT band: the container the chips are
+ * appended into, and the `+` that opens the drawing dialog.
+ *
+ * They sit in Arrangement because that is what they are — a drawn shape says
+ * "this arrangement never occurs", the same sentence every other chip in that
+ * band says, and giving them a band of their own suggested a distinction the
+ * puzzle does not make. What stays true is that they come from the BOARD
+ * rather than from the catalog, so `RULE_ROW` still does not list them and
+ * `PatternControls` still owns everything inside `#pattern-chips`.
+ *
+ * The `+` is deliberately NOT a `.tool-button`, the same trick `.rule-size-add`
+ * plays: `#rule-row` already carries the editor's chip handler, and a third
+ * delegated listener on that row can only stay disjoint if its targets cannot
+ * match `.tool-button`.
+ */
+function patternEntriesMarkup(): string {
+  return `
+          <div id="pattern-chips" class="pattern-chips"></div>
+          <button class="rule-pattern-add" type="button"
+            title="Draw a forbidden pattern"
+            aria-label="Draw a new forbidden pattern"
+          >+</button>
+    `;
+}
+
+/**
  * The whole rule row: headed bands, each holding its chips, folded pairs and
- * sized controls. The caller fills the sized controls' slots afterwards.
+ * sized controls — with the drawn patterns closing the arrangement band. The
+ * caller fills the sized controls' slots and the pattern chips afterwards.
  */
 export function ruleRowMarkup(): string {
   return RULE_ROW.map(
@@ -308,7 +381,9 @@ export function ruleRowMarkup(): string {
         <h3 class="rule-band-heading">${band.heading}</h3>
         <div class="rule-band-chips tool-row">${band.entries
           .map(entry => ruleControl(entry))
-          .join("")}</div>
+          .join("")}${
+            band.band === "arrangement" ? patternEntriesMarkup() : ""
+          }</div>
       </section>
     `,
   ).join("");

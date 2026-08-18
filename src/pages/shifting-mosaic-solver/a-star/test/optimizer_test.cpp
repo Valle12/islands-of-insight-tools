@@ -225,7 +225,7 @@ TEST(Optimizer, LeavesAnOptimalSolutionUnchanged) {
 
 TEST(Optimizer, CrushesAHeavilyBloatedSolution) {
   using enum Direction;
-  // Goal block at (0,1) → (3,1); padded with two cancelling detours.
+  // Goal block at (0,1) → (3,1); padded with two canceling detours.
   const Puzzle p{.gridWidth = 6,
                  .gridHeight = 4,
                  .shapes = {{{.x = 0, .y = 0}}, {{.x = 0, .y = 0}}},

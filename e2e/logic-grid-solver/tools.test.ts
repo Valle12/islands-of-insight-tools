@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
 import { gotoIsolated, LOGIC_GRID_URL } from "../coi";
 
 // Every visit goes through gotoIsolated: this page registers the COOP/COEP
@@ -69,10 +70,10 @@ test.describe("Logic Grid Solver tools", () => {
     await expect(tool(page, "dark")).toHaveClass(/selected/);
   });
 
-  /** A row per kind of tool: what clears the board, what colours it, what clues it. */
+  /** A row per kind of tool: what clears the board, what colors it, what clues it. */
   test("groups the tools into rows by what they do", async ({ page }) => {
     await expect(page.locator("#command-row .tool-button")).toHaveCount(2);
-    // Four: the three colours plus merge, which also changes what the board is
+    // Four: the three colors plus merge, which also changes what the board is
     // rather than doing something to it once.
     await expect(page.locator("#color-row .tool-button")).toHaveCount(4);
     // `.symbol-chip` means "the clue KINDS". The dart's arrows and the
@@ -108,7 +109,7 @@ test.describe("Logic Grid Solver tools", () => {
     await expect(cellAt(page, 0, 0)).toHaveAttribute("data-color", "light");
   });
 
-  test("a drag paints one colour across the whole run", async ({ page }) => {
+  test("a drag paints one color across the whole run", async ({ page }) => {
     await dragRow(page, 2, 1, 4);
     for (let x = 1; x <= 4; x++) {
       await expect(cellAt(page, x, 2)).toHaveAttribute("data-color", "dark");
@@ -146,14 +147,14 @@ test.describe("Logic Grid Solver tools", () => {
     await expect(cellAt(page, 5, 5)).toHaveAttribute("data-color", "unplayable");
   });
 
-  test("clues sit on the colour rather than replacing it", async ({ page }) => {
+  test("clues sit on the color rather than replacing it", async ({ page }) => {
     await clueChip(page, "area").click();
     await page.getByRole("spinbutton", { name: "Area number value" }).fill("4");
     await cellAt(page, 2, 2).click();
     await expect(cellAt(page, 2, 2)).toHaveText("4");
     await expect(cellAt(page, 2, 2)).toHaveAttribute("data-symbol", "area");
 
-    // Colourless until the cell is coloured — which is the whole point.
+    // Colorless until the cell is colored — which is the whole point.
     await expect(cellAt(page, 2, 2)).toHaveAttribute("data-color", "unknown");
     await tool(page, "dark").click();
     await cellAt(page, 2, 2).click();
@@ -220,7 +221,7 @@ test.describe("Logic Grid Solver tools", () => {
     await expect(cellAt(page, 3, 3)).toHaveAttribute("data-color", "unknown");
   });
 
-  test("right-clicking a clue lifts it and keeps the colour", async ({
+  test("right-clicking a clue lifts it and keeps the color", async ({
     page,
   }) => {
     await clueChip(page, "area").click();
@@ -261,7 +262,9 @@ test.describe("Logic Grid Solver tools", () => {
     );
   });
 
-  /** The rule row is a column of headed bands, not one long list. */
+  /** The rule row is a column of headed bands, not one long list. The drawn
+   * shapes are not one of them — they close Arrangement, which is the band
+   * whose sentence they say. */
   test("groups the rules into headed bands", async ({ page }) => {
     await expect(page.locator("#rule-row .rule-band")).toHaveCount(4);
     await expect(page.locator("#rule-row .rule-band-heading")).toHaveText([
@@ -270,6 +273,156 @@ test.describe("Logic Grid Solver tools", () => {
       "Symbol",
       "Answer",
     ]);
+  });
+
+  /** The five controls retired in format version 3 are gone from the row for
+   * good: their shapes are drawn now, and a drawing keeps no name. */
+  test("the retired controls have no chips any more", async ({ page }) => {
+    for (const id of [
+      "no-dark-diagonal",
+      "no-dark-l",
+      "no-light-crossed-dark-t",
+      "no-dark-knight",
+      "no-dark-light-dark-elbow",
+    ])
+      await expect(ruleChip(page, id)).toHaveCount(0);
+  });
+
+  /**
+   * Drawing a forbidden shape end to end, through a real browser — the flow
+   * that replaced a per-rule append cycle, and the reason the five controls
+   * above could go.
+   *
+   * The 3x3 is the shape this whole feature exists for: nine squares, which is
+   * more than a compiled clause could hold before its literals went variable
+   * length.
+   */
+  test("a drawn pattern becomes a chip and comes back on a download", async ({
+    page,
+  }) => {
+    await page.locator("#rule-row .rule-pattern-add").click();
+    await page.locator("#pattern-width").getByRole("spinbutton").fill("3");
+    await page.locator("#pattern-height").getByRole("spinbutton").fill("3");
+    await expect(page.locator("#pattern-grid .pattern-cell")).toHaveCount(9);
+
+    // Arm light, then one left click a square: the board's own gesture.
+    await page
+      .locator('#pattern-colors .pattern-color[data-pattern-color="light"]')
+      .click();
+    for (let at = 0; at < 9; at++)
+      await page.locator(`#pattern-grid .pattern-cell[data-at="${at}"]`).click();
+    await page
+      .locator("#pattern-save")
+      .getByRole("button", { name: "Save" })
+      .click();
+
+    const chip = page.locator("#rule-row .pattern-toggle");
+    await expect(chip).toHaveCount(1);
+    await expect(chip).toHaveAttribute("aria-pressed", "true");
+    // The chip IS the drawing: nine light squares, and no borrowed name.
+    await expect(
+      chip.locator('.pattern-square[data-square="light"]'),
+    ).toHaveCount(9);
+
+    const downloadPromise = page.waitForEvent("download");
+    await page.locator("#download-config").click();
+    const download = await downloadPromise;
+    const config: { patterns?: unknown } = JSON.parse(
+      readFileSync(await download.path(), "utf8"),
+    );
+    expect(config.patterns).toEqual([
+      { width: 3, height: 3, cells: Array.from({ length: 9 }, () => 2) },
+    ]);
+  });
+
+  /**
+   * The right button is the eraser, which is the half of the gesture a unit
+   * test in a stub DOM cannot show is wired to a real press.
+   */
+  /**
+   * The two color chips are a `fieldset`, not a div carrying `role="group"`:
+   * the grouping semantics come with the element. What has to survive that is
+   * the accessible NAME, which a fieldset takes from `aria-label` when it has
+   * no `legend` — and this dialog has no room to show one.
+   */
+  test("the pattern colors are a named group", async ({ page }) => {
+    await page.locator("#rule-row .rule-pattern-add").click();
+    await expect(
+      page.getByRole("group", { name: "Pattern color" }),
+    ).toHaveCount(1);
+  });
+
+  test("the right button paints the other color", async ({ page }) => {
+    await page.locator("#rule-row .rule-pattern-add").click();
+    const square = page.locator('#pattern-grid .pattern-cell[data-at="0"]');
+    await square.click();
+    await expect(square).toHaveAttribute("data-square", "dark");
+    await square.click({ button: "right" });
+    await expect(square).toHaveAttribute("data-square", "light");
+    // ...and the button that writes what is already there clears it, which is
+    // the board's own rule and the only eraser either button needs.
+    await square.click({ button: "right" });
+    await expect(square).toHaveAttribute("data-square", "unknown");
+  });
+
+  /** The drawn chips close the ARRANGEMENT band — a drawn shape says exactly
+   * what every chip beside it says, so it is not a band of its own. */
+  test("the pattern chips live in the arrangement band", async ({ page }) => {
+    await expect(
+      page.locator('#rule-row .rule-band[data-band="patterns"]'),
+    ).toHaveCount(0);
+    await expect(
+      page.locator(
+        '#rule-row .rule-band[data-band="arrangement"] #pattern-chips',
+      ),
+    ).toHaveCount(1);
+    await expect(
+      page.locator(
+        '#rule-row .rule-band[data-band="arrangement"] .rule-pattern-add',
+      ),
+    ).toHaveCount(1);
+  });
+
+  /** Switching one off leaves it drawn but off this board, so the key goes
+   * away entirely rather than being written empty. Deleting takes it for
+   * good. */
+  test("a drawn pattern toggles off and deletes", async ({ page }) => {
+    await page.locator("#rule-row .rule-pattern-add").click();
+    await page.locator('#pattern-grid .pattern-cell[data-at="0"]').click();
+    await page
+      .locator("#pattern-save")
+      .getByRole("button", { name: "Save" })
+      .click();
+
+    const chip = page.locator("#rule-row .pattern-toggle");
+    await chip.click();
+    await expect(chip).toHaveAttribute("aria-pressed", "false");
+    await chip.click();
+    await expect(chip).toHaveAttribute("aria-pressed", "true");
+
+    await page.locator("#rule-row .pattern-delete").click();
+    await expect(page.locator("#rule-row .pattern-toggle")).toHaveCount(0);
+  });
+
+  /** A reset is about this BOARD — the shape stays drawn, one click away for
+   * the next puzzle in a group. */
+  test("a reset switches a drawn pattern off but keeps it", async ({ page }) => {
+    await page.locator("#rule-row .rule-pattern-add").click();
+    await page.locator('#pattern-grid .pattern-cell[data-at="0"]').click();
+    await page
+      .locator("#pattern-save")
+      .getByRole("button", { name: "Save" })
+      .click();
+
+    await tool(page, "reset").click();
+    await page
+      .locator("#reset-confirm")
+      .getByRole("button", { name: "Reset" })
+      .click();
+
+    const chip = page.locator("#rule-row .pattern-toggle");
+    await expect(chip).toHaveCount(1);
+    await expect(chip).toHaveAttribute("aria-pressed", "false");
   });
 
   /** A folded pair is layout, not linkage: its Dark and Light segments are two
@@ -294,12 +447,12 @@ test.describe("Logic Grid Solver tools", () => {
   /**
    * The sized families: a value field per instance, appended by the control's
    * own "+" — the flow that replaced the per-size chips, driven through a real
-   * browser so focus hand-off and the number field's behaviour are the real
+   * browser so focus hand-off and the number field's behavior are the real
    * things.
    */
   test("a sized rule takes its number in the row", async ({ page }) => {
     // Driven through a RUN control, the family that still takes several values
-    // per colour — the area cap has its own test below.
+    // per color — the area cap has its own test below.
     const control = page.locator(
       '#rule-row .rule-sized[data-sized-control="run-dark"]',
     );
@@ -312,7 +465,7 @@ test.describe("Logic Grid Solver tools", () => {
     await field.fill("3");
     await expect(control).toHaveClass(/selected/);
 
-    // A second instance of the same family and colour is one more "+".
+    // A second instance of the same family and color is one more "+".
     await control.locator(".rule-size-add").click();
     await page
       .getByRole("spinbutton", { name: "No dark 1x value 2" })
@@ -331,7 +484,7 @@ test.describe("Logic Grid Solver tools", () => {
    * "Every dark region has area 2" and "…area 3" hold together only where dark
    * is absent from the board, so an area control takes ONE value and its "+"
    * leaves as soon as there is a slot to put a number in. The run family keeps
-   * its button: two bans on one colour are merely redundant.
+   * its button: two bans on one color are merely redundant.
    */
   test("an area control takes one value and its + goes away", async ({
     page,
@@ -419,7 +572,7 @@ test.describe("Logic Grid Solver tools", () => {
     await expect(cellAt(page, 1, 0)).toHaveClass(/cell-join-right/);
     await expect(cellAt(page, 2, 0)).not.toHaveClass(/cell-join-right/);
 
-    // One click anywhere in it colours the whole cell.
+    // One click anywhere in it colors the whole cell.
     await tool(page, "dark").click();
     await cellAt(page, 2, 0).click();
     for (const x of [0, 1, 2]) {
@@ -479,7 +632,7 @@ test.describe("Logic Grid Solver tools", () => {
     await expect(cellAt(page, 2, 0)).toHaveText(/2/);
 
     // The same square again turns its OWN dart, the directed kinds' re-click
-    // rule, and leaves the neighbour's alone. Presence is asserted BEFORE the
+    // rule, and leaves the neighbor's alone. Presence is asserted BEFORE the
     // values are captured: with the attribute missing, both reads would be
     // null and the not-that-value assertion below would pass vacuously.
     await expect(cellAt(page, 0, 0)).toHaveAttribute("data-direction", /./);
@@ -666,7 +819,7 @@ test.describe("Logic Grid Solver tools", () => {
     });
 
     /**
-     * The chevrons hug the tile's edges with the number centred between them
+     * The chevrons hug the tile's edges with the number centered between them
      * — only the stylesheet says so, and only a real browser has the layout
      * to check it.
      */
@@ -818,7 +971,7 @@ test.describe("Logic Grid Solver tools", () => {
     });
 
     /**
-     * A galaxy's centre may sit on a grid line — and unlike the lotus's it
+     * A galaxy's center may sit on a grid line — and unlike the lotus's it
      * needs NO merged cell under it, which is the whole point: a half turn
      * about a point needs nothing to hold the point up.
      */
@@ -831,8 +984,344 @@ test.describe("Logic Grid Solver tools", () => {
       await cell.click({ position: { x: box.width - 2, y: box.height / 2 } });
       await expect(cell).toHaveAttribute("data-seat", "1");
       await expect(cell).toHaveAttribute("data-symbol", "galaxy");
-      // The glyph overhangs its neighbour but the CLUE does not move there.
+      // The glyph overhangs its neighbor but the CLUE does not move there.
       await expect(cellAt(page, 2, 1)).not.toHaveAttribute("data-symbol", /.*/);
+    });
+
+    /**
+     * A seated galaxy lies across two squares, and its whole point is that
+     * they may be different colors — where one glyph of one color is
+     * invisible over half of itself. Each half is therefore its own copy,
+     * clipped to the part of the glyph over one square and inked against THAT
+     * square, so the pair comes out dark beside light.
+     *
+     * Only a browser can settle this: the halves are cut by `clip-path` and
+     * their ink comes from the stylesheet, neither of which a stub DOM has.
+     * What is asserted is that the two halves differ and each contrasts with
+     * what it lies on — never the tokens themselves, which are the theme's to
+     * change.
+     */
+    test("a seated galaxy is inked against each square", async ({ page }) => {
+      await tool(page, "dark").click();
+      await cellAt(page, 1, 1).click();
+      await tool(page, "light").click();
+      await cellAt(page, 2, 1).click();
+
+      await clueChip(page, "galaxy").click();
+      const cell = cellAt(page, 1, 1);
+      const box = (await cell.boundingBox())!;
+      await page.mouse.click(box.x + box.width + 3, box.y + box.height / 2);
+      await expect(cell).toHaveAttribute("data-seat", "1");
+
+      const halves = cell.locator("md-icon.cell-galaxy");
+      await expect(halves).toHaveCount(2);
+      await expect(halves.nth(0)).toHaveAttribute("data-under", "dark");
+      await expect(halves.nth(1)).toHaveAttribute("data-under", "light");
+
+      const inks = await halves.evaluateAll(nodes =>
+        nodes.map(node => getComputedStyle(node).color),
+      );
+      expect(inks[0]).not.toBe(inks[1]);
+      // Each half's ink is the color the square UNDER it is not: the left
+      // half lies on dark, so it takes the ink a light square is drawn in,
+      // and the right half the other way about.
+      const fills = await page.evaluate(() => {
+        const at = (x: number, y: number) =>
+          getComputedStyle(
+            document.querySelector(
+              `#grid .grid-cell[data-x="${x}"][data-y="${y}"]`,
+            )!,
+          ).backgroundColor;
+        return { dark: at(1, 1), light: at(2, 1) };
+      });
+      expect(inks[0]).not.toBe(fills.dark);
+      expect(inks[1]).not.toBe(fills.light);
+    });
+
+    /**
+     * The squares a seated galaxy lies across are drawn as ONE tile, so the
+     * color changes at the edge where they meet rather than across the seam —
+     * which is what the game shows and what two rimmed boxes with a gap
+     * between them cannot say. The squares paint nothing; the outline layer
+     * paints one path per color the tile holds.
+     */
+    test("a seated galaxy joins its squares into one tile", async ({ page }) => {
+      await tool(page, "dark").click();
+      await cellAt(page, 1, 1).click();
+      await tool(page, "light").click();
+      await cellAt(page, 2, 1).click();
+
+      await clueChip(page, "galaxy").click();
+      const cell = cellAt(page, 1, 1);
+      const box = (await cell.boundingBox())!;
+      await page.mouse.click(box.x + box.width + 3, box.y + box.height / 2);
+      await expect(cell).toHaveAttribute("data-seat", "1");
+
+      await expect(cell).toHaveClass(/cell-pair-right/);
+      await expect(cellAt(page, 2, 1)).toHaveClass(/cell-pair-left/);
+      // Both squares stop painting themselves, exactly as a merged cell's do.
+      // `toHaveCSS` rather than one read of the computed style: the squares
+      // carry a background transition, so a single sample catches it partway.
+      await expect(cell).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(cellAt(page, 2, 1)).toHaveCSS(
+        "background-color",
+        "rgba(0, 0, 0, 0)",
+      );
+      // One outline path per color of the tile, and they really differ.
+      const fills = await page.locator("#grid .shape-outline path").evaluateAll(
+        nodes => nodes.map(node => getComputedStyle(node).fill),
+      );
+      expect(fills).toHaveLength(2);
+      expect(fills[0]).not.toBe(fills[1]);
+    });
+
+    /**
+     * The pill's own state machine, and the reason this block is as long as it
+     * is: every one of these was found by hand on the real page, and none of
+     * them failed a test at the time.
+     */
+
+    /** The point in the seam to the RIGHT of a square, where a seat 1 lives. */
+    const seatRight = async (page: Page, x: number, y: number) => {
+      await clueChip(page, "galaxy").click();
+      const box = (await cellAt(page, x, y).boundingBox())!;
+      await page.mouse.click(box.x + box.width + 3, box.y + box.height / 2);
+    };
+    /** Every tile the editor's outline layer is drawing, by color. */
+    const tileFills = (page: Page) =>
+      page
+        .locator("#grid .shape-outline path")
+        .evaluateAll(nodes =>
+          nodes.map(node => (node as SVGElement).dataset.color),
+        );
+    /** The `data-under` of each half of a seated glyph. */
+    const glyphInks = (page: Page, x: number, y: number) =>
+      cellAt(page, x, y)
+        .locator("md-icon.cell-galaxy")
+        .evaluateAll(nodes =>
+          nodes.map(node => (node as HTMLElement).dataset.under),
+        );
+
+    /**
+     * One square painted is enough to JOIN the pair, and the square that is
+     * not painted stays plainly unpainted — drawn as a neutral part of the
+     * tile, never borrowed from its partner. Borrowing was tried and turned
+     * three untouched squares of a corner seat solid black, so the board
+     * stopped saying which squares were really colored.
+     */
+    test("a pill with one square painted leaves the other neutral", async ({
+      page,
+    }) => {
+      await tool(page, "dark").click();
+      await cellAt(page, 1, 1).click();
+      await seatRight(page, 1, 1);
+
+      expect((await tileFills(page)).sort()).toEqual(["blank", "dark"]);
+      await expect(cellAt(page, 2, 1)).toHaveClass(/cell-pair-left/);
+      await expect(cellAt(page, 2, 1)).toHaveAttribute("data-color", "unknown");
+      await expect(cellAt(page, 2, 1)).toHaveAccessibleName(
+        "Column 3, Row 2, Unknown",
+      );
+      // The glyph inks each half against what is under it, and the half over
+      // the neutral part falls back to the surface ink rather than to whatever
+      // the clue's own square happened to hold.
+      expect(await glyphInks(page, 1, 1)).toEqual(["dark", "unknown"]);
+    });
+
+    /**
+     * A press changes the square it lands on and nothing else. With the pill
+     * borrowing a color this was not true: painting the square that HELD the
+     * color repainted the whole pill, so you could not put black on one half
+     * of a white pill.
+     */
+    test("each press colors only the square it lands on", async ({ page }) => {
+      await tool(page, "light").click();
+      await cellAt(page, 1, 1).click();
+      await seatRight(page, 1, 1);
+      expect((await tileFills(page)).sort()).toEqual(["blank", "light"]);
+
+      // The painted half, repainted: the other half stays neutral.
+      await tool(page, "dark").click();
+      await cellAt(page, 1, 1).click();
+      expect((await tileFills(page)).sort()).toEqual(["blank", "dark"]);
+      await expect(cellAt(page, 2, 1)).toHaveAttribute("data-color", "unknown");
+
+      // ...and the neutral half takes a color of its own. One path per COLOR
+      // the tile holds, so two dark squares are one path, not two.
+      await cellAt(page, 2, 1).click();
+      expect(await tileFills(page)).toEqual(["dark"]);
+      await expect(cellAt(page, 1, 1)).toHaveAttribute("data-color", "dark");
+    });
+
+    /** Nothing painted, nothing joined: the pre-pill look, one plain glyph. */
+    test("an unpainted pair is not drawn as a pill", async ({ page }) => {
+      await seatRight(page, 1, 1);
+      expect(await tileFills(page)).toEqual([]);
+      await expect(cellAt(page, 1, 1)).not.toHaveClass(/cell-pair/);
+      await expect(cellAt(page, 2, 1)).not.toHaveClass(/cell-pair/);
+      await expect(cellAt(page, 1, 1).locator("md-icon.cell-galaxy")).toHaveCount(
+        1,
+      );
+      await expect(cellAt(page, 1, 1)).toHaveCSS("border-style", "dashed");
+    });
+
+    /** The whole round trip, which is what catches a stale tile cache. */
+    test("the pill appears with the first color and goes with the last", async ({
+      page,
+    }) => {
+      await seatRight(page, 1, 1);
+      expect(await tileFills(page)).toEqual([]);
+
+      await tool(page, "light").click();
+      await cellAt(page, 2, 1).click();
+      expect((await tileFills(page)).sort()).toEqual(["blank", "light"]);
+
+      await cellAt(page, 2, 1).click(); // re-click erases
+      expect(await tileFills(page)).toEqual([]);
+      await expect(cellAt(page, 1, 1)).not.toHaveClass(/cell-pair/);
+      await expect(cellAt(page, 2, 1)).toHaveCSS("border-style", "dashed");
+    });
+
+    /**
+     * The glyph sits on the clue's square, so painting its PARTNER has to
+     * repaint a square nothing else would think to touch. Getting that wrong
+     * is why one paint order worked and the other did not.
+     */
+    test("painting either square first ends at the same picture", async ({
+      page,
+    }) => {
+      const build = async (first: "dark" | "light") => {
+        await seatRight(page, 1, 1);
+        await tool(page, first === "dark" ? "dark" : "light").click();
+        await cellAt(page, first === "dark" ? 1 : 2, 1).click();
+        await tool(page, first === "dark" ? "light" : "dark").click();
+        await cellAt(page, first === "dark" ? 2 : 1, 1).click();
+        return {
+          fills: (await tileFills(page)).sort(),
+          inks: await glyphInks(page, 1, 1),
+        };
+      };
+      const darkFirst = await build("dark");
+      await page.reload();
+      await page.locator("#grid .grid-cell").first().waitFor();
+      const lightFirst = await build("light");
+
+      expect(darkFirst.inks).toEqual(["dark", "light"]);
+      expect(darkFirst).toEqual(lightFirst);
+    });
+
+    /**
+     * A galaxy occupies the squares its seat sits between, and no two of them
+     * may share one. All three of these were reachable by hand, and the last
+     * by a single drag.
+     */
+    test("a galaxy cannot be placed inside another galaxy's squares", async ({
+      page,
+    }) => {
+      await seatRight(page, 1, 1);
+      await expect(cellAt(page, 1, 1)).toHaveAttribute("data-seat", "1");
+
+      // The center of the square the pill runs into.
+      await cellAt(page, 2, 1).click();
+      await expect(cellAt(page, 2, 1)).not.toHaveAttribute("data-symbol", /.*/);
+      // ...and the next seam along, which would share that square too.
+      await seatRight(page, 2, 1);
+      await expect(cellAt(page, 2, 1)).not.toHaveAttribute("data-symbol", /.*/);
+      await expect(cellAt(page, 1, 1)).toHaveAttribute("data-seat", "1");
+    });
+
+    test("a centered galaxy blocks a pill that would run through it", async ({
+      page,
+    }) => {
+      await clueChip(page, "galaxy").click();
+      await cellAt(page, 2, 1).click();
+      await expect(cellAt(page, 2, 1)).toHaveAttribute("data-symbol", "galaxy");
+
+      await seatRight(page, 1, 1);
+      await expect(cellAt(page, 1, 1)).not.toHaveAttribute("data-symbol", /.*/);
+    });
+
+    /**
+     * Two galaxies on different squares of one MERGED cell are two centers of
+     * rotational symmetry for one region, which no coloring can satisfy — so
+     * the cell, not the square, is the unit two galaxies may not share.
+     */
+    test("a merged cell may not carry two galaxies", async ({ page }) => {
+      await tool(page, "merge").click();
+      const from = (await cellAt(page, 1, 1).boundingBox())!;
+      const to = (await cellAt(page, 2, 1).boundingBox())!;
+      await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2);
+      await page.mouse.up();
+      await expect(cellAt(page, 1, 1)).toHaveClass(/cell-join-right/);
+
+      await clueChip(page, "galaxy").click();
+      await cellAt(page, 1, 1).click();
+      await expect(cellAt(page, 1, 1)).toHaveAttribute("data-symbol", "galaxy");
+      await cellAt(page, 2, 1).click();
+      await expect(cellAt(page, 2, 1)).not.toHaveAttribute("data-symbol", /.*/);
+    });
+
+    /** The guard's own regression test: this is a MOVE, not a clash. */
+    test("re-seating a galaxy is not an overlap", async ({ page }) => {
+      await seatRight(page, 1, 1);
+      await expect(cellAt(page, 1, 1)).toHaveAttribute("data-seat", "1");
+      await cellAt(page, 1, 1).click();
+      await expect(cellAt(page, 1, 1)).toHaveAttribute("data-symbol", "galaxy");
+      await expect(cellAt(page, 1, 1)).not.toHaveAttribute("data-seat", /.*/);
+    });
+
+    /**
+     * A gap cannot be half of a pill: an SVG fill cannot be the hatch a gap is
+     * drawn with, and a square the puzzle does not color is not part of a
+     * cell anyway. This also pins the write that moves BOTH layers at once —
+     * painting a square unplayable drops the clue with it.
+     */
+    test("painting a pill's square unplayable drops the pill", async ({
+      page,
+    }) => {
+      await tool(page, "dark").click();
+      await cellAt(page, 1, 1).click();
+      await tool(page, "light").click();
+      await cellAt(page, 2, 1).click();
+      await seatRight(page, 1, 1);
+      expect(await tileFills(page)).toHaveLength(2);
+
+      await tool(page, "unplayable").click();
+      await cellAt(page, 2, 1).click();
+      expect(await tileFills(page)).toEqual([]);
+      await expect(cellAt(page, 1, 1)).not.toHaveClass(/cell-pair/);
+    });
+
+    /** The eraser writes a color AND drops the clue in one go. */
+    test("erasing the galaxy's own square drops the pill", async ({ page }) => {
+      await tool(page, "dark").click();
+      await cellAt(page, 1, 1).click();
+      await tool(page, "light").click();
+      await cellAt(page, 2, 1).click();
+      await seatRight(page, 1, 1);
+      expect(await tileFills(page)).toHaveLength(2);
+
+      await tool(page, "erase").click();
+      await cellAt(page, 1, 1).click();
+      await expect(cellAt(page, 1, 1)).not.toHaveAttribute("data-symbol", /.*/);
+      expect(await tileFills(page)).toEqual([]);
+      await expect(cellAt(page, 2, 1)).not.toHaveClass(/cell-pair/);
+    });
+
+    /** Two pills that only touch are two pills, and nothing bridges them. */
+    test("two pills side by side stay two tiles", async ({ page }) => {
+      await tool(page, "dark").click();
+      for (const x of [0, 1, 2, 3]) await cellAt(page, x, 1).click();
+      await seatRight(page, 0, 1);
+      await seatRight(page, 2, 1);
+
+      expect(await tileFills(page)).toEqual(["dark", "dark"]);
+      await expect(cellAt(page, 1, 1)).toHaveClass(/cell-pair-left/);
+      await expect(cellAt(page, 1, 1)).not.toHaveClass(/cell-pair-right/);
+      await expect(cellAt(page, 2, 1)).toHaveClass(/cell-pair-right/);
+      await expect(cellAt(page, 2, 1)).not.toHaveClass(/cell-pair-left/);
     });
 
     test("a press near a corner seats it on the corner", async ({ page }) => {
@@ -877,7 +1366,7 @@ test.describe("Logic Grid Solver tools", () => {
     });
 
     /** The seams are open for a SEATED clue and shut for everything else: a
-     * colour has no meaning in a gap, and widening those targets would change
+     * color has no meaning in a gap, and widening those targets would change
      * what a drag across the board paints. */
     test("the seams are shut again for a paint tool", async ({ page }) => {
       await clueChip(page, "galaxy").click();
@@ -896,8 +1385,8 @@ test.describe("Logic Grid Solver tools", () => {
     });
 
     /** A seat at the board's edge has no square to sit against, so the press
-     * falls back to the square's own centre rather than being refused. */
-    test("a seat that would leave the board falls back to the centre", async ({
+     * falls back to the square's own center rather than being refused. */
+    test("a seat that would leave the board falls back to the center", async ({
       page,
     }) => {
       await clueChip(page, "galaxy").click();

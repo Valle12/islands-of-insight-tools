@@ -98,7 +98,7 @@ private:
   std::vector<uint32_t> slots_;
   // std::array rather than a `unique_ptr<Entry[]>`: the block size is a
   // compile-time constant, so the array form buys nothing and reads as a
-  // C array to analysers (cpp:S5945). Layout, size and the never-relocate
+  // C array to analyzers (cpp:S5945). Layout, size and the never-relocate
   // guarantee the arena depends on are identical either way.
   std::vector<std::unique_ptr<std::array<Entry, kBlockSize>>> blocks_;
   size_t count_ = 0;

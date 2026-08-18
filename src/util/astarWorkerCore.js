@@ -63,7 +63,7 @@ function getModule(name, options) {
  * The bridge picks a variant from a `WebAssembly.validate()` probe, which only
  * proves the engine's VALIDATOR accepts a 64-bit or shared memory declaration —
  * instantiation can still fail (memory descriptor spelling, shared-growable
- * 64-bit memory). Falling back is the behaviour `buildWasm.ts` already
+ * 64-bit memory). Falling back is the behavior `buildWasm.ts` already
  * documents; without it an arm reported a hard solver error on a page where
  * `astar.mjs` would have worked perfectly.
  */

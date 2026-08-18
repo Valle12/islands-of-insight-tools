@@ -19,6 +19,8 @@ import {
   migrationNotice,
   validateConfig,
 } from "./config";
+import { PatternControls } from "./patternControls";
+import { PatternDialog } from "./patternDialog";
 import { RULES } from "./rules";
 import { SizedRuleControls } from "./sizedRuleControls";
 import { SolveController } from "./solveController";
@@ -86,7 +88,7 @@ export class LogicGridSolverEditor {
    */
   private symbolDirections = defaultDirections();
 
-  // Declared AFTER `ruleRow`: class field initialisers run in order, and this
+  // Declared AFTER `ruleRow`: class field initializers run in order, and this
   // one reads it.
   private readonly sized = new SizedRuleControls({
     row: this.ruleRow,
@@ -96,6 +98,24 @@ export class LogicGridSolverEditor {
       this.hideSolution();
       this.refreshRuleRow();
     },
+  });
+  private readonly patterns = new PatternControls({
+    row: this.ruleRow,
+    onDraw: () => this.patternDialog.open(),
+    // Only the chips move, so the row is refreshed rather than rebuilt — the
+    // sized controls' focus and caret are in the same row.
+    onActiveChanged: () => {
+      this.hideSolution();
+      this.patterns.refresh();
+    },
+  });
+  private readonly patternDialog = new PatternDialog({
+    boardSize: () => ({
+      gridWidth: this.gridWidth,
+      gridHeight: this.gridHeight,
+    }),
+    isKnown: pattern => this.patterns.has(pattern),
+    onSave: pattern => this.patterns.add(pattern),
   });
   private readonly solution = new SolveController({
     configOf: () => this.currentConfig(),
@@ -334,6 +354,7 @@ export class LogicGridSolverEditor {
     // game, and carrying over a rule silently solves a puzzle nobody set.
     this.activeRules.clear();
     this.sized.reset();
+    this.patterns.reset();
     this.replaceBoard();
     this.hideSolution();
     this.render();
@@ -348,6 +369,9 @@ export class LogicGridSolverEditor {
     this.selectedSymbol = 0;
     this.activeRules.clear();
     this.sized.reset();
+    // The drawn shapes stay in the library, switched off — a reset is about
+    // this board, and the next one in a group usually wants the same rules.
+    this.patterns.reset();
     this.symbolValues = defaultValues();
     this.symbolDirections = defaultDirections();
     this.replaceBoard();
@@ -393,7 +417,7 @@ export class LogicGridSolverEditor {
   /**
    * The rule row, drawn from `RULE_ROW`: bands of folded controls — a pair's
    * two segments toggling independently, a single as its own chip, and one
-   * value control per sized family and colour. The index written into a
+   * value control per sized family and color. The index written into a
    * segment is the STORED one, so everything downstream keeps reading that
    * attribute rather than counting chips. Called only from `render()`; the
    * slot values are written afterwards by the sized controls, so user-typed
@@ -402,6 +426,7 @@ export class LogicGridSolverEditor {
   private buildRuleRow() {
     this.ruleRow.innerHTML = ruleRowMarkup();
     this.sized.fill();
+    this.patterns.build();
   }
 
   /**
@@ -420,6 +445,7 @@ export class LogicGridSolverEditor {
       chip.setAttribute("aria-pressed", String(active));
     });
     this.sized.refresh();
+    this.patterns.refresh();
   }
 
   private currentConfig(): LogicGridTest {
@@ -433,6 +459,7 @@ export class LogicGridSolverEditor {
       gridHeight: this.gridHeight,
       rules: [...this.activeRules].sort((a, b) => a - b),
       ...this.sized.configLists(),
+      ...this.patterns.configList(),
       cells: this.board.getCells(),
       symbols: this.board.getSymbols(),
       // Omitted rather than written empty: every captured fixture predates the
@@ -479,6 +506,7 @@ export class LogicGridSolverEditor {
     this.activeRules.clear();
     for (const rule of config.rules) this.activeRules.add(rule);
     this.sized.load(config);
+    this.patterns.load(config);
     this.replaceBoard();
     this.board.loadConfig(config);
     this.render();

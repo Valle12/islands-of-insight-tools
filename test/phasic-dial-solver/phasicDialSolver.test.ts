@@ -60,7 +60,7 @@ const MARKUP = `
 const byId = <T extends HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 
-/** Colours, in the order the page hands them out. */
+/** Colors, in the order the page hands them out. */
 const dialColors = () =>
   Array.from(document.querySelectorAll(".dial-card")).map(card =>
     card.getAttribute("data-color"),
@@ -119,7 +119,7 @@ describe("PhasicDialSolver", () => {
   });
 
   test("should stop adding dials after purple", () => {
-    // Two dials are shown to begin with, so four clicks reach all six colours
+    // Two dials are shown to begin with, so four clicks reach all six colors
     // and a fifth must be a no-op.
     for (let i = 0; i < 5; i++) byId("add-dial").click();
 

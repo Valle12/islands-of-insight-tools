@@ -23,7 +23,7 @@ nlohmann::json readDocument(const std::string &path) {
   return nlohmann::json::parse(input);
 }
 
-/// The colour layer, which the app stores COLUMN-major (`cells[x][y]`) while
+/// The color layer, which the app stores COLUMN-major (`cells[x][y]`) while
 /// the solver indexes rows at a fixed pitch.
 void readCells(const nlohmann::json &document, Puzzle &puzzle,
                const std::string &path) {
@@ -57,6 +57,11 @@ void readRules(const nlohmann::json &document, Puzzle &puzzle,
       throw FixtureError("A sized rule belongs in areas or runs, not rules, "
                          "in " +
                          path);
+    // And since version 3 the ten retired arrangements are not legal here
+    // either — they are shapes under `patterns` now, for the same reason.
+    if (rules::has(rules::kDrawnRuleBits, static_cast<rules::Rule>(index)))
+      throw FixtureError("A retired rule belongs in patterns, not rules, in " +
+                         path);
     puzzle.ruleMask |= rules::RuleMask{1} << index;
   }
 }
@@ -71,9 +76,9 @@ struct SizedFamily {
   int lo = 0;
   int hi = 0;
   const char *rangeError = "";
-  /// Whether a SECOND entry for one colour is a contradiction. Two run bans
+  /// Whether a SECOND entry for one color is a contradiction. Two run bans
   /// are conjunctive and merely redundant; two area sizes hold together only
-  /// where the colour is absent from the board, all zero of its regions being
+  /// where the color is absent from the board, all zero of its regions being
   /// both sizes at once, which is not a puzzle anyone means.
   bool onePerColor = false;
 };
@@ -132,13 +137,86 @@ void readSized(const nlohmann::json &document, const SizedFamily &family,
         throw FixtureError("Sized rules are out of canonical order in " +
                            path);
       // Sound only because the order above is already known to be canonical:
-      // every entry of one colour is contiguous, so "the previous entry is
-      // this colour" IS "a second entry for this colour".
+      // every entry of one color is contiguous, so "the previous entry is
+      // this color" IS "a second entry for this color".
       if (family.onePerColor && into.back().color == rule.color)
         throw FixtureError("Only one area rule per color is allowed in " +
                            path);
     }
     into.push_back(rule);
+  }
+}
+
+/**
+ * The `patterns` list: the forbidden arrangements the player drew. Absent
+ * means empty, like the sized lists, and what arrives must already be
+ * CANONICAL — ascending under `rules::patternLess`, which compares each
+ * pattern's smallest dihedral image, so two drawings of one rule in different
+ * rotations collide as a duplicate rather than both being carried.
+ *
+ * Every refusal is by name and none repairs, the same asymmetry with the
+ * page's validator that `readSized` records: this side reads committed
+ * fixtures and already-validated payloads, so anything off means a hand-edited
+ * file. Split in two because `readSized`'s one function's worth of checks is
+ * two here: this reads ONE drawing, `readPatterns` below reads the list.
+ */
+rules::DrawnPattern patternFrom(const nlohmann::json &entry,
+                                const std::string &path) {
+  rules::DrawnPattern pattern;
+  const auto side = [&entry, &path](const char *key) {
+    const auto &value = entry.at(key);
+    if (!value.is_number_integer())
+      throw FixtureError("A pattern's size is out of range in " + path);
+    // Bounded at full width before narrowing, like a sized rule's value.
+    const auto wide = value.get<int64_t>();
+    if (wide < 1 || wide > kMaxSide)
+      throw FixtureError("A pattern's size is out of range in " + path);
+    return static_cast<int>(wide);
+  };
+  pattern.width = side("width");
+  pattern.height = side("height");
+  for (const auto &square : entry.at("cells")) {
+    if (!square.is_number_integer())
+      throw FixtureError("A pattern square is out of range in " + path);
+    const auto held = square.get<int64_t>();
+    // kUnplayable is not a color a pattern can ask for: a pattern names
+    // squares that must hold a COLOR, and says nothing at all about the
+    // ones it leaves out.
+    if (held != kUnknown && held != kDark && held != kLight)
+      throw FixtureError("A pattern square is out of range in " + path);
+    pattern.cells.push_back(static_cast<uint8_t>(held));
+  }
+  if (pattern.cells.size() !=
+      static_cast<std::size_t>(pattern.width) * pattern.height)
+    throw FixtureError("A pattern's cells do not fill its box in " + path);
+  if (std::ranges::none_of(pattern.cells, [](const uint8_t held) {
+        return held == kDark || held == kLight;
+      }))
+    throw FixtureError("A pattern names no square in " + path);
+  if (!rules::isTightBox(pattern))
+    throw FixtureError("A pattern's box is not tight in " + path);
+  return pattern;
+}
+
+/**
+ * The `patterns` list itself. `patternFrom` above has already said each
+ * drawing is well formed, so what is left here is what only the LIST can
+ * break: order and duplication.
+ */
+void readPatterns(const nlohmann::json &document, Puzzle &puzzle,
+                  const std::string &path) {
+  if (!document.contains("patterns"))
+    return;
+  for (const auto &entry : document.at("patterns")) {
+    auto pattern = patternFrom(entry, path);
+    if (!puzzle.patterns.empty()) {
+      if (rules::canonicalImage(puzzle.patterns.back()) ==
+          rules::canonicalImage(pattern))
+        throw FixtureError("A pattern is duplicated in " + path);
+      if (!rules::patternLess(puzzle.patterns.back(), pattern))
+        throw FixtureError("Patterns are out of canonical order in " + path);
+    }
+    puzzle.patterns.push_back(std::move(pattern));
   }
 }
 
@@ -180,7 +258,7 @@ void readClues(const nlohmann::json &document, Puzzle &puzzle,
     // Optional, like `shapes` and for the same reason — every fixture written
     // before darts existed carries no such key. Absent it reads as -1, which
     // `structureProblem` refuses for a kind that needs one. The `seat` key is
-    // optional the same way, defaulting to the square's own centre, and a seat
+    // optional the same way, defaulting to the square's own center, and a seat
     // on a kind that has none is refused by name downstream.
     const int direction =
         entry.contains("direction") ? entry.at("direction").get<int>() : -1;
@@ -292,6 +370,24 @@ nlohmann::json sizedToJson(const std::vector<rules::SizedRule> &instances,
   return list;
 }
 
+nlohmann::json
+patternsToJson(const std::vector<rules::DrawnPattern> &patterns) {
+  // Sorted on the way out for the same reason `sizedToJson` is: the file IS
+  // the canonical form, whatever a caller assembled. Each pattern's own
+  // squares go out exactly as they were drawn — only the LIST is ordered.
+  auto sorted = patterns;
+  std::ranges::sort(sorted, rules::patternLess);
+  auto list = nlohmann::json::array();
+  for (const auto &[width, height, cells] : sorted) {
+    nlohmann::json entry;
+    entry["width"] = width;
+    entry["height"] = height;
+    entry["cells"] = cells;
+    list.push_back(entry);
+  }
+  return list;
+}
+
 nlohmann::json shapesToJson(const Puzzle &puzzle) {
   auto shapes = nlohmann::json::array();
   for (const std::vector<int> &shape : puzzle.shapes) {
@@ -343,6 +439,7 @@ Fixture load(const std::string &path) {
   readRules(document, puzzle, path);
   readSized(document, kAreaFamily, puzzle.areas, path);
   readSized(document, kRunFamily, puzzle.runs, path);
+  readPatterns(document, puzzle, path);
   readClues(document, puzzle, path);
   readShapes(document, puzzle, path);
   readSolution(document, fixture, path);
@@ -371,6 +468,8 @@ void save(const std::string &path, const Fixture &fixture) {
     document["areas"] = sizedToJson(puzzle.areas, "size");
   if (!puzzle.runs.empty())
     document["runs"] = sizedToJson(puzzle.runs, "length");
+  if (!puzzle.patterns.empty())
+    document["patterns"] = patternsToJson(puzzle.patterns);
   document["cells"] = columnMajor(puzzle, puzzle.givens);
   document["symbols"] = cluesToJson(puzzle);
   // Written only when there is something to write: a plain board's file must

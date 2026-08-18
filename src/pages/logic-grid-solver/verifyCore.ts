@@ -1,4 +1,4 @@
-// The primitives every rule checker in this family shares: the catalogue
+// The primitives every rule checker in this family shares: the catalog
 // lookups that name a rule or a clue kind, the two grid readers, and the flood
 // fill.
 //
@@ -8,7 +8,7 @@
 // must break the import rather than quietly switch a rule off in the one place
 // that is supposed to catch a broken answer.
 //
-// Colourings cross as a FLAT ROW-MAJOR array — `cells[y * gridWidth + x]` —
+// Colorings cross as a FLAT ROW-MAJOR array — `cells[y * gridWidth + x]` —
 // which is the layout the wasm module answers in. The editor's own `cells` are
 // column-major; `toFlat` is the one place that difference is handled.
 
@@ -49,7 +49,10 @@ export type LogicGridViolation =
   | "mixed-elbow"
   | "galaxy"
   | "region-shape-repeat"
-  | "region-shape-mismatch";
+  | "region-shape-mismatch"
+  // One name for every drawn pattern, not one per pattern: what a board broke
+  // is a shape the config carries, which no member of this union could spell.
+  | "custom-pattern";
 
 /** What every rule family's checker looks like. */
 export type RuleCheck = (
@@ -58,7 +61,7 @@ export type RuleCheck = (
 ) => LogicGridViolation;
 
 /**
- * A rule's position in the append-only catalogue, by its stable id.
+ * A rule's position in the append-only catalog, by its stable id.
  *
  * Throws rather than returning `findIndex`'s -1, and that matters here more
  * than anywhere: every constant below is resolved once at module load, and a
@@ -150,14 +153,14 @@ export const OFF_BY_ONE = ruleIndex("off-by-one");
  * `runs` and `areas` lists in `runProblem` and `regionSizeProblem`. That is
  * still the independence this oracle is built on — the lists ARE the puzzle
  * statement, not anything the search derived — and it is what lets a size the
- * catalogue never named verify exactly like one it did.
+ * catalog never named verify exactly like one it did.
  */
 
 /**
- * A clue kind's position in its own append-only catalogue, by its stable id —
+ * A clue kind's position in its own append-only catalog, by its stable id —
  * the same trick `ruleIndex` plays, and for the same reason. A clue family
  * matched by a bare `type !== 0` silently checks the wrong kind the moment the
- * catalogue grows, and this file is the last thing between a bad answer and the
+ * catalog grows, and this file is the last thing between a bad answer and the
  * board.
  */
 function symbolIndex(id: string): number {
@@ -234,7 +237,7 @@ export function at(config: LogicGridTest, cells: number[], x: number, y: number)
 export type Held = (x: number, y: number) => boolean;
 
 /** A bounds-checked "is (x, y) on the board and holding `color`" reader — the
- * probe the centre-anchored scans share, since their steps walk off the board. */
+ * probe the center-anchored scans share, since their steps walk off the board. */
 export function holds(config: LogicGridTest, cells: number[], color: number) {
   return (x: number, y: number) =>
     x >= 0 &&
@@ -244,7 +247,7 @@ export function holds(config: LogicGridTest, cells: number[], color: number) {
     at(config, cells, x, y) === color;
 }
 
-/** The cells of one colour orthogonally reachable from a starting index. */
+/** The cells of one color orthogonally reachable from a starting index. */
 export function region(config: LogicGridTest, cells: number[], start: number) {
   const color = cells[start];
   const seen = new Set<number>([start]);

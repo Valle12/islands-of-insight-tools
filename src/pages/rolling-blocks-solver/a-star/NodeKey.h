@@ -28,7 +28,7 @@ struct NodeKey {
   std::array<uint8_t, InlineCapacity> inlineData{};
   // Owning spill buffer for keys longer than InlineCapacity. unique_ptr is the
   // same one pointer wide as the raw pointer it replaced, so the inline-buffer
-  // optimisation this struct exists for is unchanged.
+  // optimization this struct exists for is unchanged.
   std::unique_ptr<uint8_t[]> heapData;
   uint16_t len = 0;
 
@@ -47,7 +47,7 @@ struct NodeKey {
   }
 
   // No destructor: heapData is a unique_ptr, so the implicit one already
-  // does the right thing and spelling it out only makes analysers ask what
+  // does the right thing and spelling it out only makes analyzers ask what
   // resource it is meant to be managing (cpp:S3624). The copy/move members
   // below stay explicit — they are what the inline buffer needs.
 

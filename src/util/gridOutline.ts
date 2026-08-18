@@ -1,12 +1,12 @@
 /**
  * Outlining helpers shared by the solution views. Both draw a border around a
- * *set* of cells by putting an edge class on every cell whose neighbour is
+ * *set* of cells by putting an edge class on every cell whose neighbor is
  * outside the set — the grid has gaps between cells, so a single border on a
  * wrapper is not an option.
  */
 
 /**
- * Outlines a block: an edge class wherever the neighbour is a different block.
+ * Outlines a block: an edge class wherever the neighbor is a different block.
  * `occupant[x][y]` identifies the block on a cell; any value that is not
  * `block` counts as outside.
  */
@@ -25,7 +25,7 @@ export function markBlockEdges(
 }
 
 /**
- * The inverse of the other two: a class per side whose neighbour is INSIDE the
+ * The inverse of the other two: a class per side whose neighbor is INSIDE the
  * same group, for a group that has to read as one solid tile rather than as an
  * outlined set. The stylesheet then drops that side's border and bridges the
  * grid gap, so the seams between the cells disappear while the outline stays.
@@ -59,7 +59,7 @@ export function markGroupJoins(
 
 /**
  * Outlines a zone (destination, goal): `prefix` on every cell in it, plus
- * `prefix-edge-*` wherever the neighbour is outside it. Zone membership is
+ * `prefix-edge-*` wherever the neighbor is outside it. Zone membership is
  * keyed by `"x,y"`.
  */
 export function markZoneEdges(

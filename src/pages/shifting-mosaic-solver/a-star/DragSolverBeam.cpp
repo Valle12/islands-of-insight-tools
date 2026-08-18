@@ -256,7 +256,7 @@ std::vector<Turn> DragSolver::searchBeamJam(const uint32_t maxMs,
   // 1/k! per group), and the retry below treated a structural bug as a "rare"
   // mix-up. Only round 1+ could ever return a plan.
   //
-  // Canonicalisation only buys state-space collapsing, and only groups make it
+  // Canonicalization only buys state-space collapsing, and only groups make it
   // differ from the identity, so drop it up front exactly when it would break
   // the decode. Boards without same-shape blocks are unaffected.
   if (!symmetryGroups_.empty())
@@ -330,7 +330,7 @@ bool DragSolver::hierBudgetSpent(const uint64_t deadline,
                                  const uint32_t segments,
                                  const uint32_t backtracks) const {
   if (cfg_.stop.cancel && cfg_.stop.cancel->load(std::memory_order_relaxed)) {
-    std::cout << "DragSolver(hier): cancelled after " << segments
+    std::cout << "DragSolver(hier): canceled after " << segments
               << " segments\n";
     return true;
   }

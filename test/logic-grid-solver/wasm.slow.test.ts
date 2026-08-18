@@ -14,7 +14,7 @@ import type { LogicGridTest } from "../../src/util/types";
  *
  * A `.slow.test.ts` since the corpus outgrew the fast lane: the sweep first
  * measured 579 ms for 36 boards, then 40.7 s for 164, and the galaxy-era batch
- * took it past 90 s for 436, and 489 is where it stands — the boards captured
+ * took it past 90 s for 436, and 494 is where it stands — the boards captured
  * since the first measurement are the ones that actually branch, and several
  * spend the whole 2 s per-arm budget. The hand-built boundary boards stayed
  * behind in `wasm.test.ts`, so

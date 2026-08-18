@@ -9,6 +9,11 @@ import {
   type SizedRuleFamily,
 } from "../../src/pages/logic-grid-solver/rules";
 import {
+  isTightBox,
+  namesASquare,
+  patternFromPicture,
+} from "../../src/pages/logic-grid-solver/patterns";
+import {
   AXES,
   AXIS_COUNT,
   DIRECTION_COUNT,
@@ -30,7 +35,7 @@ import {
 const SIZE = { gridWidth: 5, gridHeight: 5 };
 
 /**
- * Both catalogues are stored by INDEX, so their order is part of the file
+ * Both catalogs are stored by INDEX, so their order is part of the file
  * format. The two tables below are what makes a reorder fail loudly instead of
  * silently rewriting every puzzle ever saved; appending a row is the only edit
  * either of them should ever need.
@@ -96,11 +101,33 @@ const RULE_ORDER: [number, string][] = [
 ];
 
 /**
- * The v1 -> v2 translation, pinned like the order above: which `areas`/`runs`
- * entry each retired sized index turns into. The migration rewrites saved
- * files through these markers, so changing one silently rewrites every
- * version 1 puzzle ever downloaded — appending a FLAG rule is still the only
- * edit the catalogue should ever need.
+ * The v2 -> v3 translation: the shape each retired arrangement index turns
+ * into, written as the picture the catalog spells. Pinned like the order
+ * above, and for the same reason — the migration rewrites saved files through
+ * these markers, so changing one silently rewrites every version 2 puzzle ever
+ * downloaded.
+ *
+ * `rules_test.cpp` asserts the other half — that the dihedral closure of each
+ * of these compiles to exactly the family the rule used to emit — so between
+ * the two, rewriting a saved board cannot change what it forbids.
+ */
+const DRAWN_MAP: [number, string[]][] = [
+  [28, ["D.", ".D"]],
+  [29, ["L.", ".L"]],
+  [35, ["D.", "D.", "DD"]],
+  [36, ["L.", "L.", "LL"]],
+  [43, ["DLD", ".D."]],
+  [44, ["LDL", ".L."]],
+  [49, ["D.", "..", ".D"]],
+  [50, ["L.", "..", ".L"]],
+  [51, ["LD", "D."]],
+  [52, ["DL", "L."]],
+];
+
+/**
+ * The v1 -> v2 translation, pinned the same way: which `areas`/`runs` entry
+ * each retired sized index turns into. Appending a FLAG rule is still the only
+ * edit the catalog should ever need.
  */
 const SIZED_MAP: [number, SizedRuleFamily, SizedRuleColor, number][] = [
   [2, "runs", "dark", 2],
@@ -155,22 +182,13 @@ const ROW_PINS: {
       ["single", "no-checkerboard"],
       ["pair", "No alternating triple", "no-dark-light-dark", "no-light-dark-light"],
       ["pair", "No elbow", "no-dark-elbow", "no-light-elbow"],
-      ["pair", "No L", "no-dark-l", "no-light-l"],
       ["pair", "No T", "no-dark-t", "no-light-t"],
       ["pair", "No long T", "no-dark-long-t", "no-light-long-t"],
-      [
-        "pair",
-        "No mixed elbow",
-        "no-dark-light-dark-elbow",
-        "no-light-dark-light-elbow",
-      ],
-      // The Dark segment is `no-light-crossed-dark-t`: the id names the
-      // crossing colour, the segment names the T's.
-      ["pair", "No crossed T", "no-light-crossed-dark-t", "no-dark-crossed-light-t"],
       ["pair", "No 3 + 1", "no-three-dark-one-light", "no-three-light-one-dark"],
-      ["pair", "No diagonal", "no-dark-diagonal", "no-light-diagonal"],
-      ["pair", "No knight's move", "no-dark-knight", "no-light-knight"],
       ["pair", "No two apart", "no-dark-any-dark", "no-light-any-light"],
+      // No diagonal, L, crossed T, knight's move or mixed elbow: those five
+      // retired into the drawn `patterns` key in format version 3, having been
+      // named by exactly one captured board each.
     ],
   },
   {
@@ -260,6 +278,34 @@ describe("RULES", () => {
       if (!sizedIndices.has(index)) expect(rule.sized).toBeUndefined();
     });
   });
+
+  test.each(DRAWN_MAP)("index %i became a drawn shape", (index, squares) => {
+    expect(ruleAt(index)?.drawn).toEqual({ squares });
+  });
+
+  test("every entry outside the drawn map carries no shape", () => {
+    const drawnIndices = new Set(DRAWN_MAP.map(([index]) => index));
+    RULES.forEach((rule, index) => {
+      if (!drawnIndices.has(index)) expect(rule.drawn).toBeUndefined();
+    });
+  });
+
+  test("no rule is both sized and drawn", () => {
+    for (const rule of RULES) {
+      if (rule.sized) expect(rule.drawn).toBeUndefined();
+    }
+  });
+
+  test("every retired shape is a tight box that names a square", () => {
+    // Both C++ intakes demand this of any pattern, so a migration writing a
+    // loose one would produce a file the engine refuses to load.
+    for (const [, squares] of DRAWN_MAP) {
+      const pattern = patternFromPicture(squares);
+      expect(namesASquare(pattern)).toBeTrue();
+      expect(isTightBox(pattern)).toBeTrue();
+      expect(pattern.cells).toHaveLength(pattern.width * pattern.height);
+    }
+  });
 });
 
 describe("RULE_ROW", () => {
@@ -278,10 +324,10 @@ describe("RULE_ROW", () => {
     expect(projected).toEqual(ROW_PINS);
   });
 
-  test("shows every flag rule exactly once and no sized rule at all", () => {
+  test("shows every flag rule exactly once and no retired rule at all", () => {
     // The invariant that makes the folding safe: a control forgotten here
-    // would drop its rules from the page silently, and a sized id here would
-    // draw a chip the format can no longer store.
+    // would drop its rules from the page silently, and a sized or drawn id
+    // here would draw a chip the format can no longer store.
     const drawn = RULE_ROW.flatMap(band =>
       band.entries.flatMap(entry => {
         if (entry.kind === "single") return [entry.id];
@@ -289,7 +335,9 @@ describe("RULE_ROW", () => {
         return [];
       }),
     );
-    const flags = RULES.filter(rule => !rule.sized).map(rule => rule.id);
+    const flags = RULES.filter(rule => !rule.sized && !rule.drawn).map(
+      rule => rule.id,
+    );
     expect([...drawn].sort()).toEqual([...flags].sort());
     expect(new Set(drawn).size).toBe(drawn.length);
   });
@@ -306,7 +354,7 @@ describe("RULE_ROW", () => {
     }
   });
 
-  test("the four sized controls cover both families and colours", () => {
+  test("the four sized controls cover both families and colors", () => {
     const controls = RULE_ROW.flatMap(band =>
       band.entries.flatMap(entry =>
         entry.kind === "sized" ? [entry.control] : [],
@@ -324,9 +372,9 @@ describe("RULE_ROW", () => {
       expect([control.min, control.max]).toEqual(
         control.family === "runs" ? [2, 8] : [1, 9999],
       );
-      // Whether a second value per colour means anything is a property of the
+      // Whether a second value per color means anything is a property of the
       // FAMILY: two run bans are conjunctive, two area sizes hold only where
-      // the colour is absent. `SizedListSpec.perColor` says the same on the
+      // the color is absent. `SizedListSpec.perColor` says the same on the
       // file's side, and these two must never disagree.
       expect(control.onePerColor).toBe(control.family === "areas");
       // A sized control draws in the band its rules always lived in.
@@ -533,7 +581,7 @@ describe("symbolValueError", () => {
 
   /** The galaxy is valueless and aims nowhere, and every refusal derives from
    * its own fields — no validator branch names it. It DOES carry a seat: its
-   * centre may sit on a grid line or a corner, so the generic net that refuses
+   * center may sit on a grid line or a corner, so the generic net that refuses
    * one has to be read off `seating` rather than off `aims`. */
   test("a galaxy refuses value and direction but takes a seat", () => {
     const galaxy = symbolKindAt(5)!;

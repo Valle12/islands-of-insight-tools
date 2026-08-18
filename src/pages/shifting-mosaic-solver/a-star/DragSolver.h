@@ -161,8 +161,8 @@ public:
   // cut-structured puzzles. Constant-time after construction.
   // Defined in DragSolver.cpp, not here: middleCuts_ and corridorBandsActive_
   // are written only by computeCutSchedule(), so in any translation unit that
-  // sees this header without that .cpp the analyser reads their in-class
-  // initialisers as the only possible values and calls the first test dead.
+  // sees this header without that .cpp the analyzer reads their in-class
+  // initializers as the only possible values and calls the first test dead.
   [[nodiscard]] bool jamProfile() const;
 
   // DragMove and StateInfo are implementation details, but the search's
@@ -797,7 +797,7 @@ private:
   enum class AsmOutcome : uint8_t {
     Packed,       // every piece is on its slot
     AttemptSpent, // this packing is out of order space or time
-    Abort,        // cancelled or past the overall deadline
+    Abort,        // canceled or past the overall deadline
   };
 
   [[nodiscard]] Position slotPos(uint8_t p) const;
