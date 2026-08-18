@@ -96,7 +96,7 @@ public:
     // returns empty at the next budget checkpoint.
     std::atomic<bool> *cancel = nullptr;
     // Ceiling on the LIVE state map of a single search pass; 0 = unlimited
-    // (bit-identical to the historical behaviour). maxNodes bounds EXPANSIONS,
+    // (bit-identical to the historical behavior). maxNodes bounds EXPANSIONS,
     // which is not what fills the heap. Mirrors DragSolver::Config::
     // maxStatesStored — see the longer rationale there. Deterministic, so this
     // is the knob TESTS should use.
@@ -204,7 +204,7 @@ private:
   // Shape cells translated so their bounding box starts at (0,0), then sorted:
   // two blocks are interchangeable iff these match.
   [[nodiscard]] static std::vector<Position>
-  normalisedCells(const std::vector<Position> &shape);
+  normalizedCells(const std::vector<Position> &shape);
   // True iff block i at `anchor` covers any cell of the goal block's final
   // footprint. Shared by the construction-time unsolvable check and
   // isDeadlocked, which spelled out the same any_of separately.
@@ -318,7 +318,7 @@ private:
   [[nodiscard]] std::vector<int32_t>
   goalAnchorPredecessors(Position from) const;
   // Canonical state signatures. Not static: they consult symmetryGroups_ to
-  // canonicalise interchangeable same-shape blocks.
+  // canonicalize interchangeable same-shape blocks.
   [[nodiscard]] NodeKey nodeSignature(const Node &node) const;
   [[nodiscard]] NodeKey
   signatureFromAnchors(const std::vector<Position> &anchors) const;

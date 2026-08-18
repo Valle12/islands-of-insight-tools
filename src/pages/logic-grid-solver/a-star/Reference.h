@@ -4,12 +4,12 @@
 
 #include <cstdint>
 
-// Brute force: every colouring, checked by the oracle, with nothing clever in
+// Brute force: every coloring, checked by the oracle, with nothing clever in
 // between.
 //
 // This exists because of the one bug class the rest of the design cannot see.
 // `Verify` catches an answer that is not a solution. Nothing catches a
-// propagator that removes a colouring which WAS a solution — in normal mode
+// propagator that removes a coloring which WAS a solution — in normal mode
 // that just returns a different valid answer, and in underclued mode it
 // silently paints cells that are not actually forced. So the tests compare the
 // engine's whole solution set, and its forced set, against this.
@@ -19,7 +19,7 @@
 namespace lg::reference {
 
 /// The most undecided CELLS this will take on — merged ones counting once,
-/// since all their squares take one colour. 2^24 verifications is already tens
+/// since all their squares take one color. 2^24 verifications is already tens
 /// of seconds; past that it refuses rather than hanging a test.
 inline constexpr int kMaxFreeCells = 24;
 
@@ -30,7 +30,7 @@ struct Answer {
   uint64_t solutionCount = 0;
   /// The lowest-numbered solution, meaningful when solutionCount > 0.
   Colors first{};
-  /// The colour every solution agrees on per cell, kUnknown where they differ.
+  /// The color every solution agrees on per cell, kUnknown where they differ.
   /// This is exactly what an underclued puzzle asks for.
   Colors forced{};
 };

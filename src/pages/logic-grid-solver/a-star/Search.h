@@ -16,11 +16,11 @@ namespace lg {
 enum class Status : uint8_t {
   /// Nothing found and nothing proved — the budget ran out.
   Unsolved = 0,
-  /// A complete colouring, verified.
+  /// A complete coloring, verified.
   Solved,
   /// An underclued board's forced cells.
   Deduced,
-  /// No colouring of this board is a solution.
+  /// No coloring of this board is a solution.
   Unsolvable,
 };
 
@@ -57,7 +57,7 @@ struct Config {
 
 struct SearchStats {
   uint64_t nodesExpanded = 0;
-  /// How many "prove this cell cannot be the other colour" searches ran.
+  /// How many "prove this cell cannot be the other color" searches ran.
   uint64_t refutations = 0;
   /// Complete assignments propagation accepted but the oracle rejected. Always
   /// zero; a non-zero count means a propagator and `Verify` disagree, which is
@@ -68,8 +68,8 @@ struct SearchStats {
 
 struct Outcome {
   Status status = Status::Unsolved;
-  /// The answer: a complete colouring, or — underclued — the cells that hold
-  /// the same colour in every solution, with the rest left kUnknown.
+  /// The answer: a complete coloring, or — underclued — the cells that hold
+  /// the same color in every solution, with the rest left kUnknown.
   Colors colors{};
   /**
    * Underclued only: whether every remaining cell was PROVED to be undecidable
@@ -85,12 +85,12 @@ struct Outcome {
   std::string arm;
 };
 
-/// A cell pinned to a colour for one run, on top of the puzzle's own givens.
+/// A cell pinned to a color for one run, on top of the puzzle's own givens.
 using Assumption = std::pair<int, uint8_t>;
 
 struct SearchOptions {
   uint32_t seed = 0;
-  /// Start each cell from a random colour rather than a fixed one. Only worth
+  /// Start each cell from a random color rather than a fixed one. Only worth
   /// it when the point is to collect DIFFERENT solutions.
   bool randomPhase = false;
   /// Stop once this many solutions are in hand.
@@ -115,7 +115,7 @@ SearchResult search(const Model &model, const Config &cfg,
  * Deduction only: propagation, then singleton look-ahead to a fixpoint.
  *
  * Look-ahead is what turns the propagators into the game's own hand
- * techniques: trying a colour and finding it contradictory proves the other,
+ * techniques: trying a color and finding it contradictory proves the other,
  * which covers bottlenecks, near-misses, escapes and the rest without any of
  * them being written down. Nothing here branches, so it terminates quickly and
  * anything it decides is decided in every solution — as long as one exists.
@@ -125,7 +125,7 @@ Outcome runDeduce(const Model &model, const Config &cfg);
 /// One solution, or a proof there is none.
 Outcome runDfs(const Model &model, const Config &cfg);
 
-/// The cells that hold the same colour in every solution.
+/// The cells that hold the same color in every solution.
 Outcome runForced(const Model &model, const Config &cfg);
 
 } // namespace lg

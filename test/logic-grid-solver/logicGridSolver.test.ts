@@ -77,6 +77,23 @@ const MARKUP = `
     <md-text-button id="reset-cancel">Cancel</md-text-button>
     <md-filled-button id="reset-confirm">Reset</md-filled-button>
   </md-dialog>
+  <md-dialog id="pattern-dialog">
+    <md-outlined-text-field id="pattern-width" type="number" value="2"
+      min="1" max="32"></md-outlined-text-field>
+    <md-outlined-text-field id="pattern-height" type="number" value="2"
+      min="1" max="32"></md-outlined-text-field>
+    <div id="pattern-colors">
+      <button class="tool-button pattern-color selected" type="button"
+        data-pattern-color="dark" aria-pressed="true"></button>
+      <button class="tool-button pattern-color" type="button"
+        data-pattern-color="light" aria-pressed="false"></button>
+    </div>
+    <div id="pattern-grid"></div>
+    <div id="pattern-error"></div>
+    <md-text-button id="pattern-clear">Clear</md-text-button>
+    <md-text-button id="pattern-cancel">Cancel</md-text-button>
+    <md-filled-button id="pattern-save">Save</md-filled-button>
+  </md-dialog>
   <div id="drop-overlay" class="hidden"></div>
 `;
 
@@ -191,17 +208,17 @@ describe("LogicGridSolverEditor", () => {
 
   beforeEach(() => {
     document.body.innerHTML = MARKUP;
-    const dialog = byId("reset-dialog") as HTMLDialogElement & {
-      show: () => void;
-    };
     // The test DOM doesn't register the custom `md-dialog` element, so provide
     // the `show`/`close` implementations the code calls.
-    dialog.show = () => {
-      dialog.open = true;
-    };
-    dialog.close = () => {
-      dialog.open = false;
-    };
+    for (const id of ["reset-dialog", "pattern-dialog"]) {
+      const dialog = byId(id) as HTMLDialogElement & { show: () => void };
+      dialog.show = () => {
+        dialog.open = true;
+      };
+      dialog.close = () => {
+        dialog.open = false;
+      };
+    }
     new LogicGridSolverEditor();
   });
 
@@ -228,11 +245,12 @@ describe("LogicGridSolverEditor", () => {
       expect(symbolChips()).toHaveLength(SYMBOL_KINDS.length);
       expect(symbolChips()[0]!.dataset.symbol).toBe(SYMBOL_KINDS[0]!.id);
       // One chip per FLAG rule: the 22 sized entries have no chip of their
-      // own — their families are the four value controls counted below.
+      // own — their families are the four value controls counted below — and
+      // nor do the 10 retired arrangements, which are drawn instead.
       expect(ruleChips()).toHaveLength(
-        RULES.filter(rule => !rule.sized).length,
+        RULES.filter(rule => !rule.sized && !rule.drawn).length,
       );
-      // RULES[0] is half of a folded pair, so its segment wears the colour as
+      // RULES[0] is half of a folded pair, so its segment wears the color as
       // a SWATCH — the paint tools' own visual — and the full rule name as
       // its accessible one.
       expect(
@@ -253,11 +271,11 @@ describe("LogicGridSolverEditor", () => {
     });
 
     /**
-     * The row is a reading order and the catalogue is the file format. This is
+     * The row is a reading order and the catalog is the file format. This is
      * what says the page draws the first and still stores the second: a chip's
      * position follows `RULE_ROW`'s bands — a pair contributing its dark then
      * its light segment — while `data-rule-index`, which is what the click
-     * handler reads, is the catalogue's.
+     * handler reads, is the catalog's.
      */
     test("draws the rules in row order, carrying their stored index", () => {
       const rowIds = RULE_ROW.flatMap(band =>
@@ -272,19 +290,34 @@ describe("LogicGridSolverEditor", () => {
       );
     });
 
-    /** Each band is its own labelled section, in `RULE_ROW`'s order. */
+    /**
+     * Each band is its own labelled section, in `RULE_ROW`'s order — and the
+     * drawn patterns are NOT a band of their own. They say the same sentence
+     * the arrangement chips say, so they close that band, even though they
+     * come from the BOARD rather than from the catalog and so appear
+     * nowhere in `RULE_ROW`.
+     */
     test("groups the rules into headed bands", () => {
       const bands = [
         ...document.querySelectorAll<HTMLElement>("#rule-row .rule-band"),
       ];
-      expect(bands.map(band => band.dataset.band)).toEqual(
-        RULE_ROW.map(band => band.band),
-      );
+      expect(bands.map(band => band.dataset.band)).toEqual([
+        ...RULE_ROW.map(band => band.band),
+      ]);
       expect(
         bands.map(
           band => band.querySelector(".rule-band-heading")!.textContent,
         ),
-      ).toEqual(RULE_ROW.map(band => band.heading));
+      ).toEqual([...RULE_ROW.map(band => band.heading)]);
+    });
+
+    /** The drawn patterns' container and its `+` close the ARRANGEMENT band. */
+    test("puts the drawn patterns at the end of the arrangement band", () => {
+      const band = document.querySelector<HTMLElement>(
+        '#rule-row .rule-band[data-band="arrangement"] .rule-band-chips',
+      )!;
+      expect(band.querySelector("#pattern-chips")).not.toBeNull();
+      expect(band.lastElementChild!.classList).toContain("rule-pattern-add");
     });
 
     /** Every kind that CARRIES a value gets its own field, so none has to be
@@ -550,7 +583,7 @@ describe("LogicGridSolverEditor", () => {
     });
 
     /** The fold is layout, not linkage: a pair's segments are two independent
-     * switches, and both colours can be on at once. */
+     * switches, and both colors can be on at once. */
     test("a pair's segments toggle independently", () => {
       ruleChip("no-dark-t").click();
       expect(ruleChip("no-light-t").getAttribute("aria-pressed")).toBe("false");
@@ -622,7 +655,7 @@ describe("LogicGridSolverEditor", () => {
     });
 
     // Driven through a RUN control, the family that still takes several values
-    // per colour — an area control has only ever one slot to renumber.
+    // per color — an area control has only ever one slot to renumber.
     test("leaving an emptied slot removes it and renumbers the rest", () => {
       sizedAdd("run-dark").click();
       setSizedValue("run-dark", 0, "2");
@@ -650,7 +683,7 @@ describe("LogicGridSolverEditor", () => {
      * "Every dark region has area 2" and "…area 3" hold together only where
      * dark is absent from the board, so an area control takes ONE value and
      * gives up its `+` as soon as it has a slot to put one in. The run family
-     * keeps its button: two bans on one colour are merely redundant.
+     * keeps its button: two bans on one color are merely redundant.
      */
     test("an area control drops its + at one value and a run control does not", () => {
       expect(sizedAdd("area-dark").classList.contains("hidden")).toBeFalse();
@@ -782,7 +815,7 @@ describe("LogicGridSolverEditor", () => {
       expect((byId("reset-dialog") as HTMLDialogElement).open).toBeFalse();
     });
 
-    test("cancelling leaves the board alone", () => {
+    test("canceling leaves the board alone", () => {
       press(0, 0);
       toolButton("reset").click();
       byId("reset-cancel").click();
@@ -908,6 +941,24 @@ describe("LogicGridSolverEditor", () => {
       expect(byId("solution-view").classList.contains("hidden")).toBeTrue();
     });
 
+    test("toggling a drawn pattern drops it too", async () => {
+      byId("rule-row")
+        .querySelector<HTMLButtonElement>(".rule-pattern-add")!
+        .click();
+      document
+        .querySelector<HTMLButtonElement>("#pattern-grid .pattern-cell")!
+        .dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+      byId("pattern-save").click();
+
+      byId("solve-puzzle").click();
+      await flush();
+      document
+        .querySelector<HTMLButtonElement>("#rule-row .pattern-toggle")!
+        .click();
+
+      expect(byId("solution-view").classList.contains("hidden")).toBeTrue();
+    });
+
     test("typing a sized value drops it too", async () => {
       byId("solve-puzzle").click();
       await flush();
@@ -919,6 +970,201 @@ describe("LogicGridSolverEditor", () => {
       // …and the first digit is an edit like any other.
       setSizedValue("run-dark", 0, "2");
       expect(byId("solution-view").classList.contains("hidden")).toBeTrue();
+    });
+  });
+
+  describe("Drawn patterns", () => {
+    const patternChips = () => [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        "#rule-row .pattern-toggle",
+      ),
+    ];
+    const patternCells = () => [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        "#pattern-grid .pattern-cell",
+      ),
+    ];
+    const openDialog = () =>
+      byId("rule-row")
+        .querySelector<HTMLButtonElement>(".rule-pattern-add")!
+        .click();
+    /** A press on one square: the left button unless `button` says otherwise. */
+    const press = (at: number, button = 0) => {
+      patternCells()[at]!.dispatchEvent(
+        new MouseEvent("pointerdown", { button, bubbles: true }),
+      );
+    };
+    /** Arms a color the way the two chips do. */
+    const arm = (color: "dark" | "light") => {
+      byId("pattern-dialog")
+        .querySelector<HTMLButtonElement>(
+          `.pattern-color[data-pattern-color="${color}"]`,
+        )!
+        .click();
+    };
+    const paint = (at: number) => {
+      press(at);
+    };
+    /** Draws a 2x2 dark block and saves it. */
+    const drawSquare = () => {
+      openDialog();
+      for (let at = 0; at < 4; at++) paint(at);
+      byId("pattern-save").click();
+    };
+
+    test("the band starts empty behind a New pattern button", () => {
+      expect(patternChips()).toHaveLength(0);
+      expect(byId("pattern-chips")).not.toBeNull();
+      expect(
+        byId("rule-row").querySelector(".rule-pattern-add"),
+      ).not.toBeNull();
+    });
+
+    test("drawing one adds a chip, switched on for this board", () => {
+      drawSquare();
+      expect(patternChips()).toHaveLength(1);
+      expect(patternChips()[0]!.getAttribute("aria-pressed")).toBe("true");
+      expect((byId("pattern-dialog") as HTMLDialogElement).open).toBeFalse();
+    });
+
+    /** The chip's whole identity: the drawing, and no borrowed name. */
+    test("the chip shows the squares that were drawn", () => {
+      drawSquare();
+      const squares = patternChips()[0]!.querySelectorAll(".pattern-square");
+      expect(squares).toHaveLength(4);
+      expect(
+        [...squares].every(
+          square => square.getAttribute("data-square") === "dark",
+        ),
+      ).toBeTrue();
+      expect(patternChips()[0]!.getAttribute("aria-label")).toContain(
+        "Forbidden pattern 1",
+      );
+    });
+
+    /**
+     * The board's own gesture, in miniature: the armed color under the left
+     * button, the OTHER under the right, and a press writing what is already
+     * there clearing it instead. That last rule is what keeps both colors and
+     * the eraser reachable from either chip, which is what someone with no
+     * right button needs.
+     */
+    test("the left button paints the armed color and the right the other", () => {
+      openDialog();
+      expect(patternCells()[0]!.dataset.square).toBe("unknown");
+      press(0);
+      expect(patternCells()[0]!.dataset.square).toBe("dark");
+      press(0, 2);
+      expect(patternCells()[0]!.dataset.square).toBe("light");
+      press(0);
+      expect(patternCells()[0]!.dataset.square).toBe("dark");
+    });
+
+    test("pressing the color a square already holds clears it", () => {
+      openDialog();
+      press(0);
+      expect(patternCells()[0]!.dataset.square).toBe("dark");
+      press(0);
+      expect(patternCells()[0]!.dataset.square).toBe("unknown");
+      press(0, 2);
+      expect(patternCells()[0]!.dataset.square).toBe("light");
+      press(0, 2);
+      expect(patternCells()[0]!.dataset.square).toBe("unknown");
+    });
+
+    test("arming light paints light, and the chips say which is armed", () => {
+      openDialog();
+      arm("light");
+      press(0);
+      expect(patternCells()[0]!.dataset.square).toBe("light");
+      // ...and the right button now writes dark, the two chips having swapped
+      // which color each button carries.
+      press(1, 2);
+      expect(patternCells()[1]!.dataset.square).toBe("dark");
+      const chips = [
+        ...byId("pattern-dialog").querySelectorAll<HTMLElement>(
+          ".pattern-color",
+        ),
+      ];
+      expect(chips.map(chip => chip.getAttribute("aria-pressed"))).toEqual([
+        "false",
+        "true",
+      ]);
+      // The armed color survives a close, and the chips have to keep saying
+      // so — they are markup and are never rebuilt.
+      byId("pattern-cancel").click();
+      openDialog();
+      expect(
+        chips.map(chip => chip.getAttribute("aria-pressed")),
+      ).toEqual(["false", "true"]);
+      press(0);
+      expect(patternCells()[0]!.dataset.square).toBe("light");
+    });
+
+    test("resizing the box keeps what still fits", () => {
+      openDialog();
+      paint(0);
+      (byId("pattern-width") as HTMLInputElement).value = "3";
+      byId("pattern-width").dispatchEvent(new Event("input"));
+      expect(patternCells()).toHaveLength(6);
+      expect(patternCells()[0]!.dataset.square).toBe("dark");
+    });
+
+    test("saving nothing says so and keeps the dialog up", () => {
+      openDialog();
+      byId("pattern-save").click();
+      expect(byId("pattern-error").textContent).toContain("at least one");
+      expect((byId("pattern-dialog") as HTMLDialogElement).open).toBeTrue();
+    });
+
+    /** By the canonical form, so this fires on a ROTATION of a shape already
+     * held — the same rule facing another way. */
+    test("refuses a shape the library already holds", () => {
+      openDialog();
+      paint(0);
+      paint(3);
+      byId("pattern-save").click();
+      expect(patternChips()).toHaveLength(1);
+
+      openDialog();
+      paint(1);
+      paint(2);
+      byId("pattern-save").click();
+      expect(byId("pattern-error").textContent).toContain("already");
+      expect(patternChips()).toHaveLength(1);
+    });
+
+    test("clicking a chip toggles it off and on again", () => {
+      drawSquare();
+      patternChips()[0]!.click();
+      expect(patternChips()[0]!.getAttribute("aria-pressed")).toBe("false");
+      patternChips()[0]!.click();
+      expect(patternChips()[0]!.getAttribute("aria-pressed")).toBe("true");
+    });
+
+    test("deleting one takes it out of the row for good", () => {
+      drawSquare();
+      byId("rule-row")
+        .querySelector<HTMLButtonElement>(".pattern-delete")!
+        .click();
+      expect(patternChips()).toHaveLength(0);
+    });
+
+    /** A reset is about this BOARD. The library is session state, and the next
+     * puzzle in a group usually wants the same shapes one click away. */
+    test("reset switches them off but keeps them drawn", () => {
+      drawSquare();
+      toolButton("reset").click();
+      byId("reset-confirm").click();
+      expect(patternChips()).toHaveLength(1);
+      expect(patternChips()[0]!.getAttribute("aria-pressed")).toBe("false");
+    });
+
+    test("a resize switches them off the same way", () => {
+      drawSquare();
+      setSize("4", "4");
+      expect(patternChips()).toHaveLength(1);
+      expect(patternChips()[0]!.getAttribute("aria-pressed")).toBe("false");
     });
   });
 
@@ -967,6 +1213,59 @@ describe("LogicGridSolverEditor", () => {
       expect("shapes" in JSON.parse(await blobs[0]!.text())).toBeFalse();
     });
 
+    test("writes the drawn patterns when a board carries any", async () => {
+      setSize("2", "2");
+      byId("rule-row")
+        .querySelector<HTMLButtonElement>(".rule-pattern-add")!
+        .click();
+      for (const cell of document.querySelectorAll<HTMLButtonElement>(
+        "#pattern-grid .pattern-cell",
+      ))
+        cell.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+      byId("pattern-save").click();
+
+      byId("download-config").click();
+      expect(JSON.parse(await blobs[0]!.text()).patterns).toEqual([
+        { width: 2, height: 2, cells: [DARK, DARK, DARK, DARK] },
+      ]);
+
+      // Switched off, the shape is still DRAWN but no longer this board's, so
+      // the key goes away entirely rather than being written empty.
+      document
+        .querySelector<HTMLButtonElement>("#rule-row .pattern-toggle")!
+        .click();
+      byId("download-config").click();
+      expect("patterns" in JSON.parse(await blobs[1]!.text())).toBeFalse();
+    });
+
+    test("loads a board's patterns back as chips", async () => {
+      const file = configFile({
+        version: CONFIG_VERSION,
+        gridWidth: 2,
+        gridHeight: 2,
+        rules: [],
+        patterns: [{ width: 2, height: 2, cells: [DARK, 0, 0, DARK] }],
+        cells: [
+          [UNKNOWN, UNKNOWN],
+          [UNKNOWN, UNKNOWN],
+        ],
+        symbols: [],
+      });
+      pick(file);
+      await flush();
+
+      const chips = document.querySelectorAll<HTMLButtonElement>(
+        "#rule-row .pattern-toggle",
+      );
+      expect(chips).toHaveLength(1);
+      expect(chips[0]!.getAttribute("aria-pressed")).toBe("true");
+      // And back out unchanged, which is what a captured board has to do.
+      byId("download-config").click();
+      expect(JSON.parse(await blobs[0]!.text()).patterns).toEqual([
+        { width: 2, height: 2, cells: [DARK, 0, 0, DARK] },
+      ]);
+    });
+
     test("writes the merged cells when a board has any", async () => {
       setSize("3", "1");
       toolButton("merge").click();
@@ -1010,7 +1309,7 @@ describe("LogicGridSolverEditor", () => {
     });
 
     /**
-     * The row/catalogue split, end to end. This segment is drawn folded into
+     * The row/catalog split, end to end. This segment is drawn folded into
      * the "Connect all cells" pair, and the file it writes says 12 — which is
      * what keeps every puzzle saved before the fold meaning the same thing.
      */
@@ -1030,7 +1329,7 @@ describe("LogicGridSolverEditor", () => {
      */
     test("writes sized values as family entries in canonical order", async () => {
       // Dark before light across the areas; values ascending within the runs,
-      // which is the family that can still hold two of one colour.
+      // which is the family that can still hold two of one color.
       sizedAdd("area-light").click();
       setSizedValue("area-light", 0, "3");
       sizedAdd("area-dark").click();

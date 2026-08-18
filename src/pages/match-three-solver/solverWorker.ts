@@ -15,7 +15,7 @@ export type SolveMessage =
 /**
  * The search is a straight-line recursion that runs for minutes, so it gets a
  * thread of its own — on the main thread it would freeze the page outright.
- * Cancelling is `terminate()` from the client side, which is why nothing here
+ * Canceling is `terminate()` from the client side, which is why nothing here
  * has to poll for a stop flag — and why every best-so-far is streamed out the
  * moment it exists: the client keeps the latest, so killing the thread never
  * loses the answer in hand.

@@ -5,7 +5,7 @@
 
 // Deduction: everything that can be worked out without guessing.
 //
-// Every propagator here must be SOUND — it may never take a colour away from a
+// Every propagator here must be SOUND — it may never take a color away from a
 // cell that some real solution gives it. It is allowed to be incomplete, and
 // all of them are: what they miss, the search finds by branching, and
 // `Verify` is the last word on any answer either of them produces.

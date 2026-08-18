@@ -10,7 +10,7 @@ if(MSVC)
     string(REPLACE "/Od" "/O1" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
     string(REPLACE "/Ob0" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
     string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
-    # MSVC deprecates std::getenv (C4996) in favour of the non-portable
+    # MSVC deprecates std::getenv (C4996) in favor of the non-portable
     # _dupenv_s. The env knobs in test/json_test.cpp are standard C++ and build
     # warning-free everywhere else, so silence the vendor-specific nag rather
     # than fork the code.

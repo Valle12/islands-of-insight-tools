@@ -71,9 +71,9 @@ TEST(Propagate, AnAreaOfTwoForcesItsOnlyPartner) {
 }
 
 /// The case a forbidden arrangement would DROP: "dark with four light
-/// neighbours" only ever has instances where all four neighbours exist, and a
+/// neighbors" only ever has instances where all four neighbors exist, and a
 /// cell walled in by gaps has none.
-TEST(Propagate, ACellWithNoRoomToPairCannotTakeTheColour) {
+TEST(Propagate, ACellWithNoRoomToPairCannotTakeTheColor) {
   Puzzle puzzle = test::board({".#", "##"});
   test::withAreaRule(puzzle, kDark, 2);
   EXPECT_EQ(deduce(puzzle), Rows({"L#", "##"}));
@@ -143,13 +143,13 @@ TEST(Propagate, AFinishedAreaOfFiveIsOutlined) {
 }
 
 /**
- * Both sizes on one colour is not a contradiction — it is satisfied exactly
- * where that colour is absent — and propagation reaches that as soon as there
+ * Both sizes on one color is not a contradiction — it is satisfied exactly
+ * where that color is absent — and propagation reaches that as soon as there
  * is anywhere for it to bite. A space two wide can never hold a region of four,
  * so nothing in it may be dark; and a dark cell already in one is refused,
  * because the pair rule fills the space and the four rule then finds no room.
  */
-TEST(Propagate, BothAreaSizesOnOneColourEmptyTheSpaceTheyShare) {
+TEST(Propagate, BothAreaSizesOnOneColorEmptyTheSpaceTheyShare) {
   Puzzle open = test::board({"..#"});
   test::withAreaRule(open, kDark, 2);
   test::withAreaRule(open, kDark, 4);
@@ -163,7 +163,7 @@ TEST(Propagate, BothAreaSizesOnOneColourEmptyTheSpaceTheyShare) {
 /**
  * Area ONE, the size whose isolated-singleton sweep must NOT run. A decided
  * singleton outlines exactly as any finished region does — the given forces
- * its neighbour light — while a merely POSSIBLE isolated cell stays open,
+ * its neighbor light — while a merely POSSIBLE isolated cell stays open,
  * because the singleton is the very shape the rule wants: `L.L`'s middle can
  * still go dark, and excluding it would poison underclued's forced set.
  */
@@ -186,9 +186,9 @@ TEST(Propagate, ADominoUnderAreaOneIsRefused) {
 }
 
 /// An area far past the board is enforceable and simply unsatisfiable the
-/// moment the colour appears — the honesty rule's engine half: the file
+/// moment the color appears — the honesty rule's engine half: the file
 /// loads, and the root refutes it.
-TEST(Propagate, AnAreaLargerThanTheBoardRefusesTheColour) {
+TEST(Propagate, AnAreaLargerThanTheBoardRefusesTheColor) {
   Puzzle puzzle = test::board({"D.", ".."});
   test::withAreaRule(puzzle, kDark, 9999);
   EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
@@ -196,7 +196,7 @@ TEST(Propagate, AnAreaLargerThanTheBoardRefusesTheColour) {
 
 // --- Darts ----------------------------------------------------------------
 
-/// Zero: the whole line takes the dart's own colour. Half of what the game
+/// Zero: the whole line takes the dart's own color. Half of what the game
 /// calls dart minimax, and the half that needs no counting at all.
 TEST(Propagate, ADartOfZeroPaintsItsLine) {
   Puzzle puzzle = test::board({"....."});
@@ -206,8 +206,8 @@ TEST(Propagate, ADartOfZeroPaintsItsLine) {
 }
 
 /// The other half: a line exactly as long as the number is entirely the other
-/// colour. The gap is stepped over, so the line is three squares and not two.
-TEST(Propagate, AFullDartLinePaintsTheOtherColour) {
+/// color. The gap is stepped over, so the line is three squares and not two.
+TEST(Propagate, AFullDartLinePaintsTheOtherColor) {
   Puzzle puzzle = test::board({"..#.."});
   test::withGiven(puzzle, 0, 0, kDark);
   test::withDart(puzzle, 0, 0, 3, kDirRight);
@@ -223,9 +223,9 @@ TEST(Propagate, ADartInBetweenForcesNothing) {
   EXPECT_EQ(deduce(puzzle), Rows({"D...."}));
 }
 
-/// Its own colour is still open, so it does not yet say which colour it counts.
+/// Its own color is still open, so it does not yet say which color it counts.
 /// Only one assumption fits a line of two: light would need four of them.
-TEST(Propagate, ADartThatOnlyOneColourFitsSettlesItsOwnCell) {
+TEST(Propagate, ADartThatOnlyOneColorFitsSettlesItsOwnCell) {
   Puzzle puzzle = test::board({"...", "###"});
   test::withDart(puzzle, 0, 0, 2, kDirRight);
   test::withGiven(puzzle, 1, 0, kLight);
@@ -233,7 +233,7 @@ TEST(Propagate, ADartThatOnlyOneColourFitsSettlesItsOwnCell) {
   EXPECT_EQ(deduce(puzzle), Rows({"DLL", "###"}));
 }
 
-TEST(Propagate, ADartNoColourFitsIsRefused) {
+TEST(Propagate, ADartNoColorFitsIsRefused) {
   Puzzle puzzle = test::board({"...", "###"});
   test::withDart(puzzle, 0, 0, 1, kDirRight);
   test::withGiven(puzzle, 1, 0, kLight);
@@ -245,7 +245,7 @@ TEST(Propagate, ADartNoColourFitsIsRefused) {
  * A merged cell on the line is taken or left WHOLE, which is what makes the
  * game's "forced multitiles" fall out of the counting rather than needing a
  * look-ahead: three of the line's four squares are one cell, so asking for
- * three of the other colour can only mean that cell and not the loose square.
+ * three of the other color can only mean that cell and not the loose square.
  */
 TEST(Propagate, ADartForcesAMergedCellOnItsLine) {
   Puzzle puzzle = test::board({"....."});
@@ -256,7 +256,7 @@ TEST(Propagate, ADartForcesAMergedCellOnItsLine) {
 }
 
 /// The dart's own cell is off its own line, so a merged dart cannot refute
-/// itself by counting its own squares as the colour it is looking for.
+/// itself by counting its own squares as the color it is looking for.
 TEST(Propagate, AMergedDartDoesNotCountItself) {
   Puzzle puzzle = test::board({"....."});
   // Both squares of the cell, since a merged cell has to agree with itself.
@@ -271,7 +271,7 @@ TEST(Propagate, AMergedDartDoesNotCountItself) {
 // --- Lotuses --------------------------------------------------------------
 
 /// The core deduction: a square connected to the lotus through decided cells
-/// is certainly in its region, so its mirror must take the same colour.
+/// is certainly in its region, so its mirror must take the same color.
 TEST(Propagate, ALotusForcesTheMirrorOfItsRegion) {
   Puzzle puzzle = test::board({".D.", ".D.", "..."});
   test::withLotus(puzzle, 1, 1, kAxisHorizontal);
@@ -284,7 +284,7 @@ TEST(Propagate, ALotusAxisAimsWhereItSays) {
   EXPECT_EQ(deduce(puzzle), Rows({"...", "DDD", "..."}));
 }
 
-/// The "\" axis through the centre swaps above with left.
+/// The "\" axis through the center swaps above with left.
 TEST(Propagate, ADiagonalLotusSwapsAboveAndLeft) {
   Puzzle puzzle = test::board({".D.", ".D.", "..."});
   test::withLotus(puzzle, 1, 1, kAxisDiagonalDown);
@@ -292,7 +292,7 @@ TEST(Propagate, ADiagonalLotusSwapsAboveAndLeft) {
 }
 
 /// "Lotus opposing nulls": a cell whose reflection leaves the board would
-/// break the symmetry the moment it joined, so it cannot take the colour.
+/// break the symmetry the moment it joined, so it cannot take the color.
 TEST(Propagate, ACellWhoseMirrorLeavesTheBoardCannotJoin) {
   Puzzle puzzle = test::board({"D..", "..."});
   test::withLotus(puzzle, 0, 0, kAxisHorizontal);
@@ -305,8 +305,8 @@ TEST(Propagate, ACellMirroredOntoAGapCannotJoin) {
   EXPECT_EQ(deduce(puzzle), Rows({"LD#"}));
 }
 
-/// "Lotus opposing cells": the reflection is already the other colour.
-TEST(Propagate, ACellMirroredOntoTheOtherColourCannotJoin) {
+/// "Lotus opposing cells": the reflection is already the other color.
+TEST(Propagate, ACellMirroredOntoTheOtherColorCannotJoin) {
   Puzzle puzzle = test::board({".DL"});
   test::withLotus(puzzle, 1, 0, kAxisVertical);
   EXPECT_EQ(deduce(puzzle), Rows({"LDL"}));
@@ -323,10 +323,10 @@ TEST(Propagate, ASeatedLotusMirrorsAcrossItsCellsSeam) {
 }
 
 /**
- * One symmetry clue plus the colour's CONNECT rule folds the whole board:
- * connectivity makes the lotus's region every cell of its colour, so a
+ * One symmetry clue plus the color's CONNECT rule folds the whole board:
+ * connectivity makes the lotus's region every cell of its color, so a
  * decided square ANYWHERE mirrors — not just the decided-connected core — and
- * the fold reaches the other colour too: the dark corner's mirror cannot take
+ * the fold reaches the other color too: the dark corner's mirror cannot take
  * light without dragging the corner into the light region, so it goes dark
  * from clear across the board.
  */
@@ -347,12 +347,12 @@ TEST(Propagate, AConnectedLotusFoldsTheWholeBoard) {
 }
 
 /**
- * The game's "uncoloured symmetry": a lotus with its own colour still open
- * already reflects a decided neighbour, whatever the lotus turns out to be.
+ * The game's "uncolored symmetry": a lotus with its own color still open
+ * already reflects a decided neighbor, whatever the lotus turns out to be.
  * Plain propagation cannot say so — the propagator skips an undecided lotus on
- * purpose — but the probe tries both colours and keeps what they agree on.
+ * purpose — but the probe tries both colors and keeps what they agree on.
  */
-TEST(Propagate, UncolouredSymmetryFallsOutOfTheProbe) {
+TEST(Propagate, UncoloredSymmetryFallsOutOfTheProbe) {
   Puzzle puzzle = test::board({".D.", "...", "..."});
   test::withLotus(puzzle, 1, 1, kAxisHorizontal);
   const Rows plain = deduce(puzzle);
@@ -365,7 +365,7 @@ TEST(Propagate, UncolouredSymmetryFallsOutOfTheProbe) {
 // --- Viewpoints -----------------------------------------------------------
 
 /// A viewpoint of one already sees its fill, so every ray is capped: the four
-/// squares beside it lose its colour, and the corners stay free.
+/// squares beside it lose its color, and the corners stay free.
 TEST(Propagate, AViewpointOfOneCapsEveryRay) {
   Puzzle puzzle = test::board({"...", "...", "..."});
   test::withGiven(puzzle, 1, 1, kDark);
@@ -385,7 +385,7 @@ TEST(Propagate, AMaximalViewpointPaintsItsWholeCross) {
 /**
  * The game's "viewpoint expansion", and the corridor example it is usually
  * told with: a three at the closed end of a corridor must see two more
- * squares, so both take its colour — and the run must stop there, so the
+ * squares, so both take its color — and the run must stop there, so the
  * square after them takes the other. The square beyond THAT is invisible
  * behind the stop and stays free.
  */
@@ -406,17 +406,17 @@ TEST(Propagate, AViewpointAlreadyFullStopsTheRunBeyondIt) {
 }
 
 /// Sight stops at the gap, so this board has two visible squares at most and a
-/// three can never be satisfied — by either colour.
-TEST(Propagate, AViewpointNoColourFitsIsRefused) {
+/// three can never be satisfied — by either color.
+TEST(Propagate, AViewpointNoColorFitsIsRefused) {
   Puzzle puzzle = test::board({"..#"});
   test::withGiven(puzzle, 0, 0, kDark);
   test::withViewpoint(puzzle, 0, 0, 3);
   EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
 }
 
-/// Its own colour is still open, so it does not yet say which colour it
+/// Its own color is still open, so it does not yet say which color it
 /// counts. Only light fits a one beside a decided dark: dark would see it.
-TEST(Propagate, AViewpointOnlyOneColourFitsSettlesItsOwnCell) {
+TEST(Propagate, AViewpointOnlyOneColorFitsSettlesItsOwnCell) {
   Puzzle puzzle = test::board({"..."});
   test::withGiven(puzzle, 1, 0, kDark);
   test::withViewpoint(puzzle, 0, 0, 1);
@@ -434,14 +434,14 @@ TEST(Propagate, AViewpointForcesAMergedCellOnItsRay) {
 }
 
 /**
- * An uncoloured viewpoint reasons through the probe, like an uncoloured
+ * An uncolored viewpoint reasons through the probe, like an uncolored
  * lotus: a two here cannot be dark — the decided dark two squares along would
  * pull the forced first square into a run of two and overload the count — so
  * the probe settles it light, and the count then paints its one visible
- * square. Plain propagation says nothing, on purpose: the shallow colour
+ * square. Plain propagation says nothing, on purpose: the shallow color
  * choice only refutes what no completion could satisfy at all.
  */
-TEST(Propagate, AnUncolouredViewpointFallsOutOfTheProbe) {
+TEST(Propagate, AnUncoloredViewpointFallsOutOfTheProbe) {
   Puzzle puzzle = test::board({"..D."});
   test::withViewpoint(puzzle, 0, 0, 2);
   const Rows plain = deduce(puzzle);
@@ -489,7 +489,7 @@ TEST(Domains, RestoringUndoesAWholeMergedCell) {
 
 /// The collapsed clause firing: one literal, so unit propagation settles the
 /// whole cell before anything has to guess.
-TEST(Propagate, AMergedBarLongerThanARunRuleIsForcedTheOtherColour) {
+TEST(Propagate, AMergedBarLongerThanARunRuleIsForcedTheOtherColor) {
   Puzzle puzzle = test::board({"...", "..."});
   test::withRunRule(puzzle, kDark, 3);
   test::withShape(puzzle, {{0, 0}, {1, 0}, {2, 0}});
@@ -505,7 +505,7 @@ TEST(Propagate, AMergedDominoSatisfiesAnAreaOfTwoByItself) {
   EXPECT_EQ(deduce(puzzle), Rows({"DD", "L#"}));
 }
 
-/// `mergeAround` counting the whole cell: colouring the bar dark would put
+/// `mergeAround` counting the whole cell: coloring the bar dark would put
 /// three squares into a region the clue says holds two, so the bar is light.
 /// The area clue then finishes the row on its own — the region's only way to
 /// grow is (1,0), and once it is two the rest is outlined.
@@ -551,8 +551,8 @@ TEST(Propagate, AnAreaBiggerThanItsRoomIsRefused) {
   EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
 }
 
-TEST(Propagate, AnAreaTakesTheOnlyColourThatFits) {
-  // The clue's own colour is still open, and dark cannot reach three cells
+TEST(Propagate, AnAreaTakesTheOnlyColorThatFits) {
+  // The clue's own color is still open, and dark cannot reach three cells
   // from that corner while light can — so the clue is light.
   EXPECT_EQ(deduce(test::board({"3L", "L#"})), Rows({"LL", "L#"}));
 }
@@ -571,7 +571,7 @@ TEST(Propagate, JoiningTwoAreasThatDisagreeIsRefused) {
   EXPECT_EQ(deduce(puzzle), Rows({"DLD"}));
 }
 
-TEST(Propagate, OneLetterIsOneColour) {
+TEST(Propagate, OneLetterIsOneColor) {
   Puzzle puzzle = test::board({"a.a"});
   test::withGiven(puzzle, 0, 0, kDark);
   const Rows found = deduce(puzzle);
@@ -592,7 +592,7 @@ TEST(Propagate, ALetterCutInTwoIsRefused) {
   EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
 }
 
-TEST(Propagate, ACellAConnectedColourCannotReachIsRuledOut) {
+TEST(Propagate, ACellAConnectedColorCannotReachIsRuledOut) {
   // Dark has to be one region, and the far cell cannot join the one that
   // exists, so it can only be light.
   const Puzzle puzzle =
@@ -600,10 +600,10 @@ TEST(Propagate, ACellAConnectedColourCannotReachIsRuledOut) {
   EXPECT_EQ(deduce(puzzle), Rows({"D#L"}));
 }
 
-TEST(Propagate, AConnectedColourWithAnAreaNumberCountsTheWholeBoard) {
+TEST(Propagate, AConnectedColorWithAnAreaNumberCountsTheWholeBoard) {
   // connect-dark means every dark cell is in ONE region, so an area of one on
   // a dark cell says the whole board holds exactly one dark cell — which
-  // settles every other cell at once, not just the clue's neighbours.
+  // settles every other cell at once, not just the clue's neighbors.
   Puzzle puzzle =
       test::board({"1..", "..."}, test::ruleSet({Rule::ConnectDark}));
   test::withGiven(puzzle, 0, 0, kDark);
@@ -611,7 +611,7 @@ TEST(Propagate, AConnectedColourWithAnAreaNumberCountsTheWholeBoard) {
 }
 
 TEST(Propagate, LookAheadFindsWhatPlainDeductionCannot) {
-  // Neither cell of the pair is forced by any single rule, but colouring the
+  // Neither cell of the pair is forced by any single rule, but coloring the
   // corner dark strands the area clue, so look-ahead settles it.
   Puzzle puzzle = test::board({"1.", ".."},
                               test::ruleSet({Rule::ConnectLight}));
@@ -622,7 +622,7 @@ TEST(Propagate, LookAheadFindsWhatPlainDeductionCannot) {
   EXPECT_NE(plain, probed);
 }
 
-TEST(Propagate, AConnectedElbowFreeColourRulesOutOffAxisCells) {
+TEST(Propagate, AConnectedElbowFreeColorRulesOutOffAxisCells) {
   // The collinearity lemma at the root: every dark pair shares a row or
   // column, so one given rules out everything off its cross — the compiled
   // off-axis pairs firing as plain unit-ish propagation, no probe needed.
@@ -633,7 +633,7 @@ TEST(Propagate, AConnectedElbowFreeColourRulesOutOffAxisCells) {
   EXPECT_EQ(deduce(puzzle), Rows({"L.L", ".D.", "L.L"}));
 }
 
-TEST(Propagate, TwoOffAxisCellsOfAConnectedElbowFreeColourAreRefused) {
+TEST(Propagate, TwoOffAxisCellsOfAConnectedElbowFreeColorAreRefused) {
   Puzzle puzzle = test::board(
       {"...", "...", "..."},
       test::ruleSet({Rule::ConnectDark, Rule::NoDarkElbow}));
@@ -645,7 +645,7 @@ TEST(Propagate, TwoOffAxisCellsOfAConnectedElbowFreeColourAreRefused) {
 TEST(Propagate, FourAlternatingBorderArcsAreRefused) {
   // The two-arc lemma: D,L,D,L around the perimeter forces a dark and a light
   // path between interleaved endpoints, which would have to cross. Plain
-  // `connectColor` cannot see it — every colour still reaches everything
+  // `connectColor` cannot see it — every color still reaches everything
   // through the open middle — so this is `borderArcs`' own refutation.
   Puzzle puzzle = test::board(
       {"...", "...", "..."},
@@ -657,7 +657,7 @@ TEST(Propagate, FourAlternatingBorderArcsAreRefused) {
   EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
 }
 
-TEST(Propagate, ABorderCellInsideAnArcTakesTheArcsColour) {
+TEST(Propagate, ABorderCellInsideAnArcTakesTheArcsColor) {
   // Two arcs stand — dark down the left edge, light down the right — and the
   // open square BETWEEN two light cells cannot go dark: a cyclic subsequence
   // never has more transitions than the full cycle, so any completion would
@@ -683,7 +683,7 @@ TEST(Propagate, AGapOnThePerimeterDoesNotBreakTheArcCount) {
 }
 
 /// The half turn moves BOTH offsets at once, which no single lotus axis
-/// reproduces: the bar's arm left of the centre forces the arm right of it
+/// reproduces: the bar's arm left of the center forces the arm right of it
 /// one row the other way.
 TEST(Propagate, AGalaxyForcesThePointMirrorOfItsRegion) {
   Puzzle puzzle = test::board({".D.", "DD.", "..."});
@@ -697,7 +697,7 @@ TEST(Propagate, ACellWhoseMirrorLeavesTheBoardCannotJoinAGalaxy) {
   EXPECT_EQ(deduce(puzzle), Rows({"DL.", "L.."}));
 }
 
-TEST(Propagate, ACellMirroredOntoTheOtherColourCannotJoinAGalaxy) {
+TEST(Propagate, ACellMirroredOntoTheOtherColorCannotJoinAGalaxy) {
   Puzzle puzzle = test::board({".DL"});
   test::withGalaxy(puzzle, 1, 0);
   EXPECT_EQ(deduce(puzzle), Rows({"LDL"}));
@@ -732,17 +732,17 @@ TEST(Propagate, AGalaxyOnAMergedCellMirrorsAboutItsOwnSquare) {
   EXPECT_EQ(deduce(puzzle), Rows({"DDD", "LLL"}));
 }
 
-/// An uncoloured galaxy reasons through the probe, the lotus's own story:
+/// An uncolored galaxy reasons through the probe, the lotus's own story:
 /// under DARK the given above it mirrors below; under LIGHT the given is the
-/// other colour at the mirror, so the cell below cannot take light either.
-TEST(Propagate, AnUncolouredGalaxyFallsOutOfTheProbe) {
+/// other color at the mirror, so the cell below cannot take light either.
+TEST(Propagate, AnUncoloredGalaxyFallsOutOfTheProbe) {
   Puzzle puzzle = test::board({".D.", "...", "..."});
   test::withGalaxy(puzzle, 1, 1);
   EXPECT_EQ(lookAhead(puzzle), Rows({".D.", "...", ".D."}));
 }
 
 /// Two galaxies can never share a region, and NO code names the case: the
-/// cell that would weld them mirrors off the board about the nearer centre,
+/// cell that would weld them mirrors off the board about the nearer center,
 /// so the shared fold refuses it on its own.
 TEST(Propagate, TwoGalaxiesCannotBeWeldedTogether) {
   Puzzle puzzle = test::board({"D.D"});
@@ -752,7 +752,7 @@ TEST(Propagate, TwoGalaxiesCannotBeWeldedTogether) {
 }
 
 /// A displayed 0 under `off-by-one` is a real dart whose one candidate is 1:
-/// its one-square line must hold the other colour.
+/// its one-square line must hold the other color.
 TEST(Propagate, OffByOneReadsADisplayedZeroDartAsOne) {
   Puzzle puzzle = test::board({"D."}, test::ruleSet({Rule::OffByOne}));
   test::withDart(puzzle, 0, 0, 0, kDirRight);
@@ -818,7 +818,7 @@ TEST(Propagate, OffByOneReadsADisplayedZeroViewpointAsOne) {
 }
 
 /// At a complete assignment the per-candidate filter IS the oracle: an honest
-/// count refutes, either neighbour passes.
+/// count refutes, either neighbor passes.
 TEST(Propagate, OffByOneMatchesTheOracleOnACompleteBoard) {
   Puzzle honest = test::board({"DLLDD"}, test::ruleSet({Rule::OffByOne}));
   test::withDart(honest, 0, 0, 2, kDirRight);
@@ -829,7 +829,7 @@ TEST(Propagate, OffByOneMatchesTheOracleOnACompleteBoard) {
   EXPECT_EQ(deduce(offByOne), Rows({"DLDDD"}));
 }
 
-/// The whole-colour cardinality under connect reads a displayed 0 as one dark
+/// The whole-color cardinality under connect reads a displayed 0 as one dark
 /// cell in total — the old zero-means-no-clue sentinel would have read it as
 /// no constraint at all.
 TEST(Propagate, OffByOneCardinalityReadsADisplayedZero) {
@@ -855,14 +855,14 @@ TEST(Propagate, LookAheadThatRunsOutOfTimeProvesNothing) {
 
 /**
  * A galaxy's region cannot contain a cell whose HALF TURN leaves the board, and
- * that is known before a single cell is coloured. Under "one symbol per area"
- * it is what tethers the rest: a cell of that colour has to share a region with
+ * that is known before a single cell is colored. Under "one symbol per area"
+ * it is what tethers the rest: a cell of that color has to share a region with
  * some clue, and a galaxy off in a corner can only ever reach the half of the
  * board that turns back onto itself.
  *
  * Here the galaxy sits at x = 3 of a 5x1, so its turn maps x onto `6 - x` and
  * only x >= 2 comes back onto the board. With `one-symbol-light` on and the
- * galaxy the only clue, the two cells that do not can be no colour but dark —
+ * galaxy the only clue, the two cells that do not can be no color but dark —
  * settled by deduction alone, with nothing else on the board.
  */
 TEST(Propagate, AGalaxyCannotReachWhatItsTurnLeavesTheBoard) {
@@ -878,7 +878,7 @@ TEST(Propagate, AGalaxyCannotReachWhatItsTurnLeavesTheBoard) {
 TEST(Propagate, TheGalaxyReachBoundIsTheTurnNotTheDistance) {
   Puzzle puzzle = test::board({"...", "...", "..."},
                               test::ruleSet({Rule::OneSymbolLight}));
-  // Centred on the middle, every cell turns onto the board, so nothing is
+  // Centered on the middle, every cell turns onto the board, so nothing is
   // ruled out and the board stays open.
   test::withGalaxy(puzzle, 1, 1);
   test::withGiven(puzzle, 1, 1, kLight);
@@ -933,15 +933,15 @@ TEST(Propagate, SameShapeWithNothingClosedDeducesNothing) {
 /// `regionArea` doing the work, borrowed rather than rewritten.
 TEST(Propagate, SameShapeBorrowsTheClosedRegionsSize) {
   // A closed dark domino on the left; on the right a dark cell whose only
-  // neighbours are light, so it could only ever be a singleton.
+  // neighbors are light, so it could only ever be a singleton.
   const Puzzle puzzle = test::board({"DLLD", "DLLL", "LLLL"},
                                     test::ruleSet({Rule::SameShapeDark}));
   EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
 }
 
-/// A singleton target must NOT empty the colour: `regionArea`'s isolated-cell
+/// A singleton target must NOT empty the color: `regionArea`'s isolated-cell
 /// sweep is gated to areas of two or more for exactly this case.
-TEST(Propagate, AClosedSingletonDoesNotEmptyTheColour) {
+TEST(Propagate, AClosedSingletonDoesNotEmptyTheColor) {
   const Puzzle puzzle = test::board({"DLL", "LLL", "LL."},
                                     test::ruleSet({Rule::SameShapeDark}));
   // The open corner may still be dark — a second singleton is legal.

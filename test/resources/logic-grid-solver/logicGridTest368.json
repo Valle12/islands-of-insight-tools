@@ -1,11 +1,24 @@
 {
-  "version": 2,
+  "version": 3,
   "gridWidth": 9,
   "gridHeight": 9,
   "rules": [
     11,
-    15,
-    35
+    15
+  ],
+  "patterns": [
+    {
+      "width": 2,
+      "height": 3,
+      "cells": [
+        1,
+        0,
+        1,
+        0,
+        1,
+        1
+      ]
+    }
   ],
   "cells": [
     [

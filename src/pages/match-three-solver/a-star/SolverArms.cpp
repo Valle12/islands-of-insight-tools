@@ -175,7 +175,7 @@ constexpr auto kPortfolio = std::to_array<ArmSpec>({
     // The ladder: test47 in 1.4 s, test51 in 5.1 s.
     {.engine = "nrpa", .seed = 6},
     {.engine = "beam", .beamWidth = 8192},
-    // A second draw at test50's favourite config, 15.9 s.
+    // A second draw at test50's favorite config, 15.9 s.
     {.engine = "nrpa", .seed = 5, .nrpaLevel = 2, .nrpaIterations = 100},
 });
 constexpr int kArmCount = static_cast<int>(std::size(kPortfolio));

@@ -193,7 +193,7 @@ TEST(LogicGridFixtureIo, WritesTheVersionItSaves) {
   EXPECT_EQ(written.at("version").get<int>(), fixtureio::kConfigVersion);
 }
 
-/// A galaxy serialises as position and kind alone — no value, direction or
+/// A galaxy serializes as position and kind alone — no value, direction or
 /// seat keys — and reads back identically. The writer sharing
 /// `isValuelessKind` with the reader is what a stray `"value": 0` here would
 /// have broken.
@@ -279,7 +279,7 @@ TEST(LogicGridFixtureIo, RefusesASizedRuleWithABadColor) {
 /// One out-of-range number for one sized family. A helper rather than the
 /// loop body it used to be: gtest's assertion macros expand to a labelled
 /// `goto`, so an EXPECT_THROW written straight inside a `for` reads to a C++
-/// analyser as nested gotos. Wide on purpose: the values past int are the
+/// analyzer as nested gotos. Wide on purpose: the values past int are the
 /// point of the last two rows below.
 void expectSizedValueRefused(const char *key, const char *valueKey,
                              const int64_t value) {
@@ -326,8 +326,8 @@ TEST(LogicGridFixtureIo, RefusesADuplicatedSizedRule) {
   EXPECT_THROW((void)fixtureio::load(file.path()), fixtureio::FixtureError);
 }
 
-/// Two AREA sizes on one colour hold together only where that colour is absent
-/// from the board, so the format takes one per colour. The ENGINE still walks
+/// Two AREA sizes on one color hold together only where that color is absent
+/// from the board, so the format takes one per color. The ENGINE still walks
 /// conjunctive lists — `reference_test` builds them directly — which is why
 /// this is an intake rule and not a `Puzzle` one.
 TEST(LogicGridFixtureIo, RefusesTwoAreasOnOneColor) {
@@ -339,7 +339,7 @@ TEST(LogicGridFixtureIo, RefusesTwoAreasOnOneColor) {
   EXPECT_THROW((void)fixtureio::load(file.path()), fixtureio::FixtureError);
 }
 
-/// ...and the run family is untouched: two bans on one colour are two separate
+/// ...and the run family is untouched: two bans on one color are two separate
 /// rules, both enforceable and at worst redundant.
 TEST(LogicGridFixtureIo, AcceptsTwoRunsOnOneColor) {
   nlohmann::json document = oneCellDocument();
@@ -387,7 +387,7 @@ TEST_P(LogicGridFixtureTest, SolvesAndVerifies) {
   // The corpus is captured from a game that only ships solvable puzzles, so
   // "this board still comes out" is the sharpest thing to assert about it — and
   // the one nothing else here was checking. A plain board answers with a
-  // complete colouring; an underclued one answers with the cells every solution
+  // complete coloring; an underclued one answers with the cells every solution
   // agrees on, which is a real answer only when it is PROVEN.
   //
   // There are no exceptions to this, and there should never be one. A captured
@@ -406,7 +406,7 @@ TEST_P(LogicGridFixtureTest, SolvesAndVerifies) {
   if (!fixture.hasSolution)
     return;
 
-  // A generated board carries the colouring its clues were read off, which is
+  // A generated board carries the coloring its clues were read off, which is
   // a solution by construction. Two things follow, and they are the sharpest
   // checks in the suite.
   EXPECT_EQ(verify::check(model, fixture.solution), verify::Violation::None)

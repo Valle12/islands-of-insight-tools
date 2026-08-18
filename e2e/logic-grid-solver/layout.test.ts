@@ -63,7 +63,7 @@ test.describe("Board layout", () => {
 
     // The board really overflows the shell — otherwise this asserts nothing.
     expect(measured.gridWidth).toBeGreaterThan(measured.shellClientWidth);
-    // No overlap: neighbouring squares sit exactly one cell plus one seam
+    // No overlap: neighboring squares sit exactly one cell plus one seam
     // apart, whatever the viewport.
     expect(measured.pitch).toBeCloseTo(measured.cell + measured.seam, 1);
     // No blank tail: the scrollable extent is the grid plus the shell's own

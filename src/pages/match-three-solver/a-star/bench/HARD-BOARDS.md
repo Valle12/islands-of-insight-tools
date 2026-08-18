@@ -76,7 +76,7 @@ does not search systematically at all.
 
 Nested Rollout Policy Adaptation (`SearchNrpa.cpp`, `nrpa.ts`) holds the records
 on SameGame and Morpion Solitaire, and SameGame is close enough to this puzzle —
-clear groups of like-coloured blocks under gravity — that the transfer was worth
+clear groups of like-colored blocks under gravity — that the transfer was worth
 trying. It found test51 immediately (15 moves, 1.9 s) and test50 not at all,
 until three separate things were fixed. Each one is load-bearing:
 
@@ -88,7 +88,7 @@ test51: **4000 restarts produced two distinct outcomes.** Softmax sampling over
 from 19 blocks stuck to 7 left, and 2 → 1517 distinct outcomes. A noise term
 smaller than one unit of the score it perturbs is not randomisation.
 
-**2. NRPA optimises fewest-blocks-left, so its best line is usually PARTIAL.**
+**2. NRPA optimizes fewest-blocks-left, so its best line is usually PARTIAL.**
 Returning it as a solution emitted a move list that does not clear the board.
 `fixtures_test` caught it. Both engines now return a solution or nothing.
 

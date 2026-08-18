@@ -17,14 +17,14 @@
 // between the cells already decided and the rest. Everything the remaining
 // board needs to know about the decided part is
 //
-//   - the colour of each frontier cell,
+//   - the color of each frontier cell,
 //   - which frontier cells are in the same region,
 //   - which letter each of those regions carries,
 //
-// and that is a bounded amount of information. Two partial colourings agreeing
+// and that is a bounded amount of information. Two partial colorings agreeing
 // on it are interchangeable, so they collapse into ONE state and the sweep
 // shares all their work. That is the whole idea: the cost stops being the
-// number of colourings and becomes the number of distinct frontiers.
+// number of colorings and becomes the number of distinct frontiers.
 //
 // It is COMPLETE. Reaching the end proves a solution exists, and reaching it
 // with nothing proves none does — so unlike a beam or a local search this can
@@ -56,7 +56,7 @@ namespace lg::profile {
  * with no oracle behind it at all, and a sweep blind to part of the puzzle
  * enumerates a superset of the solutions and then reports the cells they
  * disagree about as proved to go either way. Nothing downstream could catch
- * that, which is why anything unrecognised declines here by default.
+ * that, which is why anything unrecognized declines here by default.
  */
 bool applicable(const Model &model);
 
@@ -71,7 +71,7 @@ bool applicable(const Model &model);
 Outcome runProfile(const Model &model, const Config &cfg);
 
 /**
- * The underclued answer: the cells that hold the same colour in EVERY solution.
+ * The underclued answer: the cells that hold the same color in EVERY solution.
  *
  * The sweep already enumerates the whole space, so this needs no per-cell
  * refutation at all — one backward pass marks the states that can still reach

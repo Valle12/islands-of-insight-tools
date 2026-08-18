@@ -43,7 +43,7 @@ TEST(Profile, ProvesAnImpossibleBoardImpossible) {
   EXPECT_EQ(sweep({"a#b", "###", "b#a"}).status, Status::Unsolvable);
 }
 
-/// Two letters may share a COLOUR, but never a region.
+/// Two letters may share a COLOR, but never a region.
 TEST(Profile, KeepsTwoLettersInDifferentRegions) {
   const std::vector<std::string> picture = {"a.b", "...", "a.b"};
   const Outcome outcome = sweep(picture);
@@ -125,7 +125,7 @@ TEST(Profile, DeclinesWhatItCannotExpress) {
 
 /// The gate is a WHITELIST, so a rule it has never heard of declines itself —
 /// but the file's own warning is that a denylist looked right until the
-/// catalogue grew, so the newest family is pinned rather than assumed.
+/// catalog grew, so the newest family is pinned rather than assumed.
 TEST(Profile, DeclinesTheRegionShapeRules) {
   EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::DistinctShapesDark}));
   EXPECT_FALSE(takes({"a..", "...", "..a"}, {Rule::DistinctShapesLight}));
@@ -135,14 +135,14 @@ TEST(Profile, DeclinesTheRegionShapeRules) {
 
 /**
  * A dart on a square the board does not paint, which the sweep still cannot
- * express: what a dart counts is the OPPOSITE of its own square's colour, so an
- * unpainted one would need that colour carried in the state long after the
+ * express: what a dart counts is the OPPOSITE of its own square's color, so an
+ * unpainted one would need that color carried in the state long after the
  * square has left the frontier.
  *
  * This is the case the gate got wrong when it was a denylist. A dart-only board
  * names no area clue and no listed rule, so it was ACCEPTED, and `planOf` read
  * letters only — the dart was then silently ignored and the forced set claimed
- * as proved. Whitelisted, anything unrecognised declines by default.
+ * as proved. Whitelisted, anything unrecognized declines by default.
  */
 TEST(Profile, DeclinesADartOnAnUnpaintedSquare) {
   const Puzzle plain = test::board({"a..", "...", "..a"});
@@ -153,7 +153,7 @@ TEST(Profile, DeclinesADartOnAnUnpaintedSquare) {
   EXPECT_FALSE(profile::applicable(buildModel(darted)));
 }
 
-/// A dart the board DOES paint has a fixed target colour, so one counter per
+/// A dart the board DOES paint has a fixed target color, so one counter per
 /// ray expresses it, and the sweep takes the board.
 TEST(Profile, SweepsADartOnAPaintedSquare) {
   Puzzle puzzle = test::board({"...", "...", "..."});
@@ -167,7 +167,7 @@ TEST(Profile, SweepsADartOnAPaintedSquare) {
   EXPECT_EQ(verify::check(model, outcome.colors), verify::Violation::None);
 }
 
-/// A dart whose count no colouring can meet: its ray holds two squares and it
+/// A dart whose count no coloring can meet: its ray holds two squares and it
 /// asks for three, which the sweep proves impossible rather than declining.
 TEST(Profile, ProvesADartThatCannotBeSatisfiedImpossible) {
   Puzzle puzzle = test::board({"...", "...", "..."});
@@ -179,8 +179,8 @@ TEST(Profile, ProvesADartThatCannotBeSatisfiedImpossible) {
   EXPECT_EQ(profile::runProfile(model, cfg).status, Status::Unsolvable);
 }
 
-/// An arrangement rule the sweep now reads off its own recent colour. The board
-/// is every 2x2 of a 2x3, so a wrong history would show up as a colouring the
+/// An arrangement rule the sweep now reads off its own recent color. The board
+/// is every 2x2 of a 2x3, so a wrong history would show up as a coloring the
 /// oracle refuses rather than as a slower run.
 TEST(Profile, SweepsAnArrangementRule) {
   using enum Rule;
@@ -190,6 +190,55 @@ TEST(Profile, SweepsAnArrangementRule) {
   const Model model =
       buildModel(test::board(picture, test::ruleSet({NoDark2x2, NoLight2x2})));
   EXPECT_EQ(verify::check(model, outcome.colors), verify::Violation::None);
+}
+
+/**
+ * A DRAWN arrangement, swept the same way — and the one admission in this
+ * whitelist that is not a rule bit.
+ *
+ * The sharp half is not that the sweep accepts the board, it is that
+ * `planPatterns` compiles the drawing in. A sweep that admitted the board and
+ * ignored the pattern would enumerate colorings the pattern forbids, and
+ * `runProfileForced` would then report cells those extra colorings disagree
+ * about as PROVEN. So this asserts on the answer, not on `applicable`.
+ */
+TEST(Profile, SweepsADrawnPattern) {
+  const std::vector<std::string> picture = {"..", "..", ".."};
+  Puzzle puzzle = test::board(picture);
+  // "No 2x2 of either color", drawn rather than named.
+  test::withPattern(puzzle, test::pattern({"DD", "DD"}));
+  test::withPattern(puzzle, test::pattern({"LL", "LL"}));
+  const Model model = buildModel(puzzle);
+  ASSERT_TRUE(profile::applicable(model));
+
+  const Outcome outcome = profile::runProfile(model, {});
+  ASSERT_EQ(outcome.status, Status::Solved);
+  EXPECT_EQ(verify::check(model, outcome.colors), verify::Violation::None);
+}
+
+/**
+ * A pattern too TALL for the frontier, declined.
+ *
+ * `histBits` is roughly `(height - 2) * scanWidth`, so three rows on a
+ * three-wide board already reaches further back than `kMaxHistoryBits`
+ * carries. Declining is the correct answer — the board falls through to the
+ * DFS — and the thing this really guards is that the distance is measured at
+ * full width: `PatternCheck::back` used to be a `uint8_t` written by a plain
+ * cast, so a deep pattern would have reported a SMALL distance, passed this
+ * gate and produced a confidently wrong proof.
+ */
+TEST(Profile, DeclinesAPatternDeeperThanTheHistory) {
+  // Eight wide, so the scan follows an eight-slot frontier: `histBits` is
+  // about `(height - 2) * 8`, and a five-row pattern needs 25 of the 24 the
+  // state holds.
+  const std::vector<std::string> picture(8, "........");
+  Puzzle shallow = test::board(picture);
+  test::withPattern(shallow, test::pattern({"DD", "DD"}));
+  ASSERT_TRUE(profile::applicable(buildModel(shallow)));
+
+  Puzzle deep = test::board(picture);
+  test::withPattern(deep, test::pattern({"D.", "..", "..", "..", ".D"}));
+  EXPECT_FALSE(profile::applicable(buildModel(deep)));
 }
 
 /// Same refusal for the lotus, whose mirror crosses the sweep in BOTH
@@ -227,7 +276,7 @@ TEST(Profile, DeclinesGalaxies) {
 
 /**
  * And the whitelist itself: every rule the sweep does not name is refused,
- * whatever it is. Without this a rule appended to the catalogue tomorrow would
+ * whatever it is. Without this a rule appended to the catalog tomorrow would
  * be accepted by default, exactly as `area-four-*` and darts would have been.
  *
  * The list is every rule that is a CONTAINMENT rule and nothing else — "this
@@ -238,22 +287,21 @@ TEST(Profile, DeclinesGalaxies) {
 TEST(Profile, DeclinesEveryRuleItDoesNotName) {
   using enum Rule;
   const std::vector supportedRules = {
-      ConnectDark,          ConnectLight,        Underclued,
-      NoDark2x2,            NoLight2x2,          NoCheckerboard,
-      NoDarkLightDark,      NoLightDarkLight,    NoDarkT,
-      NoLightT,             NoThreeDarkOneLight, NoThreeLightOneDark,
-      NoDarkDiagonal,       NoLightDiagonal,     NoDarkElbow,
-      NoLightElbow,         NoDarkEll,           NoLightEll,
-      NoDarkAnyDark,        NoLightAnyLight,     NoLightCrossedDarkT,
-      NoDarkCrossedLightT,  NoDarkLongT,         NoLightLongT,
-      NoDarkKnight,         NoLightKnight,       NoDarkLightDarkElbow,
-      NoLightDarkLightElbow};
+      ConnectDark,     ConnectLight,        Underclued,
+      NoDark2x2,       NoLight2x2,          NoCheckerboard,
+      NoDarkLightDark, NoLightDarkLight,    NoDarkT,
+      NoLightT,        NoThreeDarkOneLight, NoThreeLightOneDark,
+      NoDarkElbow,     NoLightElbow,        NoDarkAnyDark,
+      NoLightAnyLight, NoDarkLongT,         NoLightLongT};
   for (int index = 0; index < rules::kRuleCount; index++) {
     const auto rule = static_cast<Rule>(index);
     // The 22 sized indices have no mask bit any more — their families arrive
-    // as instances, and the explicit instance check is pinned above. What
-    // this sweep keeps guarding is every FLAG, present and future.
-    if (rules::has(rules::kSizedRuleBits, rule))
+    // as instances, and the explicit instance check is pinned above. Nor do
+    // the ten retired arrangements, which arrive as drawn patterns; the sweep
+    // ADMITS those, pinned separately below. What this sweep keeps guarding is
+    // every FLAG, present and future.
+    if (rules::has(rules::kSizedRuleBits, rule) ||
+        rules::has(rules::kDrawnRuleBits, rule))
       continue;
     const bool supported =
         std::ranges::find(supportedRules, rule) != supportedRules.end();
@@ -267,9 +315,9 @@ TEST(Profile, DeclinesEveryRuleItDoesNotName) {
  * to `reference_test`'s `applicable` guard silently skipping those cases.
  *
  * The sweep carries one class slot per COLUMN and joins only leftwards and
- * upwards, so nothing in its state can say "this square takes the colour a
+ * upwards, so nothing in its state can say "this square takes the color a
  * square two rows back already took". A sweep blind to that would enumerate
- * colourings that split a cell in half.
+ * colorings that split a cell in half.
  */
 TEST(Profile, DeclinesMergedCells) {
   const Puzzle plain = test::board({"a..", "...", "..a"});

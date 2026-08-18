@@ -12,7 +12,7 @@
 // what each piece already commits to.
 //
 // The propagators keep asking the same three questions about the cells one
-// colour definitely occupies — how big is this piece, does it carry an area
+// color definitely occupies — how big is this piece, does it carry an area
 // number, does it carry a letter — and asking them with a flood fill per clue
 // costs a fill per question. Labelling every piece once is O(cells) and
 // answers all of them by lookup.

@@ -10,7 +10,7 @@ import {
   turnedBack,
 } from "./clueEdits";
 import type { BoardEdits } from "./mergeEdits";
-import { mergeWithNeighbour, splitSquare } from "./mergeEdits";
+import { mergeWithNeighbor, splitSquare } from "./mergeEdits";
 import type { Stroke, ToolSelection } from "./strokes";
 import { strokeFor, toggled } from "./strokes";
 import {
@@ -164,7 +164,7 @@ export function handleKey(
 ) {
   const { layers, selection, typing } = host;
 
-  // Colouring is this page's main task, so it cannot be pointer-only. The
+  // Coloring is this page's main task, so it cannot be pointer-only. The
   // activation keys apply the selected tool to the focused cell under the
   // same re-click-erases rule a click gets — as a one-cell stroke, since a
   // keystroke has no drag to carry. Without the preventDefault, Space also
@@ -173,7 +173,7 @@ export function handleKey(
     if (selection.tool === "merge") {
       event.preventDefault();
       typing.reset();
-      mergeWithNeighbour(host, position);
+      mergeWithNeighbor(host, position);
       return;
     }
     const stroke = strokeFor(selection, layers, false, position);

@@ -14,7 +14,7 @@ namespace {
 
 using rules::Rule;
 
-/// Every on-board cell that can take a colour at all.
+/// Every on-board cell that can take a color at all.
 Bits playableMask(const Puzzle &puzzle) {
   Bits out;
   for (int y = 0; y < puzzle.height; y++) {
@@ -49,7 +49,7 @@ Problem lotusValueProblem(const Clue &clue) {
     return LotusAxis;
   if (!isSeat(clue.seat))
     return LotusSeat;
-  // A diagonal axis through an edge-midpoint seat maps square centres onto
+  // A diagonal axis through an edge-midpoint seat maps square centers onto
   // square CORNERS — there is no reflection on the grid, so the combination is
   // refused rather than defined. Whether the seat fits its merged cell is
   // `lotusSeats`' question, asked once the shapes are validated.
@@ -70,11 +70,11 @@ Problem galaxyValueProblem(const Clue &clue, const Puzzle &puzzle) {
   // Unlike the lotus's, a galaxy's seat needs no merged cell — only that the
   // squares it sits between are on the board, which needs the dimensions and
   // nothing else, so it is asked here rather than after the shapes. There is no
-  // `diagonalSeatValid` twin either: a half turn maps square centres to square
-  // centres at every seat parity, so no seat has to be refused for want of a
+  // `diagonalSeatValid` twin either: a half turn maps square centers to square
+  // centers at every seat parity, so no seat has to be refused for want of a
   // mirror.
   if (((clue.seat & 1) != 0 && columnOf(clue.index) + 1 >= puzzle.width) ||
-      ((clue.seat >> 1) != 0 && rowOf(clue.index) + 1 >= puzzle.height))
+      ((clue.seat & 2) != 0 && rowOf(clue.index) + 1 >= puzzle.height))
     return GalaxySeatOffBoard;
   return None;
 }
@@ -160,7 +160,7 @@ Problem cluesProblem(const Puzzle &puzzle) {
 }
 
 /**
- * What a merged cell must agree with itself about: one colour across every
+ * What a merged cell must agree with itself about: one color across every
  * square. It matters because `applyGivens` assigns each given in turn, so a
  * cell painted half dark and half light would come back "unsolvable" with
  * nothing pointing at why.
@@ -168,7 +168,7 @@ Problem cluesProblem(const Puzzle &puzzle) {
  * Deliberately NOT here: a clue count. The game's harder boards put several
  * clues on one merged cell — two darts on one domino — so each square may
  * carry its own (`ClueDuplicated` still guards the square). A combination no
- * colouring can satisfy (two different letters, disagreeing area numbers) is
+ * coloring can satisfy (two different letters, disagreeing area numbers) is
  * refused by the search, not by structure: the letter groups can never
  * separate, the area bands intersect empty, and the answer is an honest
  * Unsolvable rather than a refused file.
@@ -213,10 +213,10 @@ Problem shapesProblem(const Puzzle &puzzle) {
 }
 
 /**
- * Where a lotus's seat may sit: the centre of its own square, or — inside a
+ * Where a lotus's seat may sit: the center of its own square, or — inside a
  * merged cell — the midpoint of an edge between two of the cell's squares, or
  * a corner at least THREE of whose four surrounding squares the cell owns.
- * Three rather than four on purpose: a 2x2 block's centre has four, and an
+ * Three rather than four on purpose: a 2x2 block's center has four, and an
  * L-tromino's natural middle is the corner it wraps, which has three.
  *
  * Runs after `shapesProblem`, because a seat is validated against the merged
@@ -256,46 +256,54 @@ Problem lotusSeats(const Puzzle &puzzle) {
   return Problem::None;
 }
 
-/// Where this square's CELL already appears in the clause being built, or -1.
-int existingLiteral(const Model &model, const Clause &clause, const int index) {
+/// Where this square's CELL already appears among the literals appended since
+/// `start`, as an index into the arena, or -1.
+int existingLiteral(const Model &model, const int start, const int index) {
   const int shape = model.shapeAt[slot(index)];
-  for (int i = 0; i < clause.count; i++) {
-    if (const int held = clause.cells[slot(i)];
+  const auto end = static_cast<int>(model.clauseCells.size());
+  for (int i = start; i < end; i++) {
+    if (const int held = model.clauseCells[slot(i)];
         held == index || (shape >= 0 && model.shapeAt[slot(held)] == shape))
       return i;
   }
   return -1;
 }
 
-/// Lays one pattern over the anchor (x, y). False when it falls off the board
-/// or across a gap — in either case that arrangement simply cannot occur, so
-/// there is nothing to forbid.
-bool instantiate(const Model &model, const rules::Pattern &pattern, const int x,
+/// Lays one pattern over the anchor (x, y), appending its literals to the
+/// arena. False when it falls off the board or across a gap — in either case
+/// that arrangement simply cannot occur, so there is nothing to forbid, and
+/// whatever had been appended is rolled back off the arena.
+bool instantiate(Model &model, const rules::Pattern &pattern, const int x,
                  const int y, Clause &out) {
   const Puzzle &puzzle = model.puzzle;
+  out.start = static_cast<int>(model.clauseCells.size());
   out.count = 0;
-  for (int i = 0; i < pattern.count; i++) {
-    const auto &[dx, dy, color] = pattern.cells[slot(i)];
+  const auto abandon = [&model, &out] {
+    model.clauseCells.resize(slot(out.start));
+    model.clauseColors.resize(slot(out.start));
+    return false;
+  };
+  for (const auto &[dx, dy, color] : pattern.cells) {
     const int cx = x + dx;
     const int cy = y + dy;
     if (cx < 0 || cx >= puzzle.width || cy < 0 || cy >= puzzle.height)
-      return false;
+      return abandon();
     const int index = cellIndex(cx, cy);
     if (!model.playable.test(index))
-      return false;
-    // A merged cell takes ONE colour, so two of its squares under one pattern
-    // are one literal. Asking for the same colour twice says nothing new — and
+      return abandon();
+    // A merged cell takes ONE color, so two of its squares under one pattern
+    // are one literal. Asking for the same color twice says nothing new — and
     // LEAVING the duplicate in would stop the clause ever firing as a unit,
     // because `propagateClause` reads the second copy as a second free cell.
-    // Asking for both colours describes an arrangement that cannot occur, and
+    // Asking for both colors describes an arrangement that cannot occur, and
     // like one running off the board there is then nothing to forbid.
-    if (const int at = existingLiteral(model, out, index); at >= 0) {
-      if (out.colors[slot(at)] != color)
-        return false;
+    if (const int at = existingLiteral(model, out.start, index); at >= 0) {
+      if (model.clauseColors[slot(at)] != color)
+        return abandon();
       continue;
     }
-    out.cells[slot(out.count)] = index;
-    out.colors[slot(out.count)] = color;
+    model.clauseCells.push_back(index);
+    model.clauseColors.push_back(color);
     out.count++;
   }
   return true;
@@ -316,7 +324,8 @@ void addClausesFor(Model &model, const rules::Pattern &pattern) {
 
 void buildClauses(Model &model) {
   for (const rules::Patterns patterns = rules::patternsFor(
-           model.puzzle.ruleMask, model.puzzle.areas, model.puzzle.runs);
+           model.puzzle.ruleMask, model.puzzle.areas, model.puzzle.runs,
+           model.puzzle.patterns);
        const rules::Pattern &pattern : patterns)
     addClausesFor(model, pattern);
 }
@@ -325,8 +334,8 @@ void buildClauses(Model &model) {
 void buildClauseIndex(Model &model) {
   model.clauseStart.assign(kMaxCells + 1, 0);
   for (const Clause &clause : model.clauses) {
-    for (int i = 0; i < clause.count; i++)
-      model.clauseStart[slot(clause.cells[slot(i)] + 1)]++;
+    for (const int cell : model.literals(clause))
+      model.clauseStart[slot(cell + 1)]++;
   }
   for (int i = 0; i < kMaxCells; i++)
     model.clauseStart[slot(i + 1)] += model.clauseStart[slot(i)];
@@ -335,8 +344,8 @@ void buildClauseIndex(Model &model) {
   model.clauseIndex.assign(slot(model.clauseStart[slot(kMaxCells)]), 0);
   int id = 0;
   for (const Clause &clause : model.clauses) {
-    for (int i = 0; i < clause.count; i++)
-      model.clauseIndex[slot(cursor[slot(clause.cells[slot(i)])]++)] = id;
+    for (const int cell : model.literals(clause))
+      model.clauseIndex[slot(cursor[slot(cell)]++)] = id;
     id++;
   }
 }
@@ -345,7 +354,7 @@ void buildClauseIndex(Model &model) {
  * The merged cells as masks, plus the square-to-shape map and the one square
  * that stands for each cell.
  *
- * Runs FIRST in `buildModel`: `shapeAt` is value-initialised to zeroes, which
+ * Runs FIRST in `buildModel`: `shapeAt` is value-initialized to zeroes, which
  * would read as "every square is in shape 0", and clause construction consults
  * it.
  */
@@ -372,7 +381,7 @@ void buildShapes(Model &model) {
 
   // A shape on a gap is rejected by `structureProblem`, but `buildModel` is
   // also reachable from tests that never validate, and a representative off the
-  // playable set would make `cellCount` count a cell nothing can colour.
+  // playable set would make `cellCount` count a cell nothing can color.
   model.representatives &= model.playable;
   model.cellCount = model.representatives.count();
 }
@@ -418,7 +427,7 @@ void buildClueTables(Model &model) {
 
 /**
  * Each dart's line, worked out once: rays depend on the board, never on the
- * colouring.
+ * coloring.
  *
  * Gaps are stepped over rather than ending the walk, and the dart's own cell is
  * taken out at the end — see `Model::darts` for why that is a correctness
@@ -429,7 +438,7 @@ void buildDarts(Model &model) {
     const Clue &clue = model.puzzle.clues[slot(id)];
     // Only a puzzle that skipped validation can fail this. Left out of `darts`
     // it constrains nothing — but it stays in `dartClues`, so `verify::check`
-    // refuses every colouring and the board comes back unsolvable rather than
+    // refuses every coloring and the board comes back unsolvable rather than
     // quietly solved without it.
     if (!isDirection(clue.direction))
       continue;
@@ -467,11 +476,11 @@ void fillMirror(const Model &model, Lotus &lotus) {
 
 /**
  * Each lotus's reflection map, worked out once: mirrors depend on the board
- * and the seat, never on the colouring.
+ * and the seat, never on the coloring.
  *
  * The guard mirrors `buildDarts`': only a puzzle that skipped validation can
  * carry an unreadable axis or seat, and such a clue is left out of `lotuses`
- * while staying in `lotusClues` — so `verify::check` refuses every colouring
+ * while staying in `lotusClues` — so `verify::check` refuses every coloring
  * and the board comes back unsolvable rather than quietly solved without it.
  */
 void buildLotuses(Model &model) {
@@ -512,7 +521,7 @@ std::vector<int16_t> sightRay(const Model &model, const int index,
 
 /**
  * Each viewpoint's four rays, worked out once: they depend on the board, never
- * on the colouring.
+ * on the coloring.
  *
  * The rays keep the squares of the clue's own cell — again `Viewpoint::rays`'
  * own argument. Nothing here can fail to build, so there is no
@@ -534,7 +543,7 @@ void buildViewpoints(Model &model) {
 
 /**
  * Each galaxy's point-reflection map, worked out once: mirrors depend on the
- * board, never on the colouring. No `buildDarts`-style net, deliberately: a
+ * board, never on the coloring. No `buildDarts`-style net, deliberately: a
  * galaxy carries no value, direction or seat that could be unreadable, so
  * every clue `structureProblem` accepts gets its geometry.
  */
@@ -553,8 +562,8 @@ void fillMirror(const Model &model, Galaxy &galaxy) {
   }
 }
 
-/// The playable squares touching the centre — see `Galaxy::seats`. One at a
-/// square's own centre, two on a grid line, four at a corner, and the set is
+/// The playable squares touching the center — see `Galaxy::seats`. One at a
+/// square's own center, two on a grid line, four at a corner, and the set is
 /// closed under the turn, so a pair with one playable member is caught from
 /// the playable side.
 void fillSeats(const Model &model, Galaxy &galaxy) {
@@ -580,7 +589,7 @@ void buildGalaxies(Model &model) {
     const Clue &clue = model.puzzle.clues[slot(id)];
     // The lotus's readability net, which the galaxy now needs for the same
     // reason: an unreadable seat leaves the clue out of `galaxies` entirely,
-    // and the oracle then refuses every colouring rather than the propagator
+    // and the oracle then refuses every coloring rather than the propagator
     // turning about a point that means nothing.
     if (!isSeat(clue.seat))
       continue;
@@ -610,9 +619,9 @@ Problem dartFitsLine(const Model &model) {
   return bad ? Problem::DartExceedsLine : Problem::None;
 }
 
-/// Every square of a lotus's own cell is in its region whatever the colours,
+/// Every square of a lotus's own cell is in its region whatever the colors,
 /// so each must reflect onto a playable square — a mirror off the board or on
-/// a gap makes the board unsolvable before a single cell is coloured.
+/// a gap makes the board unsolvable before a single cell is colored.
 Problem lotusMirrorsFit(const Model &model) {
   for (const Lotus &lotus : model.walked.lotuses) {
     const Bits mask = model.cellMask(lotus.index);
@@ -626,9 +635,9 @@ Problem lotusMirrorsFit(const Model &model) {
 }
 
 /**
- * Every square touching a galaxy's centre is in some region whatever the
- * colours, so each must turn onto a playable square — a board where one
- * cannot is unsolvable before a single cell is coloured, and saying so by
+ * Every square touching a galaxy's center is in some region whatever the
+ * colors, so each must turn onto a playable square — a board where one
+ * cannot is unsolvable before a single cell is colored, and saying so by
  * name beats answering "unsolvable" with no reason.
  *
  * Whole CELLS, because a merged one joins with every square it has. At seat 0
@@ -708,7 +717,7 @@ Problem areaFitsCell(const Model &model) {
 }
 
 /// Every cell of one letter shares a region, so the gaps must not have cut
-/// them apart before a colour is even chosen.
+/// them apart before a color is even chosen.
 Problem lettersReachable(const Model &model) {
   const bool bad =
       std::ranges::any_of(model.letters, [&model](const LetterGroup &group) {
@@ -719,7 +728,7 @@ Problem lettersReachable(const Model &model) {
 }
 
 /**
- * With both colours connected there are at most two regions on the whole
+ * With both colors connected there are at most two regions on the whole
  * board — one dark, one light — and a region holds at most one letter. A third
  * letter therefore has nowhere to go.
  */
@@ -756,7 +765,7 @@ const char *describe(const Problem problem) {
       ProblemMessage{.problem = GridSize,
                      .text = "Grid must be between 1 and 32 on each side"},
       ProblemMessage{.problem = CellValue,
-                     .text = "A cell value is outside the known colours"},
+                     .text = "A cell value is outside the known colors"},
       ProblemMessage{.problem = ClueOffBoard,
                      .text = "A clue sits outside the board"},
       ProblemMessage{.problem = ClueKind,
@@ -804,7 +813,7 @@ const char *describe(const Problem problem) {
       ProblemMessage{.problem = ShapeSplit,
                      .text = "A merged cell is not one connected shape"},
       ProblemMessage{.problem = ShapeGivensDisagree,
-                     .text = "A merged cell is painted in two colours"},
+                     .text = "A merged cell is painted in two colors"},
       ProblemMessage{.problem = AreaExceedsRegion,
                      .text = "An area number is larger than the region it "
                              "sits in"},
@@ -815,7 +824,7 @@ const char *describe(const Problem problem) {
                      .text = "Cells with the same letter are cut apart by "
                              "unplayable cells"},
       ProblemMessage{.problem = TooManyLettersForConnected,
-                     .text = "Both colours are connected, so the board has at "
+                     .text = "Both colors are connected, so the board has at "
                              "most two regions and cannot hold three "
                              "different letters"},
       ProblemMessage{.problem = ViewpointValue,
@@ -830,10 +839,12 @@ const char *describe(const Problem problem) {
                      .text = "A galaxy symbol's seat is not one of the four "
                              "points of its square"},
       ProblemMessage{.problem = GalaxySeatOffBoard,
-                     .text = "A galaxy symbol's seat needs a neighbouring "
+                     .text = "A galaxy symbol's seat needs a neighboring "
                              "square the board does not have"},
+      ProblemMessage{.problem = GalaxiesShareACell,
+                     .text = "Two galaxy symbols sit on the same cell"},
       ProblemMessage{.problem = GalaxyMirrorLeavesBoard,
-                     .text = "A cell around a galaxy symbol's centre turns "
+                     .text = "A cell around a galaxy symbol's center turns "
                              "off the board or onto an unplayable cell"},
   };
   // Every enumerator has a message. This must count against `Count` and not
@@ -847,6 +858,74 @@ const char *describe(const Problem problem) {
   return found == kMessages.end() ? "Unknown problem" : found->text;
 }
 
+namespace {
+
+/**
+ * Every square a galaxy CLAIMS: the one or four its seat sits between, each
+ * grown to the whole merged cell it belongs to.
+ *
+ * Clamped, because a seat whose partner is off the board is
+ * `GalaxySeatOffBoard`'s to report and this must not read past the edge. Grown
+ * to cells because the CELL is the unit two galaxies may not share: two on
+ * different squares of one merged cell are two centers of rotational symmetry
+ * for one region, and composing two point reflections about different centers
+ * is a translation, which no finite region survives.
+ */
+void galaxySquares(const Clue &clue, const Puzzle &puzzle,
+                   std::vector<int> &squares) {
+  const int wide = (clue.seat & 1) != 0 ? 2 : 1;
+  const int tall = (clue.seat & 2) != 0 ? 2 : 1;
+  for (int dy = 0; dy < tall; dy++) {
+    for (int dx = 0; dx < wide; dx++) {
+      const int x = columnOf(clue.index) + dx;
+      const int y = rowOf(clue.index) + dy;
+      if (x >= puzzle.width || y >= puzzle.height)
+        continue;
+      const int square = cellIndex(x, y);
+      const auto cell =
+          std::ranges::find_if(puzzle.shapes, [square](const auto &shape) {
+            return std::ranges::contains(shape, square);
+          });
+      if (cell == puzzle.shapes.end())
+        squares.push_back(square);
+      else
+        squares.insert(squares.end(), cell->begin(), cell->end());
+    }
+  }
+}
+
+/**
+ * No two galaxies on one CELL.
+ *
+ * A galaxy's seat puts it BETWEEN squares, so two of them can share one
+ * without sharing the square they are stored on — a centered galaxy plus one on
+ * that square's edge, or two seated on opposite edges of the same square — and
+ * two on different squares of one merged cell share a REGION, which is worse
+ * than undrawable: see `galaxySquares`. The game never shows either, and the
+ * page refuses to place them, so a file carrying one is refused by name.
+ *
+ * A whole-puzzle question, like `lotusSeats`, and asked after the shapes for
+ * the same reason: no per-clue check can see it.
+ */
+Problem galaxySeats(const Puzzle &puzzle) {
+  std::vector<int> taken;
+  std::vector<int> mine;
+  for (const Clue &clue : puzzle.clues) {
+    if (clue.kind != kClueGalaxy)
+      continue;
+    mine.clear();
+    galaxySquares(clue, puzzle, mine);
+    for (const int square : mine) {
+      if (std::ranges::contains(taken, square))
+        return Problem::GalaxiesShareACell;
+    }
+    taken.insert(taken.end(), mine.begin(), mine.end());
+  }
+  return Problem::None;
+}
+
+} // namespace
+
 Problem structureProblem(const Puzzle &puzzle) {
   using enum Problem;
   if (puzzle.width < 1 || puzzle.width > kMaxSide || puzzle.height < 1 ||
@@ -857,6 +936,9 @@ Problem structureProblem(const Puzzle &puzzle) {
   if (const Problem problem = cluesProblem(puzzle); problem != None)
     return problem;
   if (const Problem problem = shapesProblem(puzzle); problem != None)
+    return problem;
+  // After the shapes: a galaxy claims the whole merged cell it sits in.
+  if (const Problem problem = galaxySeats(puzzle); problem != None)
     return problem;
   // After the shapes: a seat is validated against the merged cell it sits in.
   return lotusSeats(puzzle);

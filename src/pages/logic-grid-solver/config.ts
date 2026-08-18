@@ -1,3 +1,4 @@
+import { galaxiesClash } from "./galaxyTiles";
 import {
   intInRange,
   readGridSize,
@@ -10,11 +11,19 @@ import {
 } from "../../util/configVersion";
 import type {
   LogicGridAreaRule,
+  LogicGridPattern,
   LogicGridRunRule,
   LogicGridSymbol,
   LogicGridTest,
 } from "../../util/types";
-import { CELL_LIMIT, UNPLAYABLE } from "./cell";
+import { CELL_LIMIT, DARK, LIGHT, UNKNOWN, UNPLAYABLE } from "./cell";
+import {
+  canonicalPatterns,
+  isTightBox,
+  namesASquare,
+  patternFromPicture,
+  patternKey,
+} from "./patterns";
 import {
   MAX_AREA_SIZE,
   MAX_RUN_LENGTH,
@@ -46,7 +55,7 @@ export const MAX_GRID_SIDE = 32;
  * How long the solver may run before it gives up.
  *
  * A properly clued board is usually finished by deduction alone, in
- * milliseconds — nearly all of the 489 captured boards land well under a
+ * milliseconds — nearly all of the 494 captured boards land well under a
  * second. The budget exists for the two cases that are not like that: the
  * underclued mode, where every cell the deduction could not settle costs a search
  * of its own to prove, and the profile sweep on a wide connectivity board.
@@ -75,9 +84,9 @@ function canonicalSized<T extends { color: SizedRuleColor }>(
 
 /**
  * v1 -> v2: the 22 sized rule indices leave `rules` for the `areas`/`runs`
- * lists, the number stored beside the colour instead of spelled by position.
+ * lists, the number stored beside the color instead of spelled by position.
  *
- * Only members the catalogue marks as sized move; a migration runs BEFORE any
+ * Only members the catalog marks as sized move; a migration runs BEFORE any
  * structural check, so anything else — garbage members, unknown indices, a
  * `rules` that is not an array — stays exactly where it was for the validator
  * to name. One message does shift: a hand-written v1 `[16, 16]` is now two
@@ -118,15 +127,57 @@ const sizedRulesIntoFamilies: ConfigMigration = data => {
 };
 
 /**
+ * v2 -> v3: the ten rarest arrangement indices leave `rules` for the drawn
+ * `patterns` list, the SHAPE stored instead of spelled by position.
+ *
+ * The same rewrite as the sized one above, one step later and for the opposite
+ * reason: those rules carried a number this format could store directly, while
+ * these carry a shape it now can too. Each catalog entry marks itself with
+ * the picture it becomes, and the closure of that picture is exactly the
+ * family the rule used to compile to — `rules_test.cpp` asserts that rather
+ * than trusting it, which is what makes rewriting a saved board safe.
+ *
+ * Members the catalog does not mark stay exactly where they were, garbage
+ * included, for the validator to name. A v2 file carrying its own `patterns`
+ * key was legal in the sense that v2 dropped keys it did not know, so it is
+ * discarded here rather than merged — the `areas`/`runs` precedent exactly.
+ */
+const retiredArrangementsIntoPatterns: ConfigMigration = data => {
+  const rest = Object.fromEntries(
+    Object.entries(data).filter(([key]) => key !== "patterns"),
+  );
+  const { rules } = rest;
+  if (!Array.isArray(rules)) return rest;
+  const flags: unknown[] = [];
+  const patterns: LogicGridPattern[] = [];
+  for (const rule of rules) {
+    const drawn = typeof rule === "number" ? RULES[rule]?.drawn : undefined;
+    if (drawn) patterns.push(patternFromPicture(drawn.squares));
+    else flags.push(rule);
+  }
+  return {
+    ...rest,
+    rules: flags,
+    ...(patterns.length > 0
+      ? { patterns: canonicalPatterns(patterns) }
+      : {}),
+  };
+};
+
+/**
  * How to read each older shape of this page's download format, newest step
  * last — see `configVersion.ts` for the whole contract.
  *
  * The optional keys — `shapes`, `direction`, `seat` — never needed a step
- * here, since every earlier file satisfies them by not having them. The sized
- * rule families could not be expressed that way: version 1 spelled their
- * numbers as catalogue positions, so reading it takes the rewrite above.
+ * here, since every earlier file satisfies them by not having them. Both steps
+ * below are the same kind of change and could not be: an earlier version
+ * spelled something as a catalog position that a later one stores as data,
+ * so reading it takes a rewrite.
  */
-const MIGRATIONS: readonly ConfigMigration[] = [sizedRulesIntoFamilies];
+const MIGRATIONS: readonly ConfigMigration[] = [
+  sizedRulesIntoFamilies,
+  retiredArrangementsIntoPatterns,
+];
 
 /**
  * The format version this build writes, derived from the list above so the two
@@ -151,7 +202,7 @@ export function migrationNotice(from: number): string {
 
 export type ConfigParseResult = ConfigResult<LogicGridTest>;
 
-/** Returns the first problem with the colour grid, or null when it is valid. */
+/** Returns the first problem with the color grid, or null when it is valid. */
 function cellsError(
   cells: unknown,
   gridWidth: number,
@@ -195,8 +246,74 @@ function rulesError(rules: unknown): string | null {
     if (sized) {
       return `Rule ${rule} is stored in the ${sized.family} list in this format version.`;
     }
+    if (RULES[rule as number]?.drawn) {
+      return `Rule ${rule} is stored in the patterns list in this format version.`;
+    }
     if (seen.has(rule)) return `Rule ${rule} is listed more than once.`;
     seen.add(rule);
+  }
+  return null;
+}
+
+/**
+ * Never UNPLAYABLE: a pattern names squares that must hold a COLOR, and says
+ * nothing at all about the ones it leaves out.
+ */
+function notAColor(square: unknown): boolean {
+  return square !== UNKNOWN && square !== DARK && square !== LIGHT;
+}
+
+/** Everything wrong with ONE `patterns` entry, or null when it is well formed. */
+function patternEntryError(pattern: unknown): string | null {
+  if (typeof pattern !== "object" || pattern === null) {
+    return "Every patterns entry must be a JSON object.";
+  }
+  const { width, height, cells } = pattern as Record<string, unknown>;
+  if (
+    !intInRange(width, 1, MAX_GRID_SIDE) ||
+    !intInRange(height, 1, MAX_GRID_SIDE)
+  ) {
+    return `Pattern sizes must be integers between 1 and ${MAX_GRID_SIDE}.`;
+  }
+  if (!Array.isArray(cells) || cells.length !== width * height) {
+    return "A pattern's cells must hold one entry per square of its box.";
+  }
+  if (cells.some(notAColor)) return "Pattern squares must be 0, 1 or 2.";
+  const drawn: LogicGridPattern = { width, height, cells };
+  if (!namesASquare(drawn)) {
+    return "A pattern must name at least one square.";
+  }
+  if (!isTightBox(drawn)) {
+    return "A pattern's box must be trimmed to the squares it names.";
+  }
+  return null;
+}
+
+/**
+ * The `patterns` list: the forbidden arrangements the player drew.
+ *
+ * Accepted in any order and canonicalized on output, the same asymmetry with
+ * the two C++ intakes that the sized lists have — they read committed fixtures
+ * and already-validated payloads, so a disordered list there means a
+ * hand-edited file and is refused by name. What is NOT repaired here is an
+ * untrimmed box: the drawing dialog trims before it stores, so a loose one is
+ * a hand-written file, and trimming it silently would change which shape two
+ * drawings are compared as.
+ */
+function patternsError(patterns: unknown): string | null {
+  if (patterns === undefined) return null;
+  if (!Array.isArray(patterns)) {
+    return "patterns must be an array of forbidden patterns.";
+  }
+  const seen = new Set<string>();
+  for (const pattern of patterns) {
+    const problem = patternEntryError(pattern);
+    if (problem !== null) return problem;
+    // By the shape's canonical key, so one rule cannot be carried twice
+    // wearing two rotations — they mean the same thing.
+    const key = patternKey(pattern as LogicGridPattern);
+    if (seen.has(key)) return "A pattern is listed more than once.";
+    seen.add(key);
   }
   return null;
 }
@@ -216,7 +333,7 @@ interface SizedListSpec {
   readonly max: number;
   readonly duplicate: (color: string, value: number) => string;
   /**
-   * Built when a SECOND entry names a colour already seen, or null where a
+   * Built when a SECOND entry names a color already seen, or null where a
    * family may hold several. Required rather than optional so a family added
    * later has to answer the question rather than inherit an answer.
    *
@@ -256,7 +373,7 @@ const RUNS_SPEC: SizedListSpec = {
   max: MAX_RUN_LENGTH,
   duplicate: (color, length) =>
     `The ${color} 1x${length} rule is listed more than once.`,
-  // Several bans on one colour are conjunctive and legal — see `perColor`.
+  // Several bans on one color are conjunctive and legal — see `perColor`.
   perColor: null,
 };
 
@@ -273,8 +390,8 @@ function sizedListError(value: unknown, spec: SizedListSpec): string | null {
     return `${spec.key} must be an array of ${spec.noun}.`;
   }
   const seen = new Set<string>();
-  // The first value each colour brought, for the one-per-colour families. The
-  // exact-duplicate check runs FIRST, so a colour listed twice at the SAME
+  // The first value each color brought, for the one-per-color families. The
+  // exact-duplicate check runs FIRST, so a color listed twice at the SAME
   // value keeps reporting the more specific of the two messages.
   const firstOf = new Map<string, number>();
   for (const entry of value) {
@@ -322,9 +439,13 @@ function rebuiltSized(raw: Record<string, unknown>): Partial<LogicGridTest> {
     })),
     one => one.length,
   );
+  const patterns = canonicalPatterns(
+    (raw.patterns as LogicGridPattern[] | undefined) ?? [],
+  );
   const rebuilt: Partial<LogicGridTest> = {};
   if (areas.length > 0) rebuilt.areas = areas;
   if (runs.length > 0) rebuilt.runs = runs;
+  if (patterns.length > 0) rebuilt.patterns = patterns;
   return rebuilt;
 }
 
@@ -351,7 +472,7 @@ function diagonalSeatError(
 /**
  * A board seat may sit on any grid line or corner, but it must be a real point
  * OF the board: the squares it sits between have to exist. Whether they are
- * playable is deliberately not asked — an unplayable neighbour makes the board
+ * playable is deliberately not asked — an unplayable neighbor makes the board
  * unsolvable and the solver names it, the honesty rule two clues with
  * impossible counts already follow. Asked here rather than in `seatShapeError`
  * because it needs only the dimensions, never the shapes.
@@ -446,6 +567,39 @@ function symbolsError(
       return `Column ${entry.x + 1}, row ${entry.y + 1} carries more than one symbol.`;
     }
     seen.add(slot);
+
+  }
+  return null;
+}
+
+/**
+ * No two galaxies on one CELL.
+ *
+ * A seat puts a galaxy BETWEEN squares, so two of them can share one without
+ * sharing the square they are stored on: a centered galaxy plus one on that
+ * square's edge, or two seated on opposite edges of one square. And two on
+ * different squares of one MERGED cell are two centers of rotational symmetry
+ * for a single region — composing two point reflections about different
+ * centers is a translation, which no finite region survives, so the board
+ * contradicts itself however it is colored.
+ *
+ * After the shapes, because the cell is the unit and only the shapes say what
+ * a cell is.
+ */
+function galaxyCellError(
+  symbols: readonly LogicGridSymbol[],
+  shapes: readonly number[][],
+  gridWidth: number,
+  gridHeight: number,
+): string | null {
+  const cellOf = (square: number) =>
+    shapes.find(shape => shape.includes(square)) ?? [square];
+  for (const [at, symbol] of symbols.entries()) {
+    if (
+      galaxiesClash(symbol, symbols.slice(0, at), { gridWidth, gridHeight }, cellOf)
+    ) {
+      return `Column ${symbol.x + 1}, row ${symbol.y + 1} carries a galaxy sharing a cell with another galaxy.`;
+    }
   }
   return null;
 }
@@ -466,7 +620,7 @@ function shapeError(
   const limit = gridWidth * gridHeight;
   if (!Array.isArray(shape) || shape.length < 2) {
     // A cell of one square IS a plain cell, so the other spelling is refused
-    // rather than accepted and normalised away.
+    // rather than accepted and normalized away.
     return "Every merged cell must be an array of at least two squares.";
   }
   for (const square of shape) {
@@ -490,7 +644,7 @@ function shapeError(
   const broken = connectedError(squares, gridWidth);
   if (broken !== null) return broken;
 
-  // Every square of a merged cell holds ONE colour, so a file that paints them
+  // Every square of a merged cell holds ONE color, so a file that paints them
   // differently describes a cell that cannot exist. The editor cannot produce
   // one — restructuring clears — but an imported file can, and the solver
   // refuses it, so accepting it here would only turn a clear message into a
@@ -502,10 +656,10 @@ function shapeError(
   if (split === undefined) return null;
   const x = split % gridWidth;
   const y = Math.floor(split / gridWidth);
-  return `Column ${x + 1}, row ${y + 1} is a different colour from the rest of its merged cell.`;
+  return `Column ${x + 1}, row ${y + 1} is a different color from the rest of its merged cell.`;
 }
 
-/** The colour on a square, by its flat index. */
+/** The color on a square, by its flat index. */
 function colorAt(cells: number[][], square: number, gridWidth: number): number {
   return cells[square % gridWidth]![Math.floor(square / gridWidth)]!;
 }
@@ -549,7 +703,7 @@ function connectedError(shape: number[], gridWidth: number): string | null {
  * boards do exactly that (two darts on one domino). WHICH square each clue
  * sits on is the player's own choice and is data: a dart's square is where
  * its ray starts and a symmetry symbol's is half of its seat, so every kind
- * keeps the square the file names. Combinations no colouring can satisfy
+ * keeps the square the file names. Combinations no coloring can satisfy
  * (two different letters, disagreeing area numbers) are the solver's to
  * refuse — the board loads, and Solve answers unsolvable by name.
  */
@@ -573,7 +727,7 @@ function shapesError(
  * The half of a seat only the merged-cell layer can judge: its squares must
  * really surround a point of the clue's own cell. A seam seat needs the
  * square beyond it as a shape-mate; a corner seat needs at least THREE of its
- * four surrounding squares in the cell — a 2x2 block's centre has four, and
+ * four surrounding squares in the cell — a 2x2 block's center has four, and
  * an L-tromino's natural middle is the corner it wraps, which has three.
  */
 function seatShapeError(
@@ -620,7 +774,7 @@ function seatShapeError(
  * The result is rebuilt from the validated fields, so unknown keys are dropped
  * and the rule list comes back sorted whatever order the file listed it in.
  *
- * `shapes` is the one OPTIONAL key, and an empty one normalises back to absent:
+ * `shapes` is the one OPTIONAL key, and an empty one normalizes back to absent:
  * every captured fixture predates it, and `config.test.ts` asserts they all
  * round-trip byte-identically.
  */
@@ -645,6 +799,8 @@ export function validateConfig(data: unknown): ConfigParseResult {
   if (areasProblem !== null) return { ok: false, error: areasProblem };
   const runsProblem = sizedListError(raw.runs, RUNS_SPEC);
   if (runsProblem !== null) return { ok: false, error: runsProblem };
+  const patternsProblem = patternsError(raw.patterns);
+  if (patternsProblem !== null) return { ok: false, error: patternsProblem };
   // Read AFTER `rulesError`, so the list is known to be well formed: a file
   // with rule 32 on may carry a displayed 0 — and one without it may not,
   // whatever build wrote it.
@@ -663,8 +819,8 @@ export function validateConfig(data: unknown): ConfigParseResult {
   // `value`, `direction` and `seat` are each spread only when the clue has
   // one, for the same reason `shapes` is omitted below: every captured
   // fixture predates the optional keys and has to keep round-tripping
-  // byte-identically. A seat of 0 normalises back to absent, like an empty
-  // `shapes` — it means the square's own centre, which is what absent means.
+  // byte-identically. A seat of 0 normalizes back to absent, like an empty
+  // `shapes` — it means the square's own center, which is what absent means.
   const symbols = (raw.symbols as LogicGridSymbol[]).map(symbol => ({
     x: symbol.x,
     y: symbol.y,
@@ -707,6 +863,14 @@ export function validateConfig(data: unknown): ConfigParseResult {
     gridHeight,
   );
   if (seatProblem !== null) return { ok: false, error: seatProblem };
+
+  const galaxyProblem = galaxyCellError(
+    config.symbols ?? [],
+    config.shapes ?? [],
+    gridWidth,
+    gridHeight,
+  );
+  if (galaxyProblem !== null) return { ok: false, error: galaxyProblem };
 
   // The number is reported only when the file really was older, so the page
   // can say the copy on disk is out of date without claiming it of every load.

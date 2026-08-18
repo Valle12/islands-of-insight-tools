@@ -20,6 +20,7 @@ import {
   withLotus,
   withRunRule,
   withShape,
+  withPattern,
   withViewpoint,
 } from "./boards";
 
@@ -30,19 +31,32 @@ import {
  * one side fails on the other.
  */
 
+/**
+ * What a shape retired into `patterns` is NAMED by now.
+ *
+ * The five controls that left the catalog in format version 3 — diagonal,
+ * L, crossed T, knight's move, mixed elbow — arrive as drawings, and the
+ * oracle checks a drawing as a drawing: one violation for all of them, since
+ * what a board broke is a shape the config carries and no member of the union
+ * could spell. The cases below still SAY the rule they were written for, so
+ * what they assert is unchanged — only its report has one name. `kDrawn` in
+ * `verify_test.cpp` is the same constant on the other side.
+ */
+const DRAWN = "custom-pattern";
+
 const judge = (picture: string[], answer: string[], ruleIds: string[] = []) =>
   verifyLogicGrid(board(picture, ruleIds), painted(answer));
 
 describe("verifyLogicGrid", () => {
-  test("accepts any colouring when nothing is asked", () => {
+  test("accepts any coloring when nothing is asked", () => {
     expect(judge(["..", ".."], ["DD", "DD"])).toBe("none");
   });
 
-  test("refuses an uncoloured cell", () => {
+  test("refuses an uncolored cell", () => {
     expect(judge(["..", ".."], ["D.", "DD"])).toBe("incomplete");
   });
 
-  test("refuses a coloured gap", () => {
+  test("refuses a colored gap", () => {
     expect(judge([".#", ".."], ["DD", "DD"])).toBe("shape");
   });
 
@@ -55,7 +69,7 @@ describe("verifyLogicGrid", () => {
   });
 
   describe("shape rules", () => {
-    test("catches a forbidden square, per colour", () => {
+    test("catches a forbidden square, per color", () => {
       expect(judge(["..", ".."], ["DD", "DD"], ["no-dark-2x2"])).toBe("square");
       expect(judge(["..", ".."], ["LL", "LL"], ["no-dark-2x2"])).toBe("none");
       expect(judge(["..", ".."], ["LL", "LL"], ["no-light-2x2"])).toBe(
@@ -90,7 +104,7 @@ describe("verifyLogicGrid", () => {
      * "Exactly one" is two failures, not one, and the empty half is the easy
      * one to leave out — nothing points at a region that has no symbol in it.
      */
-    test("counts the symbols in every area of that colour", () => {
+    test("counts the symbols in every area of that color", () => {
       expect(judge(["a.", ".."], ["DL", "LL"], ["one-symbol-dark"])).toBe(
         "none",
       );
@@ -104,7 +118,7 @@ describe("verifyLogicGrid", () => {
       );
     });
 
-    test("the two colours are separate switches", () => {
+    test("the two colors are separate switches", () => {
       // The same answer: legal for dark, and the light region has no symbol.
       expect(judge(["a.", ".."], ["DL", "LL"], ["one-symbol-light"])).toBe(
         "area-without-symbol",
@@ -140,7 +154,7 @@ describe("verifyLogicGrid", () => {
       ).toBe("none");
     });
 
-    test("a triple names the colour at its ends", () => {
+    test("a triple names the color at its ends", () => {
       // The same line, judged under each rule: L-D-L is the OTHER rule's shape.
       expect(
         judge(["...", "..."], ["LDL", "DDD"], ["no-dark-light-dark"]),
@@ -188,7 +202,7 @@ describe("verifyLogicGrid", () => {
       expect(judge(["..", ".."], ["DD", "LD"], rule)).toBe("three-one");
       expect(judge(["..", ".."], ["DL", "DD"], rule)).toBe("three-one");
       expect(judge(["..", ".."], ["LD", "DD"], rule)).toBe("three-one");
-      // All four of one colour is a different arrangement, and an even split.
+      // All four of one color is a different arrangement, and an even split.
       expect(judge(["..", ".."], ["DD", "DD"], rule)).toBe("none");
       expect(judge(["..", ".."], ["DD", "LL"], rule)).toBe("none");
     });
@@ -202,8 +216,8 @@ describe("verifyLogicGrid", () => {
       ).toBe("three-one");
     });
 
-    /** Three of a colour around a gap is legal: the rule wants a FULL 2x2
-     * split three and one, and a gap is neither colour. */
+    /** Three of a color around a gap is legal: the rule wants a FULL 2x2
+     * split three and one, and a gap is neither color. */
     test("a gap never completes a 3+1 square", () => {
       expect(
         judge(["..", ".#"], ["DD", "D#"], ["no-three-dark-one-light"]),
@@ -211,46 +225,34 @@ describe("verifyLogicGrid", () => {
     });
 
     test("catches a corner touch on either diagonal", () => {
-      expect(judge(["..", ".."], ["DL", "LD"], ["no-dark-diagonal"])).toBe(
-        "diagonal",
-      );
-      expect(judge(["..", ".."], ["LD", "DL"], ["no-dark-diagonal"])).toBe(
-        "diagonal",
-      );
+      expect(judge(["..", ".."], ["DL", "LD"], ["no-dark-diagonal"])).toBe(DRAWN);
+      expect(judge(["..", ".."], ["LD", "DL"], ["no-dark-diagonal"])).toBe(DRAWN);
       expect(judge(["...", "..."], ["DDD", "LLL"], ["no-dark-diagonal"])).toBe(
         "none",
       );
     });
 
     /**
-     * The literal reading: being joined through an orthogonal neighbour does
+     * The literal reading: being joined through an orthogonal neighbor does
      * not excuse the touch, so an L-bend and a filled 2x2 both break the rule
-     * and every legal region of the colour is a straight bar.
+     * and every legal region of the color is a straight bar.
      */
     test("a connected bend still breaks the diagonal rule", () => {
-      expect(judge(["..", ".."], ["DD", "DL"], ["no-dark-diagonal"])).toBe(
-        "diagonal",
-      );
-      expect(judge(["..", ".."], ["DD", "DD"], ["no-dark-diagonal"])).toBe(
-        "diagonal",
-      );
+      expect(judge(["..", ".."], ["DD", "DL"], ["no-dark-diagonal"])).toBe(DRAWN);
+      expect(judge(["..", ".."], ["DD", "DD"], ["no-dark-diagonal"])).toBe(DRAWN);
     });
 
     test("the two diagonal rules are separate switches", () => {
       expect(judge(["..", ".."], ["DD", "LD"], ["no-light-diagonal"])).toBe(
         "none",
       );
-      expect(judge(["..", ".."], ["DD", "LD"], ["no-dark-diagonal"])).toBe(
-        "diagonal",
-      );
+      expect(judge(["..", ".."], ["DD", "LD"], ["no-dark-diagonal"])).toBe(DRAWN);
     });
 
     /** The touch is the squares' geometry, not the board's: two cells meeting
      * only across a gap's corner still meet. */
     test("a touch across a gap's corner still counts", () => {
-      expect(judge([".#", "#."], ["D#", "#D"], ["no-dark-diagonal"])).toBe(
-        "diagonal",
-      );
+      expect(judge([".#", "#."], ["D#", "#D"], ["no-dark-diagonal"])).toBe(DRAWN);
     });
   });
 
@@ -310,7 +312,7 @@ describe("verifyLogicGrid", () => {
       );
     });
 
-    test("the rule only looks at its own colour", () => {
+    test("the rule only looks at its own color", () => {
       // Two congruent LIGHT dominoes, while the dark regions — a domino and an
       // L-tromino — are different shapes. Each rule sees only its own.
       const picture = [".....", "....."];
@@ -330,7 +332,7 @@ describe("verifyLogicGrid", () => {
       ).toBe("none");
     });
 
-    /** Both rules of one colour say "at most one region", which is a thing a
+    /** Both rules of one color say "at most one region", which is a thing a
      * board may legally be — so they are two independent flags. */
     test("both rules together allow exactly one region", () => {
       const rules = ["distinct-shapes-dark", "same-shape-dark"];
@@ -370,7 +372,7 @@ describe("verifyLogicGrid", () => {
   });
 
   describe("connectivity", () => {
-    test("catches a colour in two pieces", () => {
+    test("catches a color in two pieces", () => {
       expect(judge(["...", "..."], ["DLD", "LLL"], ["connect-dark"])).toBe(
         "disconnected",
       );
@@ -379,7 +381,7 @@ describe("verifyLogicGrid", () => {
       );
     });
 
-    test("an empty colour is vacuously connected", () => {
+    test("an empty color is vacuously connected", () => {
       expect(judge(["..", ".."], ["DD", "DD"], ["connect-light"])).toBe("none");
     });
 
@@ -392,7 +394,7 @@ describe("verifyLogicGrid", () => {
     });
   });
 
-  describe("sized instances beyond the old catalogue", () => {
+  describe("sized instances beyond the old catalog", () => {
     /**
      * Since format version 2 the number is data, so sizes no chip ever named
      * go through the very same walk as the familiar ones — these cases are
@@ -430,7 +432,7 @@ describe("verifyLogicGrid", () => {
       ).toBe("region-size");
     });
 
-    test("two sizes on one colour both bind", () => {
+    test("two sizes on one color both bind", () => {
       const strip = board(["...."]);
       withAreaRule(strip, "dark", 2);
       withAreaRule(strip, "dark", 3);
@@ -467,13 +469,13 @@ describe("verifyLogicGrid", () => {
       );
     });
 
-    test("an empty colour has no regions and is legal", () => {
-      // The vacuous case, like "an empty colour is vacuously connected": all
+    test("an empty color has no regions and is legal", () => {
+      // The vacuous case, like "an empty color is vacuously connected": all
       // zero of its regions are the right size.
       expect(judge(["..", ".."], ["DD", "DD"], ["area-two-light"])).toBe("none");
     });
 
-    test("the two colours are separate switches", () => {
+    test("the two colors are separate switches", () => {
       // Dark is two dominoes and light is one region of four.
       expect(judge(["..", "..", ".."], ["DD", "LL", "DD"], [])).toBe("none");
       expect(
@@ -530,7 +532,7 @@ describe("verifyLogicGrid", () => {
       expect(
         judge(["......", "......"], ["DDDDLL", "LLLLLL"], ["area-five-dark"]),
       ).toBe("region-size");
-      // The same colouring judged from the other colour's side: light is one
+      // The same coloring judged from the other color's side: light is one
       // region of seven.
       expect(
         judge(["......", "......"], ["DDDDDL", "LLLLLL"], ["area-five-light"]),
@@ -556,18 +558,18 @@ describe("verifyLogicGrid", () => {
       expect(judge(["....", "...."], ["DDDD", "LLLL"], ["area-three-dark"])).toBe(
         "region-size",
       );
-      // The same first colouring judged from the other side: light is a three.
+      // The same first coloring judged from the other side: light is a three.
       expect(judge(["...", "..."], ["DDD", "LLL"], ["area-three-light"])).toBe(
         "none",
       );
     });
 
     /**
-     * Not a contradiction, which is the surprising part: every one of a colour's
+     * Not a contradiction, which is the surprising part: every one of a color's
      * zero regions is both sizes at once, so the pair is satisfied exactly when
-     * the colour is absent.
+     * the color is absent.
      */
-    test("both sizes on one colour leave only the empty colouring", () => {
+    test("both sizes on one color leave only the empty coloring", () => {
       const both = ["area-two-dark", "area-four-dark"];
       expect(judge(["....", "...."], ["LLLL", "LLLL"], both)).toBe("none");
       expect(judge(["....", "...."], ["DDLL", "DDLL"], both)).toBe(
@@ -585,7 +587,7 @@ describe("verifyLogicGrid", () => {
       expect(judge(["2..", "...", "..."], ["DDD", "LLL", "LLL"])).toBe("area");
     });
 
-    test("an area number takes the colour of its cell", () => {
+    test("an area number takes the color of its cell", () => {
       expect(judge(["2..", "..."], ["LLD", "DDD"])).toBe("none");
     });
 
@@ -603,13 +605,13 @@ describe("verifyLogicGrid", () => {
       expect(judge(["a.b", "..."], ["DDD", "LLL"])).toBe("letter-shared");
     });
 
-    test("different letters may share a colour in different regions", () => {
+    test("different letters may share a color in different regions", () => {
       expect(judge(["a.b", "..."], ["DLD", "LLL"])).toBe("none");
     });
   });
 
   describe("darts", () => {
-    /** A dart on `(0, 0)` aimed along the top row, and a colouring to judge. */
+    /** A dart on `(0, 0)` aimed along the top row, and a coloring to judge. */
     const judgeDart = (
       picture: string[],
       answer: string[],
@@ -621,13 +623,13 @@ describe("verifyLogicGrid", () => {
       return verifyLogicGrid(config, painted(answer));
     };
 
-    test("counts the squares of the OTHER colour along its line", () => {
+    test("counts the squares of the OTHER color along its line", () => {
       expect(judgeDart(["....."], ["DLLDD"], 2)).toBe("none");
       expect(judgeDart(["....."], ["DLLDD"], 3)).toBe("dart");
     });
 
-    test("a dart takes the colour of its own cell, so it counts the other", () => {
-      // The two colourings differ ONLY in the dart's own square, and the same
+    test("a dart takes the color of its own cell, so it counts the other", () => {
+      // The two colorings differ ONLY in the dart's own square, and the same
       // line of `LLLD` reads as three lights from a dark dart and one dark
       // from a light one.
       expect(judgeDart(["....."], ["DLLLD"], 3)).toBe("none");
@@ -635,7 +637,7 @@ describe("verifyLogicGrid", () => {
       expect(judgeDart(["....."], ["LLLLD"], 1)).toBe("none");
     });
 
-    test("zero means the whole line is the dart's own colour", () => {
+    test("zero means the whole line is the dart's own color", () => {
       expect(judgeDart(["....."], ["DDDDD"], 0)).toBe("none");
       expect(judgeDart(["....."], ["DDDDL"], 0)).toBe("dart");
     });
@@ -679,7 +681,7 @@ describe("verifyLogicGrid", () => {
   });
 
   describe("symmetry", () => {
-    /** A lotus on the centre of a 3x3, and a colouring to judge. Mirrors the
+    /** A lotus on the center of a 3x3, and a coloring to judge. Mirrors the
      * lotus block in `a-star/test/verify_test.cpp`. */
     const judgeLotus = (answer: string[], axis: number) => {
       const config = board(["...", "...", "..."]);
@@ -749,7 +751,7 @@ describe("verifyLogicGrid", () => {
   });
 
   describe("viewpoints", () => {
-    /** A viewpoint on `(0, 0)` holding `value`, and a colouring to judge.
+    /** A viewpoint on `(0, 0)` holding `value`, and a coloring to judge.
      * Mirrors the viewpoint block in `a-star/test/verify_test.cpp`. */
     const judgeViewpoint = (
       picture: string[],
@@ -761,7 +763,7 @@ describe("verifyLogicGrid", () => {
       return verifyLogicGrid(config, painted(answer));
     };
 
-    test("counts itself and its leading same-colour runs", () => {
+    test("counts itself and its leading same-color runs", () => {
       expect(judgeViewpoint(["....."], ["DDLDD"], 2)).toBe("none");
       expect(judgeViewpoint(["....."], ["DDLDD"], 3)).toBe("viewpoint");
     });
@@ -779,8 +781,8 @@ describe("verifyLogicGrid", () => {
       );
     });
 
-    test("takes the colour of its own cell, so it counts its own", () => {
-      // The two colourings differ ONLY in the viewpoint's own square: the
+    test("takes the color of its own cell, so it counts its own", () => {
+      // The two colorings differ ONLY in the viewpoint's own square: the
       // same line reads as three from a light one and one from a dark one.
       expect(judgeViewpoint(["....."], ["LLLDD"], 3)).toBe("none");
       expect(judgeViewpoint(["....."], ["DLLDD"], 1)).toBe("none");
@@ -797,7 +799,7 @@ describe("verifyLogicGrid", () => {
     /**
      * A merged cell along a ray contributes every square the sight crosses —
      * and the squares of the viewpoint's OWN cell count too, being its own
-     * colour by definition, which is where it differs from a dart's line.
+     * color by definition, which is where it differs from a dart's line.
      */
     test("counts a merged cell once per square the sight crosses", () => {
       const over = board(["....."]);
@@ -863,7 +865,7 @@ describe("verifyLogicGrid", () => {
         painted(answer),
       );
 
-    test("refuses a merged cell in two colours", () => {
+    test("refuses a merged cell in two colors", () => {
       expect(
         judgeMerged(
           ["..", ".."],
@@ -968,6 +970,71 @@ describe("verifyLogicGrid", () => {
     });
   });
 
+  describe("drawn patterns", () => {
+    /** Judges a coloring against a shape drawn rather than named. */
+    const drawn = (picture: string[], answer: string[], shape: string[]) =>
+      verifyLogicGrid(withPattern(board(picture), shape), painted(answer));
+
+    test("catches the shape as drawn", () => {
+      expect(drawn(["..", ".."], ["DD", "DD"], ["DD", "DD"])).toBe(
+        "custom-pattern",
+      );
+      expect(drawn(["..", ".."], ["DD", "DL"], ["DD", "DD"])).toBe("none");
+    });
+
+    /** Every rotation and reflection is forbidden too, always — which is what
+     * makes a drawn shape one rule rather than eight. */
+    test("catches every rotation of an asymmetric shape", () => {
+      const ell = ["D.", "D.", "DD"];
+      for (const answer of [
+        ["DLL", "DLL", "DDL"],
+        ["LLD", "LLD", "LDD"],
+        ["DDD", "DLL", "LLL"],
+        ["DLL", "DDD", "LLL"],
+      ])
+        expect(drawn(["...", "...", "..."], answer, ell)).toBe(
+          "custom-pattern",
+        );
+    });
+
+    test("names both colors where a shape does", () => {
+      // The mixed elbow: dark ends around a light corner.
+      expect(drawn(["..", ".."], ["DL", "LD"], ["LD", "D."])).toBe(
+        "custom-pattern",
+      );
+      // A STRAIGHT dark-light-dark is a different shape and is not it.
+      expect(drawn(["..."], ["DLD"], ["LD", "D."])).toBe("none");
+    });
+
+    /** Squares the pattern does not name are not read at all, so a gap under
+     * one changes nothing — the knight's move's own reading. */
+    test("fires across a square it does not name", () => {
+      expect(
+        drawn([".#.", "...", "..."], ["D#L", "LLL", "LDL"], ["D.", "..", ".D"]),
+      ).toBe("custom-pattern");
+    });
+
+    /** A gap under a square it DOES name can never match: a pattern only ever
+     * wants dark or light, and a gap is neither. */
+    test("never matches a gap it names", () => {
+      expect(drawn(["..", ".#"], ["DD", "D#"], ["DD", "DD"])).toBe("none");
+    });
+
+    test("a board that draws none is unconstrained", () => {
+      expect(judge(["..", ".."], ["DD", "DD"])).toBe("none");
+    });
+
+    /** Named rules come first, so a board breaking one of those AND a drawing
+     * is reported for the rule — the order `Verify.cpp` keeps too. */
+    test("a named rule is reported ahead of a drawing", () => {
+      const config = withPattern(board(["..", ".."], ["no-dark-2x2"]), [
+        "DD",
+        "DD",
+      ]);
+      expect(verifyLogicGrid(config, painted(["DD", "DD"]))).toBe("square");
+    });
+  });
+
   describe("elbows", () => {
     test("catches a forbidden elbow in all four orientations", () => {
       expect(judge(["..", ".."], ["DD", "DL"], ["no-dark-elbow"])).toBe(
@@ -1013,24 +1080,22 @@ describe("verifyLogicGrid", () => {
     test("catches a forbidden L in either handedness", () => {
       expect(
         judge(["...", "...", "..."], ["DLL", "DLL", "DDL"], ["no-dark-l"]),
-      ).toBe("ell");
+      ).toBe(DRAWN);
       expect(
         judge(["...", "...", "..."], ["LLD", "LLD", "LDD"], ["no-dark-l"]),
-      ).toBe("ell");
+      ).toBe(DRAWN);
       expect(
         judge(["...", "...", "..."], ["DDD", "DLL", "LLL"], ["no-dark-l"]),
-      ).toBe("ell");
+      ).toBe(DRAWN);
       expect(
         judge(["...", "...", "..."], ["DLL", "DDD", "LLL"], ["no-dark-l"]),
-      ).toBe("ell");
+      ).toBe(DRAWN);
     });
 
     test("the two L rules are separate switches", () => {
       // A board whose LIGHT cells hold no L of their own — on a 3x3 the
       // complement of an L contains one.
-      expect(judge(["....", "...."], ["DDDL", "LLDL"], ["no-dark-l"])).toBe(
-        "ell",
-      );
+      expect(judge(["....", "...."], ["DDDL", "LLDL"], ["no-dark-l"])).toBe(DRAWN);
       expect(judge(["....", "...."], ["DDDL", "LLDL"], ["no-light-l"])).toBe(
         "none",
       );
@@ -1052,7 +1117,7 @@ describe("verifyLogicGrid", () => {
       expect(judge(["..."], ["DLD"], ["no-dark-any-dark"])).toBe(
         "distance-pair",
       );
-      // The middle being the SAME colour does not excuse the ends: the ban is
+      // The middle being the SAME color does not excuse the ends: the ban is
       // positional, so a straight three breaks it too.
       expect(judge(["..."], ["DDD"], ["no-dark-any-dark"])).toBe(
         "distance-pair",
@@ -1090,12 +1155,12 @@ describe("verifyLogicGrid", () => {
     test("catches a light-crossed dark T", () => {
       expect(
         judge(["...", "..."], ["DLD", "LDL"], ["no-light-crossed-dark-t"]),
-      ).toBe("mixed-tee");
+      ).toBe(DRAWN);
       expect(
         judge(["..", "..", ".."], ["DL", "LD", "DL"], [
           "no-light-crossed-dark-t",
         ]),
-      ).toBe("mixed-tee");
+      ).toBe(DRAWN);
     });
 
     test("a monochrome T is not a mixed one, and a gap never crosses", () => {
@@ -1110,13 +1175,13 @@ describe("verifyLogicGrid", () => {
     test("the two mixed-T rules are separate switches", () => {
       expect(
         judge(["...", "..."], ["DLD", "DDL"], ["no-light-crossed-dark-t"]),
-      ).toBe("mixed-tee");
+      ).toBe(DRAWN);
       expect(
         judge(["...", "..."], ["DLD", "DDL"], ["no-dark-crossed-light-t"]),
       ).toBe("none");
       expect(
         judge(["...", "..."], ["LDL", "LLD"], ["no-dark-crossed-light-t"]),
-      ).toBe("mixed-tee");
+      ).toBe(DRAWN);
     });
   });
 
@@ -1152,16 +1217,16 @@ describe("verifyLogicGrid", () => {
     test("catches a knight's-move pair in all four geometries", () => {
       expect(
         judge(["...", "...", "..."], ["DLL", "LLL", "LDL"], ["no-dark-knight"]),
-      ).toBe("knight");
+      ).toBe(DRAWN);
       expect(
         judge(["...", "...", "..."], ["LLD", "LLL", "LDL"], ["no-dark-knight"]),
-      ).toBe("knight");
+      ).toBe(DRAWN);
       expect(
         judge(["...", "...", "..."], ["DLL", "LLD", "LLL"], ["no-dark-knight"]),
-      ).toBe("knight");
+      ).toBe(DRAWN);
       expect(
         judge(["...", "...", "..."], ["LLD", "DLL", "LLL"], ["no-dark-knight"]),
-      ).toBe("knight");
+      ).toBe(DRAWN);
     });
 
     test("a diagonal touch is not a knight's move", () => {
@@ -1177,7 +1242,7 @@ describe("verifyLogicGrid", () => {
         judge([".#.", "...", "..."], ["D#L", "LLL", "LDL"], [
           "no-dark-knight",
         ]),
-      ).toBe("knight");
+      ).toBe(DRAWN);
     });
 
     test("the two knight rules are separate switches", () => {
@@ -1185,7 +1250,7 @@ describe("verifyLogicGrid", () => {
       // own, which on a full 3x3 they would.
       expect(
         judge(["..", "..", ".#"], ["LD", "LL", "D#"], ["no-dark-knight"]),
-      ).toBe("knight");
+      ).toBe(DRAWN);
       expect(
         judge(["..", "..", ".#"], ["LD", "LL", "D#"], ["no-light-knight"]),
       ).toBe("none");
@@ -1196,10 +1261,10 @@ describe("verifyLogicGrid", () => {
     test("catches a mixed elbow", () => {
       expect(
         judge(["..", ".."], ["DL", "LD"], ["no-dark-light-dark-elbow"]),
-      ).toBe("mixed-elbow");
+      ).toBe(DRAWN);
       expect(
         judge(["..", ".."], ["LD", "DL"], ["no-dark-light-dark-elbow"]),
-      ).toBe("mixed-elbow");
+      ).toBe(DRAWN);
       // A STRAIGHT dark-light-dark is the triple rule's shape, not this one's.
       expect(judge(["..."], ["DLD"], ["no-dark-light-dark-elbow"])).toBe(
         "none",
@@ -1207,13 +1272,13 @@ describe("verifyLogicGrid", () => {
       // A 2x2 checkerboard contains BOTH mixed elbows.
       expect(
         judge(["..", ".."], ["DL", "LD"], ["no-light-dark-light-elbow"]),
-      ).toBe("mixed-elbow");
+      ).toBe(DRAWN);
     });
 
     test("the two mixed-elbow rules are separate switches", () => {
       expect(
         judge(["...", "..."], ["DLD", "DDD"], ["no-dark-light-dark-elbow"]),
-      ).toBe("mixed-elbow");
+      ).toBe(DRAWN);
       expect(
         judge(["...", "..."], ["DLD", "DDD"], ["no-light-dark-light-elbow"]),
       ).toBe("none");
@@ -1353,7 +1418,7 @@ describe("verifyLogicGrid", () => {
         painted(answer),
       );
 
-    /** The accepted colouring is 180-degree symmetric but symmetric across NO
+    /** The accepted coloring is 180-degree symmetric but symmetric across NO
      * single axis — the shape that tells a half turn apart from every mirror
      * a lotus could ask for. */
     test("a galaxy region must map to itself turned halfway", () => {
@@ -1381,7 +1446,7 @@ describe("verifyLogicGrid", () => {
 
     /** Two half turns compose to a translation, which no finite region
      * survives — the oracle needs no code for that: the far galaxy's square
-     * turns off the board about the near one's centre. */
+     * turns off the board about the near one's center. */
     test("two galaxies cannot share a region", () => {
       const config = withGalaxy(
         withGalaxy(board(["...", "...", "..."]), 1, 0),
@@ -1397,23 +1462,23 @@ describe("verifyLogicGrid", () => {
     });
 
     /**
-     * A SEATED galaxy: the centre on a grid line or a corner, where the turn
+     * A SEATED galaxy: the center on a grid line or a corner, where the turn
      * carries a sign. Mirrors the seated block in
      * `a-star/test/verify_test.cpp`.
      */
     test("a seated galaxy turns about the grid line", () => {
-      // Centre on the seam between the two middle columns of a 4x2, so the
+      // Center on the seam between the two middle columns of a 4x2, so the
       // dark domino on the left turns onto the dark one on the right.
       const config = withGalaxy(board(["....", "...."]), 1, 0, 1);
       expect(verifyLogicGrid(config, painted(["DDDD", "LLLL"]))).toBe("none");
       expect(verifyLogicGrid(config, painted(["DDDL", "LLLL"]))).toBe("galaxy");
     });
 
-    /** The colour-INVERTING case, and the user-confirmed semantics: with the
-     * colours across the centre differing, every square's image holds the
-     * opposite colour. */
-    test("an inverting galaxy turns onto the other colour", () => {
-      // Centre on the seam under (1,1) of a 3x4, so the turn maps the board
+    /** The color-INVERTING case, and the user-confirmed semantics: with the
+     * colors across the center differing, every square's image holds the
+     * opposite color. */
+    test("an inverting galaxy turns onto the other color", () => {
+      // Center on the seam under (1,1) of a 3x4, so the turn maps the board
       // onto itself: dark above, light below.
       const config = withGalaxy(board(["...", "...", "...", "..."]), 1, 1, 2);
       expect(
@@ -1424,7 +1489,7 @@ describe("verifyLogicGrid", () => {
       ).toBe("galaxy");
     });
 
-    /** Walking EVERY region touching the centre is load-bearing: the turn is
+    /** Walking EVERY region touching the center is load-bearing: the turn is
      * an involution, so one region's image lies IN the other — but the other
      * may reach further, and only its own walk says so. */
     test("both regions at an inverting seat are walked", () => {
@@ -1436,8 +1501,8 @@ describe("verifyLogicGrid", () => {
     });
 
     /** Seat 0 is the special case rather than the rule: a square is its own
-     * image, so the sign can only preserve colour. */
-    test("a centred galaxy can only preserve colour", () => {
+     * image, so the sign can only preserve color. */
+    test("a centered galaxy can only preserve color", () => {
       const config = withGalaxy(board(["...", "...", "..."]), 1, 1);
       expect(verifyLogicGrid(config, painted(["DLD", "LDL", "DLD"]))).toBe(
         "none",

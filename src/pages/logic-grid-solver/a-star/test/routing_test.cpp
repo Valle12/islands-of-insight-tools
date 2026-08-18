@@ -22,7 +22,7 @@ Outcome route(const Puzzle &puzzle) {
 }
 
 /// Two letter pairs that have to be kept apart on an open board. The router
-/// gives each a region of its own and paints the rest the other colour.
+/// gives each a region of its own and paints the rest the other color.
 TEST(Routing, SeparatesTwoLetterPairs) {
   const Puzzle puzzle = test::board({"a.b", "...", "a.b"});
   const Outcome outcome = route(puzzle);
@@ -53,7 +53,7 @@ TEST(Routing, SolvesAPillarLattice) {
 /// something proves nothing about whether it exists.
 TEST(Routing, NeverClaimsUnsolvable) {
   // Two pairs at opposite corners: their regions would have to CROSS, and on a
-  // flat board two regions that cross are one region. No colouring exists, and
+  // flat board two regions that cross are one region. No coloring exists, and
   // the router has to say it did not find one rather than that there is none.
   const Puzzle puzzle = test::board({"a.b", "...", "b.a"});
   const Outcome outcome = route(puzzle);
@@ -65,7 +65,7 @@ TEST(Routing, NeverClaimsUnsolvable) {
 /// construction does not model. Each of these would otherwise be routed and
 /// then thrown away by the oracle.
 TEST(Routing, DeclinesWhatItDoesNotModel) {
-  // A rule: "every cell the router did not claim takes the other colour"
+  // A rule: "every cell the router did not claim takes the other color"
   // breaks all but the emptiest rule set.
   EXPECT_FALSE(routing::applicable(buildModel(
       test::board({"a.b", "...", "a.b"}, test::ruleSet({Rule::NoDark2x2})))));
@@ -87,12 +87,12 @@ TEST(Routing, DeclinesWhatItDoesNotModel) {
   EXPECT_TRUE(routing::applicable(buildModel(test::board({"a.b", "...", "a.b"}))));
 }
 
-/// Letters pinned to DIFFERENT colours by their givens are out of scope, and
+/// Letters pinned to DIFFERENT colors by their givens are out of scope, and
 /// the arm gives up at once rather than spending its budget: the construction
-/// paints one colour for every net and the other everywhere else, which cannot
+/// paints one color for every net and the other everywhere else, which cannot
 /// express a board whose letters disagree. `logicGridTest67` is the captured
 /// case, and the profile sweep is what answers it.
-TEST(Routing, GivesUpAtOnceOnLettersOfDifferentColours) {
+TEST(Routing, GivesUpAtOnceOnLettersOfDifferentColors) {
   Puzzle puzzle = test::board({"a.b", "...", "a.b"});
   test::withGiven(puzzle, 0, 0, kDark);
   test::withGiven(puzzle, 2, 0, kLight);

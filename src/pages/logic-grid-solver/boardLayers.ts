@@ -9,7 +9,7 @@ import { clueOf, sameClue, symbolOf } from "./clueEdits";
 import { NO_SHAPE, ShapeLayer } from "./shapes";
 
 /**
- * The three layers a board is made of — colour, clues and merged cells — and
+ * The three layers a board is made of — color, clues and merged cells — and
  * what the config file makes of them.
  *
  * A class rather than free functions because it OWNS the arrays: this is the
@@ -21,18 +21,29 @@ import { NO_SHAPE, ShapeLayer } from "./shapes";
 
 /**
  * What a write moved, which is what decides how much of the page has to be
- * redrawn: a clue reaches its own square, a colour reaches the outline around
+ * redrawn: a clue reaches its own square, a color reaches the outline around
  * a merged cell as well, and nothing reaches nothing.
+ *
+ * BOTH flags, not one answer of three. A single write moves both layers more
+ * often than it looks — the eraser writes `(UNKNOWN, null)`, and painting a
+ * square unplayable drops the clue with it — and reporting only the color
+ * left the clue's own redraw undone. That is invisible for a number or a
+ * letter, which is drawn on the square it sits on, and very visible for a
+ * seated galaxy, whose tile is drawn on the outline layer and stayed there
+ * after the clue had gone.
  */
-export type WriteResult = "nothing" | "clue" | "color";
+export interface WriteResult {
+  readonly color: boolean;
+  readonly clue: boolean;
+}
 
 export class BoardLayers {
   readonly gridWidth: number;
   readonly gridHeight: number;
 
-  /** The colour layer, column-major. */
+  /** The color layer, column-major. */
   private cells: number[][] = [];
-  /** The clue layer, indexed like `cells`. Independent of the colour. */
+  /** The clue layer, indexed like `cells`. Independent of the color. */
   private clues: (LogicGridClue | null)[][] = [];
   /**
    * The merged-cell layer: which squares are fused into one cell. A third layer
@@ -157,18 +168,20 @@ export class BoardLayers {
     color: number,
     clue: LogicGridClue | null,
   ): WriteResult {
+    const still = { color: false, clue: false };
     const column = this.cells[position.x];
     const clueColumn = this.clues[position.x];
-    if (!column || !clueColumn) return "nothing";
-    if (position.y < 0 || position.y >= this.gridHeight) return "nothing";
+    if (!column || !clueColumn) return still;
+    if (position.y < 0 || position.y >= this.gridHeight) return still;
     const existing = clueColumn[position.y] ?? null;
-    if (column[position.y] === color && sameClue(existing, clue)) {
-      return "nothing";
-    }
+    const moved = {
+      color: column[position.y] !== color,
+      clue: !sameClue(existing, clue),
+    };
+    if (!moved.color && !moved.clue) return still;
 
-    const wasColor = column[position.y];
     column[position.y] = color;
     clueColumn[position.y] = clue;
-    return wasColor === color ? "clue" : "color";
+    return moved;
   }
 }

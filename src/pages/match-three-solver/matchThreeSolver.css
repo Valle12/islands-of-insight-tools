@@ -142,7 +142,7 @@ h2 {
 }
 
 /* Blocks and blockades are both the game's own artwork. `cellView.ts` supplies
-   only which image, as `--symbol-image`; the art carries its own colour. */
+   only which image, as `--symbol-image`; the art carries its own color. */
 .grid-cell[data-kind="symbol"],
 .grid-cell[data-kind="blocked"] {
   background-image: var(--symbol-image);
@@ -285,7 +285,7 @@ h2 {
 
 #solution-grid-shell {
   display: flex;
-  /* `safe` for the same reason as #grid-shell: centred overflow hides its
+  /* `safe` for the same reason as #grid-shell: centered overflow hides its
      left half beyond the scrollbar's reach. */
   justify-content: safe center;
   padding: 14px;
@@ -345,7 +345,7 @@ h2 {
   z-index: 2;
 }
 
-/* -13px centres the 20px badge on the 6px gap between the pair. */
+/* -13px centers the 20px badge on the 6px gap between the pair. */
 .grid-cell[data-swap="a"][data-swap-axis="horizontal"]::after {
   content: "↔";
   right: -13px;

@@ -37,7 +37,7 @@ export type PageMeta = {
  * line, and the home page's slug is the empty string.
  *
  * Deliberately a table rather than six formatted object literals. Sonar's
- * duplication detector normalises string literals, so entries of identical
+ * duplication detector normalizes string literals, so entries of identical
  * shape read to it as one block repeated once per page: at ten lines each that
  * was a 40-line duplicate and, on its own, a failed quality gate. Rows this
  * short cannot form a block long enough to match. Lining the columns up is also
@@ -56,8 +56,8 @@ const SOURCE: readonly (readonly [
 ])[] = [
   ["", "Islands of Insight Tools | Free Puzzle Solvers", "Free browser-based solvers for Islands of Insight puzzles: Logic Grid, Match Three, Phasic Dial, Rolling Blocks and Shifting Mosaic. Get the solution."],
   ["logic-grid-solver", "Logic Grid Solver | Islands of Insight Tools", "Solve Islands of Insight Logic Grid puzzles. Paint the dark and light cells, switch on the rules the puzzle uses, place its clues, and get the finished grid."],
-  ["match-three-solver", "Match Three Solver | Islands of Insight Tools", "Stuck on a Match Three puzzle in Islands of Insight? Paint the board of coloured blocks and blockades and get the exact sequence of swaps that clears it."],
-  ["phasic-dial-solver", "Phasic Dial Solver | Islands of Insight Tools", "Solve Islands of Insight Phasic Dial puzzles. Enter each dial and what every button turns, and get the fewest presses that returns them all to centre."],
+  ["match-three-solver", "Match Three Solver | Islands of Insight Tools", "Stuck on a Match Three puzzle in Islands of Insight? Paint the board of colored blocks and blockades and get the exact sequence of swaps that clears it."],
+  ["phasic-dial-solver", "Phasic Dial Solver | Islands of Insight Tools", "Solve Islands of Insight Phasic Dial puzzles. Enter each dial and what every button turns, and get the fewest presses that returns them all to center."],
   ["rolling-blocks-solver", "Rolling Blocks Solver | Islands of Insight Tools", "Solve Islands of Insight Rolling Block puzzles. Lay out the board and the blocks, and get the exact rolls that cover every marked tile or reach the goal."],
   ["shifting-mosaic-solver", "Shifting Mosaic Solver | Islands of Insight Tools", "Solve Islands of Insight Shifting Mosaic sliding-block puzzles. Draw the obstructions, the goal block and the goal zone, and get the moves step by step."],
 ];
@@ -78,7 +78,7 @@ export const PAGES: readonly PageMeta[] = SOURCE.map(
 );
 
 /**
- * Open Graph wants 1.91:1 — a scraper centre-crops anything else, so a taller
+ * Open Graph wants 1.91:1 — a scraper center-crops anything else, so a taller
  * screenshot loses its top and bottom rather than showing more.
  *
  * The frame is therefore sized by the TALLEST page, and widened to keep the

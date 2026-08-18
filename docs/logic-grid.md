@@ -10,17 +10,17 @@ so `#solution-view` holds one grid and a Back button — no Previous/Next — bu
 is a real view that replaces `#editor-section`, and the room beside the grid is
 where a per-cell explanation of *why* would go.
 
-**A cell carries two independent layers.** `cell.ts` owns the colour only
+**A cell carries two independent layers.** `cell.ts` owns the color only
 (`UNKNOWN` 0, `DARK` 1, `LIGHT` 2, `UNPLAYABLE` 3) and `cells` is a flat
 column-major integer grid of exactly that. Clues live in a **separate sparse
 `symbols` array** of `{x, y, type, value}`, which is what makes the game's
-colourless clue representable: a clue on an `UNKNOWN` cell is one whose colour
-has still to be deduced, and colouring the cell later leaves the clue alone. A
-clue takes the colour of the cell it sits on and has none of its own — that is
+colorless clue representable: a clue on an `UNKNOWN` cell is one whose color
+has still to be deduced, and coloring the cell later leaves the clue alone. A
+clue takes the color of the cell it sits on and has none of its own — that is
 why `cellView.ts` draws it as the element's own **text**, with the ink following
 `data-color`, rather than as a background image the way match-three does.
 
-**`rules.ts` and `symbols.ts` are both append-only catalogues**, for the same
+**`rules.ts` and `symbols.ts` are both append-only catalogs**, for the same
 reason `match-three-solver/symbols.ts` is: a config stores the INDEX of an
 active rule and of a clue's kind, so inserting or reordering an entry silently
 rewrites every puzzle ever saved. Appending is always safe. Both rows are
@@ -47,24 +47,24 @@ bit is also past what a positive `int` can spell, which is why `RuleMask` is
 `uint64_t` and the CLI's `--rules` an `int64_t`.
 
 **Since format version 2 the two SIZED families are data, not indices.** The
-22 entries that were the same rule at different sizes — `no-<colour>-1xN` and
-`<colour>-regions-have-area-N` — are no longer legal in a config's `rules`
-list. A current file stores the number beside the colour instead:
+22 entries that were the same rule at different sizes — `no-<color>-1xN` and
+`<color>-regions-have-area-N` — are no longer legal in a config's `rules`
+list. A current file stores the number beside the color instead:
 `areas?: {color: "dark"|"light", size: 1..9999}[]` and `runs?: {color, length:
 2..8}[]`, both optional and omitted when empty (the `shapes` discipline), dark
 before light then values ascending, duplicates refused. **Several `runs`
-instances per colour are legal and conjunctive** — "no dark 1x2" and "no dark
+instances per color are legal and conjunctive** — "no dark 1x2" and "no dark
 1x4" are two separate bans, both enforceable and at worst redundant — but
-**`areas` takes one per colour**, refused by name on every layer: areas 2 AND
-3 on one colour hold together exactly where the colour is ABSENT, all zero of
+**`areas` takes one per color**, refused by name on every layer: areas 2 AND
+3 on one color hold together exactly where the color is ABSENT, all zero of
 its regions being both sizes at once, which is not a puzzle anyone means. The
 editor says the same thing by dropping an area control's `+` once it holds a
 slot (`SizedControlSpec.onePerColor`, `SizedListSpec.perColor`). The bounds
 are deliberate:
 the area cap is a FORMAT limit, NOT capped by board size — an area larger
-than the board loads fine and simply forces its colour ABSENT (all zero of
+than the board loads fine and simply forces its color ABSENT (all zero of
 its regions are the right size); Solve answers Unsolvable only where a given
-or clue demands that colour anyway, the honesty rule — while the run cap is
+or clue demands that color anyway, the honesty rule — while the run cap is
 the ENGINE's `kMaxRunLength = kMaxPatternCells` — a forbidden run is enforced
 only by its compiled pattern, so a length the table cannot hold is refused by
 name rather than accepted and silently not enforced. The 22 retired entries stay in
@@ -72,21 +72,21 @@ name rather than accepted and silently not enforced. The 22 retired entries stay
 (with `kLegacyAreas`/`kLegacyRuns`/`kSizedRuleBits` beside it) because they
 are v1 bit positions: the migration, the CLI's v1-style `--rules` mask and the
 generator's rule table still speak them, and `splitLegacyMask` is the one
-translator. The TS validator ACCEPTS the lists in any order and canonicalises
+translator. The TS validator ACCEPTS the lists in any order and canonicalizes
 on output; the C++ intakes (`wasm_bindings`, `FixtureIo`) REFUSE a
 non-canonical or duplicated list — they read only committed fixtures and
 already-validated payloads, so disorder there means a hand-edited file.
 
-**The row is drawn from `RULE_ROW`, a display catalogue the format never
+**The row is drawn from `RULE_ROW`, a display catalog the format never
 sees.** The row is a column of four headed bands (`arrangement`, `region`,
 `symbol`, `answer`); a dark/light pair is folded into ONE control — a shared
 concept label and two INDEPENDENT segments, both able to be on at once, each
 segment the same `.tool-button.rule-chip` with `data-rule`, `data-rule-index`
-and `aria-pressed` a chip always was, wearing its colour as a SWATCH (the
+and `aria-pressed` a chip always was, wearing its color as a SWATCH (the
 paint tools' own visual, dark drawn first whatever the ids spell) and the
 full rule name as its accessible name; a rule with no sibling keeps its plain
 chip; and
-each sized family-and-colour is ONE value control (`.rule-sized`) holding a
+each sized family-and-color is ONE value control (`.rule-sized`) holding a
 field per instance plus a `+` that appends another (`.rule-size-add`,
 deliberately NOT a `.tool-button` — `chipFrom` means "a rule or clue chip").
 **Only `ruleRowMarkup`, in `toolRowMarkup.ts`, reads `RULE_ROW`.** `toggleRule`
@@ -94,15 +94,56 @@ reads the segment's `data-rule-index` and `refreshRuleRow` queries by
 `data-rule` id, so both are position-independent — as are the e2e suites, which
 address chips by id.
 `catalog.test.ts` pins the coverage invariants rather than the order: every
-flag in exactly one control, no sized id anywhere, pairs dark-then-light, each
-control in the band its rules' `group` names. The sized value fields keep raw
+flag in exactly one control, no sized and no drawn id anywhere, pairs
+dark-then-light, each control in the band its rules' `group` names. The sized value fields keep raw
 per-slot strings (the `symbolValues` pattern): the row is never rebuilt on
 interaction, a refresh writes a field only when its text differs (the caret
 guard), an emptied slot is dropped on `focusout` — never mid-typing — and a
 family is active exactly while it holds one usable value. All of that,
 including building and focusing a new slot, is `sizedRuleControls.ts`: those
-fields are the one part of either row that is created and destroyed while the
-page runs, so the text and the elements have a single owner.
+fields are one of the two parts of either row that are created and destroyed
+while the page runs, so the text and the elements have a single owner.
+
+The other is the drawn patterns, which close the **Arrangement** band and are
+not in `RULE_ROW` at all. They sit there because that is what they are — a
+drawn shape says "this arrangement never occurs", the same sentence every chip
+beside it says, and a band of their own suggested a distinction the puzzle does
+not make. What stays true is that their chips come from the BOARD rather than a
+catalog, so `ruleRowMarkup` appends the container and the `+` to that one
+band and fills neither. `PatternControls` owns
+them, and holds the two lists the whole feature turns on: a session LIBRARY of
+every shape drawn since the page loaded, and the ACTIVE set of which ones this
+board switches on. A new drawing joins both; loading a config makes its
+`patterns` the active set and adds them to the library; a reset or a resize
+clears the active set exactly as it clears `activeRules` and leaves the library
+alone, because the next board in a group usually wants the same shapes one
+click away. The library is instance state on an object the page constructs
+once, so it dies with the page — no storage API, no clearing convention, no
+cleanup, and exactly the lifetime a group of puzzles has.
+
+Drawing itself is `patternDialog.ts`, a miniature of the board editor and drawn
+the way the board is: two size fields, an armed color beside them, and a grid
+the left button paints with it while the right button clears. It once cycled
+dark → light → empty on one gesture, which is fewer controls but a different
+idiom from the page around it — and the thing being drawn IS a board, so it
+should be drawn like one. There is no eraser chip, unlike `#color-row`: the
+right button is the eraser here, and the board's own re-click-erases rule is
+deliberately left out, because there it exists only to give the right button —
+which paints the OTHER color — a way to erase at all. It listens for
+`pointerdown` rather than `click`, since a right press raises no click. It
+repaints ONE square per press rather than rebuilding the grid — the same
+"refresh, never rebuild" rule the tool rows follow, and here it is what lets a
+keyboard user color more than one square before losing focus. The shape is
+trimmed to its bounding box on save (`normalizePattern`, the one place that
+happens: both C++ intakes refuse an untrimmed box rather than trimming it), and
+refused with a message if the library already holds it — asked of the CANONICAL
+form, so a rotation of a shape already drawn is caught as the same rule.
+
+**`#rule-row` now carries three delegated click handlers**, and they stay
+disjoint by CLASS alone: the editor's matches `.tool-button`, the sized
+controls' `.rule-size-add`, and the patterns' `.pattern-toggle`,
+`.pattern-delete` and `.rule-pattern-add`. None of the latter five is a
+`.tool-button`, and that is the whole of what keeps them apart.
 
 **Indices are copied in four places, and one of them cannot be avoided.**
 `catalog.test.ts` and `rules_test.cpp` pin every index on both sides — that is
@@ -111,7 +152,7 @@ needs from `RULES` rather than restating it. The unavoidable one is
 `test/logic-grid-solver/mem64.node.test.mjs`, which runs under node and cannot
 import TypeScript, so its board carries literal indices; the regroup moved
 `connect-dark` from 2 to 11 and silently turned that board into "no runs of
-two of either colour", and that test failing is what caught it. The sized
+two of either color", and that test failing is what caught it. The sized
 families no longer need listing — they are instance data, and "walk the
 family" now means "walk `puzzle.areas`/`puzzle.runs`" — but the INDEPENDENCE
 discipline survives them: the reducers in `Rules.cpp`, the oracle walks in
@@ -121,12 +162,12 @@ goes beside the family rather than into it: `impliedRun` is what knows an area
 of N forbids a run of N+1, deliberately kept out of `shortestRun` so that
 reducer keeps meaning what its two oracle mirrors mean.
 
-**The FORMAT takes one area per colour; the ENGINE still walks the list, and
+**The FORMAT takes one area per color; the ENGINE still walks the list, and
 that difference is deliberate.** "Every dark region has area 2" and "…has area
 3" are satisfied together exactly where dark is absent — all zero of its
 regions are both sizes at once — which is not a puzzle anyone means, so all
 three intakes (`validateConfig`, `wasm_bindings`, `fixtureio::load`) refuse a
-second entry per colour by name. Three producers of a conjunctive list survive
+second entry per color by name. Three producers of a conjunctive list survive
 that refusal, none of them an intake: `rules::splitLegacyMask` from a v1
 `--rules` mask, `reference_test.cpp`'s hand-built puzzles, and the v1
 migration on its way INTO the validator. So the reducers may not collapse the
@@ -139,13 +180,13 @@ onto a board whose only answer has none.
 
 The generator is the one place the two halves meet: it draws each rule of
 `kColorRules` independently, so roughly half its masks name two sizes on one
-colour, and every board it writes is read straight back through
+color, and every board it writes is read straight back through
 `fixtureio::load`. `keepOneAreaPerColor` in `GenerateCommands.cpp` collapses a
-drawn mask to the smallest size per colour, AFTER every rng decision so no
+drawn mask to the smallest size per color, AFTER every rng decision so no
 seed's stream moves — only what an already-drawn mask means.
-An area of ONE — a size the old catalogue never had — is the reason
+An area of ONE — a size the old catalog never had — is the reason
 `regionArea`'s isolated-singleton sweep is gated to `area >= 2`: at one the
-singleton IS the legal shape, and the ungated sweep would exclude the colour
+singleton IS the legal shape, and the ungated sweep would exclude the color
 from exactly the cells the rule wants it on, poisoning underclued's proven
 forced set. `reference_test.cpp`'s brute force referees that gate.
 
@@ -159,14 +200,14 @@ the mask compiles to nothing.
 "Same shape" is CONGRUENCE — the eight dihedral images, rotations and
 reflections both, so an S and a Z are one shape and an L and a J are one shape.
 `canonicalShape` in `Bitboard.h` is the key: the smallest of a region's eight
-normalised images, compared only for equality, so which of the eight wins is
+normalized images, compared only for equality, so which of the eight wins is
 arbitrary as long as it is deterministic. Every image is a bijection, so the
 SIZE rides in the key and "shape and size" is one predicate. It counts SQUARES,
 like every other geometric predicate here — a merged cell is itself a polyomino
 rather than a point, so a region "as a set of cells" has no shape to compare —
 and two regions with one footprint are therefore one shape however the merges
-beneath them differ. Both rules of a colour may be on together: they then say
-the colour has at most ONE region, which is an ordinary thing for a board to be,
+beneath them differ. Both rules of a color may be on together: they then say
+the color has at most ONE region, which is an ordinary thing for a board to be,
 so they are two independent flags rather than two sides of a switch.
 
 Everything the propagator deduces rests on CLOSURE — a region no cell can still
@@ -184,7 +225,7 @@ then borrows `regionArea(color, |K|)` whole, since congruent regions all hold
 `|K|` cells. The near misses that must survive: two OPEN congruent regions
 (which may grow apart, or merge into one), an open region matching a closed one
 with more than one way out, and a singleton target, where `regionArea`'s
-`area >= 2` gate is what stops the colour being emptied. `reference_test.cpp` is
+`area >= 2` gate is what stops the color being emptied. `reference_test.cpp` is
 the only thing that can catch any of that going wrong, which is why the family
 landed with ten new rule sets there. The generator draws these rules only from
 an explicit `--rules` mask: `kColorRules` leaves them out because `cost()` has
@@ -221,7 +262,7 @@ on, and both were found by looking rather than guessing:
 
 - **`md-icon` is a SQUARE box of its font size, and the ink fills neither axis
   of it** — measured against the loaded font, `arrow_right_alt` is `0.67` of the
-  font size across and `0.505` down, centred. So a 28px icon draws an arrow
+  font size across and `0.505` down, centered. So a 28px icon draws an arrow
   19px long with 4.6px of nothing at each end, and it is that dead space, not
   the arrow, that a tile stacking a number above one runs out of room for.
   `--arrow-size` is therefore the length of the ARROW and the two ratios turn it
@@ -273,22 +314,22 @@ toggle refresh too. The four axes are one glyph turned 0/45/90/135° by
 `[data-axis]`, the dart-arrow trick again: `horizontal_align_center` (added to
 the icon subset) natively draws a VERTICAL bar with an arrow either side, so
 the horizontal axis is the quarter turn and the diagonals the 45° steps. The
-`AXES` catalogue (`horizontal`, `diagonal-down`, `vertical`, `diagonal-up` —
+`AXES` catalog (`horizontal`, `diagonal-down`, `vertical`, `diagonal-up` —
 45° clockwise turns) is a file format exactly as `DIRECTIONS` is.
 
 **A lotus's position is DATA twice over**, which is why it has a SEAT.
 Its square is the player's, like every clue's; its `seat` is how it sits on the
-grid LINES (0 centre and omitted, 1 right-edge midpoint, 2 bottom-edge
+grid LINES (0 center and omitted, 1 right-edge midpoint, 2 bottom-edge
 midpoint, 3 corner — two half-square offsets from its home square, always the
-seat's top-left neighbour). Seat-carrying is a CAPABILITY, `seating` on the
+seat's top-left neighbor). Seat-carrying is a CAPABILITY, `seating` on the
 kind, not a property of aiming: the galaxy carries one too, and where a seat
 may sit differs by kind — `"cell"` for the lotus, inside its own merged cell,
 and `"board"` for the galaxy, anywhere on the grid (see its own section below).
 The lotus's seat legality: seams need the square beyond as a
 shape-mate, a corner needs at least THREE of its four squares in the cell (a
-2x2's centre has four, an L-tromino's natural middle has three), and the two
+2x2's center has four, an L-tromino's natural middle has three), and the two
 DIAGONAL axes refuse the seam seats outright — their reflection would map
-square centres onto square corners, so the combination is refused by name on
+square centers onto square corners, so the combination is refused by name on
 every layer rather than defined. Placement snaps the pointerdown to the
 nearest legal seat (a press past ~¾ of the square leans onto the seam, which
 also catches a press on the invisible bridge); re-clicking the same seat turns
@@ -309,13 +350,164 @@ merged cells' own bridge pseudo-elements — the same geometry, each seam covere
 ONCE by the square left of or above it and the corner by the top-left of the
 four. Covering each seam once is the load-bearing part: overlapping halves from
 both sides leave the crossing on a boundary between four boxes, where the hit
-test picks none of them. Only while a seated clue is armed, because a colour
+test picks none of them. Only while a seated clue is armed, because a color
 has no meaning in a gap and widening those targets would change what a drag
 across the board paints. The offsets are declared on the CELL so
 both seated glyphs read them, and a seated cell takes `z-index: 1`: its glyph
 paints outside its own square, and grid items paint in DOM order. The lotus
 never needed that, because its seat only ever exists inside a merged cell whose
 squares paint nothing; a galaxy's seat may run between two ordinary squares.
+
+**And those two squares may be different colors**, which the game draws by
+putting the tiles TOGETHER: one shape, the color changing on the line where
+they meet, the galaxy sitting on that line half in each color. Two rimmed
+boxes with a seam between them cannot say that, which is the same sentence
+`shapeOutline.ts` was written for — so a seated galaxy's squares are drawn the
+way a merged cell's are, and by the same code.
+
+- **The tile.** `galaxyTiles.ts` says which squares a seat spans — two at a
+  line seat, four at a corner — and both views hand that list to
+  `drawShapeOutlines` alongside the merged cells. The squares themselves stop
+  painting, through a SECOND `markGroupJoins` grouping with its own
+  `cell-pair` prefix. It has to be its own prefix and not the merged cells':
+  those squares are one variable and their seam becomes part of the tile's hit
+  target, while these keep their own colors and their own seam, which is
+  exactly where the galaxy is placed and lifted.
+- **One path per COLOR.** A merged cell's squares always agree, so it is drawn
+  with the one path it always was. A galaxy tile's may not, so `outlineLayer.ts`
+  draws the outline once per color its squares hold — the FIRST laid whole and
+  the rest clipped over it, to their squares grown by HALF the seam, so two
+  colors meet exactly on the line between them. Whole first rather than two
+  clipped halves: halves meeting on a shared edge round to a hairline of
+  background at fractional browser zoom, and there is nothing behind them.
+  Clipping the whole path rather than stroking each half is what keeps ONE rim
+  around the tile: a clip cuts a stroke, it does not add one.
+- **Two questions, kept apart, because they move at different rates.**
+  `galaxyTiles` is pure GEOMETRY — which squares each galaxy occupies — and
+  changes only when a clue does. `galaxyTiling` is what is DRAWN and in what
+  color, and changes on every stroke. `boardView.ts` caches both, and a color
+  write recomputes only the second, and only when it lands on a square some
+  tile occupies: the first walks every clue on the board, and a paint drag
+  across a 32x32 would otherwise ask it a million times.
+
+  Everything that draws reads the SECOND one — the outline's fills, the glyph's
+  `data-under`, the `cell-pair` classes — which is the whole point. Three
+  derivations of "what color is this square really shown in" is how they came
+  to disagree in the first place.
+
+### Four things drop a tile, and a dropped tile is the pre-pill look
+
+Two dashed neighbors with the glyph sitting on the line between them, exactly
+as before pills existed. The glyph is one plain copy then, because there is no
+boundary to line a split up with and splitting would cut it in half for
+nothing.
+
+- **A square in a merged cell.** That cell already draws itself as one shape,
+  and a second outline over the same squares would draw it twice. Nothing is
+  lost: one merged cell holds one color.
+- **A square that is a GAP.** An SVG `fill` cannot be `--logic-gap`, which is a
+  repeating gradient, and a square the puzzle does not color is not part of a
+  cell anyway. Galaxy tiles are the first shapes that can contain one, because
+  a seat beside a gap is deliberately legal.
+- **A footprint overlapping another galaxy's.** BOTH are dropped, not the later
+  one — dropping one would make the picture depend on the order the clues
+  happen to be stored in. It should be unreachable (see below); this is the
+  display's own guard.
+- **NOTHING painted.** One painted square is enough to draw the pill; with
+  none there is no shape to show yet, and an empty pill is a
+  merged-cell-looking tile that behaves like nothing else on the board.
+
+  A square of a drawn pill that is NOT painted is drawn neutral —
+  `data-color="blank"`, filled with `--logic-blank`, which is deliberately not
+  the `"unknown"` an unpainted MERGED cell uses and which draws no fill at all.
+  It is never borrowed from the painted square. Borrowing was tried: it made a
+  pill whole, but on a corner seat it turned three squares nobody had touched
+  solid black, and the board stopped saying which squares were really colored.
+  What the pill has to show is that the squares are JOINED, not that they
+  agree.
+
+  Two things fall out of that, and both are why the rule is now the same in
+  both views. A press colors the square it lands on and nothing else, so a
+  white pill can be made white-black or black-white depending on which half you
+  click. And the ANSWER can use the same reading without lying: an undecided
+  square of a pill is visibly neutral rather than claimed, so nothing reports a
+  cell as decided that the solver could not decide.
+
+  `data-color` and the accessible name always stay the square's OWN color, so
+  the download, the solver and a screen reader all still see an unpainted
+  square.
+
+### Keeping it in step
+
+- **`BoardLayers.write` reports BOTH layers.** It used to answer
+  `"nothing" | "clue" | "color"`, and a write that moved both said `"color"` —
+  so the clue's own redraw never ran. That is invisible for a number, which is
+  drawn on the square it sits on, and very visible for a pill, which is drawn
+  on the outline layer and stayed there after its galaxy had gone. Two writes
+  reach it: the eraser's `(UNKNOWN, null)`, and painting a square unplayable,
+  which drops the clue with it.
+- **Three repaints, one per way a tile can move.** A CLUE write calls
+  `refreshGalaxyTiles`, which repaints every tiled square plus the written
+  square's whole neighborhood — the furthest a seat can reach, and it joins
+  squares that carry no clue of their own. A COLOR write calls
+  `refreshGalaxyFill`, which repaints the whole tile rather than the square
+  written: the glyph lives on the CLUE's square, so painting its partner and
+  repainting only the partner is what left one paint order working and the
+  other not. And `redress` recomputes as well, because merging a pill's partner
+  into a cell moves no clue and writes no color, so nothing else would notice.
+- **A pill's seam is deliberately NOT bridged**, unlike a merged cell's. Its
+  two squares hold different colors, so attributing the seam to the left or
+  upper one would paint the wrong half. The 6px between them is inert except
+  while a seated clue is armed, when `#grid[data-seams]` opens every seam —
+  which is how the galaxy sitting there is placed and lifted in the first place.
+
+### No two galaxies on one cell
+
+A seat puts a galaxy BETWEEN squares, so two of them can share one without
+sharing the square they are stored on: a centered galaxy plus one on that
+square's edge, two seated on opposite edges of one square, three around one
+square. All three were reachable by hand, and the last by a single DRAG —
+`pointermove` re-applies the pressed stroke, seat and all, to every square it
+crosses.
+
+The unit is the CELL rather than the square, which also refuses two galaxies on
+different squares of one MERGED cell. Those two are centers of rotational
+symmetry for a single region, and composing two point reflections about
+different centers is a translation — which no finite region survives. So that
+board does not merely draw badly, it contradicts itself however it is colored,
+and no check that looks at squares alone can see it.
+
+All three intakes refuse it now. The editor guards in `Board.applyStroke`,
+which is the only point covering pointerdown, the drag AND the keyboard, and it
+guards the clue `seated()` returns rather than the one the press asked for,
+since `seated` may downgrade a seat this square cannot carry. `validateConfig`
+refuses the file by name, and `structureProblem` refuses it in C++, so the
+editor cannot fail to reproduce a file it can open.
+
+It is not a solver rule: the oracle checks each galaxy independently and would
+accept the board happily. It is a rule about what the game draws. Safe to add
+by measurement — no captured fixture carries one, and the generator only ever
+places a galaxy at seat 0, so no seed can move.
+
+The glyph itself is still stamped once per square, each copy carrying the part
+it draws (`data-part`) and the color under it (`data-under`), so its own
+color changes on the same line the tile's does. Two things about the copies
+are worth knowing:
+
+- **A copy is stretched over the whole square with `width`/`height` spelled
+  out.** `md-icon` sets both from `--md-icon-size` in its own `:host` rules, and
+  an absolutely positioned box with `left`, `right` AND a width is
+  over-constrained — the browser drops `right` and pins the copy to the
+  square's top-left corner, which is exactly what put every seated galaxy up
+  and to the left of its seam until it was measured.
+- **`data-under` names the SQUARE's color, not the ink.** The palette stays in
+  the stylesheet beside `--logic-ink-on-dark`, and `cellView.ts` keeps no
+  second copy of it. The neighbor colors reach `dressCell` as an optional
+  lookup — the one thing a cell is drawn from that is not its own.
+
+The lotus is deliberately left out of all of it: its seat is always inside a
+merged cell, which is ONE variable, so both its squares always hold the same
+color and there is neither a boundary to straighten nor a glyph to split.
 
 That is why both rows are **built once and refreshed in place**:
 `buildSymbolRow` / `buildRuleRow` write `innerHTML` and run only from `render()`
@@ -333,7 +525,7 @@ Four things about the board are load-bearing. Three of them are decided in
 run is `boardKeys.ts`, along with the keyboard half of the other three:
 
 - **The right mouse button is a real input here.** The selected chip drives the
-  left button; the right one paints the *other* colour for `dark`/`light` and
+  left button; the right one paints the *other* color for `dark`/`light` and
   erases for everything else, so the untouched page is left-dark/right-light
   with nothing clicked. `contextmenu` on `#grid` is `preventDefault`ed, or a
   right-drag pops the menu and ends the stroke on the first cell.
@@ -359,7 +551,7 @@ run is `boardKeys.ts`, along with the keyboard half of the other three:
 
 Painting `UNPLAYABLE` drops the cell's clue (a gap is not clued, and the
 validator refuses a file that says otherwise); the eraser clears both layers;
-colouring a clued cell keeps its clue.
+coloring a clued cell keeps its clue.
 
 **A clue's `direction` is the config's third optional key**, and it follows
 `shapes`' rule exactly: written only where there is one, in the page's writer,
@@ -372,7 +564,7 @@ a lotus writes `direction` (its axis), writes `seat` only off its 0 default,
 and writes NO `value` key at all — a value on it is refused rather than
 dropped, on every layer. Three writers have to agree about all of this
 (`board.ts getSymbols`, `validateConfig`'s rebuild, `fixtureio::save`), and
-the 489-fixture byte-identical sweep is the guard. At the wasm boundary
+the 494-fixture byte-identical sweep is the guard. At the wasm boundary
 `value` and `seat` default to 0 instead of -1 — a lotus with a nonzero value
 is refused by name, so the default cannot mask a real one.
 
@@ -407,7 +599,7 @@ after it.
 minmax-0 track happily shrinks below the squares' hard width — the squares
 then OVERLAP sideways while the outline SVG, sized from `--logic-cell`, keeps
 its natural width: a squeezed board under a full-width overlay, i.e. a
-horizontal scrollbar into blank space. Measured on the 26×19 capture at half
+horizontal scrollbar into blank space. Measured on the 26×18 capture at half
 a display's width. Fixed tracks plus `flex: none` on the grid and
 `justify-content: safe center` on the shell (plain `center` hides overflow
 past the LEFT edge where no scrollbar reaches) make the shell scroll instead;
@@ -424,7 +616,7 @@ carry at most one — a merged cell may hold SEVERAL, which the game's hardest
 boards really do (two darts on one domino). Pressing another square of a
 clued cell therefore ADDS a clue there; the pressed square's own clue is what
 lifts (or, directed, turns) on a re-press, and the right button, Delete and
-typing all reach only the focused square's slot. Combinations no colouring
+typing all reach only the focused square's slot. Combinations no coloring
 can satisfy — two different letters on one cell, area numbers whose candidate
 sets intersect empty — are deliberately NOT structural errors: the file
 loads, and Solve answers Unsolvable, the same honesty rule the givens follow.
@@ -437,7 +629,7 @@ under off-by-one, two disagreeing areas on one cell even go SOLVABLE, the
 off-by-2 trick landing on a single cell.
 
 That replaced two rules in turn. First an "anchor" rule: the clue was stored
-at the member square nearest the cell's bounding-box centre, `loadConfig`
+at the member square nearest the cell's bounding-box center, `loadConfig`
 re-homed every clue there on the way in, and `config.ts` **rejected** a dart
 anywhere else — wrong about the game, because a dart's line starts at its own
 square, so on a merged cell each square is a different puzzle. Then a
@@ -451,15 +643,15 @@ two columns DIFFERENTLY, which no one-clue collapse could express).
 squares into one irregular **cell** — a 1x3 bar, an L, even a glyph shaped like
 a digital "2". `shapes.ts` is that third layer (`ShapeLayer`, flat
 `y * gridWidth + x` indices, ids internal and never saved), and the rest of the
-page treats a merged cell as one thing for COLOUR: one colour across every
-square, every colour stroke fanned out over `cellSquares` — while each square
+page treats a merged cell as one thing for COLOR: one color across every
+square, every color stroke fanned out over `cellSquares` — while each square
 keeps its own clue slot.
 
 - **The gestures are per SQUARE, and the stroke's target is fixed at
   pointerdown.** Left-drag grows the cell under the first square (a new one when
   that square was plain); every square the drag touches joins it and *leaves*
   whatever cell it was in. Right-drag takes each square it touches back out.
-  Enter joins the focused square to the neighbour before it in reading order, so
+  Enter joins the focused square to the neighbor before it in reading order, so
   the tool is not pointer-only. The chip sits in `#color-row` beside the gap
   tool rather than in `#command-row`: like that one it changes what the board
   IS, rather than doing something to it once.
@@ -472,7 +664,7 @@ keeps its own clue slot.
   pointermoves), and settling it then dissolves the cell out from under its own
   stroke. That was the first bug this feature had.
 - **Restructuring clears.** Every square a merge or split touched goes back to
-  uncoloured and unclued: the squares coming together may disagree about both,
+  uncolored and unclued: the squares coming together may disagree about both,
   and picking a winner would be a rule nobody could predict from the board.
 - A clue is stored and drawn on **whichever member square the player put it
   on**, in and out, with no canonical position anywhere — see above.
@@ -524,9 +716,9 @@ same role as rolling-blocks' `replay.ts`.
 half-finished board be handed back for checking — and why a board painted wrong
 comes back unsolvable rather than quietly re-solved.
 
-**`Underclued` (rule 15) changes what the answer IS, not what a legal colouring
+**`Underclued` (rule 15) changes what the answer IS, not what a legal coloring
 is.** Normally the answer is one complete board; underclued, it is the set of
-cells that hold the same colour in **every** solution, and the rest stay blank.
+cells that hold the same color in **every** solution, and the rest stay blank.
 That is a different computation, not a different search, and it is why the
 result carries `proven`: a partial deduction that says it is partial is worth
 showing, and one that pretends to be the whole answer is not.
@@ -549,9 +741,9 @@ Five things follow, and each is load-bearing:
   `longestRun` / `hasCheckerboard` in both oracles are correct unmodified — that
   is the decision made executable. The one wrinkle is at clause construction: a
   pattern instance may now name the same cell twice. Two of its squares wanting
-  the same colour **collapse to one literal** (left in, the second copy reads as
+  the same color **collapse to one literal** (left in, the second copy reads as
   a second free cell and the clause can never fire as a unit — sound but deaf),
-  and wanting *both* colours **drops the instance**, like one running off the
+  and wanting *both* colors **drops the instance**, like one running off the
   board.
 - **A clause can now hold ONE literal, and nothing used to look at those.**
   Clauses are only rescanned off the queue of newly decided squares, and at the
@@ -570,7 +762,7 @@ Five things follow, and each is load-bearing:
   merged cell is, and what entitles every check after it to read squares.
 - **`Profile::applicable` declines any board with a merged cell**, first, ahead
   of everything else. The frontier carries one class slot per COLUMN joined only
-  leftwards and upwards, so nothing in it can say "this square takes the colour a
+  leftwards and upwards, so nothing in it can say "this square takes the color a
   square two rows back already took" — and `runProfileForced` sets `proven` with
   no oracle gate, so a sweep blind to the fusion would enumerate a superset and
   then claim the cells they disagree about were proved free.
@@ -593,7 +785,7 @@ The engine's load-bearing pieces:
   drawn, and **drops** an arm that fails rather than ranking it low.
 - **`Reference.cpp` is the only thing that can catch over-pruning.** `Verify`
   catches an answer that is not a solution; nothing at runtime catches a
-  propagator that removes a colouring which WAS one — in normal mode that is
+  propagator that removes a coloring which WAS one — in normal mode that is
   just a different valid answer, and underclued it is a confidently wrong one.
   `reference_test.cpp` compares whole solution sets and exact forced sets
   against brute force over a board × rule-set sweep. Do not delete it, and do
@@ -601,20 +793,49 @@ The engine's load-bearing pieces:
   renamed `Board` when merged cells arrived — a shape is now a merged cell.) It
   enumerates one bit per CELL, which makes it depend on
   `representatives`/`cellMask`, so `CellEnumerationMatchesSquareEnumeration`
-  buys that independence back: sweep every colouring of the SQUARES on a small
+  buys that independence back: sweep every coloring of the SQUARES on a small
   merged board, keep what the oracle accepts, and the survivors must be exactly
   what `enumerate` produced. That is what makes `fusedProblem` and `cellMask`
   mutually load-bearing.
-- **The pattern table is the extensibility claim, and it has been cashed in.**
-  Rules 0–10 compile into one list of forbidden arrangements in `Rules.cpp`, and
-  one propagator drives all of them. The 1x5 pair (rules 8/9)
-  was added afterwards and cost one row in `shortestRun`, one enum entry, one
-  row in each of the two `Verify` oracles, and no new code anywhere — which is
-  what the claim was. The only thing to watch is `kMaxPatternCells`: it sizes
-  `Clause`, so a pattern longer than every existing one has to raise it (a
-  `static_assert` in `fromCells` catches the omission at compile time). Three
+- **The pattern table is the extensibility claim, and it has been cashed in —
+  then handed to the player.** Rules 0–10 compile into one list of forbidden
+  arrangements in `Rules.cpp`, and one propagator drives all of them. The 1x5
+  pair (rules 8/9) was added afterwards and cost one row in `shortestRun`, one
+  enum entry, one row in each of the two `Verify` oracles, and no new code
+  anywhere — which is what the claim was.
+
+  Since format version 3 it costs nothing at all: a `DrawnPattern` is a box of
+  squares the player paints in `#pattern-dialog`, and `patternsFor` compiles it
+  into the same table with its dihedral images. That is what the append cycle
+  was really buying, and what let five controls retire into it. The bound that
+  used to watch this — `kMaxPatternCells`, which sized `Clause` — is gone:
+  a clause's literals live in an arena on `Model`, so a pattern may be as large
+  as the board. Removing the ceiling made the heaviest boards cheaper rather
+  than dearer, since the collinearity lemma's two-cell clauses stopped paying
+  for a width they never used — 18 bytes each against a flat 44, and on the
+  widest boards there are hundreds of thousands of them. Measured over the
+  whole captured corpus the search got **16% faster** (109.5 s to 92.0 s),
+  with `logicGridTest67` — the 15x15 letter board the sweep carries — going
+  36.4 s to 25.7 s. Not one board changed status, decided count, `proven`
+  flag or winning arm. What survives is `kMaxImpliedRun`, a tuning
+  bound: `addRuns` still skips a run past eight because a clause that long
+  deduces almost nothing while `regionArea` enforces the size whole either way.
+
+  One thing about a DRAWN pattern is easy to get wrong in both directions. It
+  gets no subsumption gate — nothing above looks at it and it consults nothing
+  — so a drawing that repeats what the board already forbids lays its clauses
+  twice. Sound, and only a little wasteful. But the ten shapes that USED to be
+  rules are recognized and routed back to their own builders, gates and all,
+  which is what keeps a v1-style mask compiling to exactly the table it always
+  did — and therefore every generator seed producing the board it always did,
+  since `GenerateCommands::cost()` counts violated clauses and would score one
+  broken shape twice without it. That recognition is compiled-only: the
+  puzzle's `ruleMask` never gains the bit, `Verify` still checks the drawing as
+  a drawing, and nothing on screen regains a name.
+
+  Three
   things happen there beyond translation: a shorter run rule **subsumes** the longer
-  ones for its colour (generating both only adds instances that can never fire),
+  ones for its color (generating both only adds instances that can never fire),
   both connect rules being on **implies** the checkerboard patterns — a
   Jordan-curve argument, spelled out in the source, that holds with holes in the
   board — and an area rule contributes its **trominoes**, below. The table may
@@ -631,17 +852,17 @@ The engine's load-bearing pieces:
   score **two** in that cost function and bias the generator's local search.
   "No region SMALLER than two" is the half the table cannot hold, and it shows
   why the containment restriction is real: "this cell dark and all four
-  neighbours light" is only forbidden where all four neighbours exist, and an
+  neighbors light" is only forbidden where all four neighbors exist, and an
   instance running off the board or across a gap is DROPPED rather than
   shortened — which is exactly where the rule bites. It is `regionArea` in
   `Propagate.cpp` instead: a cheap four-shift sweep for cells with nothing
   beside them that could ever join them, then a walk over the components of the
-  colour applying `areaKnownColor`'s reasoning to each — too big, no room to
+  color applying `areaKnownColor`'s reasoning to each — too big, no room to
   reach the number, exactly full, exactly one way to grow. That propagator is
-  **not** an optimisation — `oracleRejections` is asserted zero in three suites,
+  **not** an optimization — `oracleRejections` is asserted zero in three suites,
   so a rule the propagators cannot finish enforcing fails tests rather than
   merely running slowly. `cardinality` has no exact target to use because zero
-  cells of a colour is legal, and `Reference.cpp` cost zero lines because it
+  cells of a color is legal, and `Reference.cpp` cost zero lines because it
   takes its legality entirely from `Verify`.
 - **"Regions have area 5" (rules 20/21) is `regionArea`'s again, and it is what
   moved `kMaxPatternCells` to SIX.** `impliedRun` folds an area of five into a
@@ -653,29 +874,29 @@ The engine's load-bearing pieces:
   board (6x2 — 2^12, where a 6x4 would have been 16.7M enumerations per rule
   set) is the first board the six-cell clause can even fire on. Everything
   else is two rows per family table, as the area-4 note below promises.
-- **The mixed-colour triples (rules 22/23) and the T rules (24/25) are pure
+- **The mixed-color triples (rules 22/23) and the T rules (24/25) are pure
   table rules.** The checkerboard already proved the table speaks mixed
-  colours, so `no-dark-light-dark` is two three-cell rows per rule; the T is
-  four `fromCells` rotations per colour, and it is SUBSUMED when
-  `impliedRun(colour)` is 3 or shorter — every T contains a straight three, so
+  colors, so `no-dark-light-dark` is two three-cell rows per rule; the T is
+  four `fromCells` rotations per color, and it is SUBSUMED when
+  `impliedRun(color)` is 3 or shorter — every T contains a straight three, so
   those instances could add no pruning and would bias `GenerateCommands::
   cost()` by double-scoring one broken bar (area-two folds in via the implied
   run, so one comparison covers both subsumers; the reference cross product is
   what proves the drop sound). Both oracles gained `hasTriple`/`hasTee` scans
-  written with explicit colour equality — a gap equals neither colour, so the
-  checkerboard's real-colour guard is not needed and not copied.
+  written with explicit color equality — a gap equals neither color, so the
+  checkerboard's real-color guard is not needed and not copied.
 - **The 3+1 rules (26/27) and the diagonal rules (28/29) are table rules too,
   and the diagonal pair is the subsumption story's other end.** A 3+1 is four
-  four-cell mixed patterns per rule, dropped when `impliedRun(colour)` is 2,
-  when `smallestArea(colour)` is EXACTLY 2, or under the colour's
+  four-cell mixed patterns per rule, dropped when `impliedRun(color)` is 2,
+  when `smallestArea(color)` is EXACTLY 2, or under the color's
   diagonal rule — the area gate must stay `== 2`, because an area of THREE
   lays out no trominoes and a bent tromino with the odd corner the other
-  colour is legal everywhere except under this rule
+  color is legal everywhere except under this rule
   (`AnAreaOfThreeDoesNotSubsumeTheThreeOne` pins it). A diagonal rule is two
-  2-cell patterns forbidding EVERY corner touch of the colour, blob or not,
+  2-cell patterns forbidding EVERY corner touch of the color, blob or not,
   so its regions are straight bars; nothing subsumes it, and it subsumes the
-  colour's monochrome 2x2, tees, bent trominoes and 3+1, plus BOTH
-  checkerboard patterns from either colour's rule (the connect-implied
+  color's monochrome 2x2, tees, bent trominoes and 3+1, plus BOTH
+  checkerboard patterns from either color's rule (the connect-implied
   emission included) — each drop gated at its own builder and refereed by the
   reference cross product, while the collinear runs and triples keep their
   work.
@@ -687,15 +908,15 @@ The engine's load-bearing pieces:
 - **"Regions have area 4" (rules 18/19) is where that trade STOPS paying, and
   the asymmetry is deliberate.** The same argument at four asks for every
   connected FIVE — the 61 non-straight fixed pentominoes, the straight one being
-  `addRuns`'s as ever — which is roughly 15 000 clause instances per colour on
+  `addRuns`'s as ever — which is roughly 15 000 clause instances per color on
   the largest board against the trominoes' 1 200, every one of them rescanned
   whenever a square it names is decided, in the hot path of every probe. So
   `addAreaShapes` still fires only at two, and four is `regionArea`'s alone,
   which enforces both halves at any size for the cost of one component walk.
   `impliedRun` is unchanged and still free: an area of four forbids a run of
   five, and `kMaxPatternCells` was already 5 for the 1x5 rules. What the walk
-  cannot see, and the pentominoes would have, is that colouring one particular
-  cell welds two legal pieces into an illegal one — a pentomino minus its centre
+  cannot see, and the pentominoes would have, is that coloring one particular
+  cell welds two legal pieces into an illegal one — a pentomino minus its center
   can be disconnected. That is bought back by seeding `mergeLimits` and
   `regionsConsistent` from `smallestArea`, which is three lines.
 - **The elbow-era shapes (rules 33–38, 43–46, 49–52) are the table cashed in
@@ -704,7 +925,7 @@ The engine's load-bearing pieces:
   gate so both rules together lay the four out once; the L pair is eight
   `fromCells` tetrominoes (BOTH handednesses); the long-T pair four
   T-pentominoes; the mixed pairs flip one cell of a T (the crossing —
-  `no-light-crossed-dark-t` names the ARMS' colour last) and of a bent tromino
+  `no-light-crossed-dark-t` names the ARMS' color last) and of a bent tromino
   (the corner). The knight and distance pairs are 2-cell patterns like the
   diagonals — and the distance pair's middle square is deliberately NOT named,
   which is what makes `no-dark-any-dark` purely positional: the clause fires
@@ -737,20 +958,20 @@ The engine's load-bearing pieces:
   givens, no clues) ran 97 M nodes deciding nothing, the gap was
   theorem-level rule COMBINATION knowledge, not a missing propagator. Two
   landed, each in the checkerboard lemma's mould: `addCollinearPairs` in
-  `Rules.cpp` — connect(colour) + the colour's elbow ban pin every pair of
-  the colour to one row or column (any path between off-axis cells turns, and
+  `Rules.cpp` — connect(color) + the color's elbow ban pin every pair of
+  the color to one row or column (any path between off-axis cells turns, and
   the turn is a forbidden bent tromino), compiled as every off-axis 2-cell
   pair, ends-only like the distance pair so it fires across gaps and
   collapses to a unit clause inside a bent merged cell; and `borderArcs` in
-  `Propagate.cpp` — with BOTH colours connected, the decided colours around
+  `Propagate.cpp` — with BOTH colors connected, the decided colors around
   the outer perimeter (`Model::borderCycle`) form at most one arc each, since
   four alternating arcs force a dark and a light path that would have to
   cross; more than two cyclic transitions refutes, and an open square
-  strictly inside an arc loses the other colour because a cyclic
+  strictly inside an arc loses the other color because a cyclic
   subsequence's transitions never exceed the full cycle's. Measured:
   `logicGridTest366` went 8.9 s → 0 ms and `logicGridTest369` from 90 s
   UNSOLVED to 2 ms proven, with every other underclued answer byte-identical.
-  The subsumption gates that used to ask for a colour's diagonal RULE now ask
+  The subsumption gates that used to ask for a color's diagonal RULE now ask
   `hasDiagonalBan` — rule or implied family — and the family dedups its
   (1,1) and knight members against those rules' own builders
   (`TheDiagonalAndKnightMembersAreNotLaidTwice`). A deliberately ABSENT third
@@ -781,8 +1002,8 @@ The engine's load-bearing pieces:
 - **"One symbol per area" (rules 13/14) is two deductions, and the game names
   them.** *Exactly one means less than two* is a refutation — a finished piece
   already holding two clues can never be legal, and a cell that would weld two
-  clued pieces together cannot take that colour (`mergeLimits`). *Exactly one
-  means more than zero* is the half that paints: every cell of the colour has to
+  clued pieces together cannot take that color (`mergeLimits`). *Exactly one
+  means more than zero* is the half that paints: every cell of the color has to
   end up sharing a region with a clue, so a cell no clue can REACH is a cell that
   cannot hold it. That reach is bounded by an area number's own value, which is
   what the game calls **tethering**; feed the cells it settles to the pattern
@@ -791,7 +1012,7 @@ The engine's load-bearing pieces:
   the technique list is.
 - **The dart (clue kind 2) is the first clue whose POSITION matters, and the
   first added since the model was written.** It counts the squares of the
-  opposite colour along a straight line from its own square to the edge of the
+  opposite color along a straight line from its own square to the edge of the
   board, stepping over gaps rather than stopping at them, and counting a merged
   cell once per square the line crosses. Four things about it:
   - **Every `if kind == area … else letter` had to become three-way**, and each
@@ -802,8 +1023,8 @@ The engine's load-bearing pieces:
     symbol for "one symbol per area", which needs no change and is right.
   - **The line EXCLUDES the dart's own cell**, and that is a correctness
     requirement rather than a tightening. Every square of that cell holds the
-    dart's own colour, so none of them can be the colour it counts; left in, the
-    "the line is exactly full" branch would assign the other colour to one of
+    dart's own color, so none of them can be the color it counts; left in, the
+    "the line is exactly full" branch would assign the other color to one of
     them, `Domains::exclude` would fan that over the whole cell, and the dart
     would refute itself. Out, `ray.count()` is also exactly the largest number
     the dart could legally carry, which is what `DartExceedsLine` reports.
@@ -817,16 +1038,16 @@ The engine's load-bearing pieces:
     `propagate` re-runs to a fixpoint, so nothing is lost.
   - **The rest of the technique list needs no code.** *Dart minimax* is the
     zero and full ends of that same counting. *Dart pattern maximums* — a dart's
-    count interacting with the run and domino rules — is `Probe`: colour one
+    count interacting with the run and domino rules — is `Probe`: color one
     cell, let the clauses and the count meet, and the contradiction appears.
     *Overloading darts*, two same-direction darts on one line fixing the count
     between them, is the one that would need its own pairwise propagator, and it
     is deliberately absent until a captured board asks for it; `reference_test`
     already carries a `twoDarts` board so it cannot land unchecked.
 - **The lotus (clue kind 3) is the first clue that is a CONSTRAINT SHAPE rather
-  than a count**: the connected same-colour region holding it must map to
+  than a count**: the connected same-color region holding it must map to
   itself across an axis through its seat — every region square's mirror
-  on-board, playable, and the same colour. Six things about it:
+  on-board, playable, and the same color. Six things about it:
   - **The geometry lives in doubled coordinates** (`cx2 = 2x + (seat & 1)`,
     `cy2 = 2y + (seat >> 1)`), so a seat on a grid line is still an integer,
     and `mirrorSquare` in `Types.h` is the DEFINITION of what an axis does —
@@ -834,23 +1055,23 @@ The engine's load-bearing pieces:
     with `buildLotuses` and `verify::lotusProblem` re-derives everything from
     the clue, the `dartProblem` discipline. `buildLotuses` has `buildDarts`'
     net: a clue with an unreadable axis or seat stays in `lotusClues` but out
-    of `lotuses`, so the oracle refuses every colouring rather than the board
+    of `lotuses`, so the oracle refuses every coloring rather than the board
     quietly solving without it.
-  - **`propagateLotuses` fires only with the lotus's own colour DECIDED**: the
-    decided-connected core's mirrors are forced to the colour (opposing cells,
+  - **`propagateLotuses` fires only with the lotus's own color DECIDED**: the
+    decided-connected core's mirrors are forced to the color (opposing cells,
     with off-board/unplayable mirrors — opposing nulls — as refutations), and
-    a fringe cell any of whose squares mirrors somewhere the colour can never
+    a fringe cell any of whose squares mirrors somewhere the color can never
     be is kept out whole. At a complete assignment the core IS the region and
     the loop equals the oracle, which is what keeps `oracleRejections` at 0.
-    **With the colour's CONNECT rule on, both nets widen to the whole board**:
-    the region is provably the entire colour, so one symmetry clue plus one
-    connectivity rule folds the board in half — both colours, since a mirror
-    that cannot take the lotus's colour is forced the other way. The argument
+    **With the color's CONNECT rule on, both nets widen to the whole board**:
+    the region is provably the entire color, so one symmetry clue plus one
+    connectivity rule folds the board in half — both colors, since a mirror
+    that cannot take the lotus's color is forced the other way. The argument
     is spelled out on `lotusSymmetry`; `logicGridTest325` is the board that
     demanded it — seven viewpoints on a 9×9, 90 s unsolved at 104 M nodes
     without the fold, 2 ms of pure deduction with it.
-  - **"Uncoloured symmetry" is the probe, not code**: probing the lotus's cell
-    runs the propagator under both colours and keeps the intersection, which
+  - **"Uncolored symmetry" is the probe, not code**: probing the lotus's cell
+    runs the propagator under both colors and keeps the intersection, which
     is exactly the game's technique. The "connection restriction" (two
     same-direction lotuses share an axis or a region) emerges too — parallel
     axes force a translation that walks the region off the board — and
@@ -862,7 +1083,7 @@ The engine's load-bearing pieces:
     letter group A. `structureProblem` validates the seat AFTER the shapes
     (`lotusSeats` needs the merged cell), and `contradiction()` names
     `LotusMirrorLeavesBoard`: a square of the lotus's own cell reflecting off
-    the board or onto a gap is unsolvable before any colouring.
+    the board or onto a gap is unsolvable before any coloring.
   - **Free, verified rather than re-implemented**: `Profile::applicable`
     declines it as a non-letter clue, `symbolCountProblem` counts it as a
     symbol for the one-symbol rules, `clueReach` over-approximates it as a
@@ -872,18 +1093,18 @@ The engine's load-bearing pieces:
     once more** — after the dart roll, behind the same `> 0` short circuit, so
     `--lotus 0` byte-reproduces every seed (measured). Unlike a dart there is
     no value to derive: an axis is drawn, then `lotusHoldsAt` CHECKS the
-    colouring's region really mirrors and draws nothing, so a failed check
+    coloring's region really mirrors and draws nothing, so a failed check
     just costs the region its clue. Yield is best on rule-free or underclued
     boards (a single-cell region mirrors across anything), so raise the
     percentage well above `--darts` — and note every batch joining
     `kColorRules` shifts every generated seed, so a fuzz baseline predating
     the newest entry is stale.
 - **The viewpoint (clue kind 4) is the first counting clue with no direction:
-  its number is its own square plus the leading same-colour run along each of
+  its number is its own square plus the leading same-color run along each of
   the four rays.** Sight STOPS at a gap — where the dart's line steps over one
-  — and at the first other-coloured square or the edge; merged cells count
+  — and at the first other-colored square or the edge; merged cells count
   once per square a ray crosses, and an own-cell square OFF the rays does not
-  count at all — the walk is plain square-level colour geometry, no cell
+  count at all — the walk is plain square-level color geometry, no cell
   awareness anywhere. Structural bounds: 1 (it always sees itself, so zero is
   refused) to `w + h - 1` (the CROSS — which is why `LogicGridSymbolKind`
   gained `reach: "board" | "line" | "cross"` with `symbolValueMax` dispatching
@@ -899,12 +1120,12 @@ The engine's load-bearing pieces:
     re-run to a fixpoint (`dartCardinality`'s discipline), and at a complete
     assignment the refutation equals the oracle, which is what keeps
     `oracleRejections` at 0.
-  - **An uncoloured viewpoint reasons through the probe**, like an uncoloured
-    lotus: `viewpointColorChoice` only rules out a colour NO completion could
-    satisfy, and the probe running the propagator under each colour of a ray
+  - **An uncolored viewpoint reasons through the probe**, like an uncolored
+    lotus: `viewpointColorChoice` only rules out a color NO completion could
+    satisfy, and the probe running the propagator under each color of a ray
     square is what the game's *no domino viewpoint trick* and *perpendicular
     viewpoints* fall out of — `reference_test`'s `twoViewpoints` board is the
-    referee, and `AnUncolouredViewpointFallsOutOfTheProbe` the propagate pin.
+    referee, and `AnUncoloredViewpointFallsOutOfTheProbe` the propagate pin.
   - **`Viewpoint::rays` are ORDERED and KEEP the clue's own cell's squares** —
     both the opposite of the dart's line, both argued on the field's own doc
     comment — and `contradiction()` names `ViewpointExceedsSight` when the
@@ -921,22 +1142,22 @@ The engine's load-bearing pieces:
   - **The generator's `--viewpoints PERCENT` is the roll pattern a third
     time**, appended after the lotus roll behind the same zero-skip contract
     (byte-reproduction measured); `viewpointValueAt` reads the count off the
-    colouring, so every roll that fires places a satisfiable clue.
+    coloring, so every roll that fires places a satisfiable clue.
 - **The galaxy (clue kind 5) is the lotus's half-turn twin, and the first
-  chip-only kind.** Its centre may be a square's own centre, the midpoint of an
+  chip-only kind.** Its center may be a square's own center, the midpoint of an
   edge or a corner where four squares meet, so the geometry is `halfTurn` in the
-  same DOUBLED coordinates `mirrorSquare` uses — a centre on a grid line is then
-  still an integer. A half turn maps square centres to square centres at every
+  same DOUBLED coordinates `mirrorSquare` uses — a center on a grid line is then
+  still an integer. A half turn maps square centers to square centers at every
   seat parity, so unlike the axis there is no `diagonalSeatValid` twin and no
   seat a galaxy has to refuse. Seven things about it:
   - **The turn carries a SIGN, and that is the whole of what a seat changes.**
-    Centred on a square, that square is its own image, so the sign can only
-    PRESERVE colour and the rule is what it always was — the seatless galaxy is
-    the special case, not the rule. Centred between squares of DIFFERENT
-    colours it INVERTS: every cell's image holds the opposite colour, so the
-    dark region and the light region touching the centre are each other's
+    Centered on a square, that square is its own image, so the sign can only
+    PRESERVE color and the rule is what it always was — the seatless galaxy is
+    the special case, not the rule. Centered between squares of DIFFERENT
+    colors it INVERTS: every cell's image holds the opposite color, so the
+    dark region and the light region touching the center are each other's
     image. The sign is read off the home square and its partner, which always
-    exist. SCOPE is every region touching the centre — up to two at an edge,
+    exist. SCOPE is every region touching the center — up to two at an edge,
     four at a corner — and walking all of them is load-bearing rather than
     thorough: the turn is an involution, so one region's image lies IN the
     other, but the other may reach further and only its own walk says so. A
@@ -944,18 +1165,18 @@ The engine's load-bearing pieces:
     since the second pair's squares are themselves in scope.
   - **The propagator is the lotus's, shared rather than cloned.**
     `lotusSymmetry`'s whole fold — decided core, connect-rule widening to the
-    whole colour, cell-granular fringe, open-mirror guard — reads nothing but
+    whole color, cell-granular fringe, open-mirror guard — reads nothing but
     the mirror map, so it became `mirrorSymmetry(model, domains, mirror,
     index, color, target)` and both kinds dispatch into it; the extra parameter
-    is a TARGET COLOUR rather than a flag, so a lotus passes `target == color`
+    is a TARGET COLOR rather than a flag, so a lotus passes `target == color`
     and is untouched. `propagateGalaxies` skips while the SIGN is unknown
     rather than while the clue's own cell is open, which is strictly stronger:
-    at a corner, two squares decided across the centre unlock the fold even
+    at a corner, two squares decided across the center unlock the fold even
     with the clue's square still open. `Sign::Inconsistent` refutes outright.
     At a complete assignment the fold equals `verify::galaxyProblem`, keeping
-    `oracleRejections` at zero; an uncoloured galaxy reasons through the probe,
-    the lotus's uncoloured-symmetry story over again. Deliberately absent: the
-    XOR chain — `colour(c) ^ colour(image(c))` is the same bit for every square
+    `oracleRejections` at zero; an uncolored galaxy reasons through the probe,
+    the lotus's uncolored-symmetry story over again. Deliberately absent: the
+    XOR chain — `color(c) ^ color(image(c))` is the same bit for every square
     in scope, so three decided cells force the fourth without the sign being
     known at all. That is a 2-XOR propagator, a new shape of reasoning here,
     and it waits for a captured board to ask for it.
@@ -972,7 +1193,7 @@ The engine's load-bearing pieces:
     any more, and that is why `seating` exists beside `aims`: seat-carrying rode
     on `aims === "axis"` only because the lotus happened to be both, and a
     galaxy — seated yet aiming nowhere — is exactly the kind that coincidence
-    mis-reads. `"none"` is the square's centre and nothing else, `"cell"` the
+    mis-reads. `"none"` is the square's center and nothing else, `"cell"` the
     lotus's (inside its own merged cell, because an axis is a LINE a tile has to
     draw), `"board"` the galaxy's (any point of the grid, because a half turn
     needs nothing to hold its point up). C++ says the same through
@@ -993,15 +1214,15 @@ The engine's load-bearing pieces:
     centring on text. `describeCell` gained the valueless-and-axis-less
     branch, without which a galaxy read as "Galaxy undefined".
   - **A galaxy BOUNDS its region's reach, and that is known before a single
-    cell is coloured.** Its region maps onto itself under the turn, so a cell
+    cell is colored.** Its region maps onto itself under the turn, so a cell
     whose image is off the board or on a gap can never be in it — purely
-    geometric, and true whatever the colours or the sign. `clueReach` applies it
+    geometric, and true whatever the colors or the sign. `clueReach` applies it
     by flooding from the clue through cells that can turn back onto the board
     rather than trimming afterwards, since a cell reachable only THROUGH a
     forbidden one is not reachable at all. Under `one symbol per area` that is
     what tethers the rest of the board: a galaxy near an edge can only ever
     share a region with the half that turns onto itself, so every cell of its
-    colour outside that half has to belong to some other clue. `logicGridTest12`
+    color outside that half has to belong to some other clue. `logicGridTest12`
     is the captured case — an underclued 8x8 whose 23 forced cells all sit in
     the three columns the galaxy's turn cannot reach, and which took the
     per-cell refutation past two minutes without proving one of them. With the
@@ -1010,12 +1231,12 @@ The engine's load-bearing pieces:
     plain square turns onto itself, so it could only ever fire through a merged
     cell; on a grid line or a corner a square at the board's edge turns straight
     off it, and one beside a gap turns onto the gap. The check widened from the
-    clue's own cell to every playable cell touching the centre.
+    clue's own cell to every playable cell touching the center.
   - **The generator's `--galaxies PERCENT` is the roll pattern a fourth
     time**, appended after the viewpoint roll behind the same zero-skip
     contract — a roll which previously FELL OFF the end of `clueOneRegion`
     with no trailing `return`, the bug appending one more kind would have
-    armed. `galaxyHoldsAt` checks the colouring and draws nothing, so like
+    armed. `galaxyHoldsAt` checks the coloring and draws nothing, so like
     `--lotus` its yield wants a percentage well above `--darts`. It places
     galaxies at seat 0 only, so every seed still byte-reproduces; a
     `--galaxy-seats` roll would be an appended draw behind the same zero-skip
@@ -1026,9 +1247,11 @@ The engine's load-bearing pieces:
     the list's LENGTH, so a bump is unspellable without a migration, which here
     would be the identity; and `fixtureio::load` refuses any version but the
     current one, so a bump would force rewriting every fixture to record that
-    nothing changed. Nothing in the corpus exercises a seat, so the coverage is
-    the hand-built `seatedGalaxyBoard` in `wasm.test.ts` and the seated boards
-    in `reference_test.cpp`.
+    nothing changed. One captured board carries a seat (`logicGridTest467`,
+    seat 2), but nothing captured carries an INVERTING one — the half of the
+    rule a module reading the old geometry would get backwards — so the
+    coverage is still the hand-built `seatedGalaxyBoard` in `wasm.test.ts` and
+    the seated boards in `reference_test.cpp`.
 - **The letter boards get a ROUTER, and it is a construction rather than a
   search.** `Routing.cpp` is the third arm on a board whose only clues are
   letters. It treats the puzzle as what it really is — give each letter a
@@ -1039,18 +1262,18 @@ The engine's load-bearing pieces:
   - **It answers `Solved` or `Unsolved` and never `Unsolvable`.** Failing to
     build something proves nothing about whether it exists, which is exactly
     the claim `profile` may make and this may not.
-  - **Every colouring goes through `verify::check` before it is returned.**
+  - **Every coloring goes through `verify::check` before it is returned.**
     That is what makes the gate a budget question rather than a correctness
     one: a construction that misreads the puzzle produces nothing, not a wrong
     answer. `applicable` still declines rules, non-letter clues and merged
-    cells, because "everything unclaimed takes the other colour" breaks all but
+    cells, because "everything unclaimed takes the other color" breaks all but
     the emptiest rule set and the oracle would simply throw the result away.
   - **The price has to GROW.** A flat congestion price oscillates — two nets
     swap the same cell forever — so the pressure factor rises every round and
     the HISTORY of a contested cell is charged even once it is free. Measured
     on the 23x21 board: a flat price never converges, halving the growth rate
     takes seven seconds to sixteen, doubling it to eight.
-  - **A halo is charged at HALF an overlap.** Two regions of one colour that
+  - **A halo is charged at HALF an overlap.** Two regions of one color that
     merely touch are one region, so the halo is a real conflict — but pricing
     it like an overlap prices most of the board out of reach and measurably
     stops the router settling anywhere.
@@ -1063,18 +1286,18 @@ The engine's load-bearing pieces:
     127 of 483 cells with zero refutations and stayed there at 60 s, 90 s AND
     240 s; the sweep's frontier is 21 wide where 16 is the ceiling, and widening
     it ran out of memory at 202 million states. The router takes about seven
-    seconds. Boards whose letters are pinned to DIFFERENT colours by their
+    seconds. Boards whose letters are pinned to DIFFERENT colors by their
     givens — `logicGridTest67` is the captured case — are outside the
     construction and fall through to the sweep, which is why both arms exist.
 - **The region-clued boards get a PACKER, on exactly the router's terms.**
   `Packing.cpp` is the fourth arm, for a board whose every clue names a REGION
   rather than a cell — an area number, or a letter — sitting on a square the
-  puzzle already paints, all in one colour. That board asks one question and
+  puzzle already paints, all in one color. That board asks one question and
   only one: can regions of exactly the demanded sizes be laid out with no two
-  of a colour touching? What is left over is the other colour, and where the
+  of a color touching? What is left over is the other color, and where the
   board says nothing more about it that is the answer rather than an
   approximation. Like the router it says only `Solved` or `Unsolved` and
-  verifies every colouring before returning it. Five things about it, all
+  verifies every coloring before returning it. Five things about it, all
   measured on `logicGridTest476`:
   - **Small clues are tried as whole SHAPES, compact first.** What the big
     regions are short of is room, and the compact shape is the one that spends
@@ -1097,7 +1320,7 @@ The engine's load-bearing pieces:
   - **Two clues of one value may share ONE region**, and `logicGridTest476` has
     no packing at all unless its two 3-clues do — the reading where each takes
     a region of its own is exhaustively impossible. So the shape lists keep the
-    sets that swallow a same-valued neighbour and sort them first, and the
+    sets that swallow a same-valued neighbor and sort them first, and the
     room-left bound counts one region for a group rather than one per clue.
     Being within reach does not make sharing possible, only conceivable, which
     is the right way round for a prune.
@@ -1114,19 +1337,19 @@ The engine's load-bearing pieces:
   - **A LETTER raises a demand too**, for all the cells carrying it at once,
     since the puzzle says they share a region. What it never says is how big
     that region is, so a board with letters needs the single `areas` instance
-    that gives every region of the colour a size, and is declined without one.
+    that gives every region of the color a size, and is declined without one.
     A letter demand also carries its letter, because two letters may never come
     out as one region however well the sizes fit — the one thing a letter says
     that a number does not.
-  - **The rules it takes are the ones it can honour.** A shape rule
-    (`distinct-shapes` / `same-shape`) on the CLUE colour is a filter on what
-    may be placed next, so it prunes; on the other colour it is declined, since
+  - **The rules it takes are the ones it can honor.** A shape rule
+    (`distinct-shapes` / `same-shape`) on the CLUE color is a filter on what
+    may be placed next, so it prunes; on the other color it is declined, since
     the search steers none of those regions and could only build something the
     oracle then throws away. Both connect rules are taken and tested on the
     FINISHED packing, inside the search so it backtracks — checking them after
     the arm returned would turn a solvable board into no answer at all.
-  - **Givens that carry no clue are read, not refused.** One in the clue colour
-    is a square some region has to swallow; one in the other colour is a square
+  - **Givens that carry no clue are read, not refused.** One in the clue color
+    is a square some region has to swallow; one in the other color is a square
     no region may claim. The first also gives a cheap prune with real bite: a
     must-cover square that has landed in the halo of a placed region can never
     be claimed by anything, so the branch is dead — which is also what took
@@ -1142,17 +1365,17 @@ The engine's load-bearing pieces:
   regions are the twelve free pentominoes, one each. The DFS reaches 35 of 144
   cells in 60 s; the packer answers in 81 ms. `logicGridTest482` is the same
   puzzle with a player's own deductions painted in, which is what exercises the
-  given handling above; it answers in 129 ms and to the same colouring.
+  given handling above; it answers in 129 ms and to the same coloring.
 - **An aborted look-ahead proves nothing.** `ProbeResult` is tri-state for that
   reason. Reading a budget-expired probe as a refutation is the standard way
   this kind of solver goes quietly unsound, and the underclued mode rests
   entirely on telling "no solution exists" apart from "I stopped looking".
 - **`Profile.cpp` is a second engine, not a heuristic, and it is what makes the
   letter-only boards tractable.** It sweeps cell by cell keeping a FRONTIER —
-  the colour of each boundary cell, which of them are in the same region, and
-  which letter each region carries — so partial colourings that agree on that
+  the color of each boundary cell, which of them are in the same region, and
+  which letter each region carries — so partial colorings that agree on that
   much collapse into one state and the cost becomes the number of distinct
-  frontiers rather than the number of colourings. It is complete, so it answers
+  frontiers rather than the number of colorings. It is complete, so it answers
   `Unsolvable` honestly. Measured: `logicGridTest47` went **8 200 ms → 2 ms**,
   and `logicGridTest67`, which no search or local method could touch, comes out
   in 38 s natively and **45 s in the browser**. Four things about it are load-bearing:
@@ -1169,17 +1392,17 @@ The engine's load-bearing pieces:
     It takes letter clues, darts on a square the puzzle paints, `connect-dark`,
     `connect-light`, `Underclued`, and every rule whose WHOLE content is a
     forbidden local arrangement. It refuses everything else. Written
-    as a denylist it was wrong the moment the catalogue grew: a dart-only board
+    as a denylist it was wrong the moment the catalog grew: a dart-only board
     named no area clue and no listed rule, so it was ACCEPTED, `planOf` reads
     letters only and skipped the dart, and `runProfileForced` then set `proven`
     on a forced set with no oracle behind it — a superset of the solutions,
     reported as proof. Nothing downstream could have caught that (`Verify` gates
     `runProfile`'s witness, not the forced set), which is why anything
-    unrecognised has to decline by default and cost a re-measurement at worst.
+    unrecognized has to decline by default and cost a re-measurement at worst.
     Refusing costs nothing anyway: those boards are exactly the ones propagation
     finishes in milliseconds. Running out of room sets `stoppedOnMemory` and
     claims NOTHING, because an empty sweep must never read as "no solution".
-  - **An ARRANGEMENT is read off recent colour, and that is why those rules are
+  - **An ARRANGEMENT is read off recent color, and that is why those rules are
     on the list.** The frontier's `width` slots ARE the last `width` cells in
     scan order, so a forbidden pattern anchored on its last cell needs only
     what reaches further back than that — one bit for a 2x2, a row for a
@@ -1195,11 +1418,11 @@ The engine's load-bearing pieces:
     arrangement is.
   - **A DART is one running count, and only on a PAINTED square.** The sweep
     counts the DARK cells on the ray and takes the light reading as the rest of
-    it, so one counter serves either colour; the counter goes back to zero the
+    it, so one counter serves either color; the counter goes back to zero the
     moment the dart is settled, so states merge again and a dart on another row
     of the sweep costs nothing at all. What it cannot do is a dart the board
-    leaves unpainted: a dart counts the OPPOSITE of its own square's colour, so
-    an unpainted one would need that square's colour carried long after it left
+    leaves unpainted: a dart counts the OPPOSITE of its own square's color, so
+    an unpainted one would need that square's color carried long after it left
     the frontier. This is what settles `logicGridTest487` — 13x7, underclued,
     `connect-dark` + `no-dark-T` + two darts — 23 of 91 cells PROVEN in 26 ms,
     where `runForced` never found a single witness in 30 million nodes and so
@@ -1267,7 +1490,7 @@ different paths of a fixed-variable CSP), a rollback union-find (every region
 question is a flood fill over 1024-bit boards, which needs no undo), and
 restarts in the DFS (a restarting search that keeps nothing it learned is not
 complete, and "there is no solution" is only worth anything from a complete
-one — diversity comes from a random starting colour instead).
+one — diversity comes from a random starting color instead).
 
 `Bitboard.h` is why the row pitch is a fixed 32 rather than the board's width:
 one 64-bit word holds exactly two rows, so up/down are a 32-bit shift and
@@ -1278,9 +1501,13 @@ boundaries that speak the packed `y * width + x` layout — the wasm bridge and
 
 ## The config format version
 
-A logic-grid download opens with `"version": 2`, and **a file with no tag at all IS version 1** — the format as it stood before the tag existed. That default is what lets every board downloaded before the tag keep loading: it reads as 1 and migrates.
+A logic-grid download opens with `"version": 3`, and **a file with no tag at all IS version 1** — the format as it stood before the tag existed. That default is what lets every board downloaded before the tag keep loading: it reads as 1 and migrates.
 
-Version 2 is the first REAL migration (`sizedRulesIntoFamilies`): it moves the 22 sized indices out of a v1 file's `rules` into canonical `areas`/`runs` entries, leaves anything malformed exactly where it was for the validator to name, and DISCARDS any `areas`/`runs` keys a v1 file already carried — v1 semantics dropped unknown keys, and migrating is not the moment to start honouring them. The current validator then refuses a sized index in `rules` by name.
+Version 2 is the first REAL migration (`sizedRulesIntoFamilies`): it moves the 22 sized indices out of a v1 file's `rules` into canonical `areas`/`runs` entries, leaves anything malformed exactly where it was for the validator to name, and DISCARDS any `areas`/`runs` keys a v1 file already carried — v1 semantics dropped unknown keys, and migrating is not the moment to start honoring them. The current validator then refuses a sized index in `rules` by name.
+
+Version 3 (`retiredArrangementsIntoPatterns`) is the same move one step later, and for the mirror-image reason. Those rules carried a NUMBER the format could store directly; these carry a SHAPE it now can too. Ten indices — the diagonal, L, crossed T, knight's-move and mixed-elbow pairs — leave `rules` for canonical `patterns` entries, each catalog entry marking itself with the picture it becomes. Everything else about the step is the version 2 one repeated: malformed members stay put, a v2 file's own `patterns` key is discarded, and the validator refuses a retired index by name.
+
+What made that safe to do at all is that the shape and the rule forbid the SAME thing, which is asserted rather than assumed. `rules_test.cpp`'s `RetirementLeftEveryMaskCompilingTheSame` sweeps every retired rule against every surviving flag and demands the compiled clause table be identical; `patterns.test.ts` sweeps all 2^16 colorings of a 4x4 per rule and demands the oracle agree. Between them, rewriting a saved board cannot change what it means.
 
 When the format changes in a way an old file cannot satisfy, three things move together:
 
@@ -1290,10 +1517,10 @@ When the format changes in a way an old file cannot satisfy, three things move t
 
 Four things are load-bearing:
 
-- **The list is append-only and addressed by position.** Entry 0 turns a version 1 file into a version 2 one; a version 1 file on a version 4 build runs all three in order. Reordering or removing an entry re-reads every file ever saved — the same rule the rule and clue catalogues live under.
+- **The list is append-only and addressed by position.** Entry 0 turns a version 1 file into a version 2 one; a version 1 file on a version 4 build runs all three in order. Reordering or removing an entry re-reads every file ever saved — the same rule the rule and clue catalogs live under.
 - **Migration runs before a single structural check**, since a migration is exactly what makes an old shape make sense to the current validator. A non-object passes straight through so the page's own "must be an object" message is the one shown.
-- **A file from a NEWER build is refused by name** rather than read as far as it parses. There is nothing to migrate backwards, and quietly dropping what this build does not recognise would load a different puzzle.
+- **A file from a NEWER build is refused by name** rather than read as far as it parses. There is nothing to migrate backwards, and quietly dropping what this build does not recognize would load a different puzzle.
 - **`version` is required on `LogicGridTest`, not optional.** Absent means 1 on the way IN; everything this build writes says which version it is, and making the field required is what stops a writer forgetting — there are three (`currentConfig`, `validateConfig`'s rebuild, `fixtureio::save`) and they must all stamp it.
 
-`test/configVersion.test.ts` drives the machinery with migration lists it makes up, which is the only way to prove the chain runs, runs in order, and runs only the steps a given file still needs. The REAL chain's behaviour — the v1 conversion, its garbage tolerance, the discarded v1 keys — lives in `config.test.ts`'s "The v1 migration" describe, the banner path in `logicGridSolver.test.ts` and e2e. `LogicGridCorpus.EveryBoardIsTheCurrentFormatVersion` is what catches fixtures a rewrite missed: the fixture sweep `GTEST_SKIP`s a load error, so without that check a stale corpus would go green while testing nothing — and since version 2 `fixtureio` refuses a MISSING tag too, absent-means-1 being exactly the stale state.
+`test/configVersion.test.ts` drives the machinery with migration lists it makes up, which is the only way to prove the chain runs, runs in order, and runs only the steps a given file still needs. The REAL chain's behavior — each conversion, its garbage tolerance, the discarded keys, and a v1 file arriving at v3 through both steps — lives in `config.test.ts`'s "The v1 migration" and "The v2 migration" describes, the banner path in `logicGridSolver.test.ts` and e2e. `LogicGridCorpus.EveryBoardIsTheCurrentFormatVersion` is what catches fixtures a rewrite missed: the fixture sweep `GTEST_SKIP`s a load error, so without that check a stale corpus would go green while testing nothing — and since version 2 `fixtureio` refuses a MISSING tag too, absent-means-1 being exactly the stale state.
 

@@ -168,7 +168,7 @@ export function findMatches(board: MatchThreeBoard): Uint8Array | null {
  * two swapped cells — the same argument `hasRunThrough` rests on — so two of
  * these calls find the entire first wave without rescanning the board.
  *
- * Unlike its neighbour `findMatchesInto`, this does NOT zero `mask` — the two
+ * Unlike its neighbor `findMatchesInto`, this does NOT zero `mask` — the two
  * calls that make up one first wave accumulate into the same one. The mask is
  * the caller's to clear, and the two exported entry points take opposite sides
  * of that contract on purpose.

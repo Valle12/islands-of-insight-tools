@@ -9,6 +9,7 @@ import { BoardLayers } from "./boardLayers";
 import { BoardView } from "./boardView";
 import { ClueTyping, handleKey, type KeyEdits } from "./boardKeys";
 import { isPlayable, UNKNOWN, UNPLAYABLE } from "./cell";
+import { galaxiesClash, isTiledKind } from "./galaxyTiles";
 import { finishMerge, mergeSquare, splitSquare } from "./mergeEdits";
 import { NO_SHAPE } from "./shapes";
 import { symbolKindAt } from "./symbols";
@@ -124,12 +125,12 @@ export class Board {
    * it is exactly the place nothing was listening. The stylesheet grows each
    * square's hit area by half a seam while this is on, so the seams and their
    * crossings are covered with no new elements and no change to what a square
-   * IS. Which of the up-to-four overlapping neighbours receives the press does
+   * IS. Which of the up-to-four overlapping neighbors receives the press does
    * not matter: `leanOf` reads the pointer's position relative to whichever
    * one it was and names the same point either way.
    *
    * Only while a seated clue is armed, so a paint stroke keeps its exact hit
-   * area — a colour has no meaning in a seam, and widening those targets would
+   * area — a color has no meaning in a seam, and widening those targets would
    * change what a drag across the board paints.
    */
   private syncSeamTargets() {
@@ -211,7 +212,7 @@ export class Board {
       const stroke = this.stroke;
       this.stroke = null;
       // A merge stroke settles its cell here rather than per square — see
-      // `mergeSquare`. A cancelled stroke settles too: the squares it already
+      // `mergeSquare`. A canceled stroke settles too: the squares it already
       // moved are moved, and leaving them in a half-built cell would be worse.
       if (stroke?.kind === "merge") {
         finishMerge(this.edits, stroke.target, stroke.origin);
@@ -220,7 +221,7 @@ export class Board {
     document.addEventListener("pointerup", endStroke, { signal });
     document.addEventListener("pointercancel", endStroke, { signal });
 
-    // Right-dragging the light colour across the board would otherwise open the
+    // Right-dragging the light color across the board would otherwise open the
     // context menu on the first cell and end the stroke there.
     grid.addEventListener("contextmenu", event => event.preventDefault(), {
       signal,
@@ -248,7 +249,7 @@ export class Board {
     if (!pressed) return;
     // A symmetry stroke's seat is fixed here from where the pointer went down
     // — before the re-click rule, which compares seats — and its home square
-    // may be the seam's other neighbour.
+    // may be the seam's other neighbor.
     const { stroke, home } = seatStroke(
       this.layers,
       pressed,
@@ -267,7 +268,7 @@ export class Board {
    * one in progress, so the keyboard path can apply a single-cell stroke
    * without touching the drag state.
    *
-   * A merged cell takes one colour for all of its squares, so the colour
+   * A merged cell takes one color for all of its squares, so the color
    * branches below work on the whole cell rather than on the square the pointer
    * happens to be over. Clues are the other way round: every SQUARE carries its
    * own — a merged cell may hold several, one per square — so a clue lands, and
@@ -299,14 +300,15 @@ export class Board {
 
     // A clue cannot be placed on a gap; lifting one always may.
     if (stroke.clue && !isPlayable(this.layers.colorAt(position))) return;
-    this.writeCell(
-      position,
-      this.layers.colorAt(position),
-      seated(this.layers, stroke.clue, position),
-    );
+    // Settled BEFORE the guard, because `seated` may downgrade a seat this
+    // square cannot carry — and the footprint that must not clash is the one
+    // actually about to be written, not the one the press asked for.
+    const clue = seated(this.layers, stroke.clue, position);
+    if (clue && this.crowdsAnotherGalaxy(clue, position)) return;
+    this.writeCell(position, this.layers.colorAt(position), clue);
   }
 
-  /** One colour across every square of a cell, with every clue left on
+  /** One color across every square of a cell, with every clue left on
    * whichever square of it the player put it on. */
   private paintCell(value: number, squares: number[]) {
     const { shapes } = this.layers;
@@ -327,6 +329,44 @@ export class Board {
   }
 
   /**
+   * Whether placing this clue here would put two galaxies on one CELL.
+   *
+   * The unit is the CELL, not the square, so two galaxies on different squares
+   * of one MERGED cell are refused as well: those two are centers of
+   * rotational symmetry for one region, and composing two point reflections
+   * about different centers is a translation, which no finite region survives
+   * — so the board contradicts itself however it is colored.
+   *
+   * A galaxy occupies its own square, or the two or four its seat sits
+   * between, and the game never draws two of them sharing one — a centered
+   * galaxy plus one on the same square's edge, two on the left and right edges
+   * of one square, three around one square. All three are reachable by hand,
+   * and the last is reachable by a single DRAG: `pointermove` re-applies the
+   * pressed stroke, seat and all, to every square it crosses.
+   *
+   * Asked here rather than in `snapSeat` or `seated`, which are both
+   * contractually "downgrade to seat 0 and still write": the press has to
+   * write NOTHING, the way it does over a gap on the line above. The clue
+   * already on this square is skipped, so re-seating one and lifting one both
+   * still work.
+   */
+  private crowdsAnotherGalaxy(clue: LogicGridClue, position: Position): boolean {
+    if (!isTiledKind(clue.type)) return false;
+    return galaxiesClash(
+      { ...clue, x: position.x, y: position.y },
+      this.layers
+        .getSymbols()
+        .filter(held => held.x !== position.x || held.y !== position.y),
+      { gridWidth: this.layers.gridWidth, gridHeight: this.layers.gridHeight },
+      square =>
+        this.layers.squaresAt({
+          x: square % this.layers.gridWidth,
+          y: Math.floor(square / this.layers.gridWidth),
+        }),
+    );
+  }
+
+  /**
    * Every change to either layer, and everything on screen that has to follow
    * one. A no-op when nothing moves, which is the common case while dragging: a
    * pointermove fires many times per cell.
@@ -337,13 +377,19 @@ export class Board {
     clue: LogicGridClue | null,
   ) {
     const moved = this.layers.write(position, color, clue);
-    if (moved === "nothing") return;
+    if (!moved.color && !moved.clue) return;
     this.view.dressCellAt(position.x, position.y);
-    // The outline carries a merged cell's fill, so a colour change has to reach
+    // The outline carries a merged cell's fill, so a color change has to reach
     // it as well as the square.
-    if (moved === "color" && this.layers.cellIdAt(position) !== NO_SHAPE) {
+    if (moved.color && this.layers.cellIdAt(position) !== NO_SHAPE)
       this.view.drawOutlines();
-    }
+    // A seated galaxy's TILE is drawn on that same outline, and both layers
+    // move it: a CLUE can make a tile appear or vanish and joins squares that
+    // carry no clue of their own, while a COLOR decides whether the tile is
+    // drawn at all and fills every square of it. The clue branch is the wider
+    // of the two, so a write that moved both takes it.
+    if (moved.clue) this.view.refreshGalaxyTiles(position);
+    else if (moved.color) this.view.refreshGalaxyFill(position);
     this.solver.hideSolution();
   }
 }

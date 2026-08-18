@@ -16,9 +16,9 @@
 // makes undo a matter of setting a bit again rather than copying a state:
 //
 //   both bits  -> undecided        one bit -> decided
-//   no bits    -> a contradiction  (the cell can be neither colour)
+//   no bits    -> a contradiction  (the cell can be neither color)
 //
-// Assigning a colour is therefore the same operation as excluding the other
+// Assigning a color is therefore the same operation as excluding the other
 // one, and the trail records exclusions rather than assignments.
 //
 // There is deliberately no union-find of the assigned components here. Every
@@ -54,7 +54,7 @@ public:
     return possible(color).test(index);
   }
 
-  /// The colour a cell is known to hold, kUnknown while it is undecided, and
+  /// The color a cell is known to hold, kUnknown while it is undecided, and
   /// kUnplayable for a gap.
   [[nodiscard]] uint8_t colorOf(const int index) const {
     if (!playable_.test(index))
@@ -97,8 +97,8 @@ public:
    * enqueue anything.
    *
    * This is the ONE place a domain shrinks, and therefore the whole of the
-   * merged-cell layer: a merged cell takes one colour for all of its squares,
-   * so excluding a colour anywhere in it excludes that colour everywhere in it.
+   * merged-cell layer: a merged cell takes one color for all of its squares,
+   * so excluding a color anywhere in it excludes that color everywhere in it.
    * That fan-out is what makes every square of a merged cell hold an identical
    * domain at every point of the search — the invariant everything downstream
    * silently relies on to go on reading `Bits` one square at a time and still
@@ -155,7 +155,7 @@ public:
   /// Marks everything decided so far as seen, without propagating it.
   void skipPending() { head_ = assigned_.size(); }
 
-  /// The colouring as it stands, for the oracle and for the answer.
+  /// The coloring as it stands, for the oracle and for the answer.
   [[nodiscard]] Colors toColors() const {
     Colors colors{};
     colors.fill(kUnplayable);

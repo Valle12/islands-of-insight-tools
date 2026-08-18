@@ -17,7 +17,7 @@
 struct DragSolverConfig {
   uint8_t weight = 2;
   bool deadlockPruning = true;
-  // Canonicalise same-shape block permutations in state signatures. On the
+  // Canonicalize same-shape block permutations in state signatures. On the
   // rare chance reconstruction detects a label mix-up (see search()), the
   // solver retries once with this off.
   bool canonicalizeSymmetry = true;
@@ -158,7 +158,7 @@ struct DragSolverConfig {
     // gated out even though the jam-restart arm solves it in 12ms.
     // Relaxed 40 -> 35 alongside aspect16; the two were validated together
     // (see there for the bench/fuzz/campaign evidence) and neither works
-    // alone. 40 reproduces the historical behaviour.
+    // alone. 40 reproduces the historical behavior.
     uint8_t densityPct = 35;
     // Pin the jam guide to one corridor: the FIRST dig field's argmin route
     // (dilated by 2 cells) becomes a hard corridor for every later dig
@@ -195,7 +195,7 @@ struct DragSolverConfig {
   /// them reports "no solution in budget" rather than failing.
   struct Stop {
     // Ceiling on the LIVE state map of a single search pass. 0 = unlimited
-    // (bit-identical to the historical behaviour).
+    // (bit-identical to the historical behavior).
     //
     // maxNodes bounds EXPANSIONS, which is not what consumes the heap: states
     // stored runs ~2.3x expansions, and on seed 45501 the flat drag arm held

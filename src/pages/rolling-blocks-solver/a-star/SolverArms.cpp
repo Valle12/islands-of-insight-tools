@@ -308,7 +308,7 @@ bool cellPassable(const replay::Puzzle &puzzle,
 }
 
 // Open cells with at most one way in. A pocket-end has to be entered from
-// its single neighbour and left the same way, so every one of them is a
+// its single neighbor and left the same way, so every one of them is a
 // future deadlock the ordering has to spend a visit on.
 size_t countFragile(const replay::Puzzle &puzzle,
                     const boost::dynamic_bitset<> &sat) {
@@ -672,7 +672,7 @@ private:
 
   // The successor set of every position, per block. It has to span chunk
   // SIZES, not just which cell comes next: big sweeps are where the cheap
-  // progress is (one leg can land dozens of cells when the neighbourhood
+  // progress is (one leg can land dozens of cells when the neighborhood
   // is open), while single-cell legs are the ones that still land in a
   // dense blob where every big ask fails. Offering both lets the search
   // take bulk progress while it is available and switch to precision when

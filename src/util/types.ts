@@ -4,7 +4,7 @@ import type { Turn } from "../pages/rolling-blocks-solver/turn";
 
 /**
  * A phasic dial puzzle as downloaded from / uploaded to the solver page.
- * `Button` serialises to `{ "turns": [...] }`, so a downloaded file round-trips
+ * `Button` serializes to `{ "turns": [...] }`, so a downloaded file round-trips
  * through `new Button(raw.turns)`. `result` is present once the puzzle has been
  * solved, which is what makes a downloaded file usable as a test fixture.
  */
@@ -102,10 +102,10 @@ export type LogicGridClue = {
   direction?: number;
   /**
    * Where inside a merged cell a lotus's axis point sits, as two half-square
-   * offsets from the home square's centre: bit 0 half a square right, bit 1
+   * offsets from the home square's center: bit 0 half a square right, bit 1
    * half a square down — so 1 and 2 are the midpoints of the edges to the
    * right and below, and 3 is a corner where squares meet. Lotus-only, and
-   * OPTIONAL with 0 (the square's own centre) omitted, the same round-trip
+   * OPTIONAL with 0 (the square's own center) omitted, the same round-trip
    * discipline as `direction`.
    */
   seat?: number;
@@ -129,6 +129,20 @@ export type LogicGridRunRule = {
   length: number;
 };
 
+/** One forbidden arrangement the player drew — see `LogicGridTest.patterns`. */
+export type LogicGridPattern = {
+  width: number;
+  height: number;
+  /**
+   * The box row-major, `y * width + x` — the layout `shapes` uses and the
+   * transpose of `cells`. The values are `cell.ts`'s, with 0 re-read as "no
+   * part of the pattern" rather than "uncolored": 1 is a square that must be
+   * dark, 2 one that must be light, and nothing else is legal — an unplayable
+   * 3 would be asking a gap to hold a color.
+   */
+  cells: number[];
+};
+
 export type LogicGridTest = {
   /**
    * Which shape of this format the file is in — see `src/util/configVersion.ts`
@@ -147,13 +161,13 @@ export type LogicGridTest = {
    */
   rules: number[];
   /**
-   * The regions-have-area-N rules, one entry per active size and colour:
+   * The regions-have-area-N rules, one entry per active size and color:
    * every region of `color` has exactly `size` cells. Several entries per
-   * colour are legal and conjunctive — satisfiable exactly where the colour
+   * color are legal and conjunctive — satisfiable exactly where the color
    * is absent. Canonical order (what `validateConfig` returns and every
    * writer emits): dark before light, then size ascending; duplicates are
    * rejected. `size` is 1..9999 — a format cap, deliberately NOT the board
-   * area, since an oversized area is still enforceable (the colour cannot
+   * area, since an oversized area is still enforceable (the color cannot
    * appear) and belongs to Solve, not the validator.
    *
    * OPTIONAL, and omitted rather than written `[]` when a board has none —
@@ -162,22 +176,45 @@ export type LogicGridTest = {
    */
   areas?: LogicGridAreaRule[];
   /**
-   * The no-1xN rules, one entry per active length and colour: no straight
+   * The no-1xN rules, one entry per active length and color: no straight
    * run of `length` cells of `color`, in either orientation. Same canonical
    * order, duplicate rule and omit-when-empty discipline as `areas`. `length`
-   * is 2..8 — the cap is the engine's `kMaxPatternCells`, because a run rule
-   * is enforced only by its compiled pattern, so a longer one is refused by
-   * name rather than accepted and silently not enforced.
+   * is 2..8 — the cap is the engine's `kMaxImpliedRun`, because a run rule is
+   * enforced only by its compiled pattern and that is where the engine stops
+   * laying one out, so a longer one is refused by name rather than accepted
+   * and silently not enforced.
    */
   runs?: LogicGridRunRule[];
   /**
-   * The colour layer alone, column-major, one index per cell — see
-   * `src/pages/logic-grid-solver/cell.ts` for the constants. 0 is uncoloured,
+   * The forbidden arrangements the player DREW — the other half of what this
+   * format carries beyond its flag list, beside the sized families above.
+   *
+   * Each entry bans its own shape and every rotation and reflection of it,
+   * always: that is what every built-in arrangement rule already did, and it
+   * is why there is no switch for it. A shape is stored trimmed to the squares
+   * it names, so two drawings of one rule have the same box and can be
+   * compared at all.
+   *
+   * Canonical order — ascending by the smallest of a shape's eight images, so
+   * two drawings that are rotations of each other collide and the second is
+   * rejected. OPTIONAL and omitted rather than written `[]`, the `areas` and
+   * `shapes` discipline, and exactly the shape the solver's wasm boundary
+   * takes.
+   *
+   * Format version 3 introduced this and retired the ten rarest arrangement
+   * rules into it: the five controls the captured corpus names on exactly one
+   * board each. `RULES` still carries their entries, each marked `drawn` with
+   * the shape it became.
+   */
+  patterns?: LogicGridPattern[];
+  /**
+   * The color layer alone, column-major, one index per cell — see
+   * `src/pages/logic-grid-solver/cell.ts` for the constants. 0 is uncolored,
    * 1 dark, 2 light, 3 an unplayable gap in the board.
    *
-   * Clues are the SEPARATE layer below: a cell carries a colour and,
-   * independently, at most one clue, so a clue on an uncoloured cell is one
-   * whose colour the player still has to deduce.
+   * Clues are the SEPARATE layer below: a cell carries a color and,
+   * independently, at most one clue, so a clue on an uncolored cell is one
+   * whose color the player still has to deduce.
    */
   cells: number[][];
   symbols: LogicGridSymbol[];

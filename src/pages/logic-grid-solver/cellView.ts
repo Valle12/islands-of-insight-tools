@@ -1,5 +1,6 @@
 import type { LogicGridClue } from "../../util/types";
 import { colorLabel, colorId } from "./cell";
+import type { GalaxyTiling } from "./galaxyTiles";
 import {
   AXIS_ICON,
   axisAt,
@@ -11,7 +12,7 @@ import {
 } from "./symbols";
 
 /**
- * What a cell is called. Colours, clue kinds, directions and axes are all
+ * What a cell is called. Colors, clue kinds, directions and axes are all
  * fixed, append-only lists, so naming one here is stable enough to assert on
  * in an aria snapshot.
  */
@@ -38,12 +39,69 @@ export function describeCell(
   return `${position}, ${kind.label} ${clue.value}${pointing}`;
 }
 
+/** Which quarter of a seated glyph a copy draws, and what lies under it. */
+interface GlyphPiece {
+  readonly part: string;
+  readonly under: number;
+}
+
 /**
- * Writes one cell's two layers onto an element: the colour as `data-color`, and
+ * The squares a seated glyph lies across, one per copy the cell will draw.
+ *
+ * A seat puts the glyph's CENTER on a grid line or a corner, so half or a
+ * quarter of it hangs over each neighboring square, and the color DRAWN
+ * under each of them is the whole of what its ink has to contrast with. Two
+ * cases return nothing and get one plain glyph instead: seat 0, where the
+ * glyph is inside its own square and the cell's ink is already right, and a
+ * seat whose tile is not being drawn — an unpainted pair, a gap, a merged
+ * cell — where there is no boundary to line the split up with, so splitting
+ * would only cut the glyph in half for nothing.
+ *
+ * The ink follows what is drawn UNDER each half — the square's own color, or
+ * the neutral fill where a square of the pill is not painted. Inheriting the
+ * clue's own cell instead is what left a half-glyph black on black in dark
+ * mode, over a square that had just been cleared.
+ *
+ * Bit 0 of the seat is half a square right, bit 1 half a square down, which is
+ * what `--seat-x` / `--seat-y` translate by — so the parts named here and the
+ * clip paths keyed on them in the stylesheet are two halves of one fact.
+ */
+function glyphPieces(
+  seat: number,
+  x: number,
+  y: number,
+  tiling: GalaxyTiling | undefined,
+): GlyphPiece[] {
+  if (seat <= 0 || !tiling?.drawnAt(x, y)) return [];
+  const under = (dx: number, dy: number) => ({
+    under: tiling.colorAt(x + dx, y + dy),
+  });
+  const right = (seat & 1) !== 0;
+  const down = (seat & 2) !== 0;
+  if (right && down)
+    return [
+      { part: "top-left", ...under(0, 0) },
+      { part: "top-right", ...under(1, 0) },
+      { part: "bottom-left", ...under(0, 1) },
+      { part: "bottom-right", ...under(1, 1) },
+    ];
+  if (right)
+    return [
+      { part: "left", ...under(0, 0) },
+      { part: "right", ...under(1, 0) },
+    ];
+  return [
+    { part: "top", ...under(0, 0) },
+    { part: "bottom", ...under(0, 1) },
+  ];
+}
+
+/**
+ * Writes one cell's two layers onto an element: the color as `data-color`, and
  * the clue as text plus `data-symbol` / `data-symbol-value`.
  *
  * The clue is drawn as the element's own text rather than as a background,
- * because its ink has to follow the cell's colour — that is what makes a clue
+ * because its ink has to follow the cell's color — that is what makes a clue
  * on a dark cell a dark clue. A DIRECTED clue is two children instead of one
  * text node, and the arrow is a real element rather than a pseudo-element so
  * the pointer can grab it and swing it round.
@@ -54,6 +112,7 @@ export function dressCell(
   clue: LogicGridClue | null,
   x: number,
   y: number,
+  tiling?: GalaxyTiling,
 ): void {
   element.dataset.color = colorId(cell);
 
@@ -65,7 +124,14 @@ export function dressCell(
       // sized like an icon, never like text.
       delete element.dataset.symbolValue;
       delete element.dataset.labelLength;
-      dressClue(element, kind, "", clue.direction, clue.seat);
+      dressClue(
+        element,
+        kind,
+        "",
+        clue.direction,
+        clue.seat,
+        glyphPieces(clue.seat ?? 0, x, y, tiling),
+      );
     } else {
       const label = String(clue.value);
       element.dataset.symbolValue = label;
@@ -113,16 +179,49 @@ export function dressCell(
  * one function so the chip and what it stamps cannot come to look like two
  * different things.
  */
+/**
+ * The galaxy's glyph — one copy, or one per square its center sits between.
+ *
+ * A SEATED galaxy straddles two squares or four, and those squares may be
+ * different colors: on a dark one beside a light one, a glyph of a single
+ * color is invisible over one half of itself. So each piece is drawn as its
+ * own copy, clipped by the stylesheet to the part of the glyph over one square
+ * and inked against THAT square rather than against the cell the clue belongs
+ * to. Where the squares agree the copies come out identical, which is the
+ * unseated case arriving at the same answer by a longer road.
+ *
+ * `data-under` names the square's color rather than the ink, so the palette
+ * stays in the stylesheet beside `--logic-ink-on-dark` and this file keeps no
+ * second copy of it.
+ */
+function galaxyGlyphs(
+  icon: string,
+  pieces: readonly GlyphPiece[],
+): HTMLElement[] {
+  const glyph = (part?: GlyphPiece) => {
+    const element = document.createElement("md-icon");
+    element.className = "cell-galaxy";
+    element.textContent = icon;
+    if (part) {
+      element.dataset.part = part.part;
+      element.dataset.under = colorId(part.under);
+    }
+    return element;
+  };
+  return pieces.length === 0 ? [glyph()] : pieces.map(part => glyph(part));
+}
+
 export function dressClue(
   element: HTMLElement,
   kind: LogicGridSymbolKind,
   label: string,
   direction: number | undefined,
   seat = 0,
+  pieces: readonly GlyphPiece[] = [],
 ): void {
   if (kind.icon) {
     // An ICON kind's clue — the galaxy — is one glyph and no value, no
-    // direction and no rotation. It DOES take a seat: its centre may sit on a
+    // direction and no rotation. It DOES take a seat: its center may sit on a
     // grid line or a corner, and `data-seat` slides the glyph onto it exactly
     // as it slides the lotus's. Every other hook is shed; `data-icon` is
     // presence-only, the stylesheet's centring hook, exactly as
@@ -133,10 +232,7 @@ export function dressClue(
     if (seat > 0) element.dataset.seat = String(seat);
     else delete element.dataset.seat;
     element.dataset.icon = "";
-    const glyph = document.createElement("md-icon");
-    glyph.className = "cell-galaxy";
-    glyph.textContent = kind.icon;
-    element.replaceChildren(glyph);
+    element.replaceChildren(...galaxyGlyphs(kind.icon, pieces));
     return;
   }
   // Shed here once for every branch below, so a cell restamped from a galaxy

@@ -55,7 +55,7 @@ bool readCells(const val &puzzleVal, Puzzle &puzzle, const char *&error) {
   for (int i = 0; i < count; i++) {
     const int value = cells[i].as<int>();
     if (value < 0 || value >= kColorLimit) {
-      error = "A cell value is outside the known colours";
+      error = "A cell value is outside the known colors";
       return false;
     }
     const int x = i % puzzle.width;
@@ -84,6 +84,12 @@ bool readRules(const val &puzzleVal, Puzzle &puzzle, const char *&error) {
               "or runs";
       return false;
     }
+    // And since version 3 the ten retired arrangements are not legal here
+    // either — they arrive as shapes under `patterns`, for the same reason.
+    if (rules::has(rules::kDrawnRuleBits, static_cast<rules::Rule>(index))) {
+      error = "A rule index names a retired rule; those arrive as patterns";
+      return false;
+    }
     puzzle.ruleMask |= rules::RuleMask{1} << index;
   }
   return true;
@@ -103,9 +109,9 @@ struct SizedFamily {
   int lo = 0;
   int hi = 0;
   const char *rangeError = "";
-  /// Whether a SECOND entry for one colour is a contradiction. Two run bans
+  /// Whether a SECOND entry for one color is a contradiction. Two run bans
   /// are conjunctive and merely redundant; two area sizes hold together only
-  /// where the colour is absent from the board, all zero of its regions being
+  /// where the color is absent from the board, all zero of its regions being
   /// both sizes at once, which is not a puzzle anyone means. Grouped into a
   /// struct rather than a seventh and eighth parameter: six same-typed
   /// scalars in a row is already a call nobody can read, and clang-tidy says
@@ -123,7 +129,7 @@ bool readSized(const val &puzzleVal, const SizedFamily &family,
     const val entry = list[i];
     // `isString` doubles as the type check — there is no typeOf probing to
     // fall back on under -fno-exceptions, and any non-string is equally not
-    // a colour.
+    // a color.
     const val colorVal = entry["color"];
     const std::string color =
         colorVal.isString() ? colorVal.as<std::string>() : std::string();
@@ -133,7 +139,7 @@ bool readSized(const val &puzzleVal, const SizedFamily &family,
     }
     // Read as a double so 2.5 is refused rather than silently truncated —
     // and bounded BEFORE narrowing, spelled so NaN fails too: casting an
-    // out-of-range (or NaN) double to int is undefined behaviour, so the
+    // out-of-range (or NaN) double to int is undefined behavior, so the
     // gate has to run first. In range the cast is exact, so the integrality
     // test below still catches fractions.
     const double raw = opt(entry, family.valueKey, 0.0);
@@ -158,8 +164,8 @@ bool readSized(const val &puzzleVal, const SizedFamily &family,
         return false;
       }
       // Sound only because the order above is already known to be canonical:
-      // every entry of one colour is contiguous, so "the previous entry is
-      // this colour" IS "a second entry for this colour".
+      // every entry of one color is contiguous, so "the previous entry is
+      // this color" IS "a second entry for this color".
       if (family.onePerColor && into.back().color == rule.color) {
         error = "Only one area rule per color is allowed";
         return false;
@@ -190,6 +196,82 @@ bool readSizedLists(const val &puzzleVal, Puzzle &puzzle, const char *&error) {
          readSized(puzzleVal, kRunFamily, puzzle.runs, error);
 }
 
+/**
+ * The `patterns` list: the forbidden arrangements the player drew, each a box
+ * of `width` by `height` squares row-major holding 0 for a square the pattern
+ * does not name and 1 or 2 for one it does.
+ *
+ * Absent means empty, and what arrives must already be CANONICAL — ascending
+ * under `rules::patternLess`, which compares each pattern's smallest dihedral
+ * image, so two drawings of one rule in different rotations collide as a
+ * duplicate rather than both being carried. Refused rather than repaired, the
+ * `readSized` asymmetry with the page's validator.
+ */
+bool readPatterns(const val &puzzleVal, Puzzle &puzzle, const char *&error) {
+  const val list = puzzleVal["patterns"];
+  if (list.isUndefined() || list.isNull())
+    return true;
+  const int count = list["length"].as<int>();
+  for (int i = 0; i < count; i++) {
+    const val entry = list[i];
+    rules::DrawnPattern pattern;
+    // Read as doubles and bounded BEFORE narrowing, spelled so NaN fails too,
+    // for the reason `readSized` spells out at length.
+    const double wide = opt(entry, "width", 0.0);
+    const double tall = opt(entry, "height", 0.0);
+    if (!(wide >= 1 && wide <= kMaxSide) || !(tall >= 1 && tall <= kMaxSide)) {
+      error = "A pattern must be between 1 and 32 on each side";
+      return false;
+    }
+    pattern.width = static_cast<int>(wide);
+    pattern.height = static_cast<int>(tall);
+    if (wide != static_cast<double>(pattern.width) ||
+        tall != static_cast<double>(pattern.height)) {
+      error = "A pattern must be between 1 and 32 on each side";
+      return false;
+    }
+    const val squares = entry["cells"];
+    const int held = squares.isUndefined() || squares.isNull()
+                         ? 0
+                         : squares["length"].as<int>();
+    if (held != pattern.width * pattern.height) {
+      error = "A pattern's cells must fill its box";
+      return false;
+    }
+    for (int at = 0; at < held; at++) {
+      const int square = squares[at].as<int>();
+      // kUnplayable is not a color a pattern can ask for: a pattern names
+      // squares that must hold a COLOR, and says nothing about the rest.
+      if (square != kUnknown && square != kDark && square != kLight) {
+        error = "A pattern square must be 0, 1 or 2";
+        return false;
+      }
+      pattern.cells.push_back(static_cast<uint8_t>(square));
+    }
+    if (!rules::namesASquare(pattern)) {
+      error = "A pattern must name at least one square";
+      return false;
+    }
+    if (!rules::isTightBox(pattern)) {
+      error = "A pattern's box must be trimmed to the squares it names";
+      return false;
+    }
+    if (!puzzle.patterns.empty()) {
+      if (rules::canonicalImage(puzzle.patterns.back()) ==
+          rules::canonicalImage(pattern)) {
+        error = "A pattern is listed twice";
+        return false;
+      }
+      if (!rules::patternLess(puzzle.patterns.back(), pattern)) {
+        error = "Patterns must be listed in canonical order";
+        return false;
+      }
+    }
+    puzzle.patterns.push_back(std::move(pattern));
+  }
+  return true;
+}
+
 bool readClues(const val &puzzleVal, Puzzle &puzzle, const char *&error) {
   const val list = puzzleVal["clues"];
   if (list.isUndefined() || list.isNull())
@@ -212,7 +294,7 @@ bool readClues(const val &puzzleVal, Puzzle &puzzle, const char *&error) {
     // so a DIRECTED kind arriving without one is refused by name in
     // `clueValueProblem` rather than silently pointing up. `value` defaults
     // instead — a lotus sends none at all and requires 0 — and `seat` defaults
-    // to the square's own centre, refused by name on any other kind.
+    // to the square's own center, refused by name on any other kind.
     const val direction = entry["direction"];
     puzzle.clues.push_back(
         {.index = cellIndex(x, y),
@@ -231,7 +313,7 @@ bool readClues(const val &puzzleVal, Puzzle &puzzle, const char *&error) {
  * layout `cells` crosses in, and the same the config file stores.
  *
  * Only the range is checked here; that a shape is connected, does not overlap
- * another, holds at least two squares and agrees with itself about its colour
+ * another, holds at least two squares and agrees with itself about its color
  * and its clue is `structureProblem`'s job, so the fixture path gets the same
  * answers as this one.
  */
@@ -270,6 +352,7 @@ Puzzle puzzleFromVal(const val &puzzleVal, const char *&error) {
   if (!readCells(puzzleVal, puzzle, error) ||
       !readRules(puzzleVal, puzzle, error) ||
       !readSizedLists(puzzleVal, puzzle, error) ||
+      !readPatterns(puzzleVal, puzzle, error) ||
       !readClues(puzzleVal, puzzle, error) ||
       !readShapes(puzzleVal, puzzle, error))
     return puzzle;
@@ -279,7 +362,7 @@ Puzzle puzzleFromVal(const val &puzzleVal, const char *&error) {
   return puzzle;
 }
 
-/// A colouring back in the flat row-major layout the page reads.
+/// A coloring back in the flat row-major layout the page reads.
 val cellsToVal(const Model &model, const Colors &colors) {
   val out = val::array();
   int at = 0;

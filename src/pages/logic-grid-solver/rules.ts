@@ -11,11 +11,11 @@ export type LogicGridRuleGroup =
 /** The two rule families that carry a number, named by their config key. */
 export type SizedRuleFamily = "areas" | "runs";
 
-/** The colour a sized rule constrains, spelled the way the config stores it. */
+/** The color a sized rule constrains, spelled the way the config stores it. */
 export type SizedRuleColor = "dark" | "light";
 
 /**
- * What a retired sized catalogue entry means since format version 2: the
+ * What a retired sized catalog entry means since format version 2: the
  * `areas`/`runs` entry it turned into. This mapping is LISTED here rather than
  * parsed out of ids or labels, and it is what the migration, the validator's
  * by-name rejection and the test board builders all read.
@@ -24,6 +24,20 @@ export interface SizedRuleOrigin {
   readonly family: SizedRuleFamily;
   readonly color: SizedRuleColor;
   readonly value: number;
+}
+
+/**
+ * The box a retired arrangement's shape is drawn in, and the squares it names
+ * — the picture written one string per row, '.' for a square the pattern does
+ * not name and 'D'/'L' for the two colors.
+ *
+ * Spelled as a picture rather than as numbers so the shape can be READ here,
+ * and mirrored exactly by `kLegacyPatterns` in `a-star/Rules.h`. One image
+ * each: a drawn pattern forbids its dihedral images too, and the closure of
+ * each shape below is precisely the family its rule used to compile to.
+ */
+export interface DrawnRuleOrigin {
+  readonly squares: readonly string[];
 }
 
 export interface LogicGridRule {
@@ -40,10 +54,18 @@ export interface LogicGridRule {
    * Present on the 22 entries that are the same rule at different sizes.
    * Since format version 2 their indices are no longer legal in a config's
    * `rules` list — the rule is stored under `areas` or `runs` with the number
-   * beside the colour, which is what this marker spells — and the row draws
-   * one value control per family and colour instead of one chip per size.
+   * beside the color, which is what this marker spells — and the row draws
+   * one value control per family and color instead of one chip per size.
    */
   readonly sized?: SizedRuleOrigin;
+  /**
+   * Present on the 10 entries retired in format version 3: the five controls
+   * the captured corpus names on exactly one board each. Their indices are no
+   * longer legal in `rules` either — the shape is stored under `patterns`,
+   * which is what this marker spells — and they have no control in the row at
+   * all. To use one now you draw it, and it keeps no name when you do.
+   */
+  readonly drawn?: DrawnRuleOrigin;
 }
 
 /**
@@ -66,18 +88,27 @@ export interface LogicGridRule {
  * Renaming an entry is safe, since nothing is stored by name; only the position
  * matters.
  *
- * A flag rule is a plain on/off switch and carries no parameter. The two
- * families that DO carry a number — regions-have-area-N and no-1xN — left this
- * encoding in format version 2: their 22 entries stay below so no index ever
- * changes meaning, each carrying the `sized` marker the migration rewrites it
- * into, but a current file spells them as `areas`/`runs` entries with the
- * number stored beside the colour. A new SIZE therefore needs no entry at all;
- * a new FLAG rule still appends here.
+ * A flag rule is a plain on/off switch and carries no parameter. TWO batches
+ * have left this encoding, and both keep their entries below so no index ever
+ * changes meaning:
+ *
+ * - the 22 that carry a NUMBER — regions-have-area-N and no-1xN — went to
+ *   `areas`/`runs` in format version 2, each marked `sized`. A new SIZE
+ *   therefore needs no entry at all;
+ * - the 10 rarest ARRANGEMENTS went to the drawn `patterns` key in version 3,
+ *   each marked `drawn` with the shape it became. Between them, the five
+ *   controls they made up are named by exactly one captured board each, which
+ *   is what a per-rule append cycle was buying. A new forbidden shape now
+ *   needs no entry either — it is drawn.
+ *
+ * A new FLAG rule still appends here. What that is FOR after version 3 is a
+ * rule the pattern table cannot state: a region rule, a clue rule, something
+ * about the answer.
  */
 export const RULES: readonly LogicGridRule[] = [
   // The forbidden arrangements, shortest first, DARK before light in every
   // pair. They all compile into one table in the solver, so keeping them
-  // together here means the catalogue reads the way the engine treats them.
+  // together here means the catalog reads the way the engine treats them.
   { id: "no-dark-2x2", label: "No dark 2x2", group: "arrangement" },
   { id: "no-light-2x2", label: "No light 2x2", group: "arrangement" },
   {
@@ -139,13 +170,13 @@ export const RULES: readonly LogicGridRule[] = [
     group: "symbol",
   },
   // Last, and on its own, because it is the only entry that changes what the
-  // ANSWER is rather than which colourings are legal.
+  // ANSWER is rather than which colorings are legal.
   { id: "underclued", label: "Underclued", group: "answer" },
   // Appended after `underclued` because appending was the only safe edit.
-  // Both sizes on for one colour is not a contradiction — it is satisfied
-  // exactly when that colour has no cells at all, every one of its zero
+  // Both sizes on for one color is not a contradiction — it is satisfied
+  // exactly when that color has no cells at all, every one of its zero
   // regions being both sizes at once — which is why `areas` may hold several
-  // entries per colour.
+  // entries per color.
   {
     id: "area-two-dark",
     label: "Dark regions have area 2",
@@ -182,8 +213,8 @@ export const RULES: readonly LogicGridRule[] = [
     group: "region",
     sized: { family: "areas", color: "light", value: 5 },
   },
-  // The first arrangements that name BOTH colours: a line of three alternating
-  // colours, in either orientation.
+  // The first arrangements that name BOTH colors: a line of three alternating
+  // colors, in either orientation.
   {
     id: "no-dark-light-dark",
     label: "No dark-light-dark",
@@ -197,8 +228,8 @@ export const RULES: readonly LogicGridRule[] = [
   // The T-tetromino, in any of its four rotations.
   { id: "no-dark-t", label: "No dark T", group: "arrangement" },
   { id: "no-light-t", label: "No light T", group: "arrangement" },
-  // A 2x2 holding exactly three of one colour and one of the other. The id
-  // names the majority colour first, so the dark-first pair rule holds.
+  // A 2x2 holding exactly three of one color and one of the other. The id
+  // names the majority color first, so the dark-first pair rule holds.
   {
     id: "no-three-dark-one-light",
     label: "No 3 dark + 1 light",
@@ -209,18 +240,20 @@ export const RULES: readonly LogicGridRule[] = [
     label: "No 3 light + 1 dark",
     group: "arrangement",
   },
-  // No two cells of the colour touching corner to corner — even inside one
+  // No two cells of the color touching corner to corner — even inside one
   // connected piece, so an L-bend and a filled 2x2 both break it and every
-  // region of the colour is a straight bar.
+  // region of the color is a straight bar.
   {
     id: "no-dark-diagonal",
     label: "No dark diagonal",
     group: "arrangement",
+    drawn: { squares: ["D.", ".D"] },
   },
   {
     id: "no-light-diagonal",
     label: "No light diagonal",
     group: "arrangement",
+    drawn: { squares: ["L.", ".L"] },
   },
   // Region sizes again, appended like four and five.
   {
@@ -235,7 +268,7 @@ export const RULES: readonly LogicGridRule[] = [
     group: "region",
     sized: { family: "areas", color: "light", value: 3 },
   },
-  // The first rule about the CLUES rather than the colouring: every numeric
+  // The first rule about the CLUES rather than the coloring: every numeric
   // clue — area number, dart, viewpoint — displays a value exactly one off
   // its true count, and never the truth. Drawn in the symbol band because
   // what it changes is what the symbols' numbers mean; the editor widens its
@@ -257,19 +290,21 @@ export const RULES: readonly LogicGridRule[] = [
     group: "arrangement",
   },
   // The L-tetromino: three in a row with a fourth on one END, in BOTH mirror
-  // forms — eight orientations per colour.
+  // forms — eight orientations per color.
   {
     id: "no-dark-l",
     label: "No dark L",
     group: "arrangement",
+    drawn: { squares: ["D.", "D.", "DD"] },
   },
   {
     id: "no-light-l",
     label: "No light L",
     group: "arrangement",
+    drawn: { squares: ["L.", "L.", "LL"] },
   },
-  // Two squares of the colour exactly two apart in a straight line, whatever
-  // sits between them — the other colour, undecided, or even a gap.
+  // Two squares of the color exactly two apart in a straight line, whatever
+  // sits between them — the other color, undecided, or even a gap.
   {
     id: "no-dark-any-dark",
     label: "No dark-any-dark",
@@ -306,18 +341,20 @@ export const RULES: readonly LogicGridRule[] = [
     sized: { family: "areas", color: "light", value: 7 },
   },
   // The T-tetromino again, with its CROSSING — the bar's middle, where the
-  // stem attaches — the OTHER colour and the three remaining cells the named
-  // one. The id names the crossing colour first, so the DARK T is
+  // stem attaches — the OTHER color and the three remaining cells the named
+  // one. The id names the crossing color first, so the DARK T is
   // `no-light-crossed-dark-t` — the pair in `RULE_ROW` sorts that out.
   {
     id: "no-light-crossed-dark-t",
     label: "No light-crossed dark T",
     group: "arrangement",
+    drawn: { squares: ["DLD", ".D."] },
   },
   {
     id: "no-dark-crossed-light-t",
     label: "No dark-crossed light T",
     group: "arrangement",
+    drawn: { squares: ["LDL", ".L."] },
   },
   // The T-pentomino: the same bar with a stem of TWO from its middle.
   {
@@ -342,29 +379,33 @@ export const RULES: readonly LogicGridRule[] = [
     group: "region",
     sized: { family: "areas", color: "light", value: 24 },
   },
-  // Two squares of the colour a chess knight's move apart — two in one
+  // Two squares of the color a chess knight's move apart — two in one
   // direction and one in the other. Positional like the diagonal rules.
   {
     id: "no-dark-knight",
     label: "No dark knight's move",
     group: "arrangement",
+    drawn: { squares: ["D.", "..", ".D"] },
   },
   {
     id: "no-light-knight",
     label: "No light knight's move",
     group: "arrangement",
+    drawn: { squares: ["L.", "..", ".L"] },
   },
   // The bent tromino again, with its CORNER — the square touching both
-  // others — the OTHER colour and both ends the named one.
+  // others — the OTHER color and both ends the named one.
   {
     id: "no-dark-light-dark-elbow",
     label: "No dark-light-dark elbow",
     group: "arrangement",
+    drawn: { squares: ["LD", "D."] },
   },
   {
     id: "no-light-dark-light-elbow",
     label: "No light-dark-light elbow",
     group: "arrangement",
+    drawn: { squares: ["DL", "L."] },
   },
   // Two rules about the SHAPES of whole regions, which is a thing no
   // arrangement rule can say: they relate regions arbitrarily far apart, and
@@ -385,8 +426,8 @@ export const RULES: readonly LogicGridRule[] = [
     label: "No two light regions have the same shape",
     group: "region",
   },
-  // The opposite of the pair above, and both of one colour may be on at once:
-  // together they say that colour has AT MOST ONE region, which is an ordinary
+  // The opposite of the pair above, and both of one color may be on at once:
+  // together they say that color has AT MOST ONE region, which is an ordinary
   // thing for a board to be — `connect-dark` says it on its own — and a puzzle
   // may well use the pair to tell the player exactly that. So they are two
   // independent flags, not two sides of a switch.
@@ -415,8 +456,8 @@ export function ruleAt(index: number): LogicGridRule | undefined {
  *
  * The area cap is a FORMAT limit — it keeps the value field four digits wide —
  * not a board one: an area larger than the board is still enforceable, it
- * just means the colour cannot appear at all. Absent the colour the rule
- * holds vacuously, so such a file loads and Solve empties that colour —
+ * just means the color cannot appear at all. Absent the color the rule
+ * holds vacuously, so such a file loads and Solve empties that color —
  * answering Unsolvable only where a given or clue demands it anyway. The
  * floor of 1 is real; singleton regions are a size the engine enforces.
  *
@@ -438,9 +479,9 @@ export interface RuleRowSingle {
 
 /**
  * A dark/light pair folded into one control: a shared concept label and two
- * INDEPENDENT toggle segments, so both colours can be on at once — exactly
- * the two chips this replaces. For a mixed-colour rule the segment names the
- * pattern's MAJORITY colour, and the full rule label rides on the segment as
+ * INDEPENDENT toggle segments, so both colors can be on at once — exactly
+ * the two chips this replaces. For a mixed-color rule the segment names the
+ * pattern's MAJORITY color, and the full rule label rides on the segment as
  * its accessible name.
  */
 export interface RuleRowPair {
@@ -459,8 +500,8 @@ export type SizedControlKey =
   | "area-light";
 
 /**
- * One value-field control covering a sized family for one colour: its active
- * values are the config's `areas`/`runs` entries of that colour, one small
+ * One value-field control covering a sized family for one color: its active
+ * values are the config's `areas`/`runs` entries of that color, one small
  * number field each, plus a button that appends another.
  */
 export interface SizedControlSpec {
@@ -472,7 +513,7 @@ export interface SizedControlSpec {
   readonly min: number;
   readonly max: number;
   /**
-   * Whether a SECOND value for this colour would contradict the first, and so
+   * Whether a SECOND value for this color would contradict the first, and so
    * whether the control drops its `+` once it holds one.
    *
    * The two families answer differently. Two run rules are two separate bans —
@@ -503,9 +544,15 @@ export interface RuleRowBand {
  * display-only and may be rewritten whenever the row should read differently —
  * which is exactly what `RULES` may not. `catalog.test.ts` pins the coverage
  * invariants instead of the order: every flag rule appears in exactly one
- * control, no sized rule appears at all (the four value controls carry those
- * families), every pair is dark-then-light, and each control sits in the band
- * its rules' `group` names.
+ * control, no sized and no drawn rule appears at all (the four value controls
+ * carry the sized families, and a drawn shape has no control), every pair is
+ * dark-then-light, and each control sits in the band its rules' `group` names.
+ *
+ * The patterns the player draws are NOT here and never will be: they are data,
+ * not catalog, so their chips are built from the board rather than from
+ * this. `ruleRowMarkup` closes the ARRANGEMENT band with them — a drawn shape
+ * says exactly what that band's entries say — but nothing about them is
+ * listed here.
  */
 export const RULE_ROW: readonly RuleRowBand[] = [
   {
@@ -555,7 +602,6 @@ export const RULE_ROW: readonly RuleRowBand[] = [
         dark: "no-dark-elbow",
         light: "no-light-elbow",
       },
-      { kind: "pair", label: "No L", dark: "no-dark-l", light: "no-light-l" },
       { kind: "pair", label: "No T", dark: "no-dark-t", light: "no-light-t" },
       {
         kind: "pair",
@@ -565,36 +611,9 @@ export const RULE_ROW: readonly RuleRowBand[] = [
       },
       {
         kind: "pair",
-        label: "No mixed elbow",
-        dark: "no-dark-light-dark-elbow",
-        light: "no-light-dark-light-elbow",
-      },
-      {
-        // The id names the crossing colour, so the DARK T is the
-        // `no-light-crossed-…` entry — the one place id order and segment
-        // order disagree.
-        kind: "pair",
-        label: "No crossed T",
-        dark: "no-light-crossed-dark-t",
-        light: "no-dark-crossed-light-t",
-      },
-      {
-        kind: "pair",
         label: "No 3 + 1",
         dark: "no-three-dark-one-light",
         light: "no-three-light-one-dark",
-      },
-      {
-        kind: "pair",
-        label: "No diagonal",
-        dark: "no-dark-diagonal",
-        light: "no-light-diagonal",
-      },
-      {
-        kind: "pair",
-        label: "No knight's move",
-        dark: "no-dark-knight",
-        light: "no-light-knight",
       },
       {
         kind: "pair",

@@ -5,7 +5,7 @@ A small collection of puzzle solvers for the game
 
 **→ [valle12.github.io/islands-of-insight-tools](https://valle12.github.io/islands-of-insight-tools/)**
 
-Some of the game's puzzle types are quick to recognise but slow to work out by
+Some of the game's puzzle types are quick to recognize but slow to work out by
 hand — especially the larger grids, where a wrong first move can cost several
 minutes of undoing. These tools let you recreate a puzzle you are stuck on and
 get a solution back.
@@ -19,23 +19,23 @@ JSON file and loaded again later.
 
 ### Logic Grid Solver
 
-For the grids that have to be coloured dark and light under a set of board-wide
+For the grids that have to be colored dark and light under a set of board-wide
 rules, with clues placed on individual cells. Paint the board, place the area
 numbers and letters, switch on the rules the puzzle uses, and the solver returns
 the **finished board**. Underclued puzzles are answered on their own terms: only
-the cells that hold the same colour in every solution are painted, which is
+the cells that hold the same color in every solution are painted, which is
 exactly what the game asks you to fill in.
 
 ### Match Three Solver
 
-For the grids of coloured blocks that clear when three or more line up. Paint the
+For the grids of colored blocks that clear when three or more line up. Paint the
 board with the blocks and blockades you see, and the solver returns a **sequence
 of swaps that clears the whole board**, one step at a time — each step showing
 exactly which two blocks to exchange. Most boards answer in well under a second.
 
 ### Phasic Dial Solver
 
-For the puzzles where a row of dials all has to be turned back to centre, and
+For the puzzles where a row of dials all has to be turned back to center, and
 every button turns several dials at once. Enter how many sides each dial has and
 where it currently points, then what each button does to each dial, and the
 solver returns how many times to press each button — using as few presses as it

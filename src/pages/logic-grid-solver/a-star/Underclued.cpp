@@ -13,7 +13,7 @@
 #include <vector>
 
 // An underclued board does not ask for a solution. It asks which cells hold
-// the same colour in EVERY solution — the ones a player can paint knowing they
+// the same color in EVERY solution — the ones a player can paint knowing they
 // cannot be wrong — and leaves the rest blank.
 //
 // The shape of the answer is a sandwich:
@@ -27,7 +27,7 @@
 // solutions disagree on is settled as "not forced" for good.
 //
 // Only the gap between them costs anything: for each cell still in it, the
-// colour every known solution happens to share has to be PROVED — by searching
+// color every known solution happens to share has to be PROVED — by searching
 // out the whole space with that cell painted the other way and finding
 // nothing. When a search does find something instead, the answer is not wasted:
 // it goes into the pool and knocks out every other candidate it disagrees with.

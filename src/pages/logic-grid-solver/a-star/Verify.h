@@ -4,7 +4,7 @@
 
 #include <cstdint>
 
-// The oracle: given a complete colouring, is it a solution of this puzzle?
+// The oracle: given a complete coloring, is it a solution of this puzzle?
 //
 // Deliberately INDEPENDENT of everything the search uses. It re-scans the whole
 // board per rule rather than reading the compiled clause list, and it walks
@@ -21,8 +21,8 @@ namespace lg::verify {
 
 enum class Violation : uint8_t {
   None = 0,
-  Incomplete,   ///< a playable cell was left uncoloured
-  ShapeChanged, ///< a gap took a colour, or a playable cell became a gap
+  Incomplete,   ///< a playable cell was left uncolored
+  ShapeChanged, ///< a gap took a color, or a playable cell became a gap
   GivenChanged, ///< a cell the player had already painted came back different
   Square,       ///< a forbidden 2x2
   Run,          ///< a forbidden straight run
@@ -31,54 +31,59 @@ enum class Violation : uint8_t {
   AreaSize,
   LetterSplit,  ///< one letter spread across two regions
   LetterShared, ///< two different letters inside one region
-  /// A region of a colour that must carry exactly one clue carries none.
+  /// A region of a color that must carry exactly one clue carries none.
   AreaWithoutSymbol,
   /// ...or carries more than one.
   AreaWithManySymbols,
-  /// A region is not the area its colour's area rule requires. Distinct from
+  /// A region is not the area its color's area rule requires. Distinct from
   /// `AreaSize`, which is one CLUE disagreeing with the region it sits in;
-  /// this one is about every region of a colour, clued or not.
+  /// this one is about every region of a color, clued or not.
   RegionSize,
-  /// A merged cell came back with its squares in different colours.
+  /// A merged cell came back with its squares in different colors.
   CellSplit,
   /// A dart's number does not match what its line really holds.
   DartCount,
-  /// A line of three alternating colours that a triple rule forbids.
+  /// A line of three alternating colors that a triple rule forbids.
   Triple,
-  /// A T-tetromino of one colour, in any of its four rotations.
+  /// A T-tetromino of one color, in any of its four rotations.
   Tee,
   /// A symmetry symbol's region does not map to itself across its axis.
   LotusAsymmetric,
-  /// A 2x2 of three of one colour and one of the other, forbidden by rule.
+  /// A 2x2 of three of one color and one of the other, forbidden by rule.
   ThreeOne,
-  /// Two cells of one colour touching corner to corner.
+  /// Two cells of one color touching corner to corner.
   Diagonal,
   /// A viewpoint's number does not match the squares it can see.
   ViewpointCount,
-  /// A bent tromino of one colour — a 2x2 with one square left out.
+  /// A bent tromino of one color — a 2x2 with one square left out.
   Elbow,
-  /// An L-tetromino of one colour, in either handedness.
+  /// An L-tetromino of one color, in either handedness.
   Ell,
-  /// Two cells of one colour exactly two apart in a straight line.
+  /// Two cells of one color exactly two apart in a straight line.
   DistancePair,
-  /// A T whose three arms are one colour and whose crossing is the other.
+  /// A T whose three arms are one color and whose crossing is the other.
   MixedTee,
-  /// A T-pentomino of one colour: a bar of three with a stem of two.
+  /// A T-pentomino of one color: a bar of three with a stem of two.
   LongTee,
-  /// Two cells of one colour a chess knight's move apart.
+  /// Two cells of one color a chess knight's move apart.
   Knight,
-  /// A bent tromino whose ends are one colour and whose corner is the other.
+  /// A bent tromino whose ends are one color and whose corner is the other.
   MixedElbow,
   /// A galaxy symbol's region does not map to itself under a half turn about
   /// the galaxy's own square.
   GalaxyAsymmetric,
-  /// Two regions of one colour are the same shape where the rule forbids it.
+  /// Two regions of one color are the same shape where the rule forbids it.
   /// "Same" is congruence: the eight dihedral images, so an S and a Z are one
   /// shape.
   RegionShapeRepeat,
-  /// Two regions of one colour are different shapes where the rule requires
+  /// Two regions of one color are different shapes where the rule requires
   /// every one of them congruent.
   RegionShapeMismatch,
+  /// An arrangement the player DREW occurs on the board, in some rotation or
+  /// reflection. One name for every drawn pattern rather than one per pattern:
+  /// what a board broke is the shape, which the config carries and no
+  /// enumerator could.
+  CustomPattern,
   /// Never a violation — the count `describe`'s table is asserted against, so
   /// an enumerator appended with no wording fails the build. It must stay LAST
   /// and no check may ever return it.

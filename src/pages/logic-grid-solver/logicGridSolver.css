@@ -1,6 +1,6 @@
-/* Dark and light are the puzzle's own two colours, not the app's theme, so they
+/* Dark and light are the puzzle's own two colors, not the app's theme, so they
    are fixed values rather than Material tokens: a "dark" cell has to read as
-   dark whichever theme the page is shown in. The ink colours are the pair that
+   dark whichever theme the page is shown in. The ink colors are the pair that
    keeps a clue legible on top of each of them. */
 :root {
   /* Deeper than any surface the dark theme paints behind it: at #26262e a dark
@@ -9,9 +9,9 @@
   --logic-light: #ffffff;
   --logic-ink-on-dark: #f4f4f7;
   --logic-ink-on-light: #131318;
-  /* One opaque mid grey rims BOTH colours. It is the only value that stays
+  /* One opaque mid gray rims BOTH colors. It is the only value that stays
      visible on a white cell, on a near-black one, and on either theme's card —
-     a rim mixed from the cell's own colour goes translucent and disappears. */
+     a rim mixed from the cell's own color goes translucent and disappears. */
   --logic-rim: #8a8a95;
   --logic-gap: repeating-linear-gradient(
     45deg,
@@ -21,6 +21,14 @@
   /* The space between two squares of the grid. Named because the merged-cell
      bridges have to span exactly it — a gap and a bridge that disagree leave a
      hairline through the middle of a cell. */
+  /* The fill a square of a galaxy tile takes while it holds no color: enough
+     above the well behind the grid to read as part of the tile, nowhere near
+     either playing color. */
+  --logic-blank: color-mix(
+    in srgb,
+    var(--md-sys-color-on-surface) 14%,
+    var(--md-sys-color-surface-container)
+  );
   --logic-seam: 6px;
   /* Side of one grid square. A custom property because `shapeOutline.ts` has to
      trace a merged cell at the size it is actually drawn, and that changes with
@@ -188,6 +196,23 @@ h2 {
   );
 }
 
+/* A square of a seated galaxy's tile that is NOT painted. The tile is drawn as
+   soon as one of its squares is, so the rest have to read as part of the shape
+   and plainly not a color — never borrowed from the painted one, which turned
+   three untouched squares of a corner seat solid black and stopped the board
+   saying which squares were really coloured.
+
+   Deliberately not `[data-color="unknown"]`: an unpainted MERGED cell is an
+   outline around nothing and has always looked that way. */
+.shape-outline path[data-color="blank"] {
+  fill: var(--logic-blank);
+  --cell-rim: color-mix(
+    in srgb,
+    var(--md-sys-color-on-surface) 32%,
+    var(--md-sys-color-surface-container)
+  );
+}
+
 .shape-outline path[data-color="dark"] {
   fill: var(--logic-dark);
   --cell-rim: var(--logic-rim);
@@ -254,7 +279,7 @@ h2 {
  * deliberately trimmed to a 24px box (see `.cell-arrow`), the ring bulged nine
  * pixels out of the square to wrap the overflow. An outline with a real style
  * follows the border box, and the negative offset keeps it inside the cell so
- * it can never reach across the seam to a neighbour.
+ * it can never reach across the seam to a neighbor.
  */
 .grid-cell:focus-visible {
   outline: 2px solid var(--md-sys-color-primary);
@@ -279,7 +304,11 @@ h2 {
 #grid .grid-cell.cell-join-top:hover,
 #grid .grid-cell.cell-join-right:hover,
 #grid .grid-cell.cell-join-bottom:hover,
-#grid .grid-cell.cell-join-left:hover {
+#grid .grid-cell.cell-join-left:hover,
+#grid .grid-cell.cell-pair-top:hover,
+#grid .grid-cell.cell-pair-right:hover,
+#grid .grid-cell.cell-pair-bottom:hover,
+#grid .grid-cell.cell-pair-left:hover {
   transform: none;
 }
 
@@ -369,7 +398,7 @@ h2 {
  * depends on how long the number is — a one-digit dart has eleven pixels spare
  * where a two-digit one has five, and any fixed gap suiting the first would
  * push the second out of the tile. The seats that STACK the pair keep the
- * centred default, where the tile's height is the scarce thing and the two look
+ * centered default, where the tile's height is the scarce thing and the two look
  * right close together.
  */
 [data-direction="up"],
@@ -443,12 +472,12 @@ h2 {
 /**
  * `md-icon` is a SQUARE box of its font size, and `arrow_right_alt` does not
  * fill it in either axis: measured against the loaded font, the glyph's ink is
- * **0.67** of the font size across and **0.505** down, centred, so a 28px icon
+ * **0.67** of the font size across and **0.505** down, centered, so a 28px icon
  * draws an arrow 19px long with 4.6px of nothing at each end.
  *
  * Sized by the box, that dead space is what pushes the number out to the edge
  * of the tile while the arrow appears to have room to spare — the two are
- * centred as boxes, and the boxes are not what anyone can see.
+ * centered as boxes, and the boxes are not what anyone can see.
  *
  * So `--arrow-size` is the length of the ARROW, and the two ratios below turn
  * it back into a font size and a box. Every context sets that one number, and
@@ -465,7 +494,7 @@ h2 {
   height: var(--arrow-thickness);
   overflow: visible;
   /* The glyph's advance is wider than the box it is now in, so it has to be
-     centred explicitly rather than left to start at the box's edge. */
+     centered explicitly rather than left to start at the box's edge. */
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -518,7 +547,7 @@ h2 {
  * answer's read-only grid, and the miniature on the clue kind's own chip.
  *
  * Unlike the dart there is no number sharing the tile, so the glyph is simply
- * centred and sized by `--axis-size` — the whole ICON box, since this glyph's
+ * centered and sized by `--axis-size` — the whole ICON box, since this glyph's
  * ink fills it far better than the arrow's does. The rotated ink may overhang
  * its box; the focus ring is already spelled out (see `.grid-cell`), so
  * nothing bulges to wrap it.
@@ -594,7 +623,7 @@ h2 {
  * both sides leave the crossing on a boundary between four boxes, where the
  * hit test picks none of them.
  *
- * Only while a seated clue is armed. A colour has no meaning in a seam, and
+ * Only while a seated clue is armed. A color has no meaning in a seam, and
  * widening those targets would change what a drag across the board paints.
  */
 #grid[data-seams] .grid-cell::before,
@@ -660,7 +689,7 @@ h2 {
  *
  * The chevrons are absolutely positioned at the tile's edges, so they take no
  * part in layout — `.grid-cell` is already the positioning context and keeps
- * the number centred on its own. They are painted ink with no hit target:
+ * the number centered on its own. They are painted ink with no hit target:
  * the square underneath keeps all the clicking.
  */
 .cell-chevron {
@@ -715,7 +744,7 @@ h2 {
 
 /* -------------------------------------------------------------- galaxies --
  *
- * A galaxy is ONE glyph and nothing else — `cyclone`, centred on the tile by
+ * A galaxy is ONE glyph and nothing else — `cyclone`, centered on the tile by
  * the `data-icon` presence hook at the axis glyph's size: the same
  * one-glyph-fills-the-tile situation, with no number sharing the room and no
  * rotation or seat to compose. Keyed on the class and the bare attribute
@@ -744,6 +773,106 @@ h2 {
   --galaxy-size: 20px;
 }
 
+/**
+ * A pill's seam is deliberately NOT bridged, unlike a merged cell's.
+ *
+ * `.cell-join-right::before` opens a merged cell's seams to the pointer so the
+ * whole tile is one target. A pill must not do that: its two squares hold
+ * DIFFERENT colors, so attributing the seam to the left or upper one would
+ * paint the wrong half. The 6px between them stays inert — except while a
+ * seated clue is armed, when `#grid[data-seams]` opens every seam, which is
+ * how the galaxy sitting there is placed and lifted in the first place.
+ */
+
+/**
+ * A SEATED galaxy, drawn once per square its center sits between.
+ *
+ * A seat puts the glyph's center on a grid line or a corner, so it lies across
+ * two squares or four — and those squares may be different colors, where a
+ * glyph of one color disappears into one of them. `cellView.ts` therefore
+ * stamps one copy per square, each carrying the part of the glyph it draws and
+ * the color of what is under it; these rules clip each copy to its part and
+ * ink it against that color.
+ *
+ * The copies are stacked absolutely so they COINCIDE — the cell is already
+ * `position: relative`, and stretching each to the cell's box keeps the glyph
+ * centered in it exactly as the flex centring did. That is what makes the 50%
+ * clip fall on the glyph's own center, which is where the seam is: the box and
+ * the glyph share a center, and `translate` moves clip and glyph together.
+ */
+/**
+ * A copy stretched over the whole square, so the clip below cuts at the
+ * glyph's own center.
+ *
+ * `width` and `height` are spelled out and NOT left to `inset: 0`: `md-icon`
+ * sets both from `--md-icon-size` in its own `:host` rules, and an absolutely
+ * positioned box with `left`, `right` AND a width is over-constrained — the
+ * browser drops `right` and pins the copy to the square's top-left corner.
+ * That is what put every seated galaxy up and to the left of the seam it is
+ * supposed to sit on.
+ */
+.cell-galaxy[data-part] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.cell-galaxy[data-part="left"] {
+  clip-path: inset(0 50% 0 0);
+}
+
+.cell-galaxy[data-part="right"] {
+  clip-path: inset(0 0 0 50%);
+}
+
+.cell-galaxy[data-part="top"] {
+  clip-path: inset(0 0 50% 0);
+}
+
+.cell-galaxy[data-part="bottom"] {
+  clip-path: inset(50% 0 0 0);
+}
+
+.cell-galaxy[data-part="top-left"] {
+  clip-path: inset(0 50% 50% 0);
+}
+
+.cell-galaxy[data-part="top-right"] {
+  clip-path: inset(0 0 50% 50%);
+}
+
+.cell-galaxy[data-part="bottom-left"] {
+  clip-path: inset(50% 50% 0 0);
+}
+
+.cell-galaxy[data-part="bottom-right"] {
+  clip-path: inset(50% 0 0 50%);
+}
+
+/* The ink each copy takes, named by what lies UNDER it rather than by the
+   color it ends up drawn in — so these read the same tokens the squares
+   themselves do, and there is one palette rather than two. A copy over an
+   unpainted square or a gap says nothing and inherits the cell's own ink. */
+.cell-galaxy[data-under="dark"] {
+  color: var(--logic-ink-on-dark);
+}
+
+.cell-galaxy[data-under="light"] {
+  color: var(--logic-ink-on-light);
+}
+
+/* Total rather than an invariant: a copy is only ever stamped for a tile that
+   IS drawn, where every square is dark or light, so these two should never
+   fire — but `data-under` is written from a color and a color has four
+   values, and the one thing worse than an unhandled case here is the one that
+   was already fixed once, a glyph half inheriting ink meant for the other
+   color and vanishing. Mirrors `.grid-cell[data-color="unknown"]`. */
+.cell-galaxy[data-under="unknown"],
+.cell-galaxy[data-under="unplayable"] {
+  color: var(--md-sys-color-on-surface);
+}
+
 .grid-cell[data-color="unknown"] {
   background: transparent;
   border-style: dashed;
@@ -751,7 +880,7 @@ h2 {
      cell draws its rim across several overlapping boxes — the bridge covers the
      mitred corner where each square's rim meets its own transparent joined side
      — and a translucent rim composites with itself there into a visible darker
-     tick. Mixed against the well behind the grid gives the same colour a
+     tick. Mixed against the well behind the grid gives the same color a
      translucent one was showing anyway. */
   --cell-rim: color-mix(
     in srgb,
@@ -776,7 +905,7 @@ h2 {
   color: var(--logic-ink-on-light);
 }
 
-/* A gap in the board: not a cell the puzzle colours or clues, so it is hatched
+/* A gap in the board: not a cell the puzzle colors or clues, so it is hatched
    rather than filled and never carries text. */
 .grid-cell[data-color="unplayable"] {
   background: var(--logic-gap);
@@ -784,14 +913,24 @@ h2 {
   --cell-rim: var(--md-sys-color-outline);
 }
 
-/* AFTER the colours above, and that placement is the whole point: those rules
+/* AFTER the colors above, and that placement is the whole point: those rules
    have the same specificity as this one, so a merged square would otherwise go
    on painting its own rounded fill and its corners would bite into the tile at
    every square boundary. A merged cell is drawn once, by its path. */
 .grid-cell.cell-join-top,
 .grid-cell.cell-join-right,
 .grid-cell.cell-join-bottom,
-.grid-cell.cell-join-left {
+.grid-cell.cell-join-left,
+/* A seated galaxy's squares, for the same reason and by the same means: the
+   pair is drawn as ONE outlined tile so the color changes at the edge where
+   the squares meet, which is what the game shows and what two rimmed boxes
+   with a gap between them cannot say. `cell-pair-*` is a SECOND grouping with
+   its own prefix, not the merged cells' — these squares keep their own
+   colors and their seam keeps its own hit target. */
+.grid-cell.cell-pair-top,
+.grid-cell.cell-pair-right,
+.grid-cell.cell-pair-bottom,
+.grid-cell.cell-pair-left {
   background: transparent;
   border-color: transparent;
 }
@@ -888,7 +1027,7 @@ h2 {
 /* A segment gives up its own pill — the unit around it is the pill now — and
    lights up ALONE when its rule is on: the two segments are independent
    switches, deliberately unlike the `.direction-toggle` radio look. Its
-   content is a colour SWATCH, the paint tools' own visual, smaller than
+   content is a color SWATCH, the paint tools' own visual, smaller than
    theirs so the segment stays chip-height. */
 .rule-pair .rule-chip {
   display: inline-flex;
@@ -905,7 +1044,7 @@ h2 {
   border-radius: 5px;
 }
 
-/* The tinted fill alone is too quiet behind a colour chip, so a selected
+/* The tinted fill alone is too quiet behind a color chip, so a selected
    segment also RINGS its swatch in primary — unmistakable on the dark and
    the light swatch alike, and it fits inside the segment's own padding. */
 .rule-pair .rule-chip.selected .swatch {
@@ -1039,6 +1178,203 @@ h2 {
     var(--md-sys-color-on-primary-container) 65%,
     transparent
   );
+}
+
+/* ---------------------------------------------------- drawn patterns -- */
+
+/* The drawn chips close the ARRANGEMENT band, after the catalog's own
+   controls. `display: contents` puts them in that band's flex flow rather than
+   in a box of their own, which is what keeps the `+` last however many shapes
+   there are and lets the whole band wrap as one. */
+.pattern-chips {
+  display: contents;
+}
+
+/* A drawn shape and its delete affordance, folded into one pill on the
+   `.rule-pair` recipe — same radius, same hairline between the two halves. */
+.pattern-chip {
+  --tool-radius: 12px;
+
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--tool-radius);
+  background: var(--md-sys-color-surface-container-highest);
+  overflow: hidden;
+}
+
+.pattern-chip > * {
+  --tool-inner-radius: calc(var(--tool-radius) - 1px);
+}
+
+/* Deliberately NOT `.tool-button`s: `#rule-row` carries the editor's chip
+   handler, and these stay out of its way by class, exactly as
+   `.rule-size-add` does. */
+.pattern-toggle,
+.pattern-delete {
+  border: none;
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.pattern-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 8px;
+  border-right: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.pattern-toggle.selected {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+
+.pattern-delete {
+  width: 26px;
+  padding: 0;
+  border-radius: 0 var(--tool-inner-radius) var(--tool-inner-radius) 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.pattern-toggle:focus-visible,
+.pattern-delete:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+}
+
+/* The mini grid that IS the pattern's name. Tracks are fixed, never
+   `minmax(0, 1fr)` — the same fix `#grid` and `#solution-grid` needed. */
+.pattern-preview {
+  display: grid;
+  grid-template-columns: repeat(var(--pattern-width, 1), 9px);
+  grid-template-rows: repeat(var(--pattern-height, 1), 9px);
+  gap: 1px;
+}
+
+.pattern-square {
+  border-radius: 1px;
+}
+
+/* A square the pattern does not name is drawn as the hole it is, which is how
+   the game shows its own rule icons. Nine pixels is too small for the board's
+   dashed rim to read, so here the distinction is a fainter outline beside a
+   filled neighbor rather than a different stroke. */
+.pattern-square[data-square="unknown"] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-outline-variant);
+}
+
+.pattern-square[data-square="dark"] {
+  background: var(--logic-dark);
+}
+
+.pattern-square[data-square="light"] {
+  background: var(--logic-light);
+  box-shadow: inset 0 0 0 1px var(--logic-rim);
+}
+
+/* A bare `+`, sized square so it reads as "one more of these" beside the
+   arrangement chips rather than as a control of its own. Dashed, because
+   unlike every chip beside it there is nothing to switch on yet.
+   Same reasoning as `.rule-size-add`: the row's chip handler must not see it. */
+.rule-pattern-add {
+  width: 34px;
+  border: 1px dashed var(--md-sys-color-outline-variant);
+  border-radius: 12px;
+  padding: 8px 0;
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  font-family: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.rule-pattern-add:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------- the pattern dialog -- */
+
+#pattern-intro {
+  margin: 0 0 18px;
+  max-width: 42ch;
+  font-size: 13px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+#pattern-size {
+  display: flex;
+  gap: 8px;
+  /* Enough that the grid reads as its own thing rather than as one more
+     control in the row of fields above it. */
+  margin-bottom: 22px;
+  /* The two number fields are tall and the color chips are not, so the chips
+     sit on the fields' baseline rather than floating in the middle of them. */
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+/* The armed color, drawn exactly as `#color-row`'s chips are — they are the
+   same control, and a second look would say they were not. */
+#pattern-colors {
+  gap: 4px;
+  padding-bottom: 6px;
+}
+
+#pattern-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--pattern-width, 2), 32px);
+  grid-template-rows: repeat(var(--pattern-height, 2), 32px);
+  gap: 2px;
+  justify-content: start;
+}
+
+/* The board's own idiom, because these squares mean the same three things it
+   does: a DASHED rim for a square the pattern does not name, and a solid one
+   the moment it takes a color. Without that, `light` on a light surface is
+   indistinguishable from empty — which is the one distinction the whole dialog
+   is about. */
+.pattern-cell {
+  padding: 0;
+  border: 1px dashed var(--md-sys-color-outline);
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.pattern-cell[data-square="dark"],
+.pattern-cell[data-square="light"] {
+  border-style: solid;
+  border-color: var(--logic-rim);
+}
+
+.pattern-cell[data-square="dark"] {
+  background: var(--logic-dark);
+}
+
+.pattern-cell[data-square="light"] {
+  background: var(--logic-light);
+}
+
+.pattern-cell:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 1px;
+}
+
+#pattern-error {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--md-sys-color-error);
+}
+
+#pattern-error.hidden {
+  display: none;
 }
 
 .tool-button {
@@ -1261,7 +1597,7 @@ h2 {
 }
 
 /* Exactly one is on at a time, so the aimed one has to read as chosen against
-   its three neighbours rather than merely against the row. */
+   its three neighbors rather than merely against the row. */
 .direction-toggle.selected,
 .symbol-tool.selected .direction-toggle.selected {
   background: var(--md-sys-color-primary);
@@ -1273,7 +1609,7 @@ h2 {
   outline-offset: -2px;
 }
 
-/* The two puzzle colours, shown as themselves. They sit inside the chip rather
+/* The two puzzle colors, shown as themselves. They sit inside the chip rather
    than on it so the selected-chip fill can still show around them. */
 .swatch {
   width: 24px;
@@ -1383,7 +1719,7 @@ h2 {
 
 #solution-grid-shell {
   display: flex;
-  /* `safe` for the same reason as #grid-shell: centred overflow hides its
+  /* `safe` for the same reason as #grid-shell: centered overflow hides its
      left half beyond the scrollbar's reach. */
   justify-content: safe center;
   padding: 14px;

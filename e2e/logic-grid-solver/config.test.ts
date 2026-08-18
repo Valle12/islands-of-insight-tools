@@ -6,7 +6,7 @@ import {
   CONFIG_VERSION,
   migrationNotice,
 } from "../../src/pages/logic-grid-solver/config";
-// Read rather than restated: the catalogue's upper bound moves every time a
+// Read rather than restated: the catalog's upper bound moves every time a
 // rule lands, and its INDICES moved once when the list was regrouped. A literal
 // here survives neither.
 import { RULE_COUNT, RULES } from "../../src/pages/logic-grid-solver/rules";
@@ -19,7 +19,7 @@ const ruleIndex = (id: string) => RULES.findIndex(rule => rule.id === id);
 const URL = LOGIC_GRID_URL;
 
 // A small, structurally valid config in the editor's download format. `cells`
-// carries the colour layer only — 0 unknown, 1 dark, 2 light, 3 unplayable —
+// carries the color layer only — 0 unknown, 1 dark, 2 light, 3 unplayable —
 // and the clues are a sparse list beside it. Current version, so no migration
 // banner joins the assertions below.
 const SAMPLE_CONFIG = {

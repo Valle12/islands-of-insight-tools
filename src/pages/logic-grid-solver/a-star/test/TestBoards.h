@@ -27,17 +27,25 @@
 namespace lg::test {
 
 /**
- * Aborts on a mask naming a sized bit. Since format version 2 those rules are
- * instances (`withAreaRule` / `withRunRule` below), and the engine no longer
- * reads their mask bits at all — so a test that smuggled one in would compile,
- * constrain nothing, and stay green forever. Louder than `assert` on purpose:
- * Release defines NDEBUG, which compiles an assert out, and this header also
- * builds under em++'s -fno-exceptions, which rules a `throw` out.
+ * Aborts on a mask naming a RETIRED bit. Since format version 2 the sized
+ * rules are instances (`withAreaRule` / `withRunRule` below) and since version
+ * 3 the ten rarest arrangements are drawn patterns (`withPattern`); the engine
+ * no longer reads either family's mask bits, so a test that smuggled one in
+ * would compile, constrain nothing, and stay green forever. Louder than
+ * `assert` on purpose: Release defines NDEBUG, which compiles an assert out,
+ * and this header also builds under em++'s -fno-exceptions, which rules a
+ * `throw` out.
  */
 inline rules::RuleMask flagsOnly(const rules::RuleMask mask) {
   if ((mask & rules::kSizedRuleBits) != 0) {
     std::fputs("TestBoards: a sized rule has no mask bit any more — use "
                "withAreaRule / withRunRule\n",
+               stderr);
+    std::abort();
+  }
+  if ((mask & rules::kDrawnRuleBits) != 0) {
+    std::fputs("TestBoards: a retired arrangement has no mask bit any more — "
+               "use withPattern\n",
                stderr);
     std::abort();
   }
@@ -47,11 +55,11 @@ inline rules::RuleMask flagsOnly(const rules::RuleMask mask) {
 /**
  * A puzzle from a picture, one string per row:
  *
- *   '.'      an uncoloured cell        '#'      a gap in the board
+ *   '.'      an uncolored cell        '#'      a gap in the board
  *   'D'/'L'  a cell already painted    '1'-'9'  an area number
  *   'a'-'z'  a letter clue
  *
- * A clue always lands on an uncoloured cell, which is the colourless clue the
+ * A clue always lands on an uncolored cell, which is the colorless clue the
  * game actually shows. Area numbers past nine need `withClue`.
  */
 inline Puzzle board(const std::vector<std::string> &rows,
@@ -126,7 +134,7 @@ inline void withLotus(Puzzle &puzzle, const int x, const int y, const int axis,
 
 /**
  * Puts a viewpoint on a cell: a counting clue with no direction at all — its
- * number is its own square plus the leading same-colour run along each of the
+ * number is its own square plus the leading same-color run along each of the
  * four rays. The `Clue` default direction is left standing, which is exactly
  * what `clueValueProblem` ignoring it exists to allow.
  */
@@ -138,7 +146,7 @@ inline void withViewpoint(Puzzle &puzzle, const int x, const int y,
 
 /**
  * Puts a galaxy on a cell: a symmetry clue with no value and no direction.
- * `seat` shifts its centre half a square right (bit 0) and down (bit 1), which
+ * `seat` shifts its center half a square right (bit 0) and down (bit 1), which
  * is how one sits on a grid line or a corner — and unlike a lotus's it needs
  * no merged cell under it. The `Clue` default direction is left standing,
  * exactly as the viewpoint's is.
@@ -186,7 +194,38 @@ inline void withRunRule(Puzzle &puzzle, const uint8_t color,
       std::ranges::lower_bound(puzzle.runs, rule, rules::sizedLess), rule);
 }
 
-/// A colouring as a picture: 'D' dark, 'L' light, '.' undecided, '#' a gap.
+/**
+ * A forbidden arrangement from a picture, one string per row of the box:
+ *
+ *   '.'  a square the pattern does not name
+ *   'D'  a square that must be dark      'L'  a square that must be light
+ *
+ * The same spelling `kLegacyPatterns` uses, so a shape reads the same in a
+ * test as it does in the catalog.
+ */
+inline rules::DrawnPattern pattern(const std::vector<std::string> &picture) {
+  rules::DrawnPattern drawn;
+  drawn.height = static_cast<int>(picture.size());
+  drawn.width = picture.empty() ? 0 : static_cast<int>(picture.front().size());
+  for (const std::string &row : picture) {
+    for (const char square : row) {
+      drawn.cells.push_back(square == 'D'   ? kDark
+                            : square == 'L' ? kLight
+                                            : kUnknown);
+    }
+  }
+  return drawn;
+}
+
+/// Adds one drawn pattern. Inserted in canonical order the way intake demands,
+/// so calls may layer in any order a test finds readable.
+inline void withPattern(Puzzle &puzzle, const rules::DrawnPattern &drawn) {
+  puzzle.patterns.insert(std::ranges::lower_bound(puzzle.patterns, drawn,
+                                                  rules::patternLess),
+                         drawn);
+}
+
+/// A coloring as a picture: 'D' dark, 'L' light, '.' undecided, '#' a gap.
 inline std::vector<std::string> draw(const Model &model,
                                      const Colors &colors) {
   std::vector<std::string> rows;
@@ -207,7 +246,7 @@ inline std::vector<std::string> draw(const Model &model,
   return rows;
 }
 
-/// A colouring from a picture: the inverse of `draw`. Anything that is not
+/// A coloring from a picture: the inverse of `draw`. Anything that is not
 /// 'D', 'L' or '#' is an undecided cell.
 inline Colors colors(const std::vector<std::string> &rows) {
   Colors out{};

@@ -42,7 +42,7 @@ Fixture loadFixture(const std::string &path) {
 
   // Everything downstream — replaySolves, firstIllegalMove, runVerify,
   // BitGrid::buildOccupancy — indexes anchors[goalIndex] and pairs shapes[i]
-  // with initialAnchors[i] on trust. Reject a file that cannot honour that
+  // with initialAnchors[i] on trust. Reject a file that cannot honor that
   // here, where there is still a path to report it.
   if (data.shapes.size() != data.initialAnchors.size())
     throw FixtureError(std::format("{}: {} shapes but {} anchors", path,

@@ -6,14 +6,14 @@
 
 #include <cstdint>
 
-// Singleton look-ahead: try a colour on one cell, deduce, and see whether the
+// Singleton look-ahead: try a color on one cell, deduce, and see whether the
 // board falls apart.
 //
-// This is where the game's own hand techniques come from. "Connected colours
+// This is where the game's own hand techniques come from. "Connected colors
 // must escape", "bottlenecks", "pattern near-misses", "don't trap areas",
-// "avoid incompatible colours" — every one of them is the same move, and none
-// of them has to be written down: colouring the cell the wrong way makes some
-// propagator contradict itself, so the other colour follows.
+// "avoid incompatible colors" — every one of them is the same move, and none
+// of them has to be written down: coloring the cell the wrong way makes some
+// propagator contradict itself, so the other color follows.
 namespace lg {
 
 enum class ProbeResult : uint8_t {

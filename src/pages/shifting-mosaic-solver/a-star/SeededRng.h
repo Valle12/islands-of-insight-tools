@@ -24,7 +24,7 @@
 // BenchCommands.cpp would feel), but reproducibility is the decisive one.
 //
 // Wrapping the engine keeps that argument in ONE place: the suppression below
-// covers this single declaration, and every call site stays fully analysed
+// covers this single declaration, and every call site stays fully analyzed
 // rather than carrying a suppression of its own.
 class SeededRng {
 public:

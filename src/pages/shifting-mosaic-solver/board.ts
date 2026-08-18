@@ -325,7 +325,7 @@ export class Board {
     // pointerup — a touch that turns into a system gesture arrives as
     // pointercancel instead, and the in-progress cells would be stranded with
     // `isPainting` still set. Logic-grid ends its stroke on both for the same
-    // reason. A cancelled stroke commits what it already drew, exactly as a
+    // reason. A canceled stroke commits what it already drew, exactly as a
     // released one does: those cells are drawn either way.
     const endStroke = () => {
       if (!this.isPainting) return;

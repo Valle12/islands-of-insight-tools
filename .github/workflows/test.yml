@@ -20,7 +20,7 @@ env:
   # PINNED, not `latest`. The wasm cache key below claims that identical C++
   # plus identical flags means identical wasm; that is only true if the compiler
   # is pinned too. Bumping this invalidates every wasm cache entry, which is the
-  # intended behaviour.
+  # intended behavior.
   EMSDK_VERSION: "6.0.4"
 
 jobs:

@@ -20,11 +20,21 @@ using rules::Rule;
  * re-encoding — and keeps every historical pin meaning what it always meant.
  */
 rules::Patterns patternsForMask(const rules::RuleMask mask) {
-  const auto [flags, areas, runs] = rules::splitLegacyMask(mask);
-  return rules::patternsFor(flags, areas, runs);
+  const auto [flags, areas, runs, patterns] = rules::splitLegacyMask(mask);
+  return rules::patternsFor(flags, areas, runs, patterns);
 }
 
-TEST(Rules, IndicesMirrorTheCatalogue) {
+/// Two patterns naming the same squares in the same colors, whatever order
+/// their cells were laid out in — which the builders and `addDrawn` do
+/// differently.
+bool sameCells(const rules::Pattern &a, const rules::Pattern &b) {
+  return a.count() == b.count() &&
+         std::ranges::all_of(a.cells, [&b](const rules::PatternCell &cell) {
+           return std::ranges::contains(b.cells, cell);
+         });
+}
+
+TEST(Rules, IndicesMirrorTheCatalog) {
   // These positions ARE the saved file format, so they are pinned on both sides
   // — here and in `catalog.test.ts`. The list was reordered once, before the
   // site was live and with every captured fixture rewritten in the same change;
@@ -89,7 +99,7 @@ TEST(Rules, IndicesMirrorTheCatalogue) {
   EXPECT_EQ(rules::kRuleCount, 57);
 }
 
-TEST(Rules, NamesAreTheIdsFromTheCatalogue) {
+TEST(Rules, NamesAreTheIdsFromTheCatalog) {
   EXPECT_STREQ(rules::name(Rule::NoDark2x2), "no-dark-2x2");
   EXPECT_STREQ(rules::name(Rule::NoLight1x2), "no-light-1x2");
   EXPECT_STREQ(rules::name(Rule::NoDark1x2), "no-dark-1x2");
@@ -162,7 +172,7 @@ TEST(Rules, TheShapeRulesAreNotTableRules) {
                   .empty());
 }
 
-TEST(Rules, SmallestAreaReadsOnlyItsColour) {
+TEST(Rules, SmallestAreaReadsOnlyItsColor) {
   using rules::smallestArea;
   EXPECT_EQ(smallestArea({{.color = kDark, .value = 2}}, kDark), 2);
   EXPECT_EQ(smallestArea({{.color = kDark, .value = 2}}, kLight), 0);
@@ -174,8 +184,8 @@ TEST(Rules, SmallestAreaReadsOnlyItsColour) {
 /**
  * The min, and only for `impliedRun` and `mergeLimits`, where it is sound
  * because the instances are conjunctive. What it may NOT be read as is "the
- * size a region has to be": with both sizes on for a colour the answer is
- * that the colour is absent, and a caller taking 2 from here would force
+ * size a region has to be": with both sizes on for a color the answer is
+ * that the color is absent, and a caller taking 2 from here would force
  * exactly two cells of it instead.
  */
 TEST(Rules, SmallestAreaTakesTheSmallestOfSeveral) {
@@ -208,7 +218,7 @@ TEST(Rules, SizedRuleBitsNameExactlyTheRetiredIndices) {
   EXPECT_EQ(rules::kSizedRuleBits, expected);
 }
 
-TEST(Rules, SplitLegacyMaskTranslatesAndCanonicalises) {
+TEST(Rules, SplitLegacyMaskTranslatesAndCanonicalizes) {
   using enum Rule;
   // Sized bits chosen so a straight table walk comes out UNsorted: area three
   // sits at a higher index than area four, and the light run's bit below the
@@ -217,7 +227,7 @@ TEST(Rules, SplitLegacyMaskTranslatesAndCanonicalises) {
       rules::bit(ConnectDark) | rules::bit(AreaFourDark) |
       rules::bit(AreaThreeDark) | rules::bit(AreaTwoLight) |
       rules::bit(NoLight1x2) | rules::bit(NoDark1x4);
-  const auto [flags, areas, runs] = rules::splitLegacyMask(mask);
+  const auto [flags, areas, runs, patterns] = rules::splitLegacyMask(mask);
   EXPECT_EQ(flags, rules::bit(ConnectDark));
   EXPECT_EQ(areas,
             (std::vector<rules::SizedRule>{{.color = kDark, .value = 3},
@@ -226,6 +236,105 @@ TEST(Rules, SplitLegacyMaskTranslatesAndCanonicalises) {
   EXPECT_EQ(runs,
             (std::vector<rules::SizedRule>{{.color = kDark, .value = 4},
                                            {.color = kLight, .value = 2}}));
+  EXPECT_TRUE(patterns.empty());
+}
+
+TEST(Rules, DrawnRuleBitsNameExactlyTheRetiredArrangements) {
+  // The ten v2 positions, spelled as literals for the same reason the sized
+  // set above is: this is what the intakes refuse by name and what the v3
+  // migration rewrites, pinned independently of the table that derives it.
+  rules::RuleMask expected = 0;
+  for (const int index : {28, 29, 35, 36, 43, 44, 49, 50, 51, 52})
+    expected |= rules::RuleMask{1} << index;
+  EXPECT_EQ(rules::kDrawnRuleBits, expected);
+}
+
+TEST(Rules, SplitLegacyMaskTurnsRetiredArrangementsIntoPatterns) {
+  using enum Rule;
+  const auto [flags, areas, runs, patterns] = rules::splitLegacyMask(
+      rules::bit(ConnectDark) | rules::bit(NoDarkKnight) |
+      rules::bit(NoDarkDiagonal));
+  // The retired bits leave the mask ENTIRELY, unlike a sized bit's family:
+  // `patternsFor`'s gates read rule bits and a drawn pattern has none.
+  EXPECT_EQ(flags, rules::bit(ConnectDark));
+  EXPECT_TRUE(areas.empty());
+  EXPECT_TRUE(runs.empty());
+  ASSERT_EQ(patterns.size(), 2U);
+  // Ordered by `patternLess`, so the 2x2 diagonal comes before the 2x3
+  // knight's move whatever order the enum lists them in.
+  EXPECT_EQ(patterns.front().height, 2);
+  EXPECT_EQ(patterns.back().height, 3);
+}
+
+/**
+ * The claim the whole format bump rests on: retiring the ten changed nothing
+ * about what any mask compiles to.
+ *
+ * The left side is the path a v1 mask, a fuzz seed and every historical pin in
+ * this file really take — torn apart by `splitLegacyMask`, with the shapes put
+ * back by `patternsFor`'s recognizer. The right side is the raw mask, which is
+ * what those rules compiled to while they were still bits. Swept over every
+ * retired rule against every surviving flag, because that is where the
+ * subsumption gates live: miss one and a broken shape starts scoring twice in
+ * `GenerateCommands::cost()`, which moves every generated board.
+ *
+ * Compared as SETS — `addDrawn` and the builders walk their shapes in
+ * different orders, and only membership is the claim.
+ */
+TEST(Patterns, RetirementLeftEveryMaskCompilingTheSame) {
+  const auto agree = [](const rules::RuleMask mask) {
+    const rules::Patterns viaPatterns = patternsForMask(mask);
+    const rules::Patterns viaMask = rules::patternsFor(mask, {}, {}, {});
+    if (viaPatterns.size() != viaMask.size())
+      return false;
+    return std::ranges::all_of(viaMask, [&viaPatterns](
+                                            const rules::Pattern &pattern) {
+      return std::ranges::any_of(viaPatterns,
+                                 [&pattern](const rules::Pattern &other) {
+                                   return sameCells(pattern, other);
+                                 });
+    });
+  };
+  for (const auto &entry : rules::kLegacyPatterns) {
+    const rules::RuleMask retired = rules::bit(entry.rule);
+    EXPECT_TRUE(agree(retired)) << rules::name(entry.rule);
+    for (int index = 0; index < rules::kRuleCount; index++) {
+      const auto other = static_cast<Rule>(index);
+      // The sized indices have no bit to pair with any more.
+      if (rules::has(rules::kSizedRuleBits, other))
+        continue;
+      EXPECT_TRUE(agree(retired | rules::bit(other)))
+          << rules::name(entry.rule) << " with " << rules::name(other);
+    }
+  }
+}
+
+/**
+ * And the recognizer does not overreach: a drawing that is NOT one of the ten
+ * stays out of the mask, so it neither subsumes nor is subsumed.
+ *
+ * The T is the case to state — it is a shape this file knows perfectly well,
+ * with a builder and a bit of its own, and it is deliberately not recognized.
+ * Drawing one beside `NoDark2x2` therefore lays both clause sets, where
+ * switching the T's own chip on would leave the 2x2 alone.
+ */
+TEST(Patterns, ADrawnShapeThatIsNotRetiredIsNotRecognized) {
+  const rules::DrawnPattern tee = test::pattern({"DDD", ".D."});
+  const rules::Patterns drawn =
+      rules::patternsFor(rules::bit(Rule::NoDark2x2), {}, {}, {tee});
+  // The 2x2's one pattern, plus the T's four rotations.
+  EXPECT_EQ(drawn.size(), 5U);
+}
+
+TEST(Patterns, EveryRetiredPictureFillsItsOwnBox) {
+  for (const auto &entry : rules::kLegacyPatterns) {
+    const rules::DrawnPattern drawn = rules::drawnFromLegacy(entry);
+    EXPECT_EQ(drawn.cells.size(),
+              static_cast<std::size_t>(entry.width) * entry.height)
+        << rules::name(entry.rule);
+    // Tight and non-blank, which is what both intakes demand of any pattern.
+    EXPECT_TRUE(rules::isTightBox(drawn)) << rules::name(entry.rule);
+  }
 }
 
 /**
@@ -238,8 +347,8 @@ TEST(Patterns, AnAreaOfFourAddsNoShapesBeyondItsImpliedRun) {
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::AreaFourDark));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 5);
-  EXPECT_EQ(patterns.back().count, 5);
+  EXPECT_EQ(patterns.front().count(), 5);
+  EXPECT_EQ(patterns.back().count(), 5);
 }
 
 /**
@@ -252,8 +361,8 @@ TEST(Patterns, AnAreaOfFiveImpliesARunOfSix) {
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::AreaFiveDark));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 6);
-  EXPECT_EQ(patterns.back().count, 6);
+  EXPECT_EQ(patterns.front().count(), 6);
+  EXPECT_EQ(patterns.back().count(), 6);
   EXPECT_EQ(patterns.front().cells[5].dx, 5);
   EXPECT_EQ(patterns.back().cells[5].dy, 5);
 }
@@ -265,33 +374,33 @@ TEST(Patterns, AnAreaOfThreeAddsNoShapesBeyondItsImpliedRun) {
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::AreaThreeDark));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 4);
-  EXPECT_EQ(patterns.back().count, 4);
+  EXPECT_EQ(patterns.front().count(), 4);
+  EXPECT_EQ(patterns.back().count(), 4);
   EXPECT_EQ(patterns.front().cells[3].dx, 3);
   EXPECT_EQ(patterns.back().cells[3].dy, 3);
 }
 
-/// Both sizes on one colour take the shorter implied run, and nothing else.
+/// Both sizes on one color take the shorter implied run, and nothing else.
 TEST(Patterns, TheSmallerAreaWinsTheImpliedRun) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::AreaTwoDark) | rules::bit(Rule::AreaFourDark));
   // The two straight trominoes from area two, plus its four bent ones.
   ASSERT_EQ(patterns.size(), 6U);
-  EXPECT_EQ(patterns.front().count, 3);
+  EXPECT_EQ(patterns.front().count(), 3);
 }
 
 TEST(Patterns, ASquareRuleIsOneFourCellPattern) {
   const rules::Patterns patterns = patternsForMask(rules::bit(Rule::NoDark2x2));
   ASSERT_EQ(patterns.size(), 1U);
-  EXPECT_EQ(patterns.front().count, 4);
+  EXPECT_EQ(patterns.front().count(), 4);
 }
 
 TEST(Patterns, ARunRuleIsOnePatternPerDirection) {
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::NoDark1x3));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 3);
-  EXPECT_EQ(patterns.back().count, 3);
+  EXPECT_EQ(patterns.front().count(), 3);
+  EXPECT_EQ(patterns.back().count(), 3);
 }
 
 TEST(Patterns, ShorterRunsSubsumeLongerOnes) {
@@ -300,7 +409,7 @@ TEST(Patterns, ShorterRunsSubsumeLongerOnes) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoDark1x2) | rules::bit(Rule::NoDark1x4));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 2);
+  EXPECT_EQ(patterns.front().count(), 2);
 }
 
 TEST(Patterns, TheLongestRunRuleIsFiveCellsWide) {
@@ -312,8 +421,8 @@ TEST(Patterns, TheLongestRunRuleIsFiveCellsWide) {
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::NoLight1x5));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 5);
-  EXPECT_EQ(patterns.back().count, 5);
+  EXPECT_EQ(patterns.front().count(), 5);
+  EXPECT_EQ(patterns.back().count(), 5);
   EXPECT_EQ(patterns.front().cells[4].dx, 4);
   EXPECT_EQ(patterns.back().cells[4].dy, 4);
 }
@@ -322,7 +431,7 @@ TEST(Patterns, AFiveRunIsSubsumedByEveryShorterRule) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoDark1x3) | rules::bit(Rule::NoDark1x5));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 3);
+  EXPECT_EQ(patterns.front().count(), 3);
 }
 
 TEST(Patterns, AnAreaRuleIsEveryTromino) {
@@ -333,8 +442,8 @@ TEST(Patterns, AnAreaRuleIsEveryTromino) {
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::AreaTwoDark));
   ASSERT_EQ(patterns.size(), 6U);
-  for (const auto &[cells, count] : patterns)
-    EXPECT_EQ(count, 3);
+  for (const rules::Pattern &pattern : patterns)
+    EXPECT_EQ(pattern.count(), 3);
 }
 
 TEST(Patterns, AnAreaRuleDoesNotRepeatTheRunItImplies) {
@@ -351,7 +460,7 @@ TEST(Patterns, AnAreaRuleShortensALongerRunRule) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::AreaTwoDark) | rules::bit(Rule::NoDark1x5));
   ASSERT_EQ(patterns.size(), 6U);
-  EXPECT_EQ(patterns.front().count, 3);
+  EXPECT_EQ(patterns.front().count(), 3);
 }
 
 TEST(Patterns, AForbiddenPairSubsumesEveryTromino) {
@@ -360,67 +469,68 @@ TEST(Patterns, AForbiddenPairSubsumesEveryTromino) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::AreaTwoDark) | rules::bit(Rule::NoDark1x2));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 2);
+  EXPECT_EQ(patterns.front().count(), 2);
 }
 
 /**
- * A run instance of EIGHT — past the old catalogue, at the table's exact
- * capacity. The last cell is checked by POSITION because `runPattern` writes
- * `cells[i]` with no bound of its own: were `kMaxPatternCells` ever lowered,
- * this write lands out of bounds. The intake cap `kMaxRunLength` rides the
- * same constant, which is what makes accepting eight sound at all.
+ * A run instance of EIGHT — past the old catalog, and exactly where
+ * `addRuns` stops emitting. Patterns are variable length now, so nothing here
+ * could truncate; what this pins is that the intake cap `kMaxRunLength` and
+ * the emission cap `kMaxImpliedRun` still agree, which is what makes accepting
+ * eight sound at all. Move one without the other and a run intake accepts
+ * lands with nothing enforcing it.
  */
 TEST(Patterns, ARunOfEightFillsThePattern) {
   const rules::Patterns patterns =
-      rules::patternsFor(0, {}, {{.color = kDark, .value = 8}});
+      rules::patternsFor(0, {}, {{.color = kDark, .value = 8}}, {});
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 8);
-  EXPECT_EQ(patterns.back().count, 8);
+  EXPECT_EQ(patterns.front().count(), 8);
+  EXPECT_EQ(patterns.back().count(), 8);
   EXPECT_EQ(patterns.front().cells[7].dx, 7);
   EXPECT_EQ(patterns.back().cells[7].dy, 7);
 }
 
-/// Any area of eight or more implies a run past the table's reach, so it
-/// emits nothing and `regionArea` carries the size alone — the path area
-/// twenty-four has always taken, now reachable at every size from eight up.
+/// Any area of eight or more implies a run past `kMaxImpliedRun`, so it emits
+/// nothing and `regionArea` carries the size alone — the path area twenty-four
+/// has always taken, now reachable at every size from eight up.
 TEST(Patterns, AnAreaOfEightEmitsNoPatterns) {
   EXPECT_TRUE(
-      rules::patternsFor(0, {{.color = kDark, .value = 8}}, {}).empty());
+      rules::patternsFor(0, {{.color = kDark, .value = 8}}, {}, {}).empty());
 }
 
 /**
- * The size the old catalogue never had: an area of ONE forbids any two
- * adjacent cells of the colour — its implied run of two — and adds nothing
+ * The size the old catalog never had: an area of ONE forbids any two
+ * adjacent cells of the color — its implied run of two — and adds nothing
  * else to the table (no trominoes: the pair subsumes them). The other half of
  * the rule, that an isolated possible cell must NOT be excluded, is
  * `regionArea`'s area-one gate, pinned in propagate_test.
  */
 TEST(Patterns, AnAreaOfOneImpliesARunOfTwo) {
   const rules::Patterns patterns =
-      rules::patternsFor(0, {{.color = kDark, .value = 1}}, {});
+      rules::patternsFor(0, {{.color = kDark, .value = 1}}, {}, {});
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 2);
-  EXPECT_EQ(patterns.back().count, 2);
+  EXPECT_EQ(patterns.front().count(), 2);
+  EXPECT_EQ(patterns.back().count(), 2);
 }
 
-/// Two run instances of one colour keep only the shortest — conjunctive, so
+/// Two run instances of one color keep only the shortest — conjunctive, so
 /// the shorter subsumes — exactly as the v1 rule pair did across bits.
 TEST(Patterns, TwoRunInstancesKeepTheShortest) {
   const rules::Patterns patterns = rules::patternsFor(
-      0, {}, {{.color = kDark, .value = 3}, {.color = kDark, .value = 5}});
+      0, {}, {{.color = kDark, .value = 3}, {.color = kDark, .value = 5}}, {});
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 3);
+  EXPECT_EQ(patterns.front().count(), 3);
 }
 
 TEST(Patterns, ATripleRuleIsOneMixedPatternPerDirection) {
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::NoDarkLightDark));
   ASSERT_EQ(patterns.size(), 2U);
-  for (const auto &[cells, count] : patterns) {
-    EXPECT_EQ(count, 3);
-    EXPECT_EQ(cells[0].color, kDark);
-    EXPECT_EQ(cells[1].color, kLight);
-    EXPECT_EQ(cells[2].color, kDark);
+  for (const rules::Pattern &pattern : patterns) {
+    EXPECT_EQ(pattern.count(), 3);
+    EXPECT_EQ(pattern.cells[0].color, kDark);
+    EXPECT_EQ(pattern.cells[1].color, kLight);
+    EXPECT_EQ(pattern.cells[2].color, kDark);
   }
 }
 
@@ -437,8 +547,8 @@ TEST(Patterns, ATeeRuleIsFourRotations) {
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::NoDarkT));
   ASSERT_EQ(patterns.size(), 4U);
-  for (const auto &[cells, count] : patterns)
-    EXPECT_EQ(count, 4);
+  for (const rules::Pattern &pattern : patterns)
+    EXPECT_EQ(pattern.count(), 4);
 }
 
 TEST(Patterns, AShortRunRuleSubsumesTheTee) {
@@ -449,7 +559,7 @@ TEST(Patterns, AShortRunRuleSubsumesTheTee) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoDarkT) | rules::bit(Rule::NoDark1x3));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 3);
+  EXPECT_EQ(patterns.front().count(), 3);
 }
 
 TEST(Patterns, AnAreaOfTwoSubsumesTheTee) {
@@ -466,26 +576,24 @@ TEST(Patterns, ALongerRunRuleDoesNotSubsumeTheTee) {
   EXPECT_EQ(patterns.size(), 6U);
 }
 
-TEST(Patterns, ARunOfOneColourDoesNotSubsumeTheOtherTee) {
+TEST(Patterns, ARunOfOneColorDoesNotSubsumeTheOtherTee) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoLightT) | rules::bit(Rule::NoDark1x3));
   EXPECT_EQ(patterns.size(), 6U);
 }
 
 TEST(Patterns, AThreeOneRuleIsFourMixedPatterns) {
-  // One per corner the odd cell can take, three of the colour and one of the
+  // One per corner the odd cell can take, three of the color and one of the
   // other in each.
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::NoThreeDarkOneLight));
   ASSERT_EQ(patterns.size(), 4U);
-  for (const auto &[cells, count] : patterns) {
-    ASSERT_EQ(count, 4);
-    // Only the first `count` entries are the pattern; the array's tail is
-    // default-initialised and happens to read as dark.
-    EXPECT_EQ(std::count_if(cells.begin(), cells.begin() + count,
-                            [](const auto &cell) {
-                              return cell.color == kDark;
-                            }),
+  for (const rules::Pattern &pattern : patterns) {
+    ASSERT_EQ(pattern.count(), 4);
+    EXPECT_EQ(std::ranges::count_if(pattern.cells,
+                                    [](const rules::PatternCell &cell) {
+                                      return cell.color == kDark;
+                                    }),
               3);
   }
 }
@@ -507,7 +615,7 @@ TEST(Patterns, APairRuleSubsumesTheThreeOne) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoThreeDarkOneLight) | rules::bit(Rule::NoDark1x2));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 2);
+  EXPECT_EQ(patterns.front().count(), 2);
 }
 
 TEST(Patterns, AnAreaOfTwoSubsumesTheThreeOne) {
@@ -537,7 +645,7 @@ TEST(Patterns, ADiagonalRuleSubsumesTheThreeOne) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoThreeDarkOneLight) | rules::bit(Rule::NoDarkDiagonal));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 2);
+  EXPECT_EQ(patterns.front().count(), 2);
 }
 
 TEST(Patterns, ADiagonalRuleIsTwoPatterns) {
@@ -546,10 +654,10 @@ TEST(Patterns, ADiagonalRuleIsTwoPatterns) {
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::NoDarkDiagonal));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 2);
+  EXPECT_EQ(patterns.front().count(), 2);
   EXPECT_EQ(patterns.front().cells[1].dx, 1);
   EXPECT_EQ(patterns.front().cells[1].dy, 1);
-  EXPECT_EQ(patterns.back().count, 2);
+  EXPECT_EQ(patterns.back().count(), 2);
   EXPECT_EQ(patterns.back().cells[0].dx, 1);
   EXPECT_EQ(patterns.back().cells[1].dy, 1);
 }
@@ -563,14 +671,14 @@ TEST(Patterns, TheTwoDiagonalRulesAreMirrors) {
 }
 
 TEST(Patterns, ADiagonalRuleSubsumesTheSquare) {
-  // A monochrome 2x2 contains a corner touch of its own colour.
+  // A monochrome 2x2 contains a corner touch of its own color.
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoDark2x2) | rules::bit(Rule::NoDarkDiagonal));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 2);
+  EXPECT_EQ(patterns.front().count(), 2);
 }
 
-TEST(Patterns, ADiagonalRuleOfOneColourKeepsTheOtherSquare) {
+TEST(Patterns, ADiagonalRuleOfOneColorKeepsTheOtherSquare) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoLight2x2) | rules::bit(Rule::NoDarkDiagonal));
   EXPECT_EQ(patterns.size(), 3U);
@@ -589,25 +697,25 @@ TEST(Patterns, ADiagonalRuleSubsumesTheTrominoes) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::AreaTwoDark) | rules::bit(Rule::NoDarkDiagonal));
   ASSERT_EQ(patterns.size(), 4U);
-  EXPECT_EQ(patterns[0].count, 3);
-  EXPECT_EQ(patterns[1].count, 3);
-  EXPECT_EQ(patterns[2].count, 2);
-  EXPECT_EQ(patterns[3].count, 2);
+  EXPECT_EQ(patterns[0].count(), 3);
+  EXPECT_EQ(patterns[1].count(), 3);
+  EXPECT_EQ(patterns[2].count(), 2);
+  EXPECT_EQ(patterns[3].count(), 2);
 }
 
 TEST(Patterns, ADiagonalRuleSubsumesBothCheckerboards) {
   using enum Rule;
   // A checkerboard is a dark corner touch AND a light one in the same 2x2, so
-  // whichever colour's rule is on fires first on every instance.
+  // whichever color's rule is on fires first on every instance.
   const rules::Patterns explicitRule = patternsForMask(
       rules::bit(NoCheckerboard) | rules::bit(NoDarkDiagonal));
   ASSERT_EQ(explicitRule.size(), 2U);
-  EXPECT_EQ(explicitRule.front().count, 2);
+  EXPECT_EQ(explicitRule.front().count(), 2);
   const rules::Patterns implied = patternsForMask(
       rules::bit(ConnectDark) | rules::bit(ConnectLight) |
       rules::bit(NoLightDiagonal));
   ASSERT_EQ(implied.size(), 2U);
-  EXPECT_EQ(implied.front().count, 2);
+  EXPECT_EQ(implied.front().count(), 2);
 }
 
 TEST(Patterns, ADiagonalRuleDoesNotSubsumeTheRuns) {
@@ -629,28 +737,28 @@ TEST(Patterns, TheTwoAreaRulesDoNotSubsumeEachOther) {
   EXPECT_EQ(patterns.size(), 12U);
 }
 
-TEST(Patterns, TheTwoColoursDoNotSubsumeEachOther) {
+TEST(Patterns, TheTwoColorsDoNotSubsumeEachOther) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoDark1x2) | rules::bit(Rule::NoLight1x4));
   EXPECT_EQ(patterns.size(), 4U);
 }
 
-TEST(Patterns, BothColoursConnectedImplyNoCheckerboard) {
+TEST(Patterns, BothColorsConnectedImplyNoCheckerboard) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::ConnectDark) | rules::bit(Rule::ConnectLight));
   EXPECT_EQ(patterns.size(), 2U);
 }
 
-TEST(Patterns, OneColourConnectedImpliesNothing) {
+TEST(Patterns, OneColorConnectedImpliesNothing) {
   EXPECT_TRUE(patternsForMask(rules::bit(Rule::ConnectDark)).empty());
 }
 
-TEST(Patterns, UndercluedIsNotAColouringRule) {
+TEST(Patterns, UndercluedIsNotAColoringRule) {
   EXPECT_TRUE(patternsForMask(rules::bit(Rule::Underclued)).empty());
 }
 
 TEST(Patterns, AnInstanceTouchingAGapIsDropped) {
-  // A 2x2 with a hole in it can never be "entirely one colour", so there is
+  // A 2x2 with a hole in it can never be "entirely one color", so there is
   // nothing left to forbid.
   const Model model =
       buildModel(test::board({"..", ".#"}, rules::bit(Rule::NoDark2x2)));
@@ -667,7 +775,12 @@ TEST(Patterns, ADiagonalPairInsideOneMergedCellIsAUnitClause) {
   // An L-cell holds both squares of the falling pair, so its two literals
   // collapse to one: the cell can never be dark at all. The rising pair keeps
   // its squares in different cells and stays a two-literal clause.
-  Puzzle puzzle = test::board({"..", ".."}, rules::bit(Rule::NoDarkDiagonal));
+  //
+  // Drawn rather than named — the diagonal rule retired into `patterns` in
+  // format version 3 — which also makes this the merged-cell case for a
+  // DRAWING, since `instantiate` is the same code either way.
+  Puzzle puzzle = test::board({"..", ".."});
+  test::withPattern(puzzle, test::pattern({"D.", ".D"}));
   test::withShape(puzzle, {{0, 0}, {1, 0}, {1, 1}});
   const Model model = buildModel(puzzle);
   ASSERT_EQ(model.clauses.size(), 2U);
@@ -704,8 +817,8 @@ TEST(Patterns, AnElbowRuleIsFourPatterns) {
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::NoDarkElbow));
   ASSERT_EQ(patterns.size(), 4U);
-  for (const auto &[cells, count] : patterns)
-    EXPECT_EQ(count, 3);
+  for (const rules::Pattern &pattern : patterns)
+    EXPECT_EQ(pattern.count(), 3);
 }
 
 TEST(Patterns, TheTwoElbowRulesAreMirrors) {
@@ -721,8 +834,8 @@ TEST(Patterns, AnEllRuleIsEightPatterns) {
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::NoDarkEll));
   ASSERT_EQ(patterns.size(), 8U);
-  for (const auto &[cells, count] : patterns)
-    EXPECT_EQ(count, 4);
+  for (const rules::Pattern &pattern : patterns)
+    EXPECT_EQ(pattern.count(), 4);
   EXPECT_EQ(patterns[0].cells[3].dx, 1);
   EXPECT_EQ(patterns[0].cells[3].dy, 2);
   EXPECT_EQ(patterns[1].cells[3].dx, 0);
@@ -736,10 +849,10 @@ TEST(Patterns, ADistancePairIsTwoPatterns) {
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::NoDarkAnyDark));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 2);
+  EXPECT_EQ(patterns.front().count(), 2);
   EXPECT_EQ(patterns.front().cells[1].dx, 2);
   EXPECT_EQ(patterns.front().cells[1].dy, 0);
-  EXPECT_EQ(patterns.back().count, 2);
+  EXPECT_EQ(patterns.back().count(), 2);
   EXPECT_EQ(patterns.back().cells[1].dx, 0);
   EXPECT_EQ(patterns.back().cells[1].dy, 2);
 }
@@ -748,20 +861,20 @@ TEST(Patterns, ALongTeeRuleIsFourRotations) {
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::NoDarkLongT));
   ASSERT_EQ(patterns.size(), 4U);
-  for (const auto &[cells, count] : patterns)
-    EXPECT_EQ(count, 5);
+  for (const rules::Pattern &pattern : patterns)
+    EXPECT_EQ(pattern.count(), 5);
 }
 
 TEST(Patterns, AKnightRuleIsFourPatterns) {
   // Four unordered patterns cover all eight directions, the diagonal pair's
   // trick. Two anchor with their FIRST cell off the bounding box's top-left —
-  // pinned here against a normalising refactor, since `instantiate` supports
+  // pinned here against a normalizing refactor, since `instantiate` supports
   // arbitrary non-negative offsets and these depend on it.
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::NoDarkKnight));
   ASSERT_EQ(patterns.size(), 4U);
-  for (const auto &[cells, count] : patterns)
-    EXPECT_EQ(count, 2);
+  for (const rules::Pattern &pattern : patterns)
+    EXPECT_EQ(pattern.count(), 2);
   EXPECT_EQ(patterns[1].cells[0].dx, 1);
   EXPECT_EQ(patterns[1].cells[1].dx, 0);
   EXPECT_EQ(patterns[1].cells[1].dy, 2);
@@ -775,12 +888,12 @@ TEST(Patterns, AMixedTeeRuleIsFourRotations) {
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::NoLightCrossedDarkT));
   ASSERT_EQ(patterns.size(), 4U);
-  for (const auto &[cells, count] : patterns) {
-    ASSERT_EQ(count, 4);
-    EXPECT_EQ(std::count_if(cells.begin(), cells.begin() + count,
-                            [](const auto &cell) {
-                              return cell.color == kLight;
-                            }),
+  for (const rules::Pattern &pattern : patterns) {
+    ASSERT_EQ(pattern.count(), 4);
+    EXPECT_EQ(std::ranges::count_if(pattern.cells,
+                                    [](const rules::PatternCell &cell) {
+                                      return cell.color == kLight;
+                                    }),
               1);
   }
 }
@@ -791,7 +904,7 @@ TEST(Patterns, TheTwoMixedTeeRulesAreMirrors) {
   ASSERT_EQ(patterns.size(), 4U);
   EXPECT_EQ(std::count_if(patterns.front().cells.begin(),
                           patterns.front().cells.begin() +
-                              patterns.front().count,
+                              patterns.front().count(),
                           [](const auto &cell) {
                             return cell.color == kDark;
                           }),
@@ -800,16 +913,16 @@ TEST(Patterns, TheTwoMixedTeeRulesAreMirrors) {
 
 TEST(Patterns, AMixedElbowRuleIsFourPatterns) {
   // A bent tromino with its corner flipped: three cells, exactly one of them
-  // the other colour.
+  // the other color.
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::NoDarkLightDarkElbow));
   ASSERT_EQ(patterns.size(), 4U);
-  for (const auto &[cells, count] : patterns) {
-    ASSERT_EQ(count, 3);
-    EXPECT_EQ(std::count_if(cells.begin(), cells.begin() + count,
-                            [](const auto &cell) {
-                              return cell.color == kLight;
-                            }),
+  for (const rules::Pattern &pattern : patterns) {
+    ASSERT_EQ(pattern.count(), 3);
+    EXPECT_EQ(std::ranges::count_if(pattern.cells,
+                                    [](const rules::PatternCell &cell) {
+                                      return cell.color == kLight;
+                                    }),
               1);
   }
 }
@@ -820,7 +933,7 @@ TEST(Patterns, TheTwoMixedElbowRulesAreMirrors) {
   ASSERT_EQ(patterns.size(), 4U);
   EXPECT_EQ(std::count_if(patterns.front().cells.begin(),
                           patterns.front().cells.begin() +
-                              patterns.front().count,
+                              patterns.front().count(),
                           [](const auto &cell) {
                             return cell.color == kDark;
                           }),
@@ -837,8 +950,8 @@ TEST(Patterns, AnAreaOfSixImpliesARunOfSeven) {
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::AreaSixDark));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 7);
-  EXPECT_EQ(patterns.back().count, 7);
+  EXPECT_EQ(patterns.front().count(), 7);
+  EXPECT_EQ(patterns.back().count(), 7);
   EXPECT_EQ(patterns.front().cells[6].dx, 6);
   EXPECT_EQ(patterns.back().cells[6].dy, 6);
 }
@@ -847,8 +960,8 @@ TEST(Patterns, AnAreaOfSevenImpliesARunOfEight) {
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::AreaSevenLight));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 8);
-  EXPECT_EQ(patterns.back().count, 8);
+  EXPECT_EQ(patterns.front().count(), 8);
+  EXPECT_EQ(patterns.back().count(), 8);
   EXPECT_EQ(patterns.front().cells[7].dx, 7);
   EXPECT_EQ(patterns.back().cells[7].dy, 7);
 }
@@ -865,7 +978,7 @@ TEST(Patterns, AnElbowRuleSubsumesTheSquare) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoDark2x2) | rules::bit(Rule::NoDarkElbow));
   ASSERT_EQ(patterns.size(), 4U);
-  EXPECT_EQ(patterns.front().count, 3);
+  EXPECT_EQ(patterns.front().count(), 3);
 }
 
 TEST(Patterns, AnElbowRuleSubsumesTheTee) {
@@ -873,7 +986,7 @@ TEST(Patterns, AnElbowRuleSubsumesTheTee) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoDarkT) | rules::bit(Rule::NoDarkElbow));
   ASSERT_EQ(patterns.size(), 4U);
-  EXPECT_EQ(patterns.front().count, 3);
+  EXPECT_EQ(patterns.front().count(), 3);
 }
 
 TEST(Patterns, AnElbowRuleSubsumesTheEllAndTheLongTee) {
@@ -891,7 +1004,7 @@ TEST(Patterns, AnElbowRuleSubsumesTheThreeOne) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoThreeDarkOneLight) | rules::bit(Rule::NoDarkElbow));
   ASSERT_EQ(patterns.size(), 4U);
-  EXPECT_EQ(patterns.front().count, 3);
+  EXPECT_EQ(patterns.front().count(), 3);
 }
 
 TEST(Patterns, AnAreaOfTwoDoesNotDuplicateTheElbow) {
@@ -911,7 +1024,7 @@ TEST(Patterns, AnAreaOfThreeDoesNotSubsumeTheElbow) {
       rules::bit(Rule::NoDarkElbow) | rules::bit(Rule::AreaThreeDark));
   ASSERT_EQ(patterns.size(), 6U);
   const auto bent = [](const rules::Pattern &pattern) {
-    return pattern.count == 3;
+    return pattern.count() == 3;
   };
   EXPECT_EQ(std::ranges::count_if(patterns, bent), 4);
 }
@@ -927,14 +1040,14 @@ TEST(Patterns, ADiagonalRuleSubsumesTheElbow) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoDarkElbow) | rules::bit(Rule::NoDarkDiagonal));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 2);
+  EXPECT_EQ(patterns.front().count(), 2);
 }
 
 TEST(Patterns, AForbiddenPairSubsumesTheElbow) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoDarkElbow) | rules::bit(Rule::NoDark1x2));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 2);
+  EXPECT_EQ(patterns.front().count(), 2);
 }
 
 TEST(Patterns, AShortRunRuleSubsumesTheEll) {
@@ -942,7 +1055,7 @@ TEST(Patterns, AShortRunRuleSubsumesTheEll) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoDarkEll) | rules::bit(Rule::NoDark1x3));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 3);
+  EXPECT_EQ(patterns.front().count(), 3);
 }
 
 TEST(Patterns, ALongerRunRuleDoesNotSubsumeTheEll) {
@@ -956,7 +1069,7 @@ TEST(Patterns, ADistancePairSubsumesTheEll) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoDarkEll) | rules::bit(Rule::NoDarkAnyDark));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 2);
+  EXPECT_EQ(patterns.front().count(), 2);
 }
 
 TEST(Patterns, AKnightRuleSubsumesTheEll) {
@@ -964,7 +1077,7 @@ TEST(Patterns, AKnightRuleSubsumesTheEll) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoDarkEll) | rules::bit(Rule::NoDarkKnight));
   ASSERT_EQ(patterns.size(), 4U);
-  EXPECT_EQ(patterns.front().count, 2);
+  EXPECT_EQ(patterns.front().count(), 2);
 }
 
 TEST(Patterns, AnAreaOfThreeSubsumesTheEll) {
@@ -1003,12 +1116,12 @@ TEST(Patterns, ADistancePairSubsumesTheLongRunsButNotTheDomino) {
 }
 
 TEST(Patterns, ADistancePairSubsumesTheTriple) {
-  // The triple's ends are its colour, two apart — the first subsumer the
-  // triples ever had, since nothing else names both colours.
+  // The triple's ends are its color, two apart — the first subsumer the
+  // triples ever had, since nothing else names both colors.
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoDarkLightDark) | rules::bit(Rule::NoDarkAnyDark));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 2);
+  EXPECT_EQ(patterns.front().count(), 2);
 }
 
 TEST(Patterns, TheOtherDistanceRuleKeepsTheTriple) {
@@ -1021,7 +1134,7 @@ TEST(Patterns, ADistancePairSubsumesTheTee) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoDarkT) | rules::bit(Rule::NoDarkAnyDark));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 2);
+  EXPECT_EQ(patterns.front().count(), 2);
 }
 
 TEST(Patterns, ATeeRuleSubsumesTheLongTee) {
@@ -1029,7 +1142,7 @@ TEST(Patterns, ATeeRuleSubsumesTheLongTee) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoDarkLongT) | rules::bit(Rule::NoDarkT));
   ASSERT_EQ(patterns.size(), 4U);
-  EXPECT_EQ(patterns.front().count, 4);
+  EXPECT_EQ(patterns.front().count(), 4);
 }
 
 TEST(Patterns, AnEllRuleSubsumesTheLongTee) {
@@ -1037,7 +1150,7 @@ TEST(Patterns, AnEllRuleSubsumesTheLongTee) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoDarkLongT) | rules::bit(Rule::NoDarkEll));
   ASSERT_EQ(patterns.size(), 8U);
-  EXPECT_EQ(patterns.front().count, 4);
+  EXPECT_EQ(patterns.front().count(), 4);
 }
 
 TEST(Patterns, AKnightRuleSubsumesTheLongTee) {
@@ -1045,7 +1158,7 @@ TEST(Patterns, AKnightRuleSubsumesTheLongTee) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoDarkLongT) | rules::bit(Rule::NoDarkKnight));
   ASSERT_EQ(patterns.size(), 4U);
-  EXPECT_EQ(patterns.front().count, 2);
+  EXPECT_EQ(patterns.front().count(), 2);
 }
 
 TEST(Patterns, ARunOfFourDoesNotSubsumeTheLongTee) {
@@ -1090,8 +1203,8 @@ TEST(Patterns, AKnightRuleDoesNotSubsumeTheTee) {
 }
 
 /**
- * The collinearity lemma: connect(colour) + the colour's elbow ban pin every
- * pair of the colour to one row or column, compiled as every off-axis pair —
+ * The collinearity lemma: connect(color) + the color's elbow ban pin every
+ * pair of the color to one row or column, compiled as every off-axis pair —
  * 2 orientations x 31 x 31 offsets. The first two, at offset (1,1), are the
  * diagonal patterns, pinned by position; and no three-cell pattern survives,
  * because the family subsumes the elbow's own trominoes.
@@ -1100,11 +1213,11 @@ TEST(Patterns, ConnectAndElbowCompileToCollinearPairs) {
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::ConnectDark) | rules::bit(Rule::NoDarkElbow));
   ASSERT_EQ(patterns.size(), 1922U);
-  EXPECT_EQ(patterns.front().count, 2);
+  EXPECT_EQ(patterns.front().count(), 2);
   EXPECT_EQ(patterns.front().cells[1].dx, 1);
   EXPECT_EQ(patterns.front().cells[1].dy, 1);
   EXPECT_TRUE(std::ranges::all_of(
-      patterns, [](const rules::Pattern &one) { return one.count == 2; }));
+      patterns, [](const rules::Pattern &one) { return one.count() == 2; }));
 }
 
 TEST(Patterns, AnElbowWithoutConnectKeepsItsShapes) {
@@ -1113,7 +1226,7 @@ TEST(Patterns, AnElbowWithoutConnectKeepsItsShapes) {
   const rules::Patterns patterns =
       patternsForMask(rules::bit(Rule::NoDarkElbow));
   ASSERT_EQ(patterns.size(), 4U);
-  EXPECT_EQ(patterns.front().count, 3);
+  EXPECT_EQ(patterns.front().count(), 3);
 }
 
 TEST(Patterns, TheDiagonalAndKnightMembersAreNotLaidTwice) {
@@ -1133,7 +1246,7 @@ TEST(Patterns, ATripleRuleSubsumesTheMixedTee) {
       rules::bit(Rule::NoLightCrossedDarkT) |
       rules::bit(Rule::NoDarkLightDark));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 3);
+  EXPECT_EQ(patterns.front().count(), 3);
 }
 
 TEST(Patterns, TheOtherTripleKeepsTheMixedTee) {
@@ -1145,7 +1258,7 @@ TEST(Patterns, TheOtherTripleKeepsTheMixedTee) {
 
 TEST(Patterns, ADiagonalRuleSubsumesTheMixedTee) {
   // The stem touches both bar ends corner to corner, all three the arms'
-  // colour.
+  // color.
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoLightCrossedDarkT) |
       rules::bit(Rule::NoDarkDiagonal));
@@ -1159,7 +1272,7 @@ TEST(Patterns, AMixedElbowSubsumesTheMixedTee) {
       rules::bit(Rule::NoLightCrossedDarkT) |
       rules::bit(Rule::NoDarkLightDarkElbow));
   ASSERT_EQ(patterns.size(), 4U);
-  EXPECT_EQ(patterns.front().count, 3);
+  EXPECT_EQ(patterns.front().count(), 3);
 }
 
 TEST(Patterns, ADiagonalRuleSubsumesTheMixedElbow) {
@@ -1168,7 +1281,7 @@ TEST(Patterns, ADiagonalRuleSubsumesTheMixedElbow) {
       rules::bit(Rule::NoDarkLightDarkElbow) |
       rules::bit(Rule::NoDarkDiagonal));
   ASSERT_EQ(patterns.size(), 2U);
-  EXPECT_EQ(patterns.front().count, 2);
+  EXPECT_EQ(patterns.front().count(), 2);
 }
 
 TEST(Patterns, TheOtherDiagonalKeepsTheMixedElbow) {
@@ -1184,11 +1297,11 @@ TEST(Patterns, AMixedElbowSubsumesTheThreeOne) {
       rules::bit(Rule::NoThreeDarkOneLight) |
       rules::bit(Rule::NoDarkLightDarkElbow));
   ASSERT_EQ(patterns.size(), 4U);
-  EXPECT_EQ(patterns.front().count, 3);
+  EXPECT_EQ(patterns.front().count(), 3);
 }
 
 TEST(Patterns, TheOtherMixedElbowKeepsTheThreeOne) {
-  // The near-miss: the OTHER mixed elbow's ends would be the odd colour, of
+  // The near-miss: the OTHER mixed elbow's ends would be the odd color, of
   // which a 3+1 holds only one.
   const rules::Patterns patterns = patternsForMask(
       rules::bit(Rule::NoThreeDarkOneLight) |
@@ -1199,19 +1312,19 @@ TEST(Patterns, TheOtherMixedElbowKeepsTheThreeOne) {
 TEST(Patterns, AMixedElbowSubsumesBothCheckerboards) {
   using enum Rule;
   // A checkerboard's 2x2 holds both mixed elbows, whichever diagonal carries
-  // the ends — the diagonal rules' argument one colour over.
+  // the ends — the diagonal rules' argument one color over.
   const rules::Patterns explicitRule = patternsForMask(
       rules::bit(NoCheckerboard) | rules::bit(NoDarkLightDarkElbow));
   ASSERT_EQ(explicitRule.size(), 4U);
-  EXPECT_EQ(explicitRule.front().count, 3);
+  EXPECT_EQ(explicitRule.front().count(), 3);
   const rules::Patterns implied = patternsForMask(
       rules::bit(ConnectDark) | rules::bit(ConnectLight) |
       rules::bit(NoLightDarkLightElbow));
   ASSERT_EQ(implied.size(), 4U);
-  EXPECT_EQ(implied.front().count, 3);
+  EXPECT_EQ(implied.front().count(), 3);
 }
 
-TEST(Patterns, OffByOneIsNotAColouringRule) {
+TEST(Patterns, OffByOneIsNotAColoringRule) {
   EXPECT_TRUE(patternsForMask(rules::bit(Rule::OffByOne)).empty());
 }
 
@@ -1227,8 +1340,10 @@ TEST(Patterns, ADistancePairInsideOneMergedBarIsAUnitClause) {
 
 TEST(Patterns, AKnightPairInsideOneMergedCellIsAUnitClause) {
   // An S-cell holds both squares of one knight pattern — a unit clause — while
-  // the other pattern that fits keeps its squares in different cells.
-  Puzzle puzzle = test::board({"...", "..."}, rules::bit(Rule::NoDarkKnight));
+  // the other pattern that fits keeps its squares in different cells. Drawn
+  // rather than named, like the diagonal pair above.
+  Puzzle puzzle = test::board({"...", "..."});
+  test::withPattern(puzzle, test::pattern({"D.", "..", ".D"}));
   test::withShape(puzzle, {{0, 0}, {1, 0}, {1, 1}, {2, 1}});
   const Model model = buildModel(puzzle);
   ASSERT_EQ(model.clauses.size(), 2U);

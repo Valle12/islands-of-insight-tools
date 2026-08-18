@@ -87,7 +87,7 @@ describe("validateConfig (logic grid)", () => {
   });
 
   /**
-   * A galaxy's centre may sit on a grid line or a corner, so it carries a
+   * A galaxy's center may sit on a grid line or a corner, so it carries a
    * seat — and unlike a lotus's it needs no merged cell under it. A seat of 0
    * is still omitted, the round-trip discipline every optional key follows.
    */
@@ -103,13 +103,13 @@ describe("validateConfig (logic grid)", () => {
         { x: 0, y: 0, type: galaxy, seat: 3 },
       ]);
     }
-    const centred = validateConfig({
+    const centered = validateConfig({
       ...clone(),
       symbols: [{ x: 0, y: 0, type: galaxy, seat: 0 }],
     });
-    expect(centred.ok).toBeTrue();
-    if (centred.ok) {
-      expect(centred.config.symbols).toEqual([{ x: 0, y: 0, type: galaxy }]);
+    expect(centered.ok).toBeTrue();
+    if (centered.ok) {
+      expect(centered.config.symbols).toEqual([{ x: 0, y: 0, type: galaxy }]);
     }
   });
 
@@ -282,8 +282,8 @@ describe("validateConfig (logic grid)", () => {
   test("returns the sized lists in canonical order", () => {
     const result = validateConfig({
       ...clone(),
-      // One area per colour is all the family allows, so the value-within-
-      // colour half of "canonical" is `runs`' to prove.
+      // One area per color is all the family allows, so the value-within-
+      // color half of "canonical" is `runs`' to prove.
       areas: [
         { color: "light", size: 3 },
         { color: "dark", size: 2 },
@@ -307,11 +307,11 @@ describe("validateConfig (logic grid)", () => {
     ]);
   });
 
-  /** Two AREA sizes on one colour hold together only where that colour is
+  /** Two AREA sizes on one color hold together only where that color is
    * absent from the board — all zero of its regions being both sizes at once
-   * — which is not a puzzle anyone means, so the family takes one per colour
+   * — which is not a puzzle anyone means, so the family takes one per color
    * and the file is refused by name. */
-  test("refuses two area sizes on one colour", () => {
+  test("refuses two area sizes on one color", () => {
     const result = validateConfig({
       ...clone(),
       areas: [
@@ -326,9 +326,9 @@ describe("validateConfig (logic grid)", () => {
     );
   });
 
-  /** The RUN family is the other way round: two lengths on one colour are two
+  /** The RUN family is the other way round: two lengths on one color are two
    * separate bans, both enforceable and at worst redundant. */
-  test("accepts several run lengths on one colour", () => {
+  test("accepts several run lengths on one color", () => {
     const result = validateConfig({
       ...clone(),
       runs: [
@@ -345,7 +345,7 @@ describe("validateConfig (logic grid)", () => {
   });
 
   /** An area bigger than the board still loads: it is enforceable — the
-   * colour simply cannot appear — so refusing it here would make the
+   * color simply cannot appear — so refusing it here would make the
    * validator claim what only Solve can honestly say. */
   test("accepts an area larger than the board", () => {
     const result = validateConfig({
@@ -401,7 +401,7 @@ describe("validateConfig (logic grid)", () => {
       "Every cells column must have 2 entries.",
     ],
     [
-      "a colour past unplayable",
+      "a color past unplayable",
       { ...validConfig, cells: [[1, 0], [2, 0], [0, 4]] },
       "Cells must be integers between 0 and 3 (0 unknown, 1 dark, 2 light, 3 unplayable).",
     ],
@@ -437,7 +437,7 @@ describe("validateConfig (logic grid)", () => {
       "Every areas entry must be a JSON object.",
     ],
     [
-      "an area colour outside the two",
+      "an area color outside the two",
       { ...validConfig, areas: [{ color: "red", size: 2 }] },
       'Area rule colors must be "dark" or "light".',
     ],
@@ -523,6 +523,53 @@ describe("validateConfig (logic grid)", () => {
       "Letter values must be a single letter from A to Z.",
     ],
     [
+      // A galaxy's seat puts it BETWEEN squares, so two of them can share one
+      // without sharing the square they are stored on. The game never shows
+      // it and the editor refuses to place it, so a file carrying one is
+      // refused by name rather than drawn as two pills through each other.
+      "a seated galaxy running through another galaxy",
+      {
+        ...validConfig,
+        symbols: [
+          { x: 1, y: 0, type: 5 },
+          { x: 0, y: 0, type: 5, seat: 1 },
+        ],
+      },
+      "Column 1, row 1 carries a galaxy sharing a cell with another galaxy.",
+    ],
+    [
+      "two seated galaxies sharing one square",
+      {
+        ...validConfig,
+        symbols: [
+          { x: 0, y: 0, type: 5, seat: 1 },
+          { x: 1, y: 0, type: 5, seat: 1 },
+        ],
+      },
+      "Column 2, row 1 carries a galaxy sharing a cell with another galaxy.",
+    ],
+    [
+      // Two on different SQUARES of one merged cell are two centers of
+      // rotational symmetry for one region, which no coloring can satisfy.
+      "two galaxies in one merged cell",
+      {
+        ...validConfig,
+        // Both squares of the cell one color, so the merged-cell color rule
+        // does not answer first and hide the one under test.
+        cells: [
+          [1, 0],
+          [1, 0],
+          [0, 3],
+        ],
+        symbols: [
+          { x: 0, y: 0, type: 5 },
+          { x: 1, y: 0, type: 5 },
+        ],
+        shapes: [[0, 1]],
+      },
+      "Column 2, row 1 carries a galaxy sharing a cell with another galaxy.",
+    ],
+    [
       "two symbols on one cell",
       {
         ...validConfig,
@@ -570,9 +617,9 @@ describe("validateConfig (logic grid)", () => {
       "Every merged cell must be one connected shape.",
     ],
     [
-      "a merged cell painted in two colours",
+      "a merged cell painted in two colors",
       { ...validConfig, shapes: [[0, 3]] },
-      "Column 1, row 2 is a different colour from the rest of its merged cell.",
+      "Column 1, row 2 is a different color from the rest of its merged cell.",
     ],
     [
       "a dart with no direction",
@@ -632,7 +679,7 @@ describe("validateConfig (logic grid)", () => {
       "Only a symmetry symbol carries a seat, and Area number is not one.",
     ],
     [
-      // A diagonal axis through an edge midpoint would map square centres
+      // A diagonal axis through an edge midpoint would map square centers
       // onto square corners: there is no reflection on the grid to check.
       "a diagonal symmetry on a grid-line seat",
       {
@@ -696,8 +743,8 @@ describe("validateConfig (logic grid)", () => {
   });
 
   test("accepts merged cells and keeps them", () => {
-    // Squares 3 and 4 are the two uncoloured ones in row 2: a merged cell has
-    // to agree about its colour, which is what the rejection below pins.
+    // Squares 3 and 4 are the two uncolored ones in row 2: a merged cell has
+    // to agree about its color, which is what the rejection below pins.
     const result = validateConfig({ ...clone(), shapes: [[3, 4]] });
     expect(result.ok).toBeTrue();
     if (!result.ok) return;
@@ -779,9 +826,9 @@ describe("validateConfig (logic grid)", () => {
     ]);
   });
 
-  /** A seat of 0 means the square's own centre, which is what absent means —
-   * so it normalises back to absent, exactly as an empty `shapes` does. */
-  test("normalises a seat of zero back to absent", () => {
+  /** A seat of 0 means the square's own center, which is what absent means —
+   * so it normalizes back to absent, exactly as an empty `shapes` does. */
+  test("normalizes a seat of zero back to absent", () => {
     const result = validateConfig({
       ...clone(),
       symbols: [{ x: 0, y: 0, type: 3, direction: 0, seat: 0 }],
@@ -808,7 +855,7 @@ describe("validateConfig (logic grid)", () => {
   /**
    * Absent, not `[]`. Every captured fixture predates the key, and the sweep
    * below asserts they all still round-trip byte-identically — so an empty list
-   * has to normalise back to nothing rather than appear in the download.
+   * has to normalize back to nothing rather than appear in the download.
    */
   test("omits the shapes key when a board has none", () => {
     const result = validateConfig(clone());
@@ -878,7 +925,7 @@ describe("The v1 migration", () => {
     expect(sizedIndices).toHaveLength(22);
 
     // The eight RUN indices convert together, because that family keeps its
-    // several-per-colour lists.
+    // several-per-color lists.
     const runIndices = RULES.flatMap((rule, index) =>
       rule.sized?.family === "runs" ? [index] : [],
     );
@@ -893,7 +940,7 @@ describe("The v1 migration", () => {
     ]);
 
     // The fourteen AREA indices convert one at a time, since two of them on
-    // one colour is exactly what the family no longer allows.
+    // one color is exactly what the family no longer allows.
     for (const index of sizedIndices.filter(one => !runIndices.includes(one))) {
       const { family, color, value } = RULES[index]!.sized!;
       expect(family).toBe("areas");
@@ -943,6 +990,209 @@ describe("The v1 migration", () => {
     if (!result.ok) return;
     expect("areas" in result.config).toBeFalse();
     expect("runs" in result.config).toBeFalse();
+  });
+});
+
+describe("The v2 migration", () => {
+  /** A version 2 file, as `currentConfig` wrote one before the retirement. */
+  const v2 = (rules: unknown) => ({
+    version: 2,
+    gridWidth: 3,
+    gridHeight: 2,
+    rules,
+    cells: [
+      [1, 0],
+      [2, 0],
+      [0, 3],
+    ],
+    symbols: [],
+  });
+
+  test("moves a retired arrangement into the patterns list", () => {
+    // 28 no-dark-diagonal, beside two rules that stay.
+    const result = validateConfig(v2([0, 28, 11]));
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.migratedFrom).toBe(2);
+    expect(result.config.version).toBe(CONFIG_VERSION);
+    expect(result.config.rules).toEqual([0, 11]);
+    expect(result.config.patterns).toEqual([
+      { width: 2, height: 2, cells: [1, 0, 0, 1] },
+    ]);
+  });
+
+  test("converts all ten retired indices, one at a time", () => {
+    const drawnIndices = RULES.flatMap((rule, index) =>
+      rule.drawn ? [index] : [],
+    );
+    expect(drawnIndices).toHaveLength(10);
+    for (const index of drawnIndices) {
+      const result = validateConfig(v2([index]));
+      expect(result.ok).toBeTrue();
+      if (!result.ok) return;
+      expect(result.config.rules).toEqual([]);
+      expect(result.config.patterns).toHaveLength(1);
+    }
+  });
+
+  test("writes several retired indices in canonical order", () => {
+    // 49 the knight's move (2x3), 28 the diagonal (2x2) — the shorter first
+    // however the file listed them.
+    const result = validateConfig(v2([49, 28]));
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.config.patterns?.map(pattern => pattern.height)).toEqual([
+      2, 3,
+    ]);
+  });
+
+  /** The mirrored pair are DIFFERENT shapes — one names dark squares, the
+   * other light — so a file with both keeps both. */
+  test("keeps a retired pair's two colors apart", () => {
+    const result = validateConfig(v2([28, 29]));
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.config.patterns).toHaveLength(2);
+  });
+
+  test("leaves an unknown index for the validator to name", () => {
+    expect(validateConfig(v2([28, 99]))).toEqual({
+      ok: false,
+      error: `Rules must be integers between 0 and ${RULE_COUNT - 1}.`,
+    });
+  });
+
+  /** v2 dropped keys it did not know, so a v2 file carrying `patterns` was
+   * legal and its value meant nothing — discarded rather than merged, the
+   * `areas`/`runs` precedent from the version before. */
+  test("discards a version 2 file's own patterns key", () => {
+    const result = validateConfig({ ...v2([0]), patterns: "junk" });
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect("patterns" in result.config).toBeFalse();
+  });
+
+  /** Both steps run in order, so a version 1 file arrives at version 3 with
+   * its sized indices in `areas`/`runs` AND its retired ones in `patterns`. */
+  test("a version 1 file migrates through both steps", () => {
+    const result = validateConfig({ ...v2([0, 16, 28]), version: 1 });
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.migratedFrom).toBe(1);
+    expect(result.config.rules).toEqual([0]);
+    expect(result.config.areas).toEqual([{ color: "dark", size: 2 }]);
+    expect(result.config.patterns).toHaveLength(1);
+  });
+});
+
+describe("Patterns", () => {
+  /** A plain 2x2 board, which every case below hangs a `patterns` list on. */
+  const base = () => ({
+    version: CONFIG_VERSION,
+    gridWidth: 2,
+    gridHeight: 2,
+    rules: [],
+    cells: [
+      [0, 0],
+      [0, 0],
+    ],
+    symbols: [],
+  });
+
+  /** A board with whatever `patterns` value is under test. */
+  const withPatterns = (patterns: unknown) => ({ ...base(), patterns });
+
+  const square = { width: 2, height: 2, cells: [1, 1, 1, 1] };
+  const knight = { width: 2, height: 3, cells: [1, 0, 0, 0, 0, 1] };
+
+  test("accepts a drawn shape", () => {
+    const result = validateConfig(withPatterns([square]));
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.config.patterns).toEqual([square]);
+  });
+
+  test("omits the key entirely when a board draws none", () => {
+    const result = validateConfig(base());
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect("patterns" in result.config).toBeFalse();
+  });
+
+  test("omits the key when the list is present but empty", () => {
+    const result = validateConfig(withPatterns([]));
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect("patterns" in result.config).toBeFalse();
+  });
+
+  /** Accepted in any order and canonicalized on output, the sized families'
+   * asymmetry with the two C++ intakes — which refuse a disordered list. */
+  test("sorts the list into canonical order", () => {
+    const result = validateConfig(withPatterns([knight, square]));
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.config.patterns).toEqual([square, knight]);
+  });
+
+  /** By the shape's canonical key, so one rule cannot be carried twice
+   * wearing two rotations — they forbid the same thing. */
+  test("refuses a rotation of a shape already listed", () => {
+    const turned = { width: 2, height: 3, cells: [0, 1, 0, 0, 1, 0] };
+    expect(validateConfig(withPatterns([knight, turned]))).toEqual({
+      ok: false,
+      error: "A pattern is listed more than once.",
+    });
+  });
+
+  test.each([
+    ["patterns must be an array of forbidden patterns.", "nope"],
+    ["Every patterns entry must be a JSON object.", [7]],
+    [
+      `Pattern sizes must be integers between 1 and ${MAX_GRID_SIDE}.`,
+      [{ width: 0, height: 2, cells: [] }],
+    ],
+    [
+      `Pattern sizes must be integers between 1 and ${MAX_GRID_SIDE}.`,
+      [{ width: 33, height: 1, cells: [] }],
+    ],
+    [
+      "A pattern's cells must hold one entry per square of its box.",
+      [{ width: 2, height: 2, cells: [1, 1, 1] }],
+    ],
+    // Never a gap: a pattern names squares that must hold a COLOR.
+    [
+      "Pattern squares must be 0, 1 or 2.",
+      [{ width: 2, height: 1, cells: [1, 3] }],
+    ],
+    [
+      "A pattern must name at least one square.",
+      [{ width: 2, height: 1, cells: [0, 0] }],
+    ],
+    [
+      "A pattern's box must be trimmed to the squares it names.",
+      [{ width: 2, height: 2, cells: [0, 0, 1, 1] }],
+    ],
+  ])("refuses with %s", (error, patterns) => {
+    expect(validateConfig(withPatterns(patterns))).toEqual({
+      ok: false,
+      error,
+    });
+  });
+
+  /** An INTERIOR blank row is ordinary — a knight's move has one — so only an
+   * empty EDGE makes a box untrimmed. */
+  test("accepts a blank row in the middle of a box", () => {
+    expect(validateConfig(withPatterns([knight])).ok).toBeTrue();
+  });
+
+  test.each(
+    RULES.flatMap((rule, index) => (rule.drawn ? [[rule.id, index]] : [])),
+  )("refuses the retired index %s by name", (_id, index) => {
+    expect(validateConfig({ ...base(), rules: [index] })).toEqual({
+      ok: false,
+      error: `Rule ${index} is stored in the patterns list in this format version.`,
+    });
   });
 });
 

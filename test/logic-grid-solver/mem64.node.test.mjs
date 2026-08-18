@@ -16,21 +16,21 @@ const wasmPath = join(wasmDir, "astar.mem64.wasm");
 
 // Written out rather than imported from `boards.ts`: this file runs under node,
 // which cannot load the TypeScript that everything else shares. It is the
-// `solvableBoard` from there — a 5x5 with both colours connected, no dark 2x2
+// `solvableBoard` from there — a 5x5 with both colors connected, no dark 2x2
 // and one area of nine.
 //
-// The rule and clue-kind numbers are therefore COPIES of the catalogues'
+// The rule and clue-kind numbers are therefore COPIES of the catalogs'
 // indices, and the one place in the tree where that cannot be avoided. When
 // `RULES` or `SYMBOL_KINDS` changes, these have to change with them — the
 // regroup that moved connect-dark from 2 to 11 turned this board into "no runs
-// of two of either colour", which is unsolvable, and this test is what said so.
+// of two of either color", which is unsolvable, and this test is what said so.
 //
 // The dart is here for the same reason the merged cell below is: this is the
 // only lane that sends the `direction` key without going through `toPuzzle`, so
 // a 64-bit build that could not read one fails here. What it is NOT for is
 // checking the counting — the boards in `wasm.test.ts` do that through the real
 // module — so it is aimed off the edge of the board, where its line is empty
-// and a value of zero is satisfied by every colouring. That keeps this board's
+// and a value of zero is satisfied by every coloring. That keeps this board's
 // answer exactly what it was while still refusing a missing direction.
 //
 // The viewpoint (type 4) rides along the same way. No value of one is
@@ -45,6 +45,12 @@ const BOARD = {
   // v2 is the only thing `rules` may hold: a sized index here would be
   // refused at the wasm boundary (those cross as `areas`/`runs` instances).
   rules: [0, 11, 12],
+  // One drawn pattern, and deliberately the 2x2 that rule 0 above already
+  // forbids: the board's answer is therefore exactly what it was, while the
+  // 64-bit build's `readPatterns` is made to run. Same argument as the dart —
+  // this is the only lane that sends a format key without going through
+  // `toPuzzle`, so a wasm64 build that could not read one fails here.
+  patterns: [{ width: 2, height: 2, cells: [1, 1, 1, 1] }],
   cells: Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => 0)),
   symbols: [
     { x: 2, y: 2, type: 0, value: 9 },
@@ -131,7 +137,7 @@ test(
     // a pinned board: this puzzle has many solutions, so any legal one will do.
     assert.equal(module.verify(puzzle, answer), true);
     // ...and the merged cell really did act as one: both its squares came back
-    // the same colour, which `verify` above is also entitled to refuse.
+    // the same color, which `verify` above is also entitled to refuse.
     assert.equal(answer[0], answer[1]);
   },
 );

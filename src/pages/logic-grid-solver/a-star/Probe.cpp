@@ -38,10 +38,10 @@ bool commit(const Model &model, Domains &domains, const int cell,
 }
 
 /**
- * Cells that came out the same colour whichever way the hypothesis went.
+ * Cells that came out the same color whichever way the hypothesis went.
  *
- * The case split is exhaustive — the cell is one colour or the other — so a
- * cell both branches agree on holds that colour in every solution. It costs
+ * The case split is exhaustive — the cell is one color or the other — so a
+ * cell both branches agree on holds that color in every solution. It costs
  * nothing beyond the two propagations already paid for, and it is the same
  * reasoning an underclued answer is made of, one cell deep.
  */
@@ -91,7 +91,7 @@ ProbeResult probeToFixpoint(const Model &model, Domains &domains,
   while (changed) {
     changed = false;
     // One probe per CELL. Every square of a merged cell would probe the same
-    // two colourings and reach the same conclusion, and a probe is two full
+    // two colorings and reach the same conclusion, and a probe is two full
     // propagations — the most expensive thing done per candidate here.
     const Bits candidates = domains.undecided() & model.representatives;
     for (int cell = candidates.nextSet(0); cell >= 0;

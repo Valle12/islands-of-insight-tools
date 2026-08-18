@@ -36,7 +36,7 @@ export class SolutionView {
   private readonly puzzle: Puzzle;
   private readonly turns: Turn[];
   private readonly steps: ReplayStep[];
-  /** How many turns can actually be played; the rest are shown greyed out. */
+  /** How many turns can actually be played; the rest are shown grayed out. */
   private readonly playable: number;
   private readonly solvedAtEnd: boolean;
   private viewIndex = 0;

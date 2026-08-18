@@ -82,8 +82,8 @@ private:
   uint32_t state_;
 };
 
-/// The four orthogonal neighbours of `index` that are on the board.
-void forEachNeighbour(const Model &model, const int index,
+/// The four orthogonal neighbors of `index` that are on the board.
+void forEachNeighbor(const Model &model, const int index,
                       const auto &visit) {
   const int x = columnOf(index);
   const int y = rowOf(index);
@@ -97,8 +97,8 @@ void forEachNeighbour(const Model &model, const int index,
     visit(cellIndex(x, y + 1));
 }
 
-/// Every cell that may take `color`: playable, and either uncoloured already or
-/// given that very colour.
+/// Every cell that may take `color`: playable, and either uncolored already or
+/// given that very color.
 Bits roomFor(const Model &model, const uint8_t color) {
   Bits room;
   for (int i = model.playable.nextSet(0); i >= 0;
@@ -129,7 +129,7 @@ struct Board {
  *
  * A cell another net CLAIMS is the real collision and is charged in full. A
  * cell merely BESIDE another net's claim is charged half: taking it would make
- * the two regions touch, which is just as fatal — two regions of one colour
+ * the two regions touch, which is just as fatal — two regions of one color
  * that meet ARE one region — but it is a weaker signal, since a route usually
  * has somewhere else to go. Charging a halo like an overlap prices most of the
  * board out of reach and measurably stops the router settling.
@@ -149,7 +149,7 @@ int pressureAt(const Board &board, const int cell, const int self) {
 
 /**
  * Everything one round of routing holds fixed: the puzzle, the board being
- * built, the cells any net of this colour may use, the nets themselves and
+ * built, the cells any net of this color may use, the nets themselves and
  * their terminals, and how dearly this round charges for a cell another net
  * wants.
  *
@@ -186,8 +186,8 @@ std::vector<int> shortestPath(const Round &round, const int self,
   // a wrapped negative distance would break the one invariant Dijkstra has —
   // late rounds would re-relax cells forever without making progress.
   constexpr int64_t kUnreached = INT64_MAX;
-  std::vector<int64_t> dist(kMaxCells, kUnreached);
-  std::vector<int> prev(kMaxCells, -1);
+  std::vector dist(kMaxCells, kUnreached);
+  std::vector prev(kMaxCells, -1);
   // A bucket queue would be tighter, but the cells are few and the costs are
   // small integers; a sorted scan of the open set is simpler to read and never
   // showed up beside the flood fills.
@@ -209,7 +209,7 @@ std::vector<int> shortestPath(const Round &round, const int self,
       reached = cell;
       break;
     }
-    forEachNeighbour(round.model, cell,
+    forEachNeighbor(round.model, cell,
                      [&round, &otherTerminals, &dist, &prev, &open, self,
                       cell](const int next) {
       if (!round.room.test(next))
@@ -251,6 +251,11 @@ std::vector<int> shortestPath(const Round &round, const int self,
 /// Rebuilds one net's claim from scratch: its terminals, joined one at a time
 /// through the cheapest cells left.
 bool routeNet(const Round &round, const int self) {
+  // Deliberately NOT a structured binding, though CLion offers one here:
+  // SonarLint reads `const auto &[terminals] = round.nets[i]` as a call on an
+  // uninitialized object and warns, and a false warning on the hot arm costs
+  // more than the hint is worth. The two analyzers disagree; this spelling is
+  // the one both accept.
   const Net &net = round.nets[slot(self)];
   Bits mine;
   mine.set(net.terminals.front());
@@ -277,16 +282,16 @@ bool routeNet(const Round &round, const int self) {
 }
 
 /// One round: every net torn up and rerouted in `order`. False when a net has
-/// nowhere to go at all, which means this colour cannot work on this board
+/// nowhere to go at all, which means this color cannot work on this board
 /// whatever the congestion — there is no point rerouting.
 bool routeRound(const Round &round, const std::vector<int> &order) {
   return std::ranges::all_of(
       order, [&round](const int self) { return routeNet(round, self); });
 }
 
-/// The colouring a finished routing describes: every claimed cell takes the
-/// nets' colour, every given keeps itself, and everything else takes the other
-/// colour.
+/// The coloring a finished routing describes: every claimed cell takes the
+/// nets' color, every given keeps itself, and everything else takes the other
+/// color.
 Colors paint(const Model &model, const Board &board, const uint8_t color) {
   Colors colors{};
   colors.fill(kUnplayable);
@@ -317,11 +322,11 @@ bool separated(const Board &board) {
 }
 
 /// Every terminal of every net, or false when one of them is off `room` — a
-/// letter the puzzle already paints the other colour, which no routing fixes.
+/// letter the puzzle already paints the other color, which no routing fixes.
 bool gatherTerminals(const std::vector<Net> &nets, const Bits &room,
                      Bits &allTerminals) {
-  for (const Net &net : nets) {
-    for (const int cell : net.terminals) {
+  for (const auto &[terminals] : nets) {
+    for (const int cell : terminals) {
       if (!room.test(cell))
         return false;
       allTerminals.set(cell);
@@ -342,7 +347,7 @@ void chargeContested(Board &board) {
   }
 }
 
-/// One colour's worth of routing: every net light, or every net dark.
+/// One color's worth of routing: every net light, or every net dark.
 bool routeAll(const Model &model, const std::vector<Net> &nets,
               const uint8_t color, Budget &budget, Colors &answer) {
   const Bits room = roomFor(model, color);
@@ -360,7 +365,7 @@ bool routeAll(const Model &model, const std::vector<Net> &nets,
     // starting over with a different visiting order costs one round.
     Board board{.claimed = std::vector<Bits>(nets.size()),
                 .halo = std::vector<Bits>(nets.size()),
-                .history = std::vector<int>(kMaxCells, 0)};
+                .history = std::vector(kMaxCells, 0)};
     Shuffler shuffler(0x9E3779B9U ^ (static_cast<uint32_t>(color) << 16U) ^
                       static_cast<uint32_t>(restart + 1));
 
@@ -394,7 +399,7 @@ bool applicable(const Model &model) {
   if (model.hasShapes)
     return false;
   if (model.puzzle.ruleMask != 0 || !model.puzzle.areas.empty() ||
-      !model.puzzle.runs.empty())
+      !model.puzzle.runs.empty() || !model.puzzle.patterns.empty())
     return false;
   if (std::ranges::any_of(model.puzzle.clues, [](const Clue &clue) {
         return clue.kind != kClueLetter;
@@ -414,7 +419,7 @@ Outcome runRouting(const Model &model, const Config &cfg) {
   for (const LetterGroup &group : model.letters)
     nets.push_back({.terminals = group.cells});
 
-  // Both colours, because which one the letters take is the puzzle's to say:
+  // Both colors, because which one the letters take is the puzzle's to say:
   // the captured lattice wants them light, and its own complement wants them
   // dark. Light first only because a board of givens is usually mostly dark.
   for (const uint8_t color : {kLight, kDark}) {

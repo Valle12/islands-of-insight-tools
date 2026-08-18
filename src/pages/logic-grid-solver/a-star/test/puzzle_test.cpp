@@ -78,7 +78,7 @@ TEST(Shapes, ACellMayCarryACluePerSquare) {
   EXPECT_EQ(structureProblem(puzzle), Problem::None);
 }
 
-TEST(Shapes, ACellPaintedInTwoColoursIsRejected) {
+TEST(Shapes, ACellPaintedInTwoColorsIsRejected) {
   // `applyGivens` would assign both and come back "unsolvable" with nothing
   // pointing at why, so this is named rather than merely refuted.
   Puzzle puzzle = test::board({"DL.", "...", "..."});
@@ -154,16 +154,16 @@ TEST(Shapes, TwoSquaresOfOneCellCollapseToOneLiteral) {
   const auto collapsed = std::ranges::find_if(
       clauses, [](const Clause &clause) { return clause.count == 1; });
   ASSERT_NE(collapsed, clauses.end());
-  EXPECT_EQ(collapsed->cells[0], cellIndex(0, 0));
-  EXPECT_EQ(collapsed->colors[0], kDark);
+  EXPECT_EQ(model.literals(*collapsed).front(), cellIndex(0, 0));
+  EXPECT_EQ(model.colorsOf(*collapsed).front(), kDark);
 
   // And the plain row below it still compiles to the full three literals.
   EXPECT_TRUE(std::ranges::any_of(
       clauses, [](const Clause &clause) { return clause.count == 3; }));
 }
 
-TEST(Shapes, ACellSpanningBothColoursOfAPatternDropsTheInstance) {
-  // The checkerboard pattern wants (0,0) and (1,1) one colour and (1,0), (0,1)
+TEST(Shapes, ACellSpanningBothColorsOfAPatternDropsTheInstance) {
+  // The checkerboard pattern wants (0,0) and (1,1) one color and (1,0), (0,1)
   // the other. A cell holding (0,0) and (1,0) would have to be both, so that
   // arrangement cannot occur and there is nothing to forbid.
   const Puzzle plain =
@@ -189,12 +189,10 @@ TEST(Shapes, AClauseReachesAMergedCellThroughOneSquareOnly) {
   const Model model = buildModel(puzzle);
 
   for (const Clause &clause : model.clauses) {
-    int mentions = 0;
-    for (int i = 0; i < clause.count; i++) {
-      if (model.shapeAt[slot(clause.cells[slot(i)])] >= 0)
-        mentions++;
-    }
-    EXPECT_LE(mentions, 1);
+    const auto merged = std::ranges::count_if(
+        model.literals(clause),
+        [&model](const int cell) { return model.shapeAt[slot(cell)] >= 0; });
+    EXPECT_LE(merged, 1);
   }
   EXPECT_GT(clausesOver(model, cellIndex(1, 1)), 0);
   // And nothing under the second square: a duplicate entry there would satisfy
@@ -227,7 +225,7 @@ TEST(Darts, ADirectionOutsideTheFourIsRefused) {
 }
 
 /// Zero is a real dart, unlike an area of zero — it says the whole line holds
-/// the dart's own colour, which is one of the two that fill in immediately.
+/// the dart's own color, which is one of the two that fill in immediately.
 TEST(Darts, ZeroIsAValidNumber) {
   Puzzle puzzle = test::board(open());
   test::withDart(puzzle, 0, 0, 0, kDirRight);
@@ -271,7 +269,7 @@ TEST(Darts, TheLineRunsToTheEdgeAndStepsOverGaps) {
 /**
  * The dart's own cell is taken out of its line, and that is a correctness
  * requirement rather than a tightening: left in, "the line is exactly full"
- * would assign the other colour to one of the dart's own squares, `Domains::
+ * would assign the other color to one of the dart's own squares, `Domains::
  * exclude` would fan that over the whole cell, and the dart would refute
  * itself. Out, the line's length is also exactly the largest legal number.
  */
@@ -335,7 +333,7 @@ TEST(Lotuses, ASeatOutsideTheFourIsRefused) {
 }
 
 /// A plain cell has nothing between squares to sit on.
-TEST(Lotuses, ASeatOffTheCentreNeedsAMergedCell) {
+TEST(Lotuses, ASeatOffTheCenterNeedsAMergedCell) {
   Puzzle puzzle = test::board(open());
   test::withLotus(puzzle, 1, 1, kAxisHorizontal, 2);
   EXPECT_EQ(structureProblem(puzzle), Problem::LotusSeat);
@@ -355,7 +353,7 @@ TEST(Lotuses, ASeamSeatNeedsBothItsSquaresInOneCell) {
   EXPECT_EQ(structureProblem(bad), Problem::LotusSeat);
 }
 
-/// Three of the corner's four squares is enough — a 2x2 block's centre has
+/// Three of the corner's four squares is enough — a 2x2 block's center has
 /// four, and an L-tromino's natural middle is the corner it wraps.
 TEST(Lotuses, ACornerSeatNeedsThreeOfItsFourSquares) {
   Puzzle ell = test::board(open());
@@ -369,9 +367,9 @@ TEST(Lotuses, ACornerSeatNeedsThreeOfItsFourSquares) {
   EXPECT_EQ(structureProblem(domino), Problem::LotusSeat);
 }
 
-/// A diagonal axis through an edge midpoint would map square centres onto
+/// A diagonal axis through an edge midpoint would map square centers onto
 /// square CORNERS: there is no reflection on the grid, so the combination is
-/// refused rather than defined. The centre and the corner both carry it.
+/// refused rather than defined. The center and the corner both carry it.
 TEST(Lotuses, ADiagonalAxisRefusesASeamSeat) {
   Puzzle seam = test::board(open());
   test::withShape(seam, {{1, 1}, {2, 1}});
@@ -394,13 +392,13 @@ TEST(Lotuses, ASeatOnAnyOtherKindIsRefused) {
   EXPECT_EQ(structureProblem(puzzle), Problem::SeatOnWrongKind);
 }
 
-/// Every square of the lotus's own cell is in its region whatever the colours,
-/// so a member reflecting off the board is unsolvable before any colouring —
+/// Every square of the lotus's own cell is in its region whatever the colors,
+/// so a member reflecting off the board is unsolvable before any coloring —
 /// named, like a dart outgrowing its own line.
 TEST(Lotuses, AnOwnCellMirrorOffTheBoardIsNamed) {
   Puzzle puzzle = test::board({"..", ".."});
   test::withShape(puzzle, {{0, 0}, {0, 1}});
-  // The axis runs through the TOP square's centre, so the cell's own lower
+  // The axis runs through the TOP square's center, so the cell's own lower
   // square reflects above the board.
   test::withLotus(puzzle, 0, 0, kAxisHorizontal);
   ASSERT_EQ(structureProblem(puzzle), Problem::None);
@@ -422,7 +420,7 @@ TEST(Lotuses, ALotusIsOnlyASymbol) {
   EXPECT_GE(model.clueAt[slot(cellIndex(1, 1))], 0);
 }
 
-/// The precomputed map is pure geometry: the centre square of a 3x3 under a
+/// The precomputed map is pure geometry: the center square of a 3x3 under a
 /// horizontal axis swaps the rows above and below and keeps its own.
 TEST(Lotuses, TheMirrorMapReflectsAcrossTheAxis) {
   Puzzle puzzle = test::board(open());
@@ -514,7 +512,7 @@ TEST(Viewpoints, TheRaysStopAtGaps) {
 }
 
 /// Unlike a dart's line, the rays KEEP the squares of the clue's own cell: a
-/// viewpoint counts its own colour, which its cell holds by definition.
+/// viewpoint counts its own color, which its cell holds by definition.
 TEST(Viewpoints, TheRaysKeepTheOwnCellsSquares) {
   Puzzle puzzle = test::board({"....."});
   test::withShape(puzzle, {{0, 0}, {1, 0}});
@@ -559,7 +557,7 @@ TEST(Galaxies, AValueIsRefused) {
   EXPECT_EQ(structureProblem(puzzle), Problem::GalaxyValue);
 }
 
-/// A galaxy's centre may sit on a grid line or a corner, so a seat is accepted
+/// A galaxy's center may sit on a grid line or a corner, so a seat is accepted
 /// — and unlike a lotus's it needs no merged cell under it, because a half
 /// turn about a point needs nothing to hold the point up.
 TEST(Galaxies, ASeatIsAcceptedWithNoMergedCell) {
@@ -590,6 +588,51 @@ TEST(Galaxies, ASeatOffTheBoardIsNamed) {
   test::withGalaxy(bottomEdge, 1, 2);
   bottomEdge.clues.back().seat = 2;
   EXPECT_EQ(structureProblem(bottomEdge), Problem::GalaxySeatOffBoard);
+}
+
+/**
+ * No two galaxies on one square.
+ *
+ * A seat puts a galaxy BETWEEN squares, so two of them can share one without
+ * sharing the square they are stored on — which is why this is a whole-puzzle
+ * check and not a per-clue one. The page refuses to place either arrangement,
+ * so a file carrying one is refused here rather than read and drawn as two
+ * tiles through each other.
+ */
+TEST(Galaxies, TwoOnOneSquareAreNamed) {
+  Puzzle centered = test::board(open());
+  test::withGalaxy(centered, 1, 1);
+  test::withGalaxy(centered, 0, 1);
+  centered.clues.back().seat = 1;
+  EXPECT_EQ(structureProblem(centered), Problem::GalaxiesShareACell);
+
+  Puzzle seated = test::board({"....", "....", "....", "...."});
+  test::withGalaxy(seated, 0, 1);
+  seated.clues.back().seat = 1;
+  test::withGalaxy(seated, 1, 1);
+  seated.clues.back().seat = 1;
+  EXPECT_EQ(structureProblem(seated), Problem::GalaxiesShareACell);
+}
+
+/// Two on different squares of ONE merged cell are two centers of rotational
+/// symmetry for a single region, which no coloring can satisfy — and no check
+/// that looks at squares alone can see it.
+TEST(Galaxies, TwoInOneMergedCellAreNamed) {
+  Puzzle puzzle = test::board(open());
+  test::withShape(puzzle, {{0, 0}, {1, 0}});
+  test::withGalaxy(puzzle, 0, 0);
+  test::withGalaxy(puzzle, 1, 0);
+  EXPECT_EQ(structureProblem(puzzle), Problem::GalaxiesShareACell);
+}
+
+/// Touching is not sharing: two galaxies side by side are an ordinary board.
+TEST(Galaxies, TwoThatOnlyTouchAreFine) {
+  Puzzle puzzle = test::board({"....", "....", "....", "...."});
+  test::withGalaxy(puzzle, 0, 1);
+  puzzle.clues.back().seat = 1;
+  test::withGalaxy(puzzle, 2, 1);
+  puzzle.clues.back().seat = 1;
+  EXPECT_EQ(structureProblem(puzzle), Problem::None);
 }
 
 /// A galaxy seated beside a GAP loads: the board is unsolvable, and the solver

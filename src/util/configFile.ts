@@ -3,7 +3,7 @@
 // a file picker, and a drop target anywhere on the page. Only the *validation*
 // of the parsed JSON differs per puzzle, so that stays with each page.
 
-/** Serialises a config to pretty-printed JSON and triggers a download. */
+/** Serializes a config to pretty-printed JSON and triggers a download. */
 export function downloadJson(data: unknown, filename: string) {
   const json = JSON.stringify(data, null, 2);
   const blob = new Blob([json], { type: "application/json" });
@@ -79,7 +79,7 @@ export function setupDragAndDrop(
   window.addEventListener("drop", event => {
     if (!hasFiles(event)) return;
     // dragover already accepted this drop, so the default action (the browser
-    // navigating to the dropped file) must be cancelled even when the payload
+    // navigating to the dropped file) must be canceled even when the payload
     // turns out to hold no readable file.
     event.preventDefault();
     dragDepth = 0;

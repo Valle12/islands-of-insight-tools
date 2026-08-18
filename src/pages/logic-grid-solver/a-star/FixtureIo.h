@@ -36,12 +36,12 @@ public:
  * that raises the version. An older file reaching them means that rewrite was
  * missed, so it is refused rather than guessed at.
  */
-inline constexpr int kConfigVersion = 2;
+inline constexpr int kConfigVersion = 3;
 
 struct Fixture {
   Puzzle puzzle;
   /**
-   * The colouring `--generate` derived the clues from, when the file carries
+   * The coloring `--generate` derived the clues from, when the file carries
    * one under an optional `solution` key.
    *
    * The page's validator drops keys it does not know, so a generated fixture

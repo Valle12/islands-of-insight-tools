@@ -49,7 +49,7 @@ export const PORTFOLIO: Record<string, unknown>[] = [
   // A beam far wider than the arm's own ladder goes, for boards where the
   // frontier is what runs out rather than the budget.
   { engine: "beam", beamWidth: 8192, maxMs: SOLVE_BUDGET_MS },
-  // A second draw at test50's favourite config, 15.9 s.
+  // A second draw at test50's favorite config, 15.9 s.
   { engine: "nrpa", seed: 5, nrpaLevel: 2, nrpaIterations: 100, maxMs: SOLVE_BUDGET_MS },
 ];
 
@@ -125,7 +125,7 @@ export function searchMatchThreeWasm(
   // Every arm always runs: the pool bounds how many go at once, never which
   // ones exist. The list collapses only where one module races the same arms
   // itself — on an isolated page, or on a machine with a single slot, where
-  // spawning them one at a time would just serialise the portfolio.
+  // spawning them one at a time would just serialize the portfolio.
   const isolated = crossOriginIsolatedPage();
   const configs =
     isolated || armPoolSize(PORTFOLIO.length) === 1

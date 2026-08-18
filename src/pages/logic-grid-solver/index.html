@@ -130,7 +130,7 @@
           <div id="tool-status">Selected tool: Dark · Right-click: Light</div>
 
           <!-- One row per kind of tool, in the order they are reached for:
-               what clears the board, what colours it, then what clues it.
+               what clears the board, what colors it, then what clues it.
                Every button here carries `data-tool`, which is how the editor
                tells them from the clue chips sharing the same class. -->
           <div id="paint-tools">
@@ -155,7 +155,7 @@
               </button>
             </div>
 
-            <div id="color-row" class="tool-row" aria-label="Cell colours">
+            <div id="color-row" class="tool-row" aria-label="Cell colors">
               <button
                 class="tool-button icon-tool"
                 data-tool="dark"
@@ -293,6 +293,72 @@
           <div slot="actions">
             <md-text-button id="reset-cancel">Cancel</md-text-button>
             <md-filled-button id="reset-confirm">Reset</md-filled-button>
+          </div>
+        </md-dialog>
+
+        <!-- Drawing a forbidden pattern. Wired inline rather than through
+             `editorShell`'s reset helpers: there is nothing to confirm, so it
+             follows the phasic dial page's help dialog instead. -->
+        <md-dialog id="pattern-dialog">
+          <div slot="headline">New forbidden pattern</div>
+          <div slot="content">
+            <p id="pattern-intro">
+              Draw a shape this puzzle never allows. Left click paints the
+              selected color and right click the other; clicking the color a
+              square already holds clears it. Only the squares you color are
+              part of the pattern.
+            </p>
+            <div id="pattern-size">
+              <md-outlined-text-field
+                id="pattern-width"
+                type="number"
+                label="Width"
+                value="2"
+                min="1"
+                max="32"
+              ></md-outlined-text-field>
+              <md-outlined-text-field
+                id="pattern-height"
+                type="number"
+                label="Height"
+                value="2"
+                min="1"
+                max="32"
+              ></md-outlined-text-field>
+              <!-- The color the left button paints, exactly as `#color-row`
+                   arms the board's. The right button clears whatever it finds,
+                   which is why there is no eraser here. -->
+              <div id="pattern-colors" class="tool-row" role="group"
+                aria-label="Pattern color">
+                <button
+                  class="tool-button icon-tool pattern-color selected"
+                  data-pattern-color="dark"
+                  type="button"
+                  title="Dark"
+                  aria-label="Dark"
+                  aria-pressed="true"
+                >
+                  <span class="swatch" data-swatch="dark"></span>
+                </button>
+                <button
+                  class="tool-button icon-tool pattern-color"
+                  data-pattern-color="light"
+                  type="button"
+                  title="Light"
+                  aria-label="Light"
+                  aria-pressed="false"
+                >
+                  <span class="swatch" data-swatch="light"></span>
+                </button>
+              </div>
+            </div>
+            <div id="pattern-grid" aria-label="Pattern squares"></div>
+            <div id="pattern-error" role="alert"></div>
+          </div>
+          <div slot="actions">
+            <md-text-button id="pattern-clear">Clear</md-text-button>
+            <md-text-button id="pattern-cancel">Cancel</md-text-button>
+            <md-filled-button id="pattern-save">Save</md-filled-button>
           </div>
         </md-dialog>
       </div>

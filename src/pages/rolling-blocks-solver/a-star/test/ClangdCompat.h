@@ -7,7 +7,7 @@
 // P1328 support: clang does not implement the
 // __builtin_is_pointer_interconvertible_* intrinsics the MSVC STL then reaches
 // for, so gtest's headers fail to parse and the clang-tidy gate cannot lint
-// these files at all. Only the IDE analyser and the gate are affected — MSVC
+// these files at all. Only the IDE analyzer and the gate are affected — MSVC
 // and GCC compile the same code either way.
 //
 // Two guards, both load-bearing:

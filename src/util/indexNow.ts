@@ -57,7 +57,7 @@ const MEANINGS: Record<number, string> = {
 // deploy log says so — the workflow step is `continue-on-error`, so a rejected
 // submission never blocks a release.
 console.log(
-  `IndexNow responded ${response.status}: ${MEANINGS[response.status] ?? "unrecognised status"}`,
+  `IndexNow responded ${response.status}: ${MEANINGS[response.status] ?? "unrecognized status"}`,
 );
 if (!response.ok) {
   throw new Error(`IndexNow rejected the submission (${response.status})`);

@@ -4,7 +4,7 @@
 //                           [--level N] [--iterations N] [--ms 60000]
 //                           [--exe <path>]
 //
-// NRPA optimises fewest-blocks-left, so a run that fails still ends somewhere —
+// NRPA optimizes fewest-blocks-left, so a run that fails still ends somewhere —
 // on matchThreeTest50 it reaches 7 of 105 blocks left and stops. Those are two
 // very different worlds. Either the endgames are winnable and the search just
 // needs to push, or they are dead and the region the policy converged on is a

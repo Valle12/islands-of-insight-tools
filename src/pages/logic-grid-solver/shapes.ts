@@ -3,7 +3,7 @@
  *
  * In the game's harder logic puzzles the board is not a plain grid — several
  * grid squares can be fused into one irregular cell, any connected polyomino.
- * Such a cell is painted once and colours as a whole, while each of its
+ * Such a cell is painted once and colors as a whole, while each of its
  * squares may carry its own clue — the game's harder boards put two darts on
  * one domino — and it still contributes every square it is made of to an area
  * number and is adjacent to whatever any of its squares touches.
@@ -13,7 +13,7 @@
  * whatever a stroke leaves behind has to be split into connected pieces again.
  *
  * Squares are flat `y * width + x` indices — what the config stores and what
- * the wasm boundary takes — while the colour and clue layers next door are
+ * the wasm boundary takes — while the color and clue layers next door are
  * column-major. Ids are internal and never saved: only membership survives.
  */
 
@@ -120,8 +120,8 @@ export class ShapeLayer {
     for (const square of this.squaresOf(id)) this.ids[square] = NO_SHAPE;
   }
 
-  /** The on-board orthogonal neighbours of a square. */
-  private neighboursOf(square: number): number[] {
+  /** The on-board orthogonal neighbors of a square. */
+  private neighborsOf(square: number): number[] {
     const x = square % this.width;
     const y = Math.floor(square / this.width);
     const found: number[] = [];
@@ -146,7 +146,7 @@ export class ShapeLayer {
     while (queue.length > 0) {
       const square = queue.pop()!;
       piece.push(square);
-      for (const next of this.neighboursOf(square)) {
+      for (const next of this.neighborsOf(square)) {
         if (!members.has(next) || seen.has(next)) continue;
         seen.add(next);
         queue.push(next);

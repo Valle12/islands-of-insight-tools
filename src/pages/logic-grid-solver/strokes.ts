@@ -69,7 +69,7 @@ export interface ToolSelection {
  * What a button press writes, before the re-click rule.
  *
  * The selected chip drives the left button; the right one paints the other
- * colour where there is one, and erases where there is not. With Dark
+ * color where there is one, and erases where there is not. With Dark
  * selected — the default — that is left-dark, right-light with nothing
  * clicked, which is how the boards are drawn.
  */
@@ -91,7 +91,7 @@ export function strokeFor(
     case "erase":
       return { kind: "erase" };
     case "symbol":
-      // The right button lifts the clue and leaves the colour alone.
+      // The right button lifts the clue and leaves the color alone.
       return secondary ? { kind: "clue", clue: null } : clueStroke(selection);
     case "merge":
       // The right button takes squares back OUT of whatever cell they are in,
@@ -179,7 +179,7 @@ export function toggled(
 /**
  * Fixes a symmetry stroke's seat from where the pointer went down, and
  * names the HOME square the stroke should start on — the seat's top-left
- * neighbour when the press leaned onto a grid line, the pressed square
+ * neighbor when the press leaned onto a grid line, the pressed square
  * itself everywhere else and for every other stroke.
  *
  * `rectOf` is a thunk rather than a rect: only an axis-aiming clue is measured
@@ -217,10 +217,10 @@ export function seatStroke(
  * within the square lean the seat right or down past roughly three quarters
  * — which also catches a press on the invisible bridge between two squares,
  * whose coordinates lie beyond the square's own edge — and a lean towards
- * the left or top is the neighbouring square's own rightward or downward
- * seat, since a home square is always its seat's top-left neighbour. A lean
+ * the left or top is the neighboring square's own rightward or downward
+ * seat, since a home square is always its seat's top-left neighbor. A lean
  * that leaves the cell, or a seat the shape cannot carry, falls back to the
- * pressed square's centre.
+ * pressed square's center.
  */
 function snapSeat(
   layers: BoardLayers,
@@ -230,12 +230,12 @@ function snapSeat(
   seating: LogicGridSeating,
   rectOf: () => DOMRect | null,
 ): { home: Position; seat: number } {
-  const centre = { home: position, seat: 0 };
+  const center = { home: position, seat: 0 };
   const rect = rectOf();
-  if (!rect) return centre;
+  if (!rect) return center;
 
   const { home, lean } = leanOf(event, position, rect);
-  if (lean === 0) return centre;
+  if (lean === 0) return center;
 
   // Both merged-cell tests are the LOTUS's: a home that moved must still be a
   // square of the same cell, or the lean walked out of it. A galaxy's point
@@ -243,15 +243,15 @@ function snapSeat(
   // no shape spans.
   if (seating === "cell") {
     const id = layers.cellIdAt(position);
-    if (id === NO_SHAPE) return centre;
+    if (id === NO_SHAPE) return center;
     const moved = home.x !== position.x || home.y !== position.y;
     if (moved && layers.cellIdAt(home) !== id) {
-      return centre;
+      return center;
     }
   }
   return seatLegalAt(layers, home, lean, axis, seating)
     ? { home, seat: lean }
-    : centre;
+    : center;
 }
 
 /**
@@ -314,7 +314,7 @@ export function seatLegalAt(
  * the seat its press fixed only where the cell under the pointer surrounds
  * that point too — a drag crosses cells with different shapes around them,
  * and the pressed one's own snap legalised only the first. Every other kind
- * sits at its square's centre and passes straight through.
+ * sits at its square's center and passes straight through.
  */
 export function seated(
   layers: BoardLayers,

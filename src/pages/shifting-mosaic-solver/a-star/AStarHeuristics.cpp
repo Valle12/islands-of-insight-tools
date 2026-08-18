@@ -191,7 +191,7 @@ uint32_t AStar::axisAwareBlockerCost(const std::vector<Position> &anchors,
     // `canMoveVert ? 1 : 1` / `canMoveHoriz ? 1 : 1` were no-op ternaries —
     // both arms were the literal 1 — so the axis probes only ever fed the
     // "stuck" test, and `horizontalTrip` selected between two identical
-    // statements. Collapsed to the behaviour that actually shipped. Giving a
+    // statements. Collapsed to the behavior that actually shipped. Giving a
     // perpendicular blocker a different cost than a parallel one would change
     // every benchmark on record, so it needs a deliberate re-tune rather than
     // a silent fix here.
@@ -422,7 +422,7 @@ AStar::signatureFromAnchors(const std::vector<Position> &anchors) const {
                                      << 8u |
                                  static_cast<uint8_t>(ay));
   }
-  // Canonicalise interchangeable blocks: within each same-shape group, sort
+  // Canonicalize interchangeable blocks: within each same-shape group, sort
   // the packed anchors so states that differ only by permuting identical
   // blocks collapse to a single signature.
   for (const auto &group : symmetryGroups_) {

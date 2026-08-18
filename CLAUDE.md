@@ -59,8 +59,8 @@ Bench/fuzz notes:
   logic-grid means fewer cells decided or a proof lost, not just a slower clock.
   Both need the native exe.
 - `fuzz:lg` and `fuzz:rb` boards are solvable by construction. For logic-grid the
-  colouring comes first and the clues are read off it, so the sharp check — every
-  cell reported FORCED matches that colouring — applies only to an **underclued**
+  coloring comes first and the clues are read off it, so the sharp check — every
+  cell reported FORCED matches that coloring — applies only to an **underclued**
   board; pin small dims (`--width 4 --height 5`) to get under the brute-force cap
   so `--brute` compares whole solution sets, and use `--engine <arm> --rules 0`,
   the only way to hammer `profile`. Its clue flags (`--shapes`, `--darts`,
@@ -78,7 +78,10 @@ Expensive unit suites are opt-**out**, never opt-in. Five `.slow.test.ts` files
 run by default, including in CI: shifting-mosaic `wasm` (~244s), logic-grid
 `wasm` (~99s), match-three `wasm` (~75s), rolling-blocks `aStar` (~60s),
 match-three `engine.solve` (~22s). Everything else under `test/` is 300–780 ms
-except `phasic-dial-solver/turnSolver.test.ts` (~3.9 s).
+except `phasic-dial-solver/turnSolver.test.ts` (~3.9 s) and
+`logic-grid-solver/patterns.test.ts` (~2.6 s, deliberately: it sweeps all 2^16
+colorings of a 4x4 for each of the ten retired rules, which is what says the
+v3 fixture rewrite changed no board's meaning).
 
 - `IOI_SKIP_SLOW=1` (what `test:fast` sets) skips those five. They are
   `describe.skipIf`, so they **report as skipped**. **Never reintroduce
@@ -216,7 +219,7 @@ that lifecycle is what let two of the four forget to mark the race dead in
 board the page has discarded) and two let a `new Worker` throw straight through
 the click handler. `crossOriginIsolatedPage()` and `armPoolSize()` live there
 too — logic-grid deliberately collapses on isolation ONLY, the other three also
-when a single slot would just serialise the portfolio.
+when a single slot would just serialize the portfolio.
 
 - **rolling-blocks** — `solve` / `optimize`; engines `cascade` (default),
   `wastar`, `exact`, `cracker`, `beam`, `greedy`. Arm selection is in
@@ -252,7 +255,7 @@ sibling `#solution-view` built from the same ids (`#solution-grid`,
 `#solution-next`, `#solution-exit`) with a `dispose()` releasing every listener.
 `src/util/gridOutline.ts` holds the shared helpers: a grid with gaps between cells
 cannot be outlined with one border, so a zone is an edge class per cell whose
-neighbour is outside it.
+neighbor is outside it.
 
 **Solving leaves the editor**, so an e2e test that edits after solving must click
 "Back to editor" first; `#solution-steps` re-opens without re-solving and only
@@ -289,12 +292,17 @@ the engine caps, renumbers block ids to 1..n and **ignores a fixture's optional
 `turns` key** — a page-level rule only: the native `fixtureio::load` parses
 `turns` back out, because that is where `--generate` stores the witness.
 
-**The format version** (rules in `docs/logic-grid.md`): a file with **no tag at
-all IS version 1**; `MIGRATIONS` is **append-only and addressed by position** and
-the version is derived from its LENGTH; migration runs **before any structural
-check**; a file from a **NEWER** build is refused **by name**; and the committed
-fixtures are rewritten in the same change, because `fixtureio::load` refuses any
-version but the current one.
+**The format version** (rules in `docs/logic-grid.md`, currently **3**): a file
+with **no tag at all IS version 1**; `MIGRATIONS` is **append-only and addressed
+by position** and the version is derived from its LENGTH; migration runs
+**before any structural check**; a file from a **NEWER** build is refused **by
+name**; and the committed fixtures are rewritten in the same change, because
+`fixtureio::load` refuses any version but the current one. Both steps so far are
+the same kind of change — something an earlier version spelled as a catalog
+POSITION is stored as data by a later one: v2 moved the sized rules into
+`areas`/`runs`, v3 the ten rarest arrangements into `patterns`. Drive the
+fixture rewrite through `validateConfig` itself, so the files cannot disagree
+with the migration that produced them.
 
 **Do not reach for `mock.module`.** It is not scoped to the suite that installs
 it — it replaces the module for the rest of the `bun test` PROCESS, and whether
@@ -320,7 +328,7 @@ in `serve.ts`, an entrypoint in `build.ts`, a card in `src/pages/index.html` **i
 `bun run og:capture`. A page registering the COI shim also joins `COI_PATHS`.
 
 **Any change to what a page LOOKS like owes `og:capture`, not just a new page** —
-the frames are shot from the live pages, so a recoloured token or a rebuilt tool
+the frames are shot from the live pages, so a recolored token or a rebuilt tool
 row silently staled them, and nothing in CI compares them. Logic-grid's committed
 frame advertised the pre-v2 flat rule list for weeks after `RULE_ROW` became
 banded, because the change that landed it never re-shot.
@@ -356,12 +364,12 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
   RE-EXPORTS `toFlat`/`toGrid`/`UNDERCLUED`/`OFF_BY_ONE`, so no caller knows
   which file a thing is in. **The list's first two entries are load-bearing** —
   `shapeProblem` then `fusedProblem` — because everything after them reads the
-  colouring one SQUARE at a time; the three families after that are independent,
+  coloring one SQUARE at a time; the three families after that are independent,
   and their order decides only WHICH violation is reported when a board breaks
   several of them (which the suites assert). `board.ts`'s pure clue arithmetic
-  — turning, comparing, serialising one clue — is `clueEdits.ts` for the same
+  — turning, comparing, serializing one clue — is `clueEdits.ts` for the same
   reason.
-- **The board is six files, `board.ts` the front door**, which keeps only
+- **The board is seven files, `board.ts` the front door**, which keeps only
   press → stroke → write: the listeners, `beginStroke`, `applyStroke`,
   `paintCell` and the one `writeCell` everything funnels through.
   `boardLayers.ts` owns the three layers and is the only thing that survives a
@@ -371,29 +379,33 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
   `strokes.ts` decides what a press MEANS (the `Stroke` union, the
   re-click-erases rule, the symmetry seat); `mergeEdits.ts` restructures a cell;
   `boardKeys.ts` is the keyboard plus the digit-run state a number past nine
-  needs. **`Board` takes a `SolutionHolder`, not the editor** — `hideSolution()`
+  needs; `galaxyTiles.ts` is pure geometry, the squares a seat spans, and is
+  the one of the seven both views share. **`Board` takes a `SolutionHolder`, not the editor** — `hideSolution()`
   is all it ever calls, and the wide type made it import the module that imports
   it back.
-- **A cell carries independent layers.** `cell.ts` owns the colour only
+- **A cell carries independent layers.** `cell.ts` owns the color only
   (`UNKNOWN` 0, `DARK` 1, `LIGHT` 2, `UNPLAYABLE` 3) and `cells` is flat
   **column-major**. Clues are a separate sparse `symbols` array of
   `{x, y, type, value}` (+ optional `direction`, `seat`) — that is what makes the
-  game's colourless clue representable. `shapes.ts` fuses squares into **merged
+  game's colorless clue representable. `shapes.ts` fuses squares into **merged
   cells**, flat `y * gridWidth + x` indices, **row-major** unlike `cells`.
 - **Kind-level dispatch reads a CAPABILITY field**, never an id and never a
-  neighbouring capability that happens to coincide. `symbols.ts` carries four:
+  neighboring capability that happens to coincide. `symbols.ts` carries four:
   `valueKind`, `aims`, `reach` and `seating`. Seat-carrying rode on
   `aims === "axis"` while the lotus was the only seated kind, and the galaxy —
   seated on any grid line, yet aiming nowhere — is exactly the kind that
   coincidence mis-read; `reach` was split off `aims` earlier for the same
   reason. C++ mirrors it with `isValuelessKind` / `carriesSeat` in `Types.h`.
-- **`rules.ts` and `symbols.ts` are append-only catalogues** (like
+- **`rules.ts` and `symbols.ts` are append-only catalogs** (like
   `match-three-solver/symbols.ts`): a config stores the INDEX, so appending is
   always safe and inserting or reordering silently rewrites every puzzle ever
   saved. The validator **rejects** an unknown index rather than ignoring it.
   `RuleMask` is `uint64_t` and the CLI's `--rules` an `int64_t` because rule 31's
   bit is past a positive `int`. **`kRuleCount` is 57 of the 64 a mask holds** —
   seven flag slots left, and the `static_assert` only reports after the fact.
+  **A new forbidden ARRANGEMENT needs no entry at all now** — it is drawn. What
+  appending is still for is a rule the pattern table cannot state: a region
+  rule, a clue rule, something about the answer.
 - **A propagator whose target comes from the NODE rather than the puzzle is
   sound only while the fact it reads is monotone.** The region-shape family
   (rules 53–56) takes its target shape from the first CLOSED region — one no
@@ -405,8 +417,8 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
 - **Since config format v2 the two SIZED rule families are data, not indices**:
   `rules` holds flags only, and `areas?: {color, size: 1..9999}[]` /
   `runs?: {color, length: 2..8}[]` carry the numbers — omitted when empty,
-  dark before light then ascending. **Several `runs` instances per colour are
-  legal and conjunctive; `areas` takes ONE per colour**, refused by name on
+  dark before light then ascending. **Several `runs` instances per color are
+  legal and conjunctive; `areas` takes ONE per color**, refused by name on
   all three intakes — but the reducers and both oracles keep WALKING the list,
   because `splitLegacyMask`, `reference_test.cpp` and the migration still
   produce several, and `GenerateCommands.cpp`'s `keepOneAreaPerColor` is what
@@ -416,14 +428,38 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
   positions, translated by the first real `MIGRATIONS` entry and by
   `rules::splitLegacyMask`, which is what keeps the CLI's `--rules` masks and
   every fuzz seed meaning what they meant. The TS validator accepts any order
-  and canonicalises; the C++ intakes REFUSE non-canonical order — deliberate.
-  The run cap is the engine's `kMaxRunLength = kMaxPatternCells`; the area cap
-  is a format limit only (unsatisfiable-but-enforceable loads fine).
-- **The rule row is `RULE_ROW`, a display catalogue the format never sees** —
-  headed bands; each dark/light pair folded into one control whose two colour-
+  and canonicalizes; the C++ intakes REFUSE non-canonical order — deliberate.
+  The run cap is `kMaxRunLength = kMaxImpliedRun`, where `addRuns` stops
+  emitting; the area cap is a format limit only (unsatisfiable-but-enforceable
+  loads fine).
+- **Since v3 a forbidden arrangement can be DRAWN**, and ten rule indices
+  retired into that: `patterns?: {width, height, cells}[]`, the box row-major
+  with 0 for a square the shape does not name — the player draws it in
+  `#pattern-dialog` and it needs no code at all. **A drawn pattern forbids its
+  dihedral images too, always**, which is what every built-in arrangement
+  family already did (each is exactly the closure of one shape), so there is no
+  switch for it. Omitted when empty; the list is ordered by each shape's
+  SMALLEST image, so two drawings that are rotations of each other collide as a
+  duplicate. The ten — the diagonal, L, crossed T, knight's move and mixed
+  elbow controls, each named by exactly ONE captured board — are refused in
+  `rules` by name, keep their `RULES` entries with a `drawn` marker holding the
+  picture, and are translated by the second `MIGRATIONS` entry and by
+  `splitLegacyMask`. **`patternsFor` RECOGNIZES those ten among the drawn list
+  and routes each back to its own builder**, which is what keeps the whole
+  subsumption web — and therefore every generator seed — unchanged; that is
+  compiled-only, so `Verify` still checks a drawing as a drawing and no chip
+  regains a name. `patterns.test.ts` asserts the equivalence exhaustively on
+  the TS side and `rules_test.cpp` does the same for every mask.
+- **A `Clause`'s literals live in an arena** (`Model::clauseCells` /
+  `clauseColors`, reached through `Model::literals`), so a pattern may be as
+  large as the board — `kMaxPatternCells` is gone. It also made the heaviest
+  boards CHEAPER: the collinearity lemma lays two-cell clauses by the hundred
+  thousand, and each costs 18 bytes rather than a flat 44.
+- **The rule row is `RULE_ROW`, a display catalog the format never sees** —
+  headed bands; each dark/light pair folded into one control whose two color-
   SWATCH segments toggle INDEPENDENTLY (a segment is still a
   `.tool-button.rule-chip` with `data-rule`/`data-rule-index`/`aria-pressed`);
-  one value control per sized family+colour whose `+` (`.rule-size-add`,
+  one value control per sized family+color whose `+` (`.rule-size-add`,
   deliberately not a `.tool-button`) appends a `.rule-size` slot. **Only
   `ruleRowMarkup` in `toolRowMarkup.ts` reads it**; everything else addresses chips by id, so a test
   that indexes chips by DOM position is the thing this breaks. Flag indices
@@ -431,14 +467,21 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
   since it runs under node — `mem64.node.test.mjs`. The sized families need no
   listing any more, but their walks stay INDEPENDENT: the reducers in
   `Rules.cpp`, the oracle in `Verify.cpp` and `verify.ts` each read the
-  instance lists without sharing code.
+  instance lists without sharing code. **The drawn patterns close the ARRANGEMENT
+  band and are NOT in `RULE_ROW`** — a drawn shape says the same sentence
+  every chip in that band says, so it is no band of its own, but its chips
+  still come from the board rather than from a catalog: `PatternControls`
+  builds them into `#pattern-chips`, which `ruleRowMarkup` appends to that one
+  band, and the `+` beside them is a `.rule-pattern-add`. `#rule-row` carries
+  THREE delegated click handlers, disjoint only because neither
+  `.rule-size-add` nor any `.pattern-*` is a `.tool-button`.
 - **Both tool rows are built once and refreshed in place**: `buildSymbolRow` /
   `buildRuleRow` run only from `render()` (board replacement), since rebuilding on
   selection destroys the field being typed into, and `refreshSymbolRow` skips
   writing `input.value` when it matches (assigning moves the caret). Their
   MARKUP — every chip, pair segment, value field, arrow and axis toggle, plus
   `ruleIndexOf` and `SIZED_CONTROLS` — is `toolRowMarkup.ts`, pure functions
-  taking the catalogue and the board size, and the clue row's refresh —
+  taking the catalog and the board size, and the clue row's refresh —
   `buildSymbolRow`, `refreshSymbolRow` and the per-kind `symbolValueOf` /
   `symbolAimOf` — is `symbolRowView.ts`, which takes the row element plus the
   editor's two per-kind arrays. **The sized controls are the exception, and own
@@ -448,23 +491,28 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
   `click` handlers on that row, disjoint because `.rule-size-add` is not a
   `.tool-button`. What is still the editor's is `activeRules`, which four other
   things read.
-- **The editor is four files**: `logicGridSolver.ts` keeps the board lifecycle,
-  the selection commands, the rule chips and config I/O; `symbolRowView.ts` and
-  `sizedRuleControls.ts` are the two tool-row halves above; and
+- **The editor is six files**: `logicGridSolver.ts` keeps the board lifecycle,
+  the selection commands, the rule chips and config I/O; `symbolRowView.ts`,
+  `sizedRuleControls.ts` and `patternControls.ts` are the three tool-row parts
+  that own live elements; `patternDialog.ts` is the drawing surface; and
   `solveController.ts` owns Solve — the search in flight, the generation counter
   that drops a stale answer, the eight `#solution-*` elements and the mounted
   `SolutionView`. Exactly one thing crosses each way (`configOf`,
   `onReturnToEditor`), and `hideSolution()` stays on the editor because `Board`
-  calls it on every edit.
-- **Optional config keys are omitted, never written empty** — `shapes`, a clue's
-  `direction`, `seat`, a valueless kind's `value` — in all three writers
+  calls it on every edit. `PatternControls` holds the two lists the drawn
+  patterns turn on — a session LIBRARY of every shape drawn since load, and the
+  ACTIVE set this board switches on — and the library is instance state, so it
+  dies with the page and needs no storage API at all.
+- **Optional config keys are omitted, never written empty** — `shapes`,
+  `patterns`, a clue's `direction`, `seat`, a valueless kind's `value` — in all
+  three writers
   (`board.ts getSymbols`, `validateConfig`'s rebuild, `fixtureio::save`), because
   the captured corpus must keep round-tripping byte-identically. At the wasm
   boundary `direction` crosses as **-1 when absent** (so a kind needing one is
   refused by name) while `value`/`seat` default to 0.
 - **Every SQUARE of a merged cell carries its own clue slot and nothing re-homes
   one** — a merged cell may hold several clues (the game puts two darts on one
-  domino). Combinations no colouring can satisfy are deliberately NOT structural
+  domino). Combinations no coloring can satisfy are deliberately NOT structural
   errors: the file loads and Solve answers Unsolvable, the honesty rule the givens
   follow.
 - **A merged cell is drawn as ONE SVG path** (`shapeOutline.ts` +
@@ -472,6 +520,50 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
   one straight edge, since Blink snaps each to the device pixel grid separately.
   Reverting to CSS brings the stepped rim back. The squares paint NOTHING; the
   seams survive as invisible hit targets.
+- **A SEATED galaxy's squares are drawn as one tile the same way**, because the
+  game puts them together and changes color on the line where they meet.
+  `galaxyTiles.ts` is the ONE source: `galaxyTiles` is pure geometry (which
+  squares each galaxy occupies, so it moves only when a clue does) and
+  `galaxyTiling` is what is drawn and in what color (so it moves on every
+  stroke). The outline fills, the glyph's `data-under` and the `cell-pair`
+  classes all read the second one and nothing else, which is what stops them
+  disagreeing. A SECOND `markGroupJoins` grouping (`cell-pair`, never the
+  merged cells' prefix — these keep their own colors and their own seam hit
+  target, which is where the galaxy is placed and lifted) stops the squares
+  painting, and `outlineLayer.ts` draws the tile once per COLOR it holds: the
+  first laid whole, the rest clipped over it to their squares grown by HALF
+  the seam. Whole first, because two clipped halves meeting on a shared edge
+  round to a hairline of background at fractional zoom.
+- **Four things drop a tile, and the drop is the pre-pill look**: a square in a
+  merged cell (that cell already draws itself), a square that is a GAP (an SVG
+  fill cannot be the hatch), a footprint overlapping another galaxy's, and
+  NOTHING painted. One painted square is enough to draw the pill, and the ones
+  that are not painted are drawn NEUTRAL (`data-color="blank"`,
+  `--logic-blank`) — never borrowed from the painted one. Borrowing was tried
+  and is wrong: on a corner seat it turned three squares nobody had touched
+  solid, and the board stopped saying which squares were really colored. What
+  the pill shows is that the squares are JOINED, not that they agree — so both
+  views share one rule, and a press only ever colors the square it lands on.
+  Deliberately not `data-color="unknown"`, which an unpainted MERGED cell uses
+  and which draws no fill at all.
+- **`BoardLayers.write` reports BOTH layers**, not one answer of three. A write
+  moves both more often than it looks — the eraser writes `(UNKNOWN, null)`,
+  and painting a square unplayable drops its clue — and reporting only the
+  color left the clue's redraw undone, which is invisible for a number and very
+  visible for a pill that stayed on screen after its galaxy had gone. A clue
+  write calls `refreshGalaxyTiles`, a color write `refreshGalaxyFill`, and
+  `redress` recomputes too because merging under a pill moves no clue at all.
+- **No two galaxies may share a CELL**, and all three intakes say so: the
+  editor refuses the stroke in `applyStroke` (the only point covering the
+  pointermove DRAG, which re-applies the pressed seat to every square it
+  crosses), `validateConfig` refuses the file by name AFTER the shapes, and
+  `structureProblem` refuses it in C++. The cell rather than the square,
+  because two galaxies on different squares of one MERGED cell are two centers
+  of rotational symmetry for one region — composing two point reflections
+  about different centers is a translation, which no finite region survives. Not a solver rule — the oracle checks each galaxy
+  independently and would accept the board — but the game never draws two in
+  one cell and neither does the page. Safe by measurement: no captured fixture
+  has one, and the generator only ever places seat 0.
 - Layout traps, each pinned by `e2e/logic-grid-solver/*.test.ts`: `#solution-grid`
   needs `position: relative` as much as `#grid` does; `.grid-cell` needs an
   explicit `box-sizing: border-box` (editor squares are `<button>`s, the answer's
@@ -489,9 +581,9 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
   **`Reference.cpp` is the only thing that can catch over-pruning** — do not
   delete it, and do not let it stop covering a propagator you add; **an aborted
   look-ahead proves nothing** (`ProbeResult` is tri-state); **`Profile::
-  applicable` is a WHITELIST on both axes** — anything unrecognised must decline,
+  applicable` is a WHITELIST on both axes** — anything unrecognized must decline,
   or it reports a superset as proof.
-- **The sweep reads a forbidden ARRANGEMENT off recent colour, and counts a
+- **The sweep reads a forbidden ARRANGEMENT off recent color, and counts a
   painted DART.** Its frontier's slots are exactly the last `width` cells in
   scan order, so a pattern needs only the few bits beyond them that
   `Frontier::hist` carries — one for a 2x2, a row for a three-tall T — and the
@@ -502,37 +594,46 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
   area), the one-symbol rules, the shape rules, `OffByOne`. A dart needs one
   running count of the DARK cells on its ray, the light reading taken as the
   rest — but only where the puzzle paints the dart's OWN square, since what it
-  counts is the opposite of that colour. This is what settles
+  counts is the opposite of that color. This is what settles
   `logicGridTest487`, 13x7 underclued with connect-dark, no-dark-T and two
   darts: 23 of 91 cells PROVEN in 26 ms, where `forced` never found even one
   witness in 30 M nodes. Every widening of that whitelist owes
   `reference_test.cpp` rule sets, which is the only thing that can catch it.
+  **A DRAWN pattern is admitted on exactly that criterion** — it can say
+  nothing but "this arrangement never occurs" — so `applicable` does not
+  decline on `puzzle.patterns` the way it does on the sized lists, and
+  `planPatterns` MUST pass them to `patternsFor`. Forget that and the sweep
+  walks a superset and reports the cells the extra colorings disagree about as
+  proved. A pattern too TALL is declined by the existing `kMaxHistoryBits`
+  gate — `histBits ≈ (height − 2) × scanWidth` — and `PatternCheck::back` is
+  `uint16_t` precisely so a deep one cannot report a small distance and sail
+  through it.
 - **Letter boards get a third arm, and it is a CONSTRUCTION rather than a
   search.** `Routing.cpp` routes each letter group a region of its own by
   negotiated congestion — route every net through the cheapest cells, charge
   for the ones two nets both want, repeat with the price rising — and paints
-  everything it did not claim the other colour. It runs in the cascade between
+  everything it did not claim the other color. It runs in the cascade between
   `deduce` and `profile`, answers only `Solved` or `Unsolved` (a construction
   that fails proves nothing, so it may never say `Unsolvable`), and every
-  colouring it builds goes through `verify::check` before it is returned, which
+  coloring it builds goes through `verify::check` before it is returned, which
   is what makes a permissive gate safe. It is what settles `logicGridTest454`,
   the 23x21 pillar lattice the DFS never finished at any budget and whose
   frontier is too wide for the sweep; boards whose letters are pinned to
-  DIFFERENT colours are out of its shape and fall through to `profile`.
+  DIFFERENT colors are out of its shape and fall through to `profile`.
 - **Region-clued boards get a FOURTH arm, a construction on the same terms.**
   `Packing.cpp` handles a board whose every clue names a REGION rather than a
   cell — an area number, or a letter — on a square the puzzle already paints:
   that is nothing but a packing question, regions of exactly the demanded
-  sizes with no two of a colour touching, because what is left over is the
-  other colour. It runs in the cascade right after `routing`, answers only
-  `Solved` or `Unsolved`, and verifies its colouring like the router does.
+  sizes with no two of a color touching, because what is left over is the
+  other color. It runs in the cascade right after `routing`, answers only
+  `Solved` or `Unsolved`, and verifies its coloring like the router does.
   **A letter carries no size of its own**, so a board with letters needs the
-  single `areas` instance that gives every region of the colour one; that is
+  single `areas` instance that gives every region of the color one; that is
   `logicGridTest481`, the 12x12 whose twelve dark regions are the twelve free
   pentominoes, and where `distinct-shapes-dark` is a filter on what may be
   placed next while `connect-light` is a test the finished packing has to
   pass. Givens that carry no clue are read rather than refused: one in the
-  clue colour is a square some region must swallow, one in the other colour a
+  clue color is a square some region must swallow, one in the other color a
   square none may claim — which is what makes `logicGridTest482`, the same
   board with a player's own deductions painted in, land in the same arm. With
   no big demand to crowd, the demands are ordered FEWEST SHAPES FIRST.
@@ -602,7 +703,7 @@ Full detail in **`docs/match-three.md`**. What bites from outside:
   a tool calls `renderTools()`. `Board` registers listeners against an
   `AbortController` and `replaceBoard` calls `dispose()` — a board that kept
   listening paints into its own dead `cells`.
-- **NRPA traps** (it is what cracks the hard boards): it optimises
+- **NRPA traps** (it is what cracks the hard boards): it optimizes
   fewest-blocks-left so its best line is usually PARTIAL — an arm returns a
   solution or nothing; it must **restart** with a fresh policy on exhausting
   iterations, bounded by `kBarrenRestarts` on *barren* restarts specifically; the
@@ -634,7 +735,7 @@ straight up and solved, and the face is one `role="slider"` with
 (`getByRole("slider", {name: "Blue dial position"})`, never a `Max`/`Value`
 field). The page keeps a real model and renders from it; `readConfig()` is a
 projection, not a DOM scrape, and every mutation goes through
-`invalidateResult()`. Dial colours are positional, so `#remove-dial` can only drop
+`invalidateResult()`. Dial colors are positional, so `#remove-dial` can only drop
 the **last** dial.
 
 ## Test layout
@@ -649,10 +750,14 @@ in nine places, one of them a **cwd-relative** literal in
 `e2e/shifting-mosaic-solver/config.test.ts`.
 
 **`test/resources/logic-grid-solver/` holds boards captured from the game and
-NOTHING else** (489 of them, 3×2 to 26×19; no two the same puzzle bar one deliberate
+NOTHING else** (494 of them, 3×2 to 26×18, the largest `logicGridTest454` at
+23×21; no two the same puzzle bar one deliberate
 pair — 481 and 482 are the same 12x12, the second with a player's own
 deductions painted in, which is what exercises the packer's reading of a
-given that carries no clue); anything a
+given that carries no clue; and 489 is the first captured board carrying a
+DRAWN pattern, an 11x11 of dark pentominoes whose 3x3-light ban is the shape
+the feature was built for — remove its `patterns` key and the engine happily
+returns an answer holding two of them); anything a
 test invents lives in `test/logic-grid-solver/boards.ts`, imported by the unit
 **and** e2e suites so a board cannot drift between them. **The split is the
 point**: a sweep over the corpus measures the solver against real puzzles, and a
@@ -807,7 +912,7 @@ ambiguous in four different ways:
 - **The result lags the file in both directions**, so **three consecutive empties
   is the bar for a `.cpp`** — and a stale finding can survive three calls with a
   settled range, so never conclude from the tool alone: read the file and count.
-- **A header is not independently analysed**; analyse the `.cpp` files first.
+- **A header is not independently analyzed**; analyze the `.cpp` files first.
 - **`wasm_bindings.cpp` and anything reached only from a wasm TU are invisible to
   every tool** and report clean because of it.
 

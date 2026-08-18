@@ -82,7 +82,7 @@ void AStar::buildShapeMetadata() {
   }
 }
 
-std::vector<Position> AStar::normalisedCells(const std::vector<Position> &shape) {
+std::vector<Position> AStar::normalizedCells(const std::vector<Position> &shape) {
   std::vector<Position> cells = shape;
   if (cells.empty())
     return cells;
@@ -103,14 +103,14 @@ std::vector<Position> AStar::normalisedCells(const std::vector<Position> &shape)
 }
 
 // Group non-goal blocks by identical shape. Blocks within a group are
-// physically interchangeable, so signatureFromAnchors canonicalises their
+// physically interchangeable, so signatureFromAnchors canonicalizes their
 // anchors — collapsing permutation-equivalent states. For puzzles with many
 // same-shape blocks this shrinks the search space by orders of magnitude.
 //
-// Grouped by comparing normalised cell lists directly rather than through an
-// unordered_map keyed on a serialised string. There are at most a few dozen
+// Grouped by comparing normalized cell lists directly rather than through an
+// unordered_map keyed on a serialized string. There are at most a few dozen
 // blocks, so the pairwise scan costs nothing at construction, and it drops
-// both the serialise-to-string step and the transparent-hasher question that
+// both the serialize-to-string step and the transparent-hasher question that
 // map raised. Group ORDER changes from hash order to first-appearance order,
 // which nothing depends on: signatureFromAnchors sorts each group's slots
 // independently.
@@ -120,9 +120,9 @@ void AStar::buildSymmetryGroups() {
   for (size_t i = 0; i < shapes_.size(); i++) {
     if (i == goalIndex_)
       continue;
-    std::vector<Position> cells = normalisedCells(shapes_[i]);
-    // A cell-less shape has no normalisation origin, so it cannot be matched
-    // against anything; leaving it ungrouped only forgoes an optimisation.
+    std::vector<Position> cells = normalizedCells(shapes_[i]);
+    // A cell-less shape has no normalization origin, so it cannot be matched
+    // against anything; leaving it ungrouped only forgoes an optimization.
     if (cells.empty())
       continue;
     const auto it = std::ranges::find(shapeKeys, cells);

@@ -111,15 +111,28 @@ export function toPuzzle(config: LogicGridTest) {
       // direction on a kind that needs one has to arrive as a value it can
       // refuse rather than as `undefined`. A lotus's direction is its AXIS.
       direction: symbol.direction ?? -1,
-      // The lotus's half-square offsets; the centre for everything else.
+      // The lotus's half-square offsets; the center for everything else.
       seat: symbol.seat ?? 0,
     })),
-    // The sized rules cross in the config's own shape — string colours and
+    // The sized rules cross in the config's own shape — string colors and
     // all — because the module reads the identical JSON from a fixture file,
     // and two encodings of one key is how the readers drift. Omitted rather
     // than sent empty, like `shapes` below.
     ...(config.areas ? { areas: config.areas.map(rule => ({ ...rule })) } : {}),
     ...(config.runs ? { runs: config.runs.map(rule => ({ ...rule })) } : {}),
+    // The drawn patterns, in the config's own shape for the same reason: the
+    // module reads the identical JSON from a fixture file. Omitted rather than
+    // sent empty, and already in canonical order — the module refuses a list
+    // that is not, rather than sorting it.
+    ...(config.patterns
+      ? {
+          patterns: config.patterns.map(pattern => ({
+            width: pattern.width,
+            height: pattern.height,
+            cells: [...pattern.cells],
+          })),
+        }
+      : {}),
     // Already flat row-major, the same layout `cells` crosses in, so this one
     // passes straight through. Omitted rather than sent empty, matching the
     // config format the module also reads from a fixture file.

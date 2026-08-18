@@ -82,7 +82,7 @@ describe("migrateConfig", () => {
     /**
      * A file from a LATER build. There is nothing to migrate backwards — this
      * build has never heard of whatever that version added — so it says so
-     * rather than reading the parts it recognises and dropping the rest.
+     * rather than reading the parts it recognizes and dropping the rest.
      */
     test("refuses a file from a newer build", () => {
       const result = migrateConfig({ version: 3 }, [step("a")]);

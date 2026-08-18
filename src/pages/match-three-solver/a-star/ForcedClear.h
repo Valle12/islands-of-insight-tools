@@ -110,7 +110,7 @@ inline int intoOneRow(const std::span<const int> sorted, const int width) {
 
 /// The target columns of one T, L or plus: the three-wide window starting at
 /// `from`, with the vertical run's column `triple` taking three of the five
-/// cells and each neighbour taking one. Ascending, to pair with sorted input.
+/// cells and each neighbor taking one. Ascending, to pair with sorted input.
 inline std::array<int, kMaxForced> teeTargets(const int from, const int triple) {
   std::array<int, kMaxForced> targets{};
   int n = 0;

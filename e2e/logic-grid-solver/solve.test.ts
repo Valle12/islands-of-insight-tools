@@ -49,13 +49,13 @@ test.describe("Logic Grid Solver solving", () => {
 
     await expect(page.locator("#solution-view")).toBeVisible();
     await expect(page.locator("#editor-section")).toBeHidden();
-    // Every playable cell is coloured: this board is not underclued.
+    // Every playable cell is colored: this board is not underclued.
     await expect(page.locator("#solution-count")).toHaveText("25 cells");
     await expect(page.locator("#solution-grid .grid-cell")).toHaveCount(25);
     await expect(
       page.locator('#solution-grid .grid-cell[data-color="unknown"]'),
     ).toHaveCount(0);
-    // The clue is still drawn on the answer, on whichever colour it landed.
+    // The clue is still drawn on the answer, on whichever color it landed.
     await expect(solutionCell(page, 2, 2)).toHaveText("9");
   });
 
@@ -79,7 +79,7 @@ test.describe("Logic Grid Solver solving", () => {
     await expect(page.locator("#solution-view")).toBeVisible();
     await expect(page.locator("#solution-count")).toContainText("deduced");
     // The area-one clue sits on a cell that was already dark, so its two
-    // neighbours are forced light — and most of the board is not forced at all.
+    // neighbors are forced light — and most of the board is not forced at all.
     await expect(solutionCell(page, 1, 0)).toHaveAttribute(
       "data-color",
       "light",

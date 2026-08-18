@@ -23,7 +23,7 @@ inline uint64_t nowMs() {
 //
 // Deliberately NOT inline and defined in SolverClock.cpp. Each search entry
 // point is now alone in its translation unit with no visible caller, and with
-// the ternary inline the data-flow analyser folded maxMs to 0 and then
+// the ternary inline the data-flow analyzer folded maxMs to 0 and then
 // reported every budget guard in the function as dead code (18 findings across
 // searchAssembly, searchBeamJam and searchHierarchical). Keeping the body in
 // another TU leaves the value genuinely unknown, which is the truth.

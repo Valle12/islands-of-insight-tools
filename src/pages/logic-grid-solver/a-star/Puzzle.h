@@ -5,7 +5,9 @@
 #include "Types.h"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 // A puzzle as it arrives, and the compiled form everything downstream reads.
@@ -16,8 +18,8 @@
 // search rebuilds any of it, and nothing in the search mutates it.
 namespace lg {
 
-/// A colouring, one entry per cell of the strided space. kUnknown where no
-/// colour has been decided, kUnplayable for the board's gaps.
+/// A coloring, one entry per cell of the strided space. kUnknown where no
+/// color has been decided, kUnplayable for the board's gaps.
 using Colors = std::array<uint8_t, kMaxCells>;
 
 /// A puzzle as entered.
@@ -25,8 +27,8 @@ struct Puzzle {
   int width = 0;
   int height = 0;
   /**
-   * The colour layer as the player left it, in the strided index space:
-   * kUnknown where the colour is still to be found, kDark/kLight for a cell
+   * The color layer as the player left it, in the strided index space:
+   * kUnknown where the color is still to be found, kDark/kLight for a cell
    * already painted, kUnplayable for a gap in the board.
    *
    * A painted cell is a GIVEN — the answer has to keep it. That is what lets a
@@ -40,26 +42,37 @@ struct Puzzle {
    * The sized rule instances — the config's `areas` and `runs` keys: every
    * region of `color` has exactly `value` cells, and no straight run of
    * `value` cells of `color`. Conjunctive: several instances per family and
-   * colour all hold at once, and both areas 2 AND 3 on one colour is not a
-   * contradiction — it is satisfied exactly when the colour is absent, every
+   * color all hold at once, and both areas 2 AND 3 on one color is not a
+   * contradiction — it is satisfied exactly when the color is absent, every
    * one of its zero regions being both sizes.
    *
    * Always in canonical order (dark before light, values ascending) with no
    * duplicates. Intake REFUSES anything else rather than sorting, and the
    * asymmetry with the page's validator — which accepts any order and
-   * canonicalises on output — is deliberate: this side reads only committed
+   * canonicalizes on output — is deliberate: this side reads only committed
    * fixtures and already-validated payloads, so a disordered list means a
    * hand-edited file, and repair would hide that.
    */
   std::vector<rules::SizedRule> areas;
   std::vector<rules::SizedRule> runs;
   /**
+   * The forbidden arrangements the player drew — the config's `patterns` key.
+   * Each one bans its own shape and every rotation and reflection of it, which
+   * is what every built-in arrangement family already did.
+   *
+   * In canonical order (ascending under `rules::patternLess`) with no
+   * duplicates, where two drawings that are rotations of each other count as
+   * one; intake REFUSES anything else rather than sorting, the same asymmetry
+   * with the page's validator that `areas` records above.
+   */
+  std::vector<rules::DrawnPattern> patterns;
+  /**
    * The merged cells: each one the squares it fuses, in the order they were
    * entered. Empty on a plain board, and the config's `shapes` key is then
    * omitted entirely.
    *
    * A merged cell is the game's irregular tile — any connected polyomino. It
-   * takes ONE colour for all of its squares and carries at most one clue, but
+   * takes ONE color for all of its squares and carries at most one clue, but
    * it still contributes its full SQUARE count to an area number and is
    * adjacent to everything any of its squares touches.
    *
@@ -76,22 +89,30 @@ struct Puzzle {
 };
 
 /**
- * A forbidden arrangement laid over this board: the colouring is illegal if
- * every listed cell holds its listed colour.
+ * A forbidden arrangement laid over this board: the coloring is illegal if
+ * every listed cell holds its listed color.
  *
  * Read the other way round it is a clause — "at least one of these cells holds
- * the other colour" — which is what makes unit propagation over it textbook
+ * the other color" — which is what makes unit propagation over it textbook
  * sound. Nothing else in the solver is allowed to be this cheap about
  * soundness, and nothing else needs to be.
+ *
+ * The literals themselves live in `Model::clauseCells` and
+ * `Model::clauseColors`, reached through `Model::literals` — this is a span
+ * into them, not a copy. A drawn pattern may be as large as the board, so an
+ * inline array would have to be sized for that and every clause would pay: a
+ * 1024-literal array is five kilobytes each, against hundreds of thousands of
+ * clauses. It also pays off where the ceiling was never the problem — the
+ * collinearity lemma lays two-cell clauses by the hundred thousand, and each
+ * now costs eight bytes plus ten rather than a flat forty-four.
  */
 struct Clause {
-  std::array<int, rules::kMaxPatternCells> cells{};
-  std::array<uint8_t, rules::kMaxPatternCells> colors{};
+  int start = 0;
   int count = 0;
 };
 
 /// One dart's geometry, worked out once because it never changes: rays are a
-/// property of the board, not of the colouring. See `Model::darts`.
+/// property of the board, not of the coloring. See `Model::darts`.
 struct Dart {
   int clueId = 0;
   int index = 0;
@@ -126,16 +147,16 @@ struct Viewpoint {
    * Ordered vectors rather than a `Bits`, because the propagator reasons about
    * LEADING runs and a set cannot say which square comes first. And unlike a
    * dart's ray these KEEP the squares of the clue's own cell: a viewpoint
-   * counts its own colour, so an own-cell square on a ray is simply a square
+   * counts its own color, so an own-cell square on a ray is simply a square
    * already known to hold what is being counted — where the dart counts the
-   * opposite colour, which its own cell can never be.
+   * opposite color, which its own cell can never be.
    */
   std::array<std::vector<int16_t>, kDirectionCount> rays;
 };
 
 /**
- * One galaxy's geometry, worked out once like a lotus's: the turn's centre in
- * DOUBLED coordinates — so a centre on a grid line or a corner is still an
+ * One galaxy's geometry, worked out once like a lotus's: the turn's center in
+ * DOUBLED coordinates — so a center on a grid line or a corner is still an
  * integer — and where every square of the board lands under a half turn about
  * it. See `Model::galaxies`.
  */
@@ -146,12 +167,12 @@ struct Galaxy {
   int cx2 = 0;
   int cy2 = 0;
   /**
-   * The PLAYABLE squares touching the centre — one at a square's own centre,
+   * The PLAYABLE squares touching the center — one at a square's own center,
    * two on a grid line, four at a corner — and the whole of what "scope"
    * means: every region holding one of these is turned, and each of them is
    * its own partner's image, which is what pins the SIGN of the turn.
    *
-   * An unplayable one is dropped: it holds no colour and lies in no region.
+   * An unplayable one is dropped: it holds no color and lies in no region.
    * Its partner, when playable, is still in this list and still demands a
    * mirror the gap cannot give, which is where that board is refused.
    */
@@ -203,7 +224,7 @@ struct ClueCandidates {
 };
 
 /// Every clue carrying one letter. All of them share a region, so they share a
-/// colour too — which is the whole of "letter colour deduction".
+/// color too — which is the whole of "letter color deduction".
 struct LetterGroup {
   int letter = 0;
   std::vector<int> cells;
@@ -214,26 +235,43 @@ struct LetterGroup {
 /// The compiled puzzle.
 struct Model {
   Puzzle puzzle;
-  /// Every index the board occupies, and the subset that can take a colour.
+  /// Every index the board occupies, and the subset that can take a color.
   Bits board;
   Bits playable;
   int playableCount = 0;
 
   std::vector<Clause> clauses;
+  /// The literals every clause is a window onto: `clauseCells[c.start + i]`
+  /// must hold `clauseColors[c.start + i]` for the arrangement to be present.
+  /// One arena rather than a vector per clause, so a clause costs no
+  /// allocation and its literals stay contiguous for the rescan below.
+  std::vector<int> clauseCells;
+  std::vector<uint8_t> clauseColors;
   /**
    * The clauses mentioning each cell, as a CSR: the ids for cell `i` span
    * `[clauseStart[i], clauseStart[i + 1])` of `clauseIndex`.
    *
    * Plain occurrence lists with a rescan, deliberately, rather than the two
-   * watched literals a SAT solver would use. Every clause here holds at most
-   * `kMaxPatternCells` literals, so a rescan is a handful of domain tests, and
-   * an occurrence list is immutable — there is no watch to move and nothing to
+   * watched literals a SAT solver would use. Almost every clause here holds a
+   * handful of literals, so a rescan is a handful of domain tests, and an
+   * occurrence list is immutable — there is no watch to move and nothing to
    * undo on backtrack.
    * Watches visit fewer clauses and are the upgrade if profiling ever asks for
-   * it; they are not worth their failure modes at this size.
+   * it — a board carrying a large drawn pattern is where that would first show
+   * — but they are not worth their failure modes at this size.
    */
   std::vector<int> clauseIndex;
   std::vector<int> clauseStart;
+
+  /// One clause's literals, as a window into the two arenas above.
+  [[nodiscard]] std::span<const int> literals(const Clause &clause) const {
+    return {clauseCells.data() + clause.start,
+            static_cast<std::size_t>(clause.count)};
+  }
+  [[nodiscard]] std::span<const uint8_t> colorsOf(const Clause &clause) const {
+    return {clauseColors.data() + clause.start,
+            static_cast<std::size_t>(clause.count)};
+  }
 
   /// Index into `puzzle.clues` for each cell, or -1 where there is no clue.
   std::vector<int> clueAt;
@@ -269,9 +307,9 @@ struct Model {
      * blocks.
      *
      * Taking the dart's own cell out is a correctness requirement, not a
-     * tightening. Every square of that cell holds the dart's own colour, so none
-     * of them can ever be the colour it counts; left in, the "the line is exactly
-     * full" branch would assign the OTHER colour to one of them, `Domains::
+     * tightening. Every square of that cell holds the dart's own color, so none
+     * of them can ever be the color it counts; left in, the "the line is exactly
+     * full" branch would assign the OTHER color to one of them, `Domains::
      * exclude` would fan that over the whole cell, and the dart would refute
      * itself. Out, `ray.count()` is also exactly the largest number the dart
      * could legally carry.
@@ -280,9 +318,9 @@ struct Model {
 
     /**
      * Every lotus's reflection map, precomputed like a dart's ray: mirrors are a
-     * property of the board and its seat, never of the colouring. A clue whose
+     * property of the board and its seat, never of the coloring. A clue whose
      * axis or seat cannot be read stays in `lotusClues` but not here, so
-     * `verify::check` refuses every colouring rather than quietly solving the
+     * `verify::check` refuses every coloring rather than quietly solving the
      * board without it — the same net `buildDarts` has.
      */
     std::vector<Lotus> lotuses;
@@ -314,7 +352,7 @@ struct Model {
    * the switch `borderArcs` in Propagate.cpp runs on.
    *
    * The two-arc lemma it exists for: with dark and light each one region, the
-   * decided colours around this cycle can hold no D,L,D,L subsequence. Four
+   * decided colors around this cycle can hold no D,L,D,L subsequence. Four
    * such cells would force a dark path and a light path between interleaved
    * endpoints on the outer face of a planar graph — the paths would have to
    * share a cell. Gaps are simply skipped: the endpoints stay on the outer
@@ -339,7 +377,7 @@ struct Model {
    * above it because it is read inside `Domains::exclude`, the hottest function
    * in the solver: inline in the Model it is one load rather than two. It is
    * filled by `buildShapes`, which runs FIRST in `buildModel` — value
-   * initialisation would leave it reading as "every square is in shape 0".
+   * initialization would leave it reading as "every square is in shape 0".
    */
   std::vector<Bits> shapes;
   std::array<int16_t, kMaxCells> shapeAt{};
@@ -411,6 +449,7 @@ enum class Problem : uint8_t {
   GalaxyValue,
   GalaxySeat,
   GalaxySeatOffBoard,
+  GalaxiesShareACell,
   GalaxyMirrorLeavesBoard,
   /// Not a problem — the count, which `describe`'s table asserts itself
   /// against so an enumerator appended above without a message stops

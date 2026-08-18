@@ -31,7 +31,7 @@ export const LETTER_KEY_PATTERN = /^[a-zA-Z]$/;
  * The arrow keys, aiming a directed clue ABSOLUTELY rather than stepping it
  * round. Four keys and four directions, so a step would only be worse.
  *
- * Resolved through the catalogue rather than written as indices, so the keys go
+ * Resolved through the catalog rather than written as indices, so the keys go
  * on meaning what they say whatever position a direction ends up at.
  */
 export const ARROW_KEYS: Readonly<Record<string, string>> = {
@@ -113,7 +113,7 @@ export function turnedBack(clue: LogicGridClue): LogicGridClue {
 
 /**
  * Which half-square offsets a press leans to, and the home square the lean
- * names — the pressed square, or the seat's top-left neighbour when the lean
+ * names — the pressed square, or the seat's top-left neighbor when the lean
  * crosses a grid line to the left or above. Bit 0 leans right, bit 1 down;
  * fractions past roughly three quarters count, which also catches a press on
  * the invisible bridge between two squares, whose coordinates lie beyond the
@@ -145,7 +145,7 @@ export function leanOf(
  * One clue as the config stores it, with `value`, `direction` and `seat` only
  * where there is one: they are the format's optional keys, and every fixture
  * predating them has to round-trip byte-identically. A seat of 0 means the
- * square's own centre, which is what absent means.
+ * square's own center, which is what absent means.
  */
 export function symbolOf(clue: LogicGridClue, x: number, y: number): LogicGridSymbol {
   return {
@@ -160,7 +160,7 @@ export function symbolOf(clue: LogicGridClue, x: number, y: number): LogicGridSy
 
 /** A clue with its value, direction and seat attached only when its kind
  * carries one — a valueless lotus holds no `value` key at all, and a seat of
- * 0 means the square's own centre, which is what absent means. */
+ * 0 means the square's own center, which is what absent means. */
 export function clueOf(
   type: number,
   value: LogicGridSymbolValue | undefined,

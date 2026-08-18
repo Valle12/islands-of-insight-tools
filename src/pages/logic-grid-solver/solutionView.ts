@@ -1,4 +1,9 @@
 import { markGroupJoins } from "../../util/gridOutline";
+import {
+  galaxyTiles,
+  galaxyTiling,
+  sameGalaxyTile,
+} from "./galaxyTiles";
 import type { LogicGridClue, LogicGridTest } from "../../util/types";
 import { UNKNOWN } from "./cell";
 import { dressCell } from "./cellView";
@@ -81,6 +86,19 @@ export class SolutionView {
       const id = cellOf.get(y * config.gridWidth + x);
       return id !== undefined && cellOf.get(ny * config.gridWidth + nx) === id;
     };
+    // As in the editor: a seated galaxy's squares are drawn as one outlined
+    // tile, so the color changes at the edge where they meet rather than
+    // across the seam between them.
+    //
+    // The same reading as the editor's, and it can be: an undecided square of
+    // a pill is drawn NEUTRAL rather than taking its partner's color, so the
+    // answer never reports a cell as decided that the solver could not decide.
+    const tiling = galaxyTiling(
+      galaxyTiles(config.symbols ?? [], config),
+      config,
+      (x, y) => cells[y * config.gridWidth + x] ?? UNKNOWN,
+      square => cellOf.has(square),
+    );
 
     // One fragment, one insertion: appending cell by cell to a live grid makes
     // the browser lay the whole thing out on every one of them.
@@ -98,20 +116,35 @@ export class SolutionView {
         const color = cells[y * config.gridWidth + x] ?? UNKNOWN;
         // A square inside a merged cell leaves the mark to the outline: the
         // ring is drawn per square and would cut the tile into its pieces.
+        // A square of a drawn galaxy TILE is the same situation for the same
+        // reason — the ring would draw the very seam the tile exists to hide.
         if (
           color !== UNKNOWN &&
           config.cells[x]![y] === UNKNOWN &&
-          !cellOf.has(y * config.gridWidth + x)
+          !cellOf.has(y * config.gridWidth + x) &&
+          !tiling.drawnAt(x, y)
         )
           cell.dataset.deduced = "true";
-        dressCell(cell, color, clues.get(`${x},${y}`) ?? null, x, y);
+        // As in the editor: a seated glyph inks itself against what is drawn
+        // under it, not against the cell that carries the clue.
+        dressCell(cell, color, clues.get(`${x},${y}`) ?? null, x, y, tiling);
         markGroupJoins(cell, x, y, (nx, ny) => sameCell(x, y, nx, ny));
+        markGroupJoins(
+          cell,
+          x,
+          y,
+          (nx, ny) => sameGalaxyTile(tiling.tiles, config, x, y, nx, ny),
+          "cell-pair",
+        );
         fragment.appendChild(cell);
       }
     }
     this.grid.replaceChildren(fragment);
     drawShapeOutlines(outlines, {
-      shapes: config.shapes ?? [],
+      shapes: [
+        ...(config.shapes ?? []).map(squares => ({ squares })),
+        ...tiling.tiles.map(squares => ({ squares, blank: true })),
+      ],
       gridWidth: config.gridWidth,
       gridHeight: config.gridHeight,
       colorOf: square => cells[square] ?? UNKNOWN,
@@ -138,7 +171,7 @@ export class SolutionView {
  * The clues by position, carrying exactly the optional keys the config does —
  * arrows, axes and seats included. A dart with no direction here would come
  * out as a bare number, and a seated lotus would slide back to its square's
- * centre, either of which reads as a different puzzle from the one just
+ * center, either of which reads as a different puzzle from the one just
  * solved.
  */
 function cluesByPosition(config: LogicGridTest): Map<string, LogicGridClue> {
@@ -167,7 +200,7 @@ function noteFor(data: SolutionViewData): string {
   if (data.decided === data.playable)
     return "Every cell is forced, so this board has exactly one solution.";
   return (
-    "The blank cells are not forced: each of them takes both colours in some " +
+    "The blank cells are not forced: each of them takes both colors in some " +
     "valid solution, so there is nothing to paint there."
   );
 }

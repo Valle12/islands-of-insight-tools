@@ -57,7 +57,7 @@ void bfsAnchors(const ValidAnchor &validAnchor, AnchorWalk &walk,
   queue.push_back(source);
   // A `while`, not a `for`: the body push_back()s into `queue`, so the stop
   // condition tests state the body writes. That trips S886 in a for-header and
-  // a range-for over it would be undefined behaviour outright.
+  // a range-for over it would be undefined behavior outright.
   size_t head = 0;
   while (head < queue.size()) {
     const uint16_t cur = queue[head++];
@@ -259,7 +259,7 @@ void DragSolver::buildSymmetryGroups() {
       continue;
     std::vector<Position> cells = shapes_[i];
     // See AStar's copy of this loop: an empty shape has no origin to
-    // normalise against, and cells[0] on it is undefined behaviour.
+    // normalize against, and cells[0] on it is undefined behavior.
     if (cells.empty())
       continue;
     int8_t minX = cells[0].x;

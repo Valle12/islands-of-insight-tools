@@ -143,7 +143,7 @@ inline uint64_t liveAllocatedBytes() {
   //
   // A union of the two structs was considered and REJECTED: PrivateUsage sits
   // outside the common initial sequence, so reading it back through the _EX
-  // member after the API wrote through the base one is undefined behaviour.
+  // member after the API wrote through the base one is undefined behavior.
   if (auto *const asBase =
           static_cast<PROCESS_MEMORY_COUNTERS *>(static_cast<void *>(&pmc));
       !GetProcessMemoryInfo(GetCurrentProcess(), asBase, sizeof(pmc)))

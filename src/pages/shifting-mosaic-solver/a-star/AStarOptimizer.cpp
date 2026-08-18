@@ -278,7 +278,7 @@ AStar::optimizeSolution(const std::vector<Turn> &input) const {
   const uint64_t deadline =
       cfg_.optimizeMaxMs == 0 ? 0 : nowMs() + cfg_.optimizeMaxMs;
   // All three stop conditions in the header rather than as breaks in the body
-  // (cpp:S924 allows one): out of time, cancelled, or no rewrite fired. The
+  // (cpp:S924 allows one): out of time, canceled, or no rewrite fired. The
   // ladder is the last operand so it only runs while the budget still allows
   // it, exactly as the guards above the old body did.
   const auto budgetSpent = [&] {

@@ -32,11 +32,11 @@ const ARROW_BASE = 28;
 const ARROW_HALF_WIDTH = 7;
 
 export interface DialViewOptions {
-  /** Dial colour id, e.g. `"blue"` — also the `data-color` attribute. */
+  /** Dial color id, e.g. `"blue"` — also the `data-color` attribute. */
   color: string;
-  /** Human-readable colour, used in every accessible name. */
+  /** Human-readable color, used in every accessible name. */
   label: string;
-  /** Data URL of the colour's hub artwork. */
+  /** Data URL of the color's hub artwork. */
   image: string;
   /** Positions minus one, i.e. exactly what the config calls `max`. */
   max: number;
@@ -63,7 +63,7 @@ export function vertexPoint(
 }
 
 /**
- * The position a cursor offset from the dial's centre points at. Snapping to
+ * The position a cursor offset from the dial's center points at. Snapping to
  * the nearest corner is what makes dragging feel like turning a dial rather
  * than dropping a needle wherever the finger happened to be.
  */

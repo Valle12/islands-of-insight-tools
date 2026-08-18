@@ -223,7 +223,7 @@ export class SizedRuleControls {
 
   /**
    * Shows each `+` exactly where another value would mean something. A
-   * one-per-colour control loses its button the moment it holds a slot — even
+   * one-per-color control loses its button the moment it holds a slot — even
    * an empty one, since that slot is where the number is about to go — and
    * gets it back when an emptied slot is dropped.
    *

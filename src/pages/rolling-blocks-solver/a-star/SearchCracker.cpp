@@ -338,7 +338,7 @@ private:
     return touched;
   }
 
-  // Cell-level Warnsdorff: how many unsatisfied must-touch neighbours the
+  // Cell-level Warnsdorff: how many unsatisfied must-touch neighbors the
   // cells satisfied by this move would leave behind. Low openness means the
   // move finishes an almost-enclosed cell (mowing along the wall); high
   // openness means carving through open area, which leaves peninsulas that
@@ -496,12 +496,12 @@ private:
     return true;
   }
 
-  // Orphan prune. A move that satisfies cells may strand a neighbouring
+  // Orphan prune. A move that satisfies cells may strand a neighboring
   // unsatisfied must-touch cell: to ever cover a cell, SOME all-passable
   // pose containing it must be enterable by a roll from another
   // all-passable pose. When no block has such a pose left the whole subtree
   // is dead. Found on fuzz-7007 (2x1x1 dominoes): a plain "has a passable
-  // neighbour" test was not enough — standing a domino on an isolated cell
+  // neighbor" test was not enough — standing a domino on an isolated cell
   // needs TWO consecutive free cells to roll up from.
   [[nodiscard]] bool orphansCell(const Block &moved,
                                  const std::vector<Block> &blocks,

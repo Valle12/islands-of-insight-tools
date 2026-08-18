@@ -1,14 +1,14 @@
 // The rules read off a LOCAL WINDOW: a 2x2 block, a straight line of three, a
 // tetromino, or a pair of cells at a fixed offset. Every one of them is a
-// full-board scan needing nothing but the colouring and a bounds-checked
+// full-board scan needing nothing but the coloring and a bounds-checked
 // reader, which is what makes them a family.
 //
 // Each `has*` says whether the shape occurs anywhere; each `*Problem` asks it
-// only for the colours whose rule is switched on. They share nothing with the
+// only for the colors whose rule is switched on. They share nothing with the
 // search on purpose — an oracle built out of the thing it is checking only
 // proves the two agree.
 
-import type { LogicGridTest } from "../../util/types";
+import type { LogicGridPattern, LogicGridTest } from "../../util/types";
 import { DARK, LIGHT } from "./cell";
 import {
   at,
@@ -59,7 +59,7 @@ function hasSquare(config: LogicGridTest, cells: number[], color: number) {
   return false;
 }
 
-/** The longest straight run of one colour; a gap never equals a colour, so it
+/** The longest straight run of one color; a gap never equals a color, so it
  * breaks a run without a special case. */
 function longestRun(config: LogicGridTest, cells: number[], color: number) {
   let best = 0;
@@ -81,7 +81,7 @@ function longestRun(config: LogicGridTest, cells: number[], color: number) {
 }
 
 /**
- * All four corners have to be real colours: two gaps on one diagonal would
+ * All four corners have to be real colors: two gaps on one diagonal would
  * otherwise read as a matching pair.
  */
 function hasCheckerboard(config: LogicGridTest, cells: number[]) {
@@ -118,7 +118,7 @@ function squareProblem(
   return "none";
 }
 
-/** Both colours measured once, then every active run rule asked about them. */
+/** Both colors measured once, then every active run rule asked about them. */
 function runProblem(
   config: LogicGridTest,
   cells: number[],
@@ -133,8 +133,8 @@ function runProblem(
 }
 
 /**
- * A line of three alternating colours with `color` at both ends, in either
- * direction. Both colours are named outright, so a gap can never take part in
+ * A line of three alternating colors with `color` at both ends, in either
+ * direction. Both colors are named outright, so a gap can never take part in
  * one: it equals neither.
  */
 function hasTriple(config: LogicGridTest, cells: number[], color: number) {
@@ -171,8 +171,8 @@ function tripleProblem(
 }
 
 /**
- * A T of one colour: a straight three with a fourth cell on the middle's other
- * side. Scanned from the CENTRE, which sees all four rotations as a bar plus a
+ * A T of one color: a straight three with a fourth cell on the middle's other
+ * side. Scanned from the CENTER, which sees all four rotations as a bar plus a
  * stem — and sees the T inside a plus, which contains one.
  */
 function hasTee(config: LogicGridTest, cells: number[], color: number) {
@@ -207,7 +207,7 @@ function teeProblem(
 }
 
 /**
- * A 2x2 holding exactly three of `color` and one of the other. Both colours
+ * A 2x2 holding exactly three of `color` and one of the other. Both colors
  * are counted outright, so a 2x2 touching a gap can never qualify: a gap
  * equals neither.
  */
@@ -244,8 +244,8 @@ function threeOneProblem(
 
 /**
  * Two cells of `color` touching corner to corner, anywhere at all — being
- * joined through an orthogonal neighbour does not excuse the touch, which is
- * what makes every region of the colour a straight bar. Scanned from each
+ * joined through an orthogonal neighbor does not excuse the touch, which is
+ * what makes every region of the color a straight bar. Scanned from each
  * cell's two DOWNWARD diagonals, so every pair is seen exactly once.
  */
 function hasDiagonal(config: LogicGridTest, cells: number[], color: number) {
@@ -301,7 +301,7 @@ function elbowProblem(
 /**
  * An L-tetromino of `color`, either handedness: a straight three with a
  * fourth cell perpendicular at one END. Scanned from the bar's middle like
- * the T. Every diagonal neighbour of the middle is orthogonally adjacent to
+ * the T. Every diagonal neighbor of the middle is orthogonally adjacent to
  * exactly one end of either bar, so "a bar plus any diagonal of its middle"
  * is precisely an L — all eight orientations — while a foot at the middle
  * itself would be a T, which this never matches.
@@ -340,7 +340,7 @@ function ellProblem(
 
 /**
  * Two cells of `color` exactly two apart in a straight line. Only the two END
- * squares are read — whatever lies between them, the other colour or even a
+ * squares are read — whatever lies between them, the other color or even a
  * gap, does not lift the ban, which is what "purely positional" means.
  * Scanned rightward and downward only, so every pair is seen exactly once.
  */
@@ -374,7 +374,7 @@ function distancePairProblem(
 
 /**
  * A T whose CROSSING — the bar's middle, where the stem attaches — holds the
- * other colour while the bar's ends and the stem hold `color`. Scanned from
+ * other color while the bar's ends and the stem hold `color`. Scanned from
  * the crossing, which sees all four rotations; every cell is named outright,
  * so a gap can never stand in for the crossing.
  */
@@ -397,7 +397,7 @@ function mixedTeeProblem(
   config: LogicGridTest,
   cells: number[],
 ): LogicGridViolation {
-  // The rule's id names the ARMS' colour last: a "light-crossed dark T" is
+  // The rule's id names the ARMS' color last: a "light-crossed dark T" is
   // three dark cells around a light crossing.
   if (has(config, NO_LIGHT_CROSSED_DARK_T) && hasMixedTee(config, cells, DARK))
     return "mixed-tee";
@@ -476,8 +476,8 @@ function knightProblem(
 
 /**
  * A bent tromino whose CORNER — the square touching both others — holds the
- * other colour while both ends hold `color`. Scanned from the corner: any
- * vertical neighbour of it paired with any horizontal one is a right angle,
+ * other color while both ends hold `color`. Scanned from the corner: any
+ * vertical neighbor of it paired with any horizontal one is a right angle,
  * which covers the four orientations — while a straight line through the
  * corner has no such pair, so a mixed TRIPLE never matches.
  */
@@ -517,10 +517,109 @@ function mixedElbowProblem(
 }
 
 /**
+ * Where (x, y) of a drawn pattern lands under the orientation `image` names:
+ * bit 0 transposes, bits 1 and 2 flip the result's axes, which between them
+ * are the eight dihedral images.
+ *
+ * Worked out here rather than borrowed from `patterns.ts`, which is what the
+ * editor and the validator use. This file shares nothing with the thing it
+ * checks, and "a drawn pattern forbids its rotations too" is a claim like any
+ * other: stated twice, and right only if it is right twice.
+ */
+function turned(
+  x: number,
+  y: number,
+  image: number,
+  where: Placement,
+): { x: number; y: number } {
+  const swap = (image & 1) !== 0;
+  const nx = swap ? y : x;
+  const ny = swap ? x : y;
+  return {
+    x: (image & 2) === 0 ? nx : where.width - 1 - nx,
+    y: (image & 4) === 0 ? ny : where.height - 1 - ny,
+  };
+}
+
+/** One image laid over the board with its top-left corner at (ox, oy). */
+interface Placement {
+  ox: number;
+  oy: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Whether every square the pattern NAMES holds what it asks for, here.
+ *
+ * Squares it does not name are skipped, so nothing is asserted about them and
+ * a gap under one is fine. A gap under a square it DOES name simply fails to
+ * match, since a pattern only ever wants dark or light.
+ */
+function drawnAt(
+  config: LogicGridTest,
+  cells: number[],
+  pattern: LogicGridPattern,
+  image: number,
+  where: Placement,
+): boolean {
+  for (let y = 0; y < pattern.height; y++) {
+    for (let x = 0; x < pattern.width; x++) {
+      const want = pattern.cells[y * pattern.width + x]!;
+      if (want !== DARK && want !== LIGHT) continue;
+      const landed = turned(x, y, image, where);
+      if (at(config, cells, where.ox + landed.x, where.oy + landed.y) !== want)
+        return false;
+    }
+  }
+  return true;
+}
+
+/** Whether the board holds this drawn arrangement anywhere, in one image. */
+function holdsDrawn(
+  config: LogicGridTest,
+  cells: number[],
+  pattern: LogicGridPattern,
+  image: number,
+): boolean {
+  const swap = (image & 1) !== 0;
+  const width = swap ? pattern.height : pattern.width;
+  const height = swap ? pattern.width : pattern.height;
+  for (let oy = 0; oy + height <= config.gridHeight; oy++) {
+    for (let ox = 0; ox + width <= config.gridWidth; ox++) {
+      if (drawnAt(config, cells, pattern, image, { ox, oy, width, height }))
+        return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * The puzzle's OWN drawn patterns, walked in full — the discipline `runProblem`
+ * follows for `config.runs`. One violation name for all of them, because what
+ * a board broke is a shape the config carries rather than a rule with a name.
+ */
+function customPatternProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  for (const pattern of config.patterns ?? []) {
+    for (let image = 0; image < 8; image++) {
+      if (holdsDrawn(config, cells, pattern, image)) return "custom-pattern";
+    }
+  }
+  return "none";
+}
+
+/**
  * The window rules, in the order `verifyLogicGrid` asks them. Order is not
  * load-bearing WITHIN a family — every one of these is independent of the
  * others — but it decides which violation a board breaking several is named
  * for, and the suites assert those names.
+ *
+ * The drawn patterns go LAST, so no board that was already breaking a named
+ * rule starts being named for a drawing instead. `Verify.cpp` keeps the same
+ * order for the same reason.
  */
 export const PATTERN_CHECKS: readonly RuleCheck[] = [
   squareProblem,
@@ -536,4 +635,5 @@ export const PATTERN_CHECKS: readonly RuleCheck[] = [
   longTeeProblem,
   knightProblem,
   mixedElbowProblem,
+  customPatternProblem,
 ];

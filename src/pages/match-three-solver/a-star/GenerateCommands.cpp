@@ -19,7 +19,7 @@ constexpr int kAttempts = 40;
 /// of each blockade-free segment, so the result needs no settling — it is
 /// already the shape gravity would leave. Returned bottom-up row-major, which
 /// is the order the placement pass wants: when it reaches a cell, the only
-/// filled neighbours are the ones it has to check against.
+/// filled neighbors are the ones it has to check against.
 std::vector<int> fillSlots(const Board &board, SeededRng &rng) {
   std::vector fillable(slot(board.cellCount()), false);
   for (int x = 0; x < board.width; x++) {

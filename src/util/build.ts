@@ -123,7 +123,7 @@ for (const page of PAGES) {
 // The favicon reference must survive as a URL. Bun inlines every asset href it
 // can resolve as a base64 data: URI, which is 91 KB a page AND uncrawlable —
 // Googlebot-Image has no way to fetch one, so the site shows the default globe.
-// Absolute urls are left alone, but that is the bundler's behaviour rather than
+// Absolute urls are left alone, but that is the bundler's behavior rather than
 // a promise, so it is checked rather than assumed.
 for (const page of PAGES) {
   const built = resolve("./dist", page.path, "index.html");

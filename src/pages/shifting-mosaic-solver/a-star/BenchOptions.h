@@ -36,7 +36,7 @@ struct BenchOptions {
     uint32_t budgetMs = 60000;
     uint32_t maxNodes = 20000000;
     uint32_t seqTotalMs = 0;   // total cap for the sequential phase; 0 = none
-    uint64_t maxStates = 0;    // 0 = unlimited (unchanged behaviour)
+    uint64_t maxStates = 0;    // 0 = unlimited (unchanged behavior)
     uint64_t maxHeapBytes = 0; // 0 = unlimited; measured bytes, not a proxy
   };
 
@@ -120,7 +120,7 @@ public:
 
   // Consumes the current option's value as a number. atoi()/atoll() report
   // nothing: a typo'd or out-of-range value silently becomes 0 and the sweep
-  // looks like it honoured the flag while measuring something else.
+  // looks like it honored the flag while measuring something else.
   uint64_t valueU();
 
   [[nodiscard]] const std::string &error() const { return error_; }

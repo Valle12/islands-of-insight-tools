@@ -3,7 +3,7 @@
 
    `min-height: 100vh`, not `100%`: the body below is `height: auto`, and a
    percentage min-height against an auto-height parent resolves to nothing —
-   which leaves the column hugging the top of a tall window instead of centred.
+   which leaves the column hugging the top of a tall window instead of centered.
    `min-height` rather than `height` because the content can exceed the viewport
    on a phone, and the column has to be allowed to grow past it. */
 #tool-selector {
@@ -21,9 +21,9 @@
   color: var(--md-sys-color-on-surface);
 }
 
-/* A wash of the primary colour behind the whole page — enough to stop the flat
+/* A wash of the primary color behind the whole page — enough to stop the flat
    surface reading as an unstyled document, subtle enough not to fight the cards
-   in either colour scheme.
+   in either color scheme.
 
    `height: auto` undoes common.css's `height: 100vh`, which every solver page
    wants and this one cannot have: the content is taller than the viewport on a
@@ -60,7 +60,7 @@ body:has(#tool-selector) {
 
 /* The gradient title, behind a support query on purpose: `color: transparent`
    is only safe once the clip is known to work, or the heading is invisible
-   rather than merely unstyled. The plain primary colour above is the fallback. */
+   rather than merely unstyled. The plain primary color above is the fallback. */
 @supports (background-clip: text) or (-webkit-background-clip: text) {
   #hero h1 {
     background: linear-gradient(

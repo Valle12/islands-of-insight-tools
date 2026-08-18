@@ -8,7 +8,7 @@
  * scan that shares nothing with the machinery that produced the answer: an
  * oracle built out of the thing it is checking only proves the two agree.
  *
- * Colourings cross as a FLAT ROW-MAJOR array — `cells[y * gridWidth + x]` —
+ * Colorings cross as a FLAT ROW-MAJOR array — `cells[y * gridWidth + x]` —
  * which is the layout the wasm module answers in. The editor's own `cells` are
  * column-major; `toFlat` is the one place that difference is handled.
  */
@@ -45,13 +45,13 @@ function shapeProblem(
 }
 
 /**
- * Every square of a merged cell holds one colour.
+ * Every square of a merged cell holds one color.
  *
  * Nothing the solver produces can break this — its domains fan out over a
  * merged cell, so its squares are decided together — but this checker also
  * gates answers that never went through them, and it is the last thing between
  * a bad answer and the board the player is shown. It is also what entitles
- * every check below to go on reading the colouring one SQUARE at a time.
+ * every check below to go on reading the coloring one SQUARE at a time.
  */
 function fusedProblem(
   config: LogicGridTest,
@@ -67,7 +67,7 @@ function fusedProblem(
 /**
  * Whether `cells` is a complete, legal solution of `config`.
  *
- * The implied checkerboard rule is deliberately absent: when both colours are
+ * The implied checkerboard rule is deliberately absent: when both colors are
  * connected a checkerboard already breaks one of them, so the connectivity test
  * catches it — and leaving it out keeps this oracle free of anything the solver
  * derived rather than was told.
@@ -75,7 +75,7 @@ function fusedProblem(
  * ORDER IS LOAD-BEARING at the top. `shapeProblem` is about the board's GAPS
  * and givens and stays first, so those are still named as such, and
  * `fusedProblem` then settles what a merged cell is before anything below reads
- * the colouring square by square — which is what entitles every check in the
+ * the coloring square by square — which is what entitles every check in the
  * three families to go on reading one SQUARE at a time. Their order relative to
  * each other only decides which violation a board breaking several is named
  * for, which the suites assert.

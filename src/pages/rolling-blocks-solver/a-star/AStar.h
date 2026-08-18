@@ -247,7 +247,7 @@ private:
   bool budgetExhausted(uint64_t deadline, size_t statesStored);
 
   // The heuristics are non-const: they reuse member scratch instead of
-  // zero-initialising fresh tables per call. mustTouch is the cell-indexed
+  // zero-initializing fresh tables per call. mustTouch is the cell-indexed
   // satisfied set, ordinal its must-touch-ordinal mirror (see below).
   [[nodiscard]] uint32_t heuristic(const std::vector<Block> &blocks,
                                    const boost::dynamic_bitset<> &mustTouch,

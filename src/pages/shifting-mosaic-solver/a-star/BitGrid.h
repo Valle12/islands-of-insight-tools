@@ -162,7 +162,7 @@ public:
     return parentDir_[idx];
   }
 
-  // Indexed by floodFill's 4-neighbour scan and runJamDijkstra's, the latter
+  // Indexed by floodFill's 4-neighbor scan and runJamDijkstra's, the latter
   // once per beam/jam expansion — the two hottest inner loops here.
   //
   // These were deliberately C arrays until 2026-08-16, because converting them

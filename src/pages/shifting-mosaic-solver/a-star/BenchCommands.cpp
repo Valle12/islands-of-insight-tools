@@ -62,13 +62,13 @@ namespace {
 // producing the same fixture, since fuzzShiftingMosaic.ts addresses boards by
 // seed. Nothing here reorders them.
 
-// A random polyomino of up to maxCells cells, normalised so its bounding box
+// A random polyomino of up to maxCells cells, normalized so its bounding box
 // starts at (0, 0).
 std::vector<Position> randomShape(SeededRng &rng, const int maxCells) {
   const int want = rng.uniform(1, maxCells);
   std::vector<std::pair<int, int>> cells{{0, 0}};
   // guard bounds the retries for a shape that cannot grow, when the cell drawn
-  // keeps having its neighbour already occupied. Decremented as the first
+  // keeps having its neighbor already occupied. Decremented as the first
   // statement of the body, not as `guard-- > 0` in the condition: there it is
   // a side effect in the right-hand operand of &&, evaluated only when the
   // left side holds, so the count can only be read correctly by reasoning
