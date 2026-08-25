@@ -14,8 +14,8 @@ project(islands_of_insight_solvers LANGUAGES CXX)
 # that child's CMakeLists.txt.
 #
 # Per-page work from this dir: `cmake --build build-ci --target a_star_tests`
-# and `ctest --test-dir build-ci -L rolling-blocks` (labels come from the two
-# test/CMakeLists.txt).
+# and `ctest --test-dir build-ci -L rolling-blocks` (labels come from the four
+# test/CMakeLists.txt; logic-grid's label selects its four gtest shards).
 #
 # Note the children use PROJECT_SOURCE_DIR, never CMAKE_SOURCE_DIR — the latter
 # is this directory once they are add_subdirectory'd, which would send

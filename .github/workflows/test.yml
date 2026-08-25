@@ -13,9 +13,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-permissions:
-  contents: read
-
 env:
   # PINNED, not `latest`. The wasm cache key below claims that identical C++
   # plus identical flags means identical wasm; that is only true if the compiler
@@ -29,6 +26,8 @@ jobs:
   wasm:
     name: Build WASM
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     # Sixteen LTO variants on a cold cache now, not twelve.
     timeout-minutes: 45
     steps:
@@ -92,54 +91,181 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+  # ---- C++ ------------------------------------------------------------------
   # Independent of wasm: the native gtest suites compile the same TUs with the
-  # host compiler.
-  cpp:
-    name: C++ tests
+  # host compiler. Three jobs where there was one, and a gate named as before:
+  #
+  #   cpp-build ──▶ cpp-test [4, by suite] ──▶ C++ tests (gate + green marker)
+  #
+  # Measured 2026-08-25 on the 4-vCPU runners, the single job took ~570 s:
+  # apt 16 s, configure 7 s, build 99 s, ctest 440 s — and of ctest's 1665
+  # CPU-seconds, 877 were the logic-grid binary starting 8549 times (fixed in
+  # its test/CMakeLists.txt), against 235 s for shiftingMosaicTest37 alone.
+  # So the build happens once (ccache under it) and hands its test binaries
+  # down; the suites run as parallel jobs, test37 on a runner of its own since
+  # it is the floor nothing shortens; and all of it is SKIPPED when nothing it
+  # depends on has changed, through a "green" marker cached under an EXACT key
+  # over the C++ sources, both CMake trees, the fixtures, this workflow and the
+  # runner image. The gate runs and reports either way — what keeps this apart
+  # from a `paths` filter, where a skipped required check never reports. Same
+  # soundness model as the wasm cache: no restore-keys on the marker.
+  cpp-build:
+    name: C++ build
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    permissions:
+      contents: read
+    timeout-minutes: 25
+    outputs:
+      skip: ${{ steps.marker.outputs.cache-hit }}
+      key: ${{ steps.key.outputs.key }}
+    env:
+      CCACHE_DIR: /home/runner/.cache/ccache
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      # Plain apt, deliberately not cached. It measures 19s, and this job's wall
-      # clock is dominated by shiftingMosaicTest37 (~112s of the ~130s ctest),
-      # so a package cache would buy ~10s for a third-party dependency.
-      #
-      # ccache is absent for the same reason: the OBJECT libraries plus -j
-      # already took the build from 162s serial to ~50s, and caching objects
-      # cannot touch the test time that actually sets this job's length.
-      - name: Install C++ dependencies
-        run: sudo apt-get update && sudo apt-get install -y libboost-dev nlohmann-json3-dev libgtest-dev cmake
+      # Everything the C++ tests can depend on. `ImageVersion` is the runner
+      # image — its gcc, cmake, boost and gtest — which rolls roughly weekly.
+      - name: Fingerprint the C++ inputs
+        id: key
+        run: echo "key=cpp-green-${RUNNER_OS}-${ImageVersion}-${{ hashFiles('src/pages/*/a-star/**', 'CMakeLists.txt', 'cmake/**', 'test/resources/**', '.github/workflows/test.yml') }}" >> "$GITHUB_OUTPUT"
 
-      # ONE configure over both solvers, via the repo-root aggregate. Developers
-      # still configure src/pages/*/a-star directly; see CLAUDE.md.
+      - name: Look up a green marker for these inputs
+        id: marker
+        uses: actions/cache/restore@v6
+        with:
+          path: cpp-green
+          key: ${{ steps.key.outputs.key }}
+          lookup-only: true
+
+      - name: Install C++ dependencies
+        if: steps.marker.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install -y libboost-dev nlohmann-json3-dev libgtest-dev cmake ccache
+
+      # ccache IS allowed restore-keys, unlike the wasm cache: it is content-
+      # addressed, so a stale entry can only miss, never serve a wrong object.
+      - name: Restore ccache
+        if: steps.marker.outputs.cache-hit != 'true'
+        uses: actions/cache@v6
+        with:
+          path: /home/runner/.cache/ccache
+          key: ccache-${{ runner.os }}-${{ github.sha }}
+          restore-keys: ccache-${{ runner.os }}-
+
+      # ONE configure over all four solvers, via the repo-root aggregate.
+      # Developers still configure src/pages/*/a-star directly; see CLAUDE.md.
       - name: Configure
+        if: steps.marker.outputs.cache-hit != 'true'
         run: >
           cmake -B build-ci -S .
           -DCMAKE_BUILD_TYPE=Release
           -DBUILD_TESTING=ON
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
-      # -j matters: the old two builds ran single-threaded on a 4-vCPU runner.
       - name: Build
-        run: cmake --build build-ci -j "$(nproc)"
+        if: steps.marker.outputs.cache-hit != 'true'
+        run: ccache -z && cmake --build build-ci -j "$(nproc)" && ccache -s
 
-      # -j is safe because the shifting-mosaic fixtures carry PROCESSORS 8 (they
-      # each run the production six-arm std::thread cascade and want the whole
-      # machine), so ctest schedules them alone while the cheap rolling-blocks
-      # tests fill the remaining slots.
+      # The test binaries plus the ctest metadata that names them — not the
+      # object files. The metadata carries absolute paths, so the test jobs
+      # unpack this at the same workspace path.
+      - name: Pack the test tree
+        if: steps.marker.outputs.cache-hit != 'true'
+        run: find build-ci -type f \( -name CMakeCache.txt -o -name CTestTestfile.cmake -o -name DartConfiguration.tcl -o -name '*_include.cmake' -o -name '*_tests.cmake' -o \( -name '*_tests' -perm -u+x \) \) -print0 | tar --null -T - -czf cpp-tests.tgz
+      - name: Upload the test tree
+        if: steps.marker.outputs.cache-hit != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: cpp-tests
+          path: cpp-tests.tgz
+          retention-days: 1
+          if-no-files-found: error
+
+  cpp-test:
+    name: C++ tests (${{ matrix.name }})
+    needs: cpp-build
+    if: needs.cpp-build.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # shiftingMosaicTest37 is the floor: an eight-arm race that needs
+          # ~235 s on four vCPUs, so it gets a runner to itself.
+          - name: shiftingMosaicTest37
+            select: -L shifting-mosaic -R shiftingMosaicTest37
+          - name: shifting-mosaic
+            select: -L shifting-mosaic -E shiftingMosaicTest37
+          - name: logic-grid
+            select: -L logic-grid
+          - name: match-three+rolling-blocks
+            select: -L 'match-three|rolling-blocks'
+    steps:
+      # The checkout is for the fixtures under test/resources, which the
+      # binaries read by absolute path.
+      - name: Checkout code
+        uses: actions/checkout@v7
+      - name: Download the test tree
+        uses: actions/download-artifact@v8
+        with:
+          name: cpp-tests
+      - name: Unpack
+        run: tar -xzf cpp-tests.tgz
+
+      # -j is safe because the shifting-mosaic fixtures carry PROCESSORS 8
+      # (each runs the production multi-arm std::thread cascade and wants the
+      # whole machine) while everything else carries 1 and parallelises.
       - name: Test
-        run: ctest --test-dir build-ci -j "$(nproc)" --output-on-failure
+        run: ctest --test-dir build-ci ${{ matrix.select }} -j "$(nproc)" --output-on-failure
+
+  # The verdict, under the name the status list has always shown, plus the
+  # marker that lets the next run with identical inputs skip all of the above.
+  cpp:
+    name: C++ tests
+    needs: [cpp-build, cpp-test]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: Verdict
+        run: |
+          if [ "${{ needs.cpp-build.outputs.skip }}" = "true" ]; then
+            echo "C++ inputs unchanged since a green run: ${{ needs.cpp-build.outputs.key }}"
+          elif [ "${{ needs.cpp-test.result }}" = "success" ]; then
+            echo "every C++ suite green"
+            mkdir -p cpp-green && echo "${{ github.run_id }}" > cpp-green/run
+          else
+            echo "C++ failed: build=${{ needs.cpp-build.result }} tests=${{ needs.cpp-test.result }}"
+            exit 1
+          fi
+      - name: Save the green marker
+        if: needs.cpp-build.outputs.skip != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: cpp-green
+          key: ${{ needs.cpp-build.outputs.key }}
 
   typecheck:
     name: Typecheck
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 10
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
       - name: Setup bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - name: Cache bun dependencies
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       - name: Install dependencies
         run: bun ci
       # CLAUDE.md makes this mandatory before calling work done, and CI never
@@ -149,35 +275,35 @@ jobs:
       - name: tsc --noEmit
         run: bun run typecheck
 
-  # Between them these six shards run EVERY test under test/ — there is no env
-  # gate that can leave a suite silently unregistered.
+  # Bun's own sharding: every file under test/ lands in exactly one of the
+  # four shards, balanced by the per-file wall clock in test-timings.json
+  # (`bun run test:timings` refreshes it; a stale or missing file only
+  # degrades the balance — bun falls back to round-robin). The floor is the
+  # ~163 s shifting-mosaic wasm suite, so more shards would only add checkout
+  # and install overhead. No IOI_SKIP_SLOW here: that gate is for the local
+  # `test:fast` lane, and nothing here can leave a suite unregistered.
+  #
+  # `--parallel` inside a shard was measured rather than assumed (IIT-47): on
+  # these four-vCPU runners the slowest shard is one wasm suite racing every
+  # core either way — 213 s with it, 215 s without — so it buys no wall clock.
+  # It stays for PARITY with the local scripts, which all isolate per file: a
+  # module-registry leak cannot pass locally and fail here, or the reverse.
   bun-test:
-    name: bun test (${{ matrix.name }})
+    name: bun test (shard ${{ matrix.shard }}/4)
     needs: wasm
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # One shard per slow suite, sized by measured wall clock
-          # (~244s / ~60s / ~75s / ~22s / ~90s), and a sixth for everything
-          # else. Logic-grid's corpus sweep lived in the fast shard while it
-          # measured 617 ms for 36 boards; at 436 captured boards it passed
-          # 90 s and became `wasm.slow.test.ts` with a shard of its own.
-          - name: sm-wasm
-            filter: test/shifting-mosaic-solver/wasm.slow.test.ts
-          - name: rb-astar
-            filter: test/rolling-blocks-solver/aStar.slow.test.ts
-          - name: mt-wasm
-            filter: test/match-three-solver/wasm.slow.test.ts
-          - name: match-three-solve
-            filter: test/match-three-solver/engine.solve.slow.test.ts
-          - name: lg-wasm
-            filter: test/logic-grid-solver/wasm.slow.test.ts
-          - name: fast
-            filter: ""
-            skip-slow: "1"
+        shard: [1, 2, 3, 4]
+    env:
+      # Memory64 is behind this JSC option until oven-sh/bun#35740 ships. The
+      # mem64.test.ts files FAIL rather than skip without it (see CLAUDE.md),
+      # and the package.json test scripts set it the same way.
+      BUN_JSC_useWasmMemory64: "1"
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -196,14 +322,47 @@ jobs:
           name: wasm
           path: src/pages
       - name: Run tests
-        run: bun test ${{ matrix.filter }}
-        env:
-          IOI_SKIP_SLOW: ${{ matrix.skip-slow }}
+        run: bun test --parallel --shard=${{ matrix.shard }}/4 --timings=test-timings.json
+
+      # One lcov per shard; the coverage job merges them, because bun's own
+      # coverageThreshold is per invocation and a shard sees a quarter of the
+      # suite.
+      - name: Upload coverage
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.shard }}
+          path: coverage/lcov.info
+          retention-days: 7
+          if-no-files-found: error
+
+  # The line-coverage floor, applied to the MERGED picture of all four shards.
+  # No `bun ci`: coverageGate.ts imports node:fs and node:path only.
+  coverage:
+    name: Coverage floor
+    needs: bun-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+      - name: Setup bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - name: Download coverage reports
+        uses: actions/download-artifact@v8
+        with:
+          pattern: coverage-*
+          path: coverage-reports
+      - name: Apply the floor
+        run: bun src/util/coverageGate.ts coverage-reports/*/lcov.info
 
   e2e:
     name: e2e (shard ${{ matrix.shard }}/2)
     needs: wasm
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -214,6 +373,11 @@ jobs:
         uses: actions/checkout@v7
       - name: Setup bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - name: Cache bun dependencies
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       - name: Install dependencies
         run: bun ci
       - name: Download wasm
@@ -252,53 +416,25 @@ jobs:
           path: playwright-report
           retention-days: 7
 
-  mem64:
-    name: MEMORY64 (node)
-    needs: wasm
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-      - name: Download wasm
-        uses: actions/download-artifact@v8
-        with:
-          name: wasm
-          path: src/pages
-
-      # bun cannot instantiate a Memory64 module, so the mem64 builds are tested
-      # under node instead of in `bun test`.
-      #
-      # The node version is PINNED rather than taken from the runner image: the
-      # ubuntu-24.04 default validates a 64-bit MEMORY but rejects the 64-bit
-      # TABLE that emscripten 6.x emits for every wasm64 build, so the module
-      # fails to compile with "invalid table elements limits flags". The test's
-      # own probe now covers tables too, so an under-capable runtime SKIPS —
-      # which means without this pin the gate would quietly stop testing
-      # anything at all.
-      - name: Setup node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-
-      # EVERY file. This step used to name only the shifting-mosaic one, so the
-      # rolling-blocks MEMORY64 build was never loaded in CI; a solver whose
-      # test is missing here is a build nothing ever instantiates.
-      - name: Run MEMORY64 wasm tests
-        run: node --test test/shifting-mosaic-solver/mem64.node.test.mjs test/rolling-blocks-solver/mem64.node.test.mjs test/match-three-solver/mem64.node.test.mjs test/logic-grid-solver/mem64.node.test.mjs
-
   # Proves the production bundle still builds on every PR — nothing checked that
   # before — and publishes the artifact deploy.yml reuses.
   dist:
     name: Build dist
     needs: wasm
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
       - name: Setup bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - name: Cache bun dependencies
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       - name: Install dependencies
         run: bun ci
       - name: Download wasm

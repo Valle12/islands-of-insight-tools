@@ -105,8 +105,8 @@ const server = Bun.serve({
       return Response.redirect(target, 301);
     }
     // Solver wasm assets (all build variants: wasm32, pthreads, MEMORY64),
-    // one directory per solver. Served by extension — bun can hand the
-    // browser the mem64 binary even though it cannot instantiate it itself.
+    // one directory per solver. Served by extension, whatever the serving
+    // runtime could instantiate itself.
     const wasmVariantFiles = new Set<string>(WASM_VARIANT_FILES);
     for (const { page, prefix } of WASM_SOLVERS) {
       if (!url.pathname.startsWith(`/${prefix}/`)) continue;

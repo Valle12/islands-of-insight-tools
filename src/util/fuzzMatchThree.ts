@@ -209,8 +209,6 @@ for (let i = 0; i < opts.count; i++) {
   for (const found of problems) failures.push(`seed ${seed} ${kind}: ${found}`);
 
   if (problems.length === 0 && !opts.keepAll) {
-    // node:fs rather than BunFile.delete(), which needs Bun >= 1.1.43 — and
-    // neither package.json nor the workflows pin a Bun version.
     rmSync(path, { force: true });
   }
   if ((i + 1) % 25 === 0) {

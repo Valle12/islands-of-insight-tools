@@ -57,10 +57,11 @@ rejected. Written 2026-07 during the drag-space engine work (IIT-21).
    on fuzz-23444). The bridge prefers this build in the worker-pool portfolio
    wherever the runtime can load it, detected by `WebAssembly.validate` of a
    13-byte 64-bit-memory module, and falls back to `astar.mjs`. **Node loads
-   it; bun (1.3.x) cannot yet** ("Memory64 is not enabled"), so the bun
-   `wasm.test.ts` suite can never exercise it — a `node --test` gate
-   (`test:mem64`, wired into CI) covers correctness instead. Browsers enable
-   Memory64 behind a flag today, natively soon. Not a per-board fix: it does
+   it, and bun 1.4 does behind `BUN_JSC_useWasmMemory64=1`** — off by default
+   until oven-sh/bun#35740 lands, and "Memory64 is not enabled" without it —
+   so the `mem64.test.ts` smoke tests run it under `bun test` with that switch
+   set by every test script. Browsers enable Memory64 behind a flag today,
+   natively soon. Not a per-board fix: it does
    not by itself crack 23444/29534 (deeper than 8GB of flat search, and the
    jam-class arms that could either decline on 23444's aspect gate or already
    run their full budget). Its value is robustness — the deep arms finish
@@ -86,12 +87,13 @@ rejected. Written 2026-07 during the drag-space engine work (IIT-21).
    for the setting and 6.0.4 warns that the setting is deprecated. The floor
    is therefore emsdk **>= 6.0.0**: older toolchains ignore `-m64` outright and
    emit a wasm32 module under a mem64 name, which the runtime probe would then
-   happily load. CI installs `latest`, so it stays ahead of that floor.
+   happily load. CI pins `EMSDK_VERSION` (6.0.4), which clears that floor.
      - `astar.mem64.mjs` — single-threaded, *non-shared* 8GB heap, for the
        non-isolated multi-worker fallback (each worker its own heap). Gated on
        a non-shared 64-bit-memory validate.
-   Neither loads under bun; browsers enable Memory64 behind a flag today,
-   natively soon. Full variant priority: `threads-mem64` > `threads` >
+   Under bun 1.4 with the switch above the non-shared build loads and the
+   shared one still fails validation; browsers enable Memory64 behind a flag
+   today, natively soon. Full variant priority: `threads-mem64` > `threads` >
    `mem64` > `default`.
 
 ## WebGPU / WebGL: rejected (measured basis)

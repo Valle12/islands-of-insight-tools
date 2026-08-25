@@ -7,11 +7,12 @@
  * build` instead would need a browser and a live server on every build, in CI
  * and on the deploy runner, and would make `dist` differ run to run.
  *
- * The screenshots are taken by Playwright's own CLI under NODE, not by its API
- * under bun: `chromium.launch()` hangs indefinitely when bun is the host
- * runtime (measured — it never returns and never errors, which is also why the
- * e2e suite shells out to `playwright test`). Everything bun does here is
- * orchestration: start the dev server, walk the page list, stop the server.
+ * The screenshots are taken through Playwright's API, under bun. That used to
+ * be impossible — `chromium.launch()` hung forever with bun 1.3 as the host
+ * runtime, never returning and never erroring, so this shelled out to
+ * Playwright's CLI under node — and bun 1.4 fixed it (measured: launch,
+ * screenshot and close in under a second). `bun run e2e` still shells out to
+ * `playwright test`; the runner's host process gains nothing from moving.
  *
  * Flags, all for looking at variations locally — the defaults are what the
  * committed images and the meta tags agree on:
@@ -27,6 +28,7 @@
  *   --height <px>       viewport height (default OG_IMAGE_HEIGHT)
  *   --out <dir>         write somewhere other than images/og/
  */
+import { chromium } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -39,9 +41,8 @@ import {
 import { parseFlags } from "./solverCli";
 
 const ORIGIN = "http://localhost:3000";
-const PLAYWRIGHT_CLI = "node_modules/playwright/cli.js";
 
-let scheme = "dark";
+let scheme: "dark" | "light" = "dark";
 let fullPage = false;
 let width = OG_IMAGE_WIDTH;
 let height = OG_IMAGE_HEIGHT;
@@ -95,6 +96,7 @@ const startServer = async () => {
 };
 
 const server = await startServer();
+const browser = await chromium.launch();
 try {
   mkdirSync(outDir, { recursive: true });
   console.log(
@@ -115,29 +117,17 @@ try {
     // empty box. The COI pages additionally throw the whole document away once
     // when their service worker activates.
     const wait = COI_PATHS.has(meta.path) ? 9000 : 5000;
-    const proc = Bun.spawn(
-      [
-        "node",
-        PLAYWRIGHT_CLI,
-        "screenshot",
-        "--color-scheme",
-        scheme,
-        "--viewport-size",
-        `${width}, ${height}`,
-        "--wait-for-timeout",
-        String(wait),
-        ...(fullPage ? ["--full-page"] : []),
-        `${ORIGIN}${path}`,
-        file,
-      ],
-      { stdout: "inherit", stderr: "inherit" },
-    );
-    const code = await proc.exited;
-    if (code !== 0) {
-      throw new Error(`playwright screenshot failed for ${path} (exit ${code})`);
-    }
+    const page = await browser.newPage({
+      viewport: { width, height },
+      colorScheme: scheme,
+    });
+    await page.goto(`${ORIGIN}${path}`);
+    await page.waitForTimeout(wait);
+    await page.screenshot({ path: file, fullPage });
+    await page.close();
     console.log(`${path} -> ${file}`);
   }
 } finally {
+  await browser.close();
   server?.kill();
 }
