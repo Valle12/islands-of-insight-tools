@@ -239,8 +239,9 @@ void readClues(const nlohmann::json &document, Puzzle &puzzle,
       throw FixtureError("A clue sits outside the board in " + path);
     if (kind < 0 || kind >= kClueKindCount)
       throw FixtureError("Unknown clue kind in " + path);
-    // The valueless kinds — the lotus and the galaxy, listed by
-    // `isValuelessKind` so this reader and the writer below cannot drift —
+    // The valueless kinds — the lotus, the galaxy and the myopia arrows,
+    // listed by `isValuelessKind` so this reader and the writer below cannot
+    // drift —
     // carry no number at all, and a file that gives one a value is refused
     // rather than the key being dropped: dropping it would load a
     // different-looking puzzle under the same name. The trailing branch is
@@ -333,19 +334,24 @@ nlohmann::json cluesToJson(const Puzzle &puzzle) {
     entry["x"] = columnOf(index);
     entry["y"] = rowOf(index);
     entry["type"] = kind;
-    // A valueless kind — the lotus or the galaxy — writes no value key at
-    // all; every other kind requires one. Writing a stray `"value": 0` onto a
-    // galaxy would break the byte-identical round trip AND be refused on the
-    // way back in, which is why reader and writer share `isValuelessKind`.
+    // A valueless kind — the lotus, the galaxy or the myopia arrows — writes
+    // no value key at all; every other kind requires one. Writing a stray
+    // `"value": 0` onto a galaxy would break the byte-identical round trip AND
+    // be refused on the way back in, which is why reader and writer share
+    // `isValuelessKind`.
     if (kind == kClueLetter)
       entry["value"] = std::string(1, static_cast<char>('A' + value));
     else if (!isValuelessKind(kind))
       entry["value"] = value;
     // Written only where there is one, so a board with no directed clues
     // round-trips byte-identically to what the page downloads — the rule
-    // `shapes` follows. A lotus's direction is its AXIS; its seat is written
-    // only off its default, the same discipline again.
-    if (kind == kClueDart || kind == kClueLotus)
+    // `shapes` follows. Through `carriesDirection` rather than by naming the
+    // kinds: this line listed a pair of them until the myopia arrows arrived,
+    // and a directed kind appended without touching it would have saved and
+    // reloaded as a clue pointing nowhere. A lotus's direction is its AXIS and
+    // a myopia clue's is its arrow MASK; the seat is written only off its
+    // default, the same discipline again.
+    if (carriesDirection(kind))
       entry["direction"] = direction;
     if (carriesSeat(kind) && seat != 0)
       entry["seat"] = seat;

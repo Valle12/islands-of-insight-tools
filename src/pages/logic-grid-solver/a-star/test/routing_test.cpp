@@ -75,6 +75,11 @@ TEST(Routing, DeclinesWhatItDoesNotModel) {
   test::withDart(dart, 1, 1, 1, kDirUp);
   EXPECT_FALSE(routing::applicable(buildModel(dart)));
 
+  // ...and one appended since, which the same whitelist declines untouched.
+  Puzzle myopic = test::board({"a.b", "...", "a.b"});
+  test::withMyopia(myopic, 1, 1, test::kArrowUp);
+  EXPECT_FALSE(routing::applicable(buildModel(myopic)));
+
   // A merged cell: the router paints per square.
   Puzzle merged = test::board({"a.b", "...", "a.b"});
   test::withShape(merged, {{0, 1}, {1, 1}});

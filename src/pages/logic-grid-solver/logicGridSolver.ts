@@ -25,6 +25,7 @@ import { RULES } from "./rules";
 import { SizedRuleControls } from "./sizedRuleControls";
 import { SolveController } from "./solveController";
 import {
+  aimTargetOf,
   buildSymbolRow,
   defaultDirections,
   defaultValues,
@@ -36,10 +37,10 @@ import {
 import { ruleRowMarkup, toolLabels } from "./toolRowMarkup";
 import { OFF_BY_ONE } from "./verify";
 import {
-  axisIndex,
-  directionIndex,
+  DEFAULT_RAYS,
   normalizeSymbolInput,
   symbolKindAt,
+  toggledRay,
 } from "./symbols";
 
 export class LogicGridSolverEditor {
@@ -210,16 +211,16 @@ export class LogicGridSolverEditor {
     // are delegated to the rows rather than bound per chip.
     this.symbolRow.addEventListener("click", event => {
       // The arrows sit INSIDE a kind's control, so they are asked about first:
-      // one of them is a direction change, not a change of kind. An axis
-      // toggle carries `data-axis` where a compass one carries
-      // `data-direction`; both resolve to an index in the same key.
+      // one of them is a direction change, not a change of kind. Each flavor
+      // carries its own attribute — `data-direction` for a compass, `data-axis`
+      // for an axis, `data-ray` for one arrow of a set — and all three resolve
+      // to a position in that kind's own picker.
       const arrow = arrowFrom(event.target);
       if (arrow) {
-        const aim =
-          arrow.dataset.axis === undefined
-            ? directionIndex(arrow.dataset.direction)
-            : axisIndex(arrow.dataset.axis);
-        this.selectDirection(Number(arrow.dataset.symbolIndex), aim);
+        this.selectDirection(
+          Number(arrow.dataset.symbolIndex),
+          aimTargetOf(arrow),
+        );
         return;
       }
       const chip = chipFrom(event.target);
@@ -277,6 +278,17 @@ export class LogicGridSolverEditor {
   }
 
   private selectSymbol(index: number) {
+    // A disarmed kind's toggles go dark, so for a kind naming a SET whatever
+    // was picked last time is invisible by now — re-arming starts the pick
+    // over at the default single arrow instead of quietly restoring a mask
+    // the player cannot see. A compass or an axis keeps its choice: exactly
+    // one of its toggles lights either way, so nothing hidden comes back.
+    if (
+      (this.selectedTool !== "symbol" || this.selectedSymbol !== index) &&
+      symbolKindAt(index)?.aims === "rays"
+    ) {
+      this.symbolDirections[index] = DEFAULT_RAYS;
+    }
     this.selectedTool = "symbol";
     this.selectedSymbol = index;
     this.board.setSelectedTool("symbol");
@@ -289,17 +301,36 @@ export class LogicGridSolverEditor {
   /**
    * Aiming a clue is a declaration of intent to place it, exactly as typing its
    * value is — so an arrow beside an unselected chip selects that chip too,
-   * rather than quietly re-aiming a clue that is not armed.
+   * rather than quietly re-aiming a clue that is not armed. That arming click
+   * starts the pick at the clicked arrow ALONE: toggling against the last
+   * set, dark since the kind was disarmed, flipped arrows nobody could see.
+   *
+   * While the kind is armed, `target` is a position in the kind's own picker,
+   * and what it does to the stored aim is the kind's business: a compass or an
+   * axis is REPLACED, while a kind naming a set flips that one arrow and
+   * leaves the rest — which is what makes all fifteen sets reachable one
+   * click at a time.
    */
-  private selectDirection(index: number, direction: number) {
-    if (!Number.isInteger(index) || direction < 0) return;
-    this.symbolDirections[index] = direction;
+  private selectDirection(index: number, target: number) {
+    if (!Number.isInteger(index) || target < 0) return;
     if (this.selectedTool !== "symbol" || this.selectedSymbol !== index) {
+      // `selectSymbol` resets a set-naming kind's mask, so the narrowing to
+      // the clicked arrow has to be written AFTER it.
       this.selectSymbol(index);
-      return;
+      this.symbolDirections[index] =
+        symbolKindAt(index)?.aims === "rays" ? 1 << target : target;
+    } else {
+      this.symbolDirections[index] = this.aimedAt(index, target);
     }
     this.board.setSymbolDirection(this.currentSymbolDirection());
     this.refreshSymbolRow();
+  }
+
+  /** What picking entry `target` leaves the ARMED clue kind `index` aimed
+   * at. Only for the armed kind — an arming pick starts over instead. */
+  private aimedAt(index: number, target: number): number {
+    if (symbolKindAt(index)?.aims !== "rays") return target;
+    return toggledRay(this.symbolDirections[index] ?? DEFAULT_RAYS, target);
   }
 
   /**

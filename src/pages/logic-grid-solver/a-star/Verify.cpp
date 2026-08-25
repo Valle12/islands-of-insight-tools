@@ -869,6 +869,81 @@ Violation viewpointProblem(const Model &model, const Colors &colors) {
 }
 
 /**
+ * How far along one line the nearest square of `other` lies — 1 for the very
+ * next square — or 0 where the line holds none at all.
+ *
+ * The line runs to the edge of the board and steps OVER a gap rather than
+ * stopping at it, exactly as a dart's does: an unplayable square is never the
+ * other color, so it is passed by without shortening what lies beyond. The
+ * squares of the clue's own cell are passed the same way, holding the clue's
+ * own color by definition — and both still COUNT toward the distance, because
+ * this clue compares two directions and a square dropped from one of them
+ * makes them incomparable.
+ */
+int nearestOther(const Model &model, const Colors &colors, const int index,
+                 const int direction, const uint8_t other) {
+  const auto [stepX, stepY] = kDirectionSteps[slot(direction)];
+  int distance = 0;
+  for (int x = columnOf(index) + stepX, y = rowOf(index) + stepY;
+       x >= 0 && x < model.width() && y >= 0 && y < model.height();
+       x += stepX, y += stepY) {
+    distance++;
+    if (colors[slot(cellIndex(x, y))] == other)
+      return distance;
+  }
+  return 0;
+}
+
+/**
+ * Every myopia symbol's arrows name EXACTLY the directions in which the
+ * nearest square of the other color is nearest.
+ *
+ * So a direction with an arrow holds one at the minimum distance, and a
+ * direction without holds its own no closer than one square further — or holds
+ * none at all, which is why the absence of an arrow says less than "nothing
+ * that way". The clue is colorless like a dart: what counts as the other color
+ * is read off its own square, so one set of arrows means two different things
+ * depending on how that square is painted.
+ *
+ * A clue seeing no other-colored square in ANY direction has no minimum to
+ * point at, and its arrows are unsatisfiable rather than merely wrong.
+ *
+ * Walked from the clue rather than read off `Model::myopias`, the discipline
+ * `dartProblem` sets — and it walks `myopiaClues`, not the built geometry, so
+ * a clue left out of the latter for an unreadable mask refuses every coloring
+ * here instead of quietly constraining nothing.
+ */
+Violation myopiaProblem(const Model &model, const Colors &colors) {
+  for (const int id : model.walked.myopiaClues) {
+    const Clue &clue = model.puzzle.clues[slot(id)];
+    // A mask nobody can read is one nothing satisfies. Only reachable from a
+    // puzzle that skipped `structureProblem`, which names it properly.
+    if (!isArrowMask(clue.direction))
+      return Violation::MyopiaArrows;
+
+    const uint8_t other = opposite(colors[slot(clue.index)]);
+    std::array<int, kDirectionCount> distances{};
+    int nearest = 0;
+    for (int direction = 0; direction < kDirectionCount; direction++) {
+      const int distance =
+          nearestOther(model, colors, clue.index, direction, other);
+      distances[slot(direction)] = distance;
+      if (distance > 0 && (nearest == 0 || distance < nearest))
+        nearest = distance;
+    }
+    if (nearest == 0)
+      return Violation::MyopiaArrows;
+
+    for (int direction = 0; direction < kDirectionCount; direction++) {
+      if (const bool arrowed = (clue.direction & (1 << direction)) != 0;
+          arrowed != (distances[slot(direction)] == nearest))
+        return Violation::MyopiaArrows;
+    }
+  }
+  return Violation::None;
+}
+
+/**
  * Every galaxy's region maps to itself under a HALF TURN about the galaxy's
  * own square.
  *
@@ -1052,6 +1127,9 @@ const char *describe(const Violation violation) {
                                "of the other"},
       ViolationMessage{.violation = Diagonal,
                        .text = "A forbidden corner touch of one color"},
+      ViolationMessage{.violation = MyopiaArrows,
+                       .text = "A myopia symbol's arrows do not point where "
+                               "the nearest cell of the other color lies"},
       ViolationMessage{.violation = ViewpointCount,
                        .text = "A viewpoint's number does not match the "
                                "squares it can see"},
@@ -1185,7 +1263,10 @@ Violation regionChecks(const Model &model, const Colors &colors,
     return problem;
   if (const Violation problem = galaxyProblem(model, colors); problem != None)
     return problem;
-  return viewpointProblem(model, colors);
+  if (const Violation problem = viewpointProblem(model, colors);
+      problem != None)
+    return problem;
+  return myopiaProblem(model, colors);
 }
 
 } // namespace

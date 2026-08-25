@@ -130,8 +130,19 @@ should be drawn like one. There is no eraser chip, unlike `#color-row`: the
 right button is the eraser here, and the board's own re-click-erases rule is
 deliberately left out, because there it exists only to give the right button —
 which paints the OTHER color — a way to erase at all. It listens for
-`pointerdown` rather than `click`, since a right press raises no click. It
-repaints ONE square per press rather than rebuilding the grid — the same
+`pointerdown` rather than `click`, since a right press raises no click — and
+for `pointermove` after it, because a shape is DRAWN here and drawing one a
+square at a time is not how the board is drawn. The drag is the board's, down
+to its two subtleties: the stroke's color is decided at the PRESS and written
+everywhere it goes, so one gesture cannot paint some squares and clear others
+where it crosses a mixed row or wanders back over its own work; and each move
+is hit-tested by COORDINATE rather than by `event.target`, since a touch
+pointer is implicitly captured by the square the press began on and every later
+move would report that same one. It ends on `pointerup` AND `pointercancel`,
+listened for on the document so a release outside the box still ends it.
+`#pattern-grid` takes `user-select: none` and `touch-action: none` for the
+reason `#grid` has them. It repaints ONE square per press rather than
+rebuilding the grid — the same
 "refresh, never rebuild" rule the tool rows follow, and here it is what lets a
 keyboard user color more than one square before losing focus. The shape is
 trimmed to its bounding box on save (`normalizePattern`, the one place that
@@ -509,6 +520,102 @@ The lotus is deliberately left out of all of it: its seat is always inside a
 merged cell, which is ONE variable, so both its squares always hold the same
 color and there is neither a boundary to straighten nor a glyph to split.
 
+**The myopia clue (kind 6) is the first picker whose segments are NOT
+exclusive.** It is valueless like the galaxy but aimed, so its control is a
+chip and four `.direction-toggle`s with no field between — and each of those
+flips one arrow of a SET rather than replacing the aim, since the clue names
+any of the fifteen non-empty subsets and one click per arrow is the shortest
+way to say so. The last lit one refuses to go out, an arrowless myopia saying
+nothing at all. Four things about it:
+
+- **The set does not survive disarming.** The toggles go dark with the chip,
+  so re-arming starts the pick over rather than restoring the mask: the chip
+  arms holding the default single arrow, and an arming click on a toggle
+  arms holding that arrow ALONE (`selectDirection` writes the narrowing
+  AFTER `selectSymbol`'s reset — the order is load-bearing). The first
+  version toggled against the surviving mask instead, and clicking an arrow
+  that happened to be in the invisible last set deselected it — what a click
+  does must never depend on state nobody can see. A compass or an axis keeps
+  its choice across disarming: exactly one of its toggles lights either way,
+  so nothing hidden comes back.
+
+- **They carry `data-ray`, not `data-direction`.** The stylesheet turns a
+  dart's arrow off the bare `[data-direction]` attribute and the row lights a
+  toggle by comparing that attribute to the one aim there is, so naming these
+  the same way would have both of them half-right. Same class on purpose,
+  exactly as the lotus's axes share it: it is about being a segmented picker,
+  not about what the segments mean. Each toggle DRAWS its own arrow from the
+  same `rayShape.ts` the tile uses — turned in the path rather than by the
+  stylesheet, so the picker and the board cannot come to show two different
+  arrows — and boxed tight to its own outline by `rayIconViewBox`, where one
+  arrow stands alone in a button and the centred box the tile needs would sit
+  it in a corner. `refreshAimToggles` takes the KIND and reads a mask bit-wise
+  where a compass or an axis is compared for equality — the capability field
+  again, never the shape of the number.
+- **The tile is one SOURCE POINT with a stem out of it per direction**, which
+  is the picture the clue itself draws: from here, the nearest cell of the
+  other color lies these ways. It is ONE `<svg>` holding ONE path, built by
+  `rayShape.ts` with a subpath per arrow, and that is not a detail — it is the
+  whole of what makes the set legible.
+
+  It was four `md-icon` glyphs first, turned and pushed into place by the
+  stylesheet, and that cannot be made to look right for the reason
+  `shapeOutline.ts` already records: four glyphs are four independently
+  rasterised objects, Blink grid-fits each on its own, and wherever two of them
+  meet at the middle of the tile the joint steps sideways by a fraction of a
+  pixel. Measured at 100%, 110%, 125%, 150%, 175%, 200%, 250% and 300%. Three
+  things were tried against it and are worth not trying again:
+  - **A solid arrow (`arrow_shape_up`) is unreadable at tile size** — filled
+    and shrunk to what a cell can spare it is very nearly a square, and four of
+    them are one square. A LINE arrow is what the set needs, because what has
+    to be legible is the stem's direction rather than a silhouette.
+  - **Grayscale antialiasing fixes the color and not the seam.** The glyphs
+    picked up colored fringes along the stem — LCD subpixel AA, which Chrome
+    uses where it paints text straight onto known-opaque background — and
+    `opacity: 0.99` took those off (measured: 97 of 191 inked pixels chromatic
+    before, 0 after; `-webkit-font-smoothing` does nothing on Windows and
+    `isolation: isolate` does not help either). The joint was still a pixel
+    out, because none of it makes the four ONE painted object. That is the
+    same list, and the same conclusion, as the merged cells'.
+  - **Half-pixel geometry cannot be tuned around.** Pushing each tail exactly
+    half an arrow out, then a hair further so the four crossed rather than
+    met, moved which zoom levels looked wrong rather than fixing any of them.
+
+  As a path there is no seam to hide: the four tails are the same POINT of one
+  filled shape, the subpaths overlap at the origin, and the default nonzero
+  winding closes over the overlap. `--ray-span` is all the stylesheet has left
+  to say, and it is the whole box — the arrows reach half of it, so it stays
+  under a cell rather than under half of one.
+
+  The arrow's outline is lifted from Material's shipped `line_start_arrow_notch`
+  rather than redrawn, so the tile keeps the glyph the page's other arrows come
+  from — and being a path it costs the `icon_names` subset in common.css
+  nothing. `rayShape.ts` holds it in a frame with the tail at the origin
+  pointing up, in whole numbers, because a direction is then a quarter turn:
+  a swap and a negation, exact for every copy.
+- **The CHIP is drawn holding ALL FOUR arrows.** It is an identity picture
+  rather than a state display — the dart's is always drawn pointing up
+  whichever way the armed dart points — so it has its own `SAMPLE_RAYS` beside
+  `DEFAULT_RAYS`, and the two say different things: one arrow on the chip is a
+  picture of a DART, and any smaller set is a picture of one particular clue.
+  The whole set is what the KIND is, a clue naming directions rather than a
+  direction. Its meeting point stays on the middle of the chip, like a placed
+  clue's on the middle of its cell: centering the drawing on its own bounding
+  box instead was tried, and reads worse than the chip sitting where every
+  other glyph in the row sits. It is drawn bigger than a tile's share of a
+  cell, and therefore thicker — the stroke is a fixed part of the path, so
+  weight comes from the span alone.
+- **Every gesture that aims a dart means something else here.** A re-click
+  turns the whole set a quarter clockwise, which is one bit's rotate — so the
+  four-arrow set turns onto itself and re-clicking one is a no-op, there being
+  nowhere else for it to point. An arrow key TOGGLES that one arrow instead of
+  aiming absolutely, the keyboard's version of the four toggles, and refuses to
+  clear the last. Lifting stays the right button's job, as for every aimed
+  kind. `dressCell`'s no-clue branch had to shed `data-rays` with the rest: it
+  names every hook it drops, and the one left behind kept arrows on an emptied
+  cell — caught by e2e, where the unit test had only asked what `getSymbols`
+  returned.
+
 That is why both rows are **built once and refreshed in place**:
 `buildSymbolRow` / `buildRuleRow` write `innerHTML` and run only from `render()`
 (board replacement), while `refreshSymbolRow` / `refreshRuleRow` toggle classes
@@ -564,7 +671,7 @@ a lotus writes `direction` (its axis), writes `seat` only off its 0 default,
 and writes NO `value` key at all — a value on it is refused rather than
 dropped, on every layer. Three writers have to agree about all of this
 (`board.ts getSymbols`, `validateConfig`'s rebuild, `fixtureio::save`), and
-the 494-fixture byte-identical sweep is the guard. At the wasm boundary
+the 516-fixture byte-identical sweep is the guard. At the wasm boundary
 `value` and `seat` default to 0 instead of -1 — a lotus with a nonzero value
 is refused by name, so the default cannot mask a real one.
 
@@ -783,6 +890,22 @@ The engine's load-bearing pieces:
   oracle built out of the thing it checks only proves the two agree. On the page
   side, `solver.ts` runs every answer through `verify.ts` before it can be
   drawn, and **drops** an arm that fails rather than ranking it low.
+
+  Three page-side behaviors ride on that gate. The race **settles early** at
+  the rank nothing later could beat — a verified `solved` everywhere, a
+  verified proven `deduced` on an underclued board — and deliberately never at
+  `unsolvable` (rank 3), so the documented solved-over-unsolvable ordering is
+  preserved by construction; this is what spares the multi-worker fallback
+  waiting minutes on arms that can only tie, while the isolated page's
+  in-module race already stopped on its own. The progress line reads the
+  engine's `phase` (`PHASE_LABELS` in `solveController.ts`), so a long run
+  says "Sweeping…" or "Packing regions…" instead of deducing forever. And a
+  give-up caused by `stoppedOnMemory` gets its own message — more room, not
+  board corrections — instead of the timeout's mis-entry nudge. What is
+  **deliberately NOT displayed** is the partial coloring a `budget` result
+  carries: it is the one thing the page cannot verify — there are no witnesses
+  to check it against, and `verifyLogicGrid` cannot check a partial coloring —
+  so it stays a count in the message rather than paint on the board.
 - **`Reference.cpp` is the only thing that can catch over-pruning.** `Verify`
   catches an answer that is not a solution; nothing at runtime catches a
   propagator that removes a coloring which WAS one — in normal mode that is
@@ -1252,6 +1375,118 @@ The engine's load-bearing pieces:
     rule a module reading the old geometry would get backwards — so the
     coverage is still the hand-built `seatedGalaxyBoard` in `wasm.test.ts` and
     the seated boards in `reference_test.cpp`.
+- **The myopia arrows (clue kind 6) are the first clue that measures a
+  DISTANCE, and the first whose `direction` is a SET.** The arrows point in
+  exactly the directions in which the nearest square of the other color is
+  nearest: every arrowed direction holds one at the minimum distance, and every
+  unarrowed one holds its own strictly further away — or holds none at all,
+  which is why the absence of an arrow says less than "nothing that way". No
+  number: which way is the whole clue, and how far is what the player works
+  out. Eight things about it:
+  - **The same `direction` key, read a THIRD way.** A dart's is a compass
+    point, a lotus's an axis, and this one a MASK of the four — bit per entry
+    of `DIRECTIONS`, holding 1 to 15, an arrowless clue saying nothing about
+    any coloring. So no key was added and no format version bumped, exactly
+    as the galaxy's appending did not; and every reader dispatches on the
+    kind's `aims`, now `"none" | "compass" | "axis" | "rays"`, because a
+    stored 3 is a legal mask, a legal compass point AND a legal axis — the
+    three readings overlap on every number from 1 to 3 — and a branch that
+    guessed from the number would be quietly wrong.
+  - **The lines are cut by NOTHING**, which is the third different answer in
+    `Puzzle.h` to a question that looks like one. A dart's ray is an unordered
+    `Bits` with its own cell taken OUT; a viewpoint's rays are ordered and
+    TRUNCATED at the first gap; a myopia clue's are ordered and whole — gaps
+    kept, because the eye sees past a hole exactly as a dart does, and the
+    clue's own cell's squares kept, because they are still squares of the
+    board. Drop either and two directions become incomparable, which is the
+    only thing this clue ever does. Unplayable squares simply never hold a
+    color, so nothing has to skip them and the index a square sits at IS its
+    distance, less one.
+  - **The propagator reasons over the surviving MINIMA**, one bit per
+    distance in a `uint32_t`. A distance survives when every arrowed direction
+    could still hold its first other-colored square exactly there and every
+    unarrowed one could still hold none up to it — a relaxation in the safe
+    direction, so anything the whole set agrees on is true of every solution.
+    What it then writes is the fence: everything strictly nearer than the
+    SMALLEST survivor holds the clue's own color, one square deeper in an
+    unarrowed direction than in an arrowed one, since the arrow's own square
+    at that distance is the one that may be the other color. Once a single
+    distance survives, each arrow's square at it IS the other color, which
+    turns the clue from a fence into a placement. An uncolored clue rules out
+    only a color no completion could satisfy — `dartColorChoice`'s discipline
+    — and everything the two assumptions agree on comes back through the
+    probe, the lotus's and viewpoint's story again.
+  - **One arrow always fences the immediate neighbors**, whatever the distance
+    turns out to be: the true minimum is at least one, so no unarrowed
+    direction may hold the other color adjacent. That is the deduction the
+    clue is played for and it needs nothing else on the board.
+  - **`reference_test.cpp` is the entire net.** Both halves of the fence
+    remove real solutions if the surviving set is computed even slightly too
+    small, and nothing at runtime could notice — `Verify` sees an answer that
+    is not a solution, never a solution thrown away. Eleven boards carry it:
+    each arrow count, an adjacent pair, one over a gap, one on and one across
+    a merged cell, two clues whose fences overlap, and one beside a dart.
+  - **Free, verified rather than re-implemented**: `Profile::applicable`,
+    `Routing::applicable` and `Packing::readBoard` are all whitelists, so all
+    three decline a myopia board with no code knowing it exists — and the
+    sweep could not take it anyway, since a running count cannot say how far
+    away the nearest of something was and the frontier has forgotten the far
+    end of every vertical line before the near end arrives. It counts as a
+    symbol for the one-symbol rules, `clueReach` over-approximates it as a
+    whole component, and `Reference.cpp` cost zero lines.
+  - **`carriesDirection` is new, and it closed a real hole.** `FixtureIo`'s
+    writer named the two kinds carrying a direction — `kClueDart ||
+    kClueLotus` — so this kind would have saved with no `direction` key at
+    all, reloaded as -1, and been refused by `structureProblem` on a file the
+    page had just written. It is a predicate now, beside `isValuelessKind`
+    and `carriesSeat` and for their reason. The other two silent misreads were
+    already documented and are still the trap: `clueValueProblem`'s trailing
+    block is the DART's and `buildClueTables`' trailing `else` is the
+    LETTER's, so an appended kind with no named branch is validated as a dart
+    and filed under letter group `clue.value`.
+  - **The generator's `--myopia PERCENT` is the roll pattern a fifth time**,
+    appended after the galaxy roll behind the same zero-skip contract —
+    measured across the seeds that produce a board, `--myopia 0` reproduces
+    every one of them byte for byte. Like a dart there is something to derive
+    and like a lotus the derivation can come back empty: `myopiaArrowsAt`
+    reads the mask off the coloring and answers 0 where no direction sees the
+    other color at all, in which case the region keeps its clue-free square.
+  - **`--letter-pairs PERCENT` is the pattern a sixth time, and the first
+    NESTED roll rather than an appended one.** Two cells of one letter must
+    share a region of the witness coloring (`Verify`'s `LetterSplit` refuses
+    anything else at the generator's own gate), and the only region known to
+    hold a letter is the one whose letter roll just won — so the pair roll
+    lives inside the letter branch of `clueOneRegion`, behind the same `> 0`
+    zero-skip contract, and puts the SAME letter on a second free cell of the
+    SAME region. Because it is conditional on the letter roll, run it high:
+    100 legitimately pairs every roomy letter. Two drawless gates sit before
+    its draw, like the branch's own `run.letter < kLetterCount`: the region
+    needs a second free cell, and a one-symbol rule of the region's own color
+    makes any two-symbol region unsatisfiable — the pair is the first
+    mechanism that can ever put two clues in one region, so the first that
+    has to ask. The after-myopia trailing-`return` trap stays dormant and
+    armed for the next genuinely APPENDED kind — nesting is what let this one
+    leave the myopia branch untouched. Measured across 160 `--rules 0` boards
+    (seeds 1–40, both kinds, with and without the full clue-flag row):
+    `--letter-pairs 0` reproduces every one byte for byte.
+  - **A BIG board with a connect mask starts from a construction, not a
+    scatter.** A random coloring prices a connect rule at "every piece but
+    one", and past a couple hundred cells the local search cannot walk that
+    down — measured, 26x18 `connect-dark` exhausted all eight attempts in
+    19 s and produced nothing, which is why `--big-sparse` existed for a day
+    without a single board. `paintLegal` therefore swaps the start when a
+    connect rule is on AND the board is past `kConnectedStartCells` (120):
+    both connects get a monotone STAIRCASE split (each color one piece by
+    construction; a solid grown blob leaves the rest color with pockets that
+    took 46 s to merge out), one connect gets a randomized blob grown a cell
+    at a time taking only candidates that complete no forbidden arrangement
+    (`breaksAClause` over the CSR occurrence lists — a SOLID blob under
+    `no-dark-T` is saturated with violations and was measured unrepairable).
+    The gate sits above every default-dims board, so the maskless campaigns'
+    rng streams — and every fuzz baseline over them — are untouched; bigger
+    connect boards never generated before, so there was no stream to keep.
+    After: every `--big-sparse` mask lands in milliseconds to ~1 s at 26x18.
+
 - **The letter boards get a ROUTER, and it is a construction rather than a
   search.** `Routing.cpp` is the third arm on a board whose only clues are
   letters. It treats the puzzle as what it really is — give each letter a
@@ -1408,14 +1643,31 @@ The engine's load-bearing pieces:
     what reaches further back than that — one bit for a 2x2, a row for a
     three-tall T — and `Frontier::hist` carries exactly those. Each instance is
     built PER POSITION, so one that would fall off the board or onto a gap is
-    dropped when the plan is built and can never fire; `kMaxHistoryBits`
-    declines a board whose patterns reach further than the state will hold,
-    which is what keeps a tall run rule out. What stays off the list is
-    everything with region-level content, however local it looks: an area or a
-    run instance — `patternsFor`'s own comment records that its trominoes are
-    only half of what an area means — the one-symbol rules, the shape rules,
-    and `OffByOne`, which changes what every count means rather than what any
-    arrangement is.
+    dropped when the plan is built and can never fire; `kMaxHistoryBits` (32,
+    the whole `hist` word) declines a board whose patterns reach further than
+    the state will hold, and a static WALL GATE in `planOf` declines any
+    history at all at scan width 16 (and a two-row reach at 15) — measured, a
+    16-wide connect board fills gigabytes bare, so the gate is what keeps the
+    sweep from thrashing a budget the DFS wants and keeps `armIsUseful` from
+    suppressing the race seeds. A RUN instance rides the same pattern table —
+    its whole content is two straight forbidden arrangements, and the vertical
+    orientation is what the history bits are for.
+
+    Region content is admitted on a second criterion: per-CLASS state with an
+    exact merge and close rule. An AREA CLUE, painted or not, becomes a size
+    demand on whichever class absorbs its cell — sizes count per class,
+    saturating one past the largest demand; two different demands may never
+    merge, two equal ones may (the packer's two-3-clues case); the demand is
+    met exactly at close. The ONE-SYMBOL rules become a bit per class of the
+    rule's color — every clue kind counts, two symbols may never meet, and a
+    closing region must hold one. What stays off the list is what NEITHER
+    criterion fits: an area RULE instance (it demands a size of every region
+    of the color with no cell to anchor on — the recorded follow-up, riding
+    the same counters), the shape rules, `OffByOne` (it widens every demand to
+    a two-value set), and the walked clue kinds. The memory arithmetic is in
+    BYTES against `sizeof(Frontier)` with the layer vectors' growth under the
+    sweep's own control — the old trail-only cap let a layer doubling ABORT
+    the wasm module outright rather than stop with `stoppedOnMemory`.
   - **A DART is one running count, and only on a PAINTED square.** The sweep
     counts the DARK cells on the ray and takes the light reading as the rest of
     it, so one counter serves either color; the counter goes back to zero the
@@ -1449,6 +1701,21 @@ The engine's load-bearing pieces:
     160 s** in the browser — the difference between fitting the page's budget
     and not. `SOLVE_BUDGET_MS` is 120 s for the same reason: 45 s measured with
     almost nothing else in the corpus above a tenth of a second.
+- **The DFS grows the must-connect color contiguously, and a clueless board
+  seeds its order from the givens.** `buildOrder`'s BFS radiates from the
+  clues; a board with none used to collapse to raster order, which is what
+  left the first captured 16x16 (`logicGridTest510` — connect-dark, no-dark-T,
+  a dark run of four, 54 givens, no clues) wandering 65 million nodes without
+  a witness. Two levers landed together, both measured on that board:
+  givens-seeded ordering when `clues.empty()` (no clued board's order moves),
+  and a three-tier `pickCell` that prefers a cell joining the connect color's
+  settled region before the plain frontier — the joins are where refutations
+  live, and the local pattern clauses otherwise shout the walk away from
+  them. After: solved in 7.6 s native / 12.5 s wasm32 at 8.0 M nodes, with
+  the whole corpus byte-identical on status, decided and proofs. `runForced`
+  also keeps deduceRoot's propagation when its witness search comes up empty
+  (`Unsolved` with the deduced cells rather than nothing), and the underclued
+  cascade's two arms now share ONE deadline like the clued cascade's five.
 - **The DFS keeps its own stack, and must not go back to recursing.**
   `Dfs::descend` is a loop over a `std::vector<Frame>`. Written the natural
   recursive way it costs one machine frame per GUESSED cell, and the compiler

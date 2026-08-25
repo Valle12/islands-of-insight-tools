@@ -190,6 +190,127 @@ void randomise(const Model &model, SeededRng &rng, Colors &colors) {
     colors[slot(i)] = rng.uniform(0, 1) == 0 ? kDark : kLight;
 }
 
+/**
+ * How big a board is before a connect mask swaps the random start below for a
+ * grown blob. Kept ABOVE every default-dims board (4..8 a side, at most 64
+ * squares), so the maskless campaigns' rng streams — and every fuzz baseline
+ * taken over them — are untouched. A bigger connect-mask board never generated
+ * AT ALL before the blob start existed (measured: 26x18 connect-dark exhausted
+ * all eight attempts in 19 s), so past that line there is no stream to keep.
+ */
+inline constexpr int kConnectedStartCells = 120;
+
+/// The k-th set bit of `bits`, or -1. The blob's random picks go through this.
+int nthSet(const Bits &bits, int wanted) {
+  for (int i = bits.nextSet(0); i >= 0; i = bits.nextSet(i + 1)) {
+    if (wanted == 0)
+      return i;
+    wanted--;
+  }
+  return -1;
+}
+
+/// Whether the cell's CURRENT color completes a forbidden arrangement. Only
+/// the clauses mentioning the cell can have changed, which is what the CSR
+/// occurrence list answers cheaply.
+bool breaksAClause(const Model &model, const Colors &colors, const int cell) {
+  const int from = model.clauseStart[slot(cell)];
+  const int to = model.clauseStart[slot(cell + 1)];
+  for (int at = from; at < to; at++) {
+    if (clauseHolds(model, model.clauses[slot(model.clauseIndex[slot(at)])],
+                    colors))
+      return true;
+  }
+  return false;
+}
+
+/**
+ * One color grown as a single connected blob, the other taking the rest.
+ *
+ * A random scatter prices a connect rule at "every piece but one", and on
+ * hundreds of cells the local search cannot walk that down — each merge needs
+ * a corridor of coordinated flips that single-cell moves never find. Growing
+ * the must-connect color as one randomized blob starts it connected by
+ * construction — and each step takes only a candidate whose addition
+ * completes no forbidden arrangement, so where the mask speaks about the
+ * blob's own color the blob is born legal too. A SOLID blob was measured
+ * failing here: under no-dark-T it is saturated with violations, and carving
+ * them out of a fat blob is a fight the walk loses (88 s of restarts, no
+ * board). The walk is left with what it is good at: the rest color's stray
+ * pockets and patterns. Dark is grown when both colors must connect — the
+ * arbitrary half of a symmetric choice, like the search's own tie-break.
+ */
+/**
+ * A monotone staircase cut, dark above and light below — BOTH colors one
+ * piece by construction, which is what the both-connect masks want. A grown
+ * blob leaves the rest color with enclosed pockets, and merging a pocket out
+ * needs a corridor of coordinated flips: measured at 26x18, the blob start
+ * took both-connects to 46 s of repair where this lands in milliseconds. The
+ * ~8% unplayable squares can still nick a half apart; that leaves the walk a
+ * couple of local merges, not a fight.
+ */
+void stairSplit(const Model &model, SeededRng &rng, Colors &colors) {
+  colors.fill(kUnplayable);
+  int boundary = rng.uniform(1, std::max(1, model.height() - 1));
+  for (int x = 0; x < model.width(); x++) {
+    boundary = std::min(model.height() - 1, boundary + rng.uniform(0, 2));
+    for (int y = 0; y < model.height(); y++) {
+      if (const int cell = cellIndex(x, y); model.playable.test(cell))
+        colors[slot(cell)] = y < boundary ? kDark : kLight;
+    }
+  }
+}
+
+void connectedStart(const Model &model, SeededRng &rng, Colors &colors) {
+  if (model.hasRule(Rule::ConnectDark) &&
+      model.hasRule(Rule::ConnectLight)) {
+    stairSplit(model, rng, colors);
+    return;
+  }
+  colors.fill(kUnplayable);
+  const uint8_t grown =
+      model.hasRule(Rule::ConnectDark) ? kDark : kLight;
+  for (int i = model.playable.nextSet(0); i >= 0;
+       i = model.playable.nextSet(i + 1))
+    colors[slot(i)] = opposite(grown);
+
+  const int count = model.playableCount;
+  const int target = count * rng.uniform(30, 70) / 100;
+  const int seed = nthSet(model.playable, rng.uniform(0, count - 1));
+  if (seed < 0)
+    return;
+  Bits blob;
+  blob.set(seed);
+  colors[slot(seed)] = grown;
+  // A stuck step redraws fresh candidates next time around; a run of them
+  // means the frontier is walled in, and a smaller blob is a fine answer —
+  // the target was a draw, never a demand.
+  int stuck = 0;
+  for (int size = 1; size < target && stuck < 24;) {
+    const Bits ring = (blob.grown() & model.playable).without(blob);
+    const int open = ring.count();
+    if (open == 0)
+      break;
+    int next = -1;
+    for (int tries = 0; tries < 8; tries++) {
+      const int candidate = nthSet(ring, rng.uniform(0, open - 1));
+      colors[slot(candidate)] = grown;
+      if (!breaksAClause(model, colors, candidate)) {
+        next = candidate;
+        break;
+      }
+      colors[slot(candidate)] = opposite(grown);
+    }
+    if (next < 0) {
+      stuck++;
+      continue;
+    }
+    stuck = 0;
+    blob.set(next);
+    size++;
+  }
+}
+
 /// Flips whichever cell of a broken arrangement leaves the board least broken.
 void repairClause(const Model &model, const Clause &clause, SeededRng &rng,
                   Colors &colors) {
@@ -288,8 +409,15 @@ bool walk(const Model &model, SeededRng &rng, Colors &colors) {
 }
 
 bool paintLegal(const Model &model, SeededRng &rng, Colors &colors) {
+  const bool blobStart =
+      (model.hasRule(Rule::ConnectDark) ||
+       model.hasRule(Rule::ConnectLight)) &&
+      model.playableCount > kConnectedStartCells;
   for (int restart = 0; restart < kRestarts; restart++) {
-    randomise(model, rng, colors);
+    if (blobStart)
+      connectedStart(model, rng, colors);
+    else
+      randomise(model, rng, colors);
     if (walk(model, rng, colors))
       return true;
   }
@@ -401,6 +529,14 @@ struct ClueChances {
   int viewpoint = 0;
   /// Off unless `--galaxies` asks, with the same contract a fourth time.
   int galaxy = 0;
+  /// Off unless `--myopia` asks, with the same contract a fifth time.
+  int myopia = 0;
+  /// Off unless `--letter-pairs` asks — the contract a sixth time, but NESTED
+  /// in the letter branch rather than appended after the myopia roll: it fires
+  /// only when the letter roll just won, so run it high (100 legitimately
+  /// pairs every roomy letter, where a singleton survives only a one-cell
+  /// region or a one-symbol rule).
+  int letterPair = 0;
 };
 
 /// The state that crosses every region: where the clues go, which cells already
@@ -416,6 +552,53 @@ struct ClueRun {
 /// really sees, read off the coloring so the clue is satisfiable by
 /// construction. The same walk `Verify` does, and for the same reason: gaps are
 /// stepped over, and the dart's own cell can never be the color it counts.
+/**
+ * The arrow mask a myopia clue on `spot` would carry: the directions in which
+ * the nearest square of the other color is nearest, read off the coloring so
+ * every clue placed is one the board already satisfies.
+ *
+ * Zero where no direction holds one at all — a clue with no arrows says
+ * nothing, so the caller draws none rather than placing an unsatisfiable one,
+ * `lotusHoldsAt`'s and `galaxyHoldsAt`'s bargain. Draws no random number
+ * itself, like both of them.
+ *
+ * The walk steps over gaps and over the clue's own cell without stopping, and
+ * counts both toward the distance — `verify::myopiaProblem`'s reading, which
+ * this has to agree with square for square or the clue it writes is one the
+ * oracle then refuses.
+ */
+int myopiaArrowsAt(const Model &model, const Colors &colors, const int spot) {
+  const uint8_t other = opposite(colors[slot(spot)]);
+  std::array<int, kDirectionCount> distances{};
+  int nearest = 0;
+  for (int direction = 0; direction < kDirectionCount; direction++) {
+    const auto [stepX, stepY] = kDirectionSteps[slot(direction)];
+    int steps = 0;
+    int distance = 0;
+    for (int x = columnOf(spot) + stepX, y = rowOf(spot) + stepY;
+         x >= 0 && x < model.width() && y >= 0 && y < model.height();
+         x += stepX, y += stepY) {
+      steps++;
+      if (colors[slot(cellIndex(x, y))] == other) {
+        distance = steps;
+        break;
+      }
+    }
+    distances[slot(direction)] = distance;
+    if (distance > 0 && (nearest == 0 || distance < nearest))
+      nearest = distance;
+  }
+  if (nearest == 0)
+    return 0;
+
+  int arrows = 0;
+  for (int direction = 0; direction < kDirectionCount; direction++) {
+    if (distances[slot(direction)] == nearest)
+      arrows |= 1 << direction;
+  }
+  return arrows;
+}
+
 int dartValueAt(const Model &model, const Colors &colors, const int spot,
                 const int direction) {
   const auto [stepX, stepY] = kDirectionSteps[slot(direction)];
@@ -521,19 +704,51 @@ int displayedValue(SeededRng &rng, const rules::RuleMask mask,
 }
 
 /**
+ * The pair roll, run right after `letter` landed on `spot` — NESTED in the
+ * branch that just won a letter rather than appended after the myopia roll:
+ * two cells of one letter must share a region of the witness (`Verify`'s
+ * LetterSplit), and `cells` is the region known to hold it. Behind the same
+ * `> 0` short circuit as every later roll, so `--letter-pairs 0` draws
+ * nothing and every seed byte-reproduces. The two extra gates draw nothing,
+ * like `run.letter < kLetterCount` in the caller: the region needs a second
+ * free cell, and a one-symbol rule of the region's own color makes any
+ * two-symbol region unsatisfiable — this is the first mechanism that can ever
+ * put two clues in one region, so the first that has to ask.
+ */
+void pairLetter(ClueRun &run, const ClueChances &chances,
+                const std::vector<int> &cells, const int spot,
+                const int letter, const Colors &colors) {
+  if (const Rule oneSymbol = colors[slot(spot)] == kDark ? Rule::OneSymbolDark
+                                                         : Rule::OneSymbolLight;
+      chances.letterPair <= 0 || cells.size() < 2 ||
+      rules::has(run.puzzle.ruleMask, oneSymbol) ||
+      run.rng.uniform(0, 99) >= chances.letterPair)
+    return;
+  std::vector<int> others = cells;
+  std::erase(others, spot);
+  const int second =
+      others[slot(run.rng.uniform(0, static_cast<int>(others.size()) - 1))];
+  run.used.set(second);
+  run.puzzle.clues.push_back(
+      {.index = second, .kind = kClueLetter, .value = letter});
+}
+
+/**
  * Puts at most one clue on one region, reading its value off the coloring.
  *
  * The `rng` draws here are in a fixed order — the spot, the area roll, the
- * letter roll, the dart roll, the lotus roll, the viewpoint roll, then the
- * galaxy roll — and every one after the first is behind a short circuit that
- * skips it entirely when it cannot apply. Reordering them, or hoisting one
- * out of its condition, silently changes every board this generator has ever
- * produced; each new kind is appended LAST-so-far and skipped outright at a
- * zero chance, which is what keeps `--darts 0`, `--lotus 0`, `--viewpoints 0`
- * and `--galaxies 0` reproducing exactly the boards they always did. The
- * lotus's and the galaxy's satisfiability CHECKS draw nothing, so a failed
- * one costs the region its clue and nothing else; a viewpoint's value is READ
- * off the coloring like a dart's, so its roll is the only number it draws —
+ * letter roll, the dart roll, the lotus roll, the viewpoint roll, the galaxy
+ * roll, then the myopia roll — and every one after the first is behind a short
+ * circuit that skips it entirely when it cannot apply. Reordering them, or
+ * hoisting one out of its condition, silently changes every board this
+ * generator has ever produced; each new kind is appended LAST-so-far and
+ * skipped outright at a zero chance, which is what keeps `--darts 0`,
+ * `--lotus 0`, `--viewpoints 0`, `--galaxies 0` and `--myopia 0` reproducing
+ * exactly the boards they always did. The lotus's and the galaxy's
+ * satisfiability CHECKS draw nothing, so a failed one costs the region its
+ * clue and nothing else; a viewpoint's value and a myopia clue's arrows are
+ * READ off the coloring like a dart's count, so the roll is the only number
+ * either draws —
  * except under `off-by-one`, where every numeric clue appends ONE more draw
  * to bend its displayed value, unreachable for any mask without that rule.
  * Hash-compare regenerated fixtures across several seeds after touching this.
@@ -552,9 +767,11 @@ void clueOneRegion(ClueRun &run, const ClueChances &chances,
     return;
   }
   if (run.letter < kLetterCount && run.rng.uniform(0, 99) < chances.letter) {
+    const int letter = run.letter;
     run.used.set(spot);
     run.puzzle.clues.push_back(
-        {.index = spot, .kind = kClueLetter, .value = run.letter});
+        {.index = spot, .kind = kClueLetter, .value = letter});
+    pairLetter(run, chances, cells, spot, letter, colors);
     run.letter++;
     return;
   }
@@ -591,6 +808,19 @@ void clueOneRegion(ClueRun &run, const ClueChances &chances,
       return;
     run.used.set(spot);
     run.puzzle.clues.push_back({.index = spot, .kind = kClueGalaxy});
+    return;
+  }
+  if (chances.myopia > 0 && run.rng.uniform(0, 99) < chances.myopia) {
+    // Read off the coloring like a dart's count rather than drawn and then
+    // checked, so the roll is the only number this kind takes — and zero
+    // means no direction sees the other color at all, which is a clue no
+    // coloring satisfies and so one this never writes.
+    const int arrows = myopiaArrowsAt(model, colors, spot);
+    if (arrows == 0)
+      return;
+    run.used.set(spot);
+    run.puzzle.clues.push_back(
+        {.index = spot, .kind = kClueMyopia, .direction = arrows});
   }
 }
 
@@ -613,7 +843,9 @@ void deriveClues(const Model &model, const Colors &colors, SeededRng &rng,
                             .dart = options.darts,
                             .lotus = options.lotus,
                             .viewpoint = options.viewpoints,
-                            .galaxy = options.galaxies};
+                            .galaxy = options.galaxies,
+                            .myopia = options.myopia,
+                            .letterPair = options.letterPairs};
 
   for (const Bits &side : {colored, light}) {
     const Regions regions = labelRegions(side, model);

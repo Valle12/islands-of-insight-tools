@@ -556,6 +556,129 @@ TEST(Verify, ADartCountsAMergedCellOncePerSquare) {
             Violation::DartCount);
 }
 
+/// A myopia clue on `(2, 0)` of a five-wide row, and a coloring to judge.
+/// Placed in the MIDDLE rather than at an end, so left and right are both real
+/// directions and the arrows have something to choose between.
+Violation judgeMyopia(const std::vector<std::string> &picture,
+                      const std::vector<std::string> &painted,
+                      const int arrows) {
+  Puzzle puzzle = test::board(picture);
+  test::withMyopia(puzzle, 2, 0, arrows);
+  return verify::check(buildModel(puzzle), test::colors(painted));
+}
+
+/// The light is one square to the right and nowhere to the left, so the one
+/// arrow has to be the right one.
+TEST(Verify, AMyopiaArrowPointsAtTheNearestOtherColor) {
+  EXPECT_EQ(judgeMyopia({"....."}, {"DDDLD"}, test::kArrowRight),
+            Violation::None);
+  EXPECT_EQ(judgeMyopia({"....."}, {"DDDLD"}, test::kArrowLeft),
+            Violation::MyopiaArrows);
+}
+
+/// The arrows are exactly the directions that TIE for nearest, so one arrow on
+/// a board where two are equally close is wrong. That is the half of the rule
+/// making an arrow a claim about the OTHER directions as well: both lights
+/// here are two away, so naming one of them says the other is further.
+TEST(Verify, AMyopiaNamesEveryDirectionThatTies) {
+  EXPECT_EQ(judgeMyopia({"....."}, {"LDDDL"}, test::kArrowRight),
+            Violation::MyopiaArrows);
+  EXPECT_EQ(judgeMyopia({"....."}, {"LDDDL"},
+                        test::kArrowLeft | test::kArrowRight),
+            Violation::None);
+}
+
+/// A direction with no arrow may hold NOTHING that way at all, which is what
+/// makes "no arrow" a weaker statement than "nothing there" — and the case a
+/// rule written as "every other way is further" would get wrong.
+TEST(Verify, ADirectionWithNoArrowNeedNotSeeAnythingAtAll) {
+  EXPECT_EQ(judgeMyopia({"....."}, {"DLDDD"}, test::kArrowLeft),
+            Violation::None);
+}
+
+/// A clue seeing no other color in ANY direction has no nearest to point at,
+/// so every arrow set is wrong rather than some of them.
+TEST(Verify, AMyopiaSeeingNothingIsUnsatisfiable) {
+  for (int arrows = 1; arrows <= kArrowMaskAll; arrows++) {
+    EXPECT_EQ(judgeMyopia({"....."}, {"DDDDD"}, arrows),
+              Violation::MyopiaArrows)
+        << arrows;
+  }
+}
+
+/// Colorless like a dart: the same arrows read differently depending on how
+/// the clue's own square is painted, and these two colorings differ ONLY
+/// there. Dark, the nearest light is one to the left; light, the nearest dark
+/// is one to the right and the left one has become two away.
+TEST(Verify, AMyopiaTakesTheColorOfItsOwnCell) {
+  EXPECT_EQ(judgeMyopia({"....."}, {"DLDDD"}, test::kArrowLeft),
+            Violation::None);
+  EXPECT_EQ(judgeMyopia({"....."}, {"DLLDD"}, test::kArrowLeft),
+            Violation::MyopiaArrows);
+  EXPECT_EQ(judgeMyopia({"....."}, {"DLLDD"}, test::kArrowRight),
+            Violation::None);
+}
+
+/// A gap is stepped over — neither the nearest other color nor a wall — and it
+/// still COUNTS toward the distance. That is what puts the right-hand light
+/// three away against the left one's two: were the gap skipped rather than
+/// passed, the two would tie and both arrows would be needed.
+TEST(Verify, AMyopiaLooksStraightThroughAGap) {
+  EXPECT_EQ(judgeMyopia({"...#.."}, {"LDD#DL"}, test::kArrowLeft),
+            Violation::None);
+  EXPECT_EQ(judgeMyopia({"...#.."}, {"LDD#DL"},
+                        test::kArrowLeft | test::kArrowRight),
+            Violation::MyopiaArrows);
+}
+
+/// Two arrows at RIGHT ANGLES — the set an "opposite pairs only" reading of
+/// this clue could not spell, and one a real board reaches whenever the
+/// nearest other color is equally close two ways round a corner.
+TEST(Verify, AMyopiaMayNameTwoDirectionsAtRightAngles) {
+  const std::vector<std::string> picture = {".....", ".....", "....."};
+  const std::vector<std::string> painted = {"DDDLD", "DDLDD", "DDDDD"};
+  EXPECT_EQ(judgeMyopia(picture, painted,
+                        test::kArrowRight | test::kArrowDown),
+            Violation::None);
+  EXPECT_EQ(judgeMyopia(picture, painted, test::kArrowRight),
+            Violation::MyopiaArrows);
+}
+
+/// All four at once, the one mask a quarter turn leaves alone.
+TEST(Verify, AMyopiaMayNameEveryDirection) {
+  Puzzle puzzle = test::board({".....", ".....", "....."});
+  test::withMyopia(puzzle, 2, 1, kArrowMaskAll);
+  const Model model = buildModel(puzzle);
+  EXPECT_EQ(verify::check(model, test::colors({"DDLDD", "DLDLD", "DDLDD"})),
+            Violation::None);
+  // The left light moved one square further out, so it no longer ties.
+  EXPECT_EQ(verify::check(model, test::colors({"DDLDD", "LDDLD", "DDLDD"})),
+            Violation::MyopiaArrows);
+}
+
+/// A merged cell along the line contributes every square of itself the line
+/// crosses, so the clue's own cell reaching two squares right puts what lies
+/// beyond it three away rather than one. Counting CELLS would make the two
+/// directions incomparable, which is the whole of what this clue compares.
+TEST(Verify, AMyopiaCountsAMergedCellOncePerSquare) {
+  Puzzle puzzle = test::board({"....."});
+  test::withMyopia(puzzle, 0, 0, test::kArrowRight);
+  test::withShape(puzzle, {{0, 0}, {1, 0}, {2, 0}});
+  EXPECT_EQ(verify::check(buildModel(puzzle), test::colors({"DDDLD"})),
+            Violation::None);
+}
+
+/// A mask nobody can read satisfies nothing — the net `buildMyopias` leaves
+/// behind when it declines to build the geometry, so the board comes back
+/// unsolvable rather than quietly solved without the clue.
+TEST(Verify, AnUnreadableArrowMaskIsRefused) {
+  Puzzle puzzle = test::board({"....."});
+  puzzle.clues.push_back(
+      {.index = cellIndex(2, 0), .kind = kClueMyopia, .direction = 0});
+  EXPECT_EQ(verify::check(buildModel(puzzle), test::colors({"DDDLD"})),
+            Violation::MyopiaArrows);
+}
+
 /// A lotus on the center of a 3x3, and a coloring to judge.
 Violation judgeLotus(const std::vector<std::string> &painted, const int axis) {
   Puzzle puzzle = test::board({"...", "...", "..."});

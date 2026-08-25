@@ -31,6 +31,8 @@ import {
   ellBoard,
   forbiddenTripleBoard,
   galaxyBoard,
+  myopiaBoard,
+  myopiaOverMergedBoard,
   galaxyOverMergedBoard,
   impossibleBoard,
   knightBoard,
@@ -125,6 +127,12 @@ const CASES: Case[] = [
   // which no captured board carries.
   ["galaxy", galaxyBoard],
   ["galaxy-over-merged", galaxyOverMergedBoard],
+  // The myopia arrows ride it a fourth time, and hardest: kind 6 crosses the
+  // boundary nowhere else, and neither does a `direction` holding a MASK —
+  // every captured board's is a compass point or an axis, both of which are
+  // numbers a mask reading would quietly accept as something else.
+  ["myopia", myopiaBoard],
+  ["myopia-over-merged", myopiaOverMergedBoard],
   // Rules 32-52 cross the boundary only from here, the three-one precedent
   // over again — including the widened displayed bounds (a dart and an area
   // showing ZERO), the run-of-seven and run-of-eight clauses the bigger
@@ -266,6 +274,41 @@ describe("logic-grid wasm", () => {
     expect([at(2, 0), at(1, 1)]).toEqual([LIGHT, LIGHT]);
     // Invisible behind the stops, so the count says nothing about them.
     expect([at(2, 1), at(1, 2)]).toEqual([UNKNOWN, UNKNOWN]);
+  }, 30_000);
+
+  /**
+   * The myopia clue's counterpart, and the reading the whole kind rests on:
+   * DISTANCE is counted in squares, never in cells.
+   *
+   * Its own cell reaches one square along its own arrow, so the nearest light
+   * to the right is at least TWO away — and the fence it puts round the other
+   * three directions is therefore two deep. Counting cells would make the
+   * distance one and fence only the immediate neighbors, leaving the outer
+   * ring undecided, so the answer is what tells the two apart. Underclued, so
+   * the answer IS the forced set and nothing else is painted to confuse it.
+   */
+  test("a myopia clue measures distance in squares, not cells", async () => {
+    const wasm = await loadWasm();
+    const config = myopiaOverMergedBoard();
+    const result = wasm.solve(toPuzzle(config), {
+      engine: "cascade",
+      seed: 0,
+      maxMs: ARM_MS,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe("deduced");
+    expect(result.proven).toBeTrue();
+
+    const answer = flat(result.cells);
+    const at = (x: number, y: number) => answer[y * config.gridWidth + x];
+    // One square out in the three unarrowed directions, which either reading
+    // would give.
+    expect([at(2, 1), at(2, 3), at(1, 2)]).toEqual([DARK, DARK, DARK]);
+    // ...and the second square out, which only the square-counting one does.
+    expect([at(2, 0), at(2, 4), at(0, 2)]).toEqual([DARK, DARK, DARK]);
+    // The arrow's own line says only that the light is somewhere along it.
+    expect([at(4, 2), at(5, 2)]).toEqual([UNKNOWN, UNKNOWN]);
   }, 30_000);
 
   /**

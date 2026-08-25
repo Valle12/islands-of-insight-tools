@@ -24,6 +24,17 @@ import type { LogicGridPattern } from "../../util/types";
 import { colorId, DARK, LIGHT, UNKNOWN } from "./cell";
 import { normalizePattern } from "./patterns";
 
+/** Which square of the drawn box an element lies in, or null for none of them.
+ * One reading for the press and the drag, so the two cannot disagree about
+ * what counts as being over a square. */
+function squareUnder(target: EventTarget | null): number | null {
+  if (!(target instanceof Element)) return null;
+  const square = target.closest<HTMLElement>(".pattern-cell");
+  if (!square) return null;
+  const at = Number(square.dataset.at);
+  return Number.isInteger(at) ? at : null;
+}
+
 /** The colors the dialog can arm, by the `data-pattern-color` they carry. */
 const ARMED: Record<string, number> = { dark: DARK, light: LIGHT };
 
@@ -69,6 +80,16 @@ export class PatternDialog {
   private squares: number[] = [];
   /** What the left button paints. Survives a close, like the box's size. */
   private armed = DARK;
+  /**
+   * What the press in flight WRITES, or null between strokes — the board's
+   * `Stroke` in miniature, and here for its reason rather than to save work.
+   *
+   * Decided once, at the press, and then written into every square the drag
+   * crosses. Asking each square what it already holds instead would make one
+   * gesture paint some squares and clear others wherever it ran over a mixed
+   * row, and would clear a square the moment the drag wandered back over it.
+   */
+  private stroke: number | null = null;
 
   constructor(private readonly options: PatternDialogOptions) {
     this.addListeners();
@@ -125,15 +146,39 @@ export class PatternDialog {
     // `pointerdown`, not `click`: a right press raises no click at all, so the
     // eraser would never fire — the same reason `board.ts` listens for it.
     this.grid.addEventListener("pointerdown", event => {
-      const square = (event.target as HTMLElement | null)?.closest(
-        ".pattern-cell",
-      );
-      if (!(square instanceof HTMLElement)) return;
+      const at = squareUnder(event.target);
+      if (at === null) return;
       if (event.button !== 0 && event.button !== 2) return;
-      this.paint(Number(square.dataset.at), event.button === 2);
+      this.begin(at, event.button === 2);
     });
+
+    // A DRAG paints, exactly as it does on the board — which is where the
+    // shape being drawn is going to be read, so it should be drawn the same
+    // way rather than a square at a time.
+    this.grid.addEventListener("pointermove", event => {
+      if (this.stroke === null) return;
+      // Hit-tested by COORDINATE, not from `event.target`: a touch or pen
+      // pointer is implicitly captured by the square the press began on, so
+      // every later move reports that same square and the drag would paint
+      // one cell. `board.ts` reads its own moves this way for this reason.
+      const at = squareUnder(
+        document.elementFromPoint(event.clientX, event.clientY),
+      );
+      if (at !== null) this.write(at, this.stroke);
+    });
+
+    // On the document, not the grid: a release outside the box still ends the
+    // stroke. And `pointercancel` too — a touch that becomes a system gesture
+    // raises no pointerup, and a stroke left live would paint on the next
+    // move, which is the board's reasoning over again.
+    const end = () => {
+      this.stroke = null;
+    };
+    document.addEventListener("pointerup", end);
+    document.addEventListener("pointercancel", end);
+
     // Or the right button opens the browser's menu over the square it just
-    // cleared, exactly as it would over the board.
+    // cleared — and ends the drag there — exactly as it would over the board.
     this.grid.addEventListener("contextmenu", event => {
       event.preventDefault();
     });
@@ -180,14 +225,22 @@ export class PatternDialog {
    * button, the other under the right, and a press writing what is already
    * there clears it instead — `strokes.ts`'s `strokeFor` and `toggled` for the
    * two color tools, which is the whole of what this dialog needs.
+   *
+   * What it decides is kept for the whole gesture, so the drag that follows
+   * writes the same thing everywhere. See `stroke`.
    */
-  private paint(at: number, secondary: boolean) {
-    if (!Number.isInteger(at) || at < 0 || at >= this.squares.length) return;
+  private begin(at: number, secondary: boolean) {
     const other = this.armed === DARK ? LIGHT : DARK;
     const writes = secondary ? other : this.armed;
-    const wanted = this.squares[at] === writes ? UNKNOWN : writes;
-    if (this.squares[at] === wanted) return;
-    this.squares[at] = wanted;
+    this.stroke = this.squares[at] === writes ? UNKNOWN : writes;
+    this.write(at, this.stroke);
+  }
+
+  /** One square, taking the color the stroke settled on. */
+  private write(at: number, color: number) {
+    if (at < 0 || at >= this.squares.length) return;
+    if (this.squares[at] === color) return;
+    this.squares[at] = color;
     this.say("");
     // In place, never a rebuild: `render` replaces every square, which would
     // take the focus off the one that was just pressed — so a keyboard user

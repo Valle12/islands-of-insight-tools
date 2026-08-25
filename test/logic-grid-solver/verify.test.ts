@@ -11,6 +11,10 @@ import {
   verifyLogicGrid,
 } from "../../src/pages/logic-grid-solver/verify";
 import {
+  ARROW_DOWN,
+  ARROW_LEFT,
+  ARROW_RIGHT,
+  ARROW_UP,
   board,
   painted,
   withArea,
@@ -18,6 +22,7 @@ import {
   withDart,
   withGalaxy,
   withLotus,
+  withMyopia,
   withRunRule,
   withShape,
   withPattern,
@@ -1516,6 +1521,109 @@ describe("verifyLogicGrid", () => {
       expect(verifyLogicGrid(config, painted(["DL", "LD"]))).toBe("none");
       expect(verifyLogicGrid(config, painted(["DD", "LL"]))).toBe("none");
       expect(verifyLogicGrid(config, painted(["DD", "DL"]))).toBe("galaxy");
+    });
+  });
+
+  describe("myopia arrows", () => {
+    /** A myopia clue on `(2, 0)` of a five-wide row, placed in the MIDDLE so
+     * left and right are both real directions and the arrows have something
+     * to choose between. Mirrors `judgeMyopia` in `verify_test.cpp`. */
+    const judgeMyopia = (
+      picture: string[],
+      answer: string[],
+      arrows: number,
+    ) => {
+      const config = withMyopia(board(picture), 2, 0, arrows);
+      return verifyLogicGrid(config, painted(answer));
+    };
+
+    test("points at the nearest cell of the other color", () => {
+      expect(judgeMyopia(["....."], ["DDDLD"], ARROW_RIGHT)).toBe("none");
+      expect(judgeMyopia(["....."], ["DDDLD"], ARROW_LEFT)).toBe("myopia");
+    });
+
+    /** The arrows are exactly the directions that TIE for nearest, which is
+     * what makes an arrow a claim about the OTHER directions as well: both
+     * lights here are two away, so naming one says the other is further. */
+    test("names every direction that ties for nearest", () => {
+      expect(judgeMyopia(["....."], ["LDDDL"], ARROW_RIGHT)).toBe("myopia");
+      expect(judgeMyopia(["....."], ["LDDDL"], ARROW_LEFT | ARROW_RIGHT)).toBe(
+        "none",
+      );
+    });
+
+    /** A direction with no arrow may hold nothing that way at all, so "no
+     * arrow" says less than "nothing there". */
+    test("a direction with no arrow need not see anything", () => {
+      expect(judgeMyopia(["....."], ["DLDDD"], ARROW_LEFT)).toBe("none");
+    });
+
+    /** No nearest to point at, so every arrow set is wrong rather than some. */
+    test("a clue seeing nothing at all is unsatisfiable", () => {
+      for (let arrows = 1; arrows <= 15; arrows++) {
+        expect(judgeMyopia(["....."], ["DDDDD"], arrows)).toBe("myopia");
+      }
+    });
+
+    /** Colorless like a dart: the two colorings differ ONLY in the clue's own
+     * square, and the same arrow reads differently on each. */
+    test("takes the color of its own cell, so it looks for the other", () => {
+      expect(judgeMyopia(["....."], ["DLDDD"], ARROW_LEFT)).toBe("none");
+      expect(judgeMyopia(["....."], ["DLLDD"], ARROW_LEFT)).toBe("myopia");
+      expect(judgeMyopia(["....."], ["DLLDD"], ARROW_RIGHT)).toBe("none");
+    });
+
+    /** A gap is stepped over and still COUNTS: the right-hand light is three
+     * away against the left one's two. Skipped rather than passed, the two
+     * would tie and both arrows would be needed. */
+    test("looks straight through a gap, which still counts", () => {
+      expect(judgeMyopia(["...#.."], ["LDD#DL"], ARROW_LEFT)).toBe("none");
+      expect(
+        judgeMyopia(["...#.."], ["LDD#DL"], ARROW_LEFT | ARROW_RIGHT),
+      ).toBe("myopia");
+    });
+
+    /** Two arrows at RIGHT ANGLES — the set an opposite-pairs-only reading
+     * could not spell, and one a real board reaches. */
+    test("may name two directions at right angles", () => {
+      const picture = [".....", ".....", "....."];
+      const answer = ["DDDLD", "DDLDD", "DDDDD"];
+      expect(judgeMyopia(picture, answer, ARROW_RIGHT | ARROW_DOWN)).toBe(
+        "none",
+      );
+      expect(judgeMyopia(picture, answer, ARROW_RIGHT)).toBe("myopia");
+    });
+
+    /** All four at once, the one mask a quarter turn leaves alone. */
+    test("may name every direction", () => {
+      const config = withMyopia(board([".....", ".....", "....."]), 2, 1, 15);
+      expect(
+        verifyLogicGrid(config, painted(["DDLDD", "DLDLD", "DDLDD"])),
+      ).toBe("none");
+      // The left light moved one square out, so it no longer ties.
+      expect(
+        verifyLogicGrid(config, painted(["DDLDD", "LDDLD", "DDLDD"])),
+      ).toBe("myopia");
+    });
+
+    /** A merged cell along the line contributes every square of itself the
+     * line crosses, so what lies past the clue's own cell is three away and
+     * not one. Counting CELLS would make two directions incomparable. */
+    test("counts a merged cell once per square", () => {
+      const config = withMyopia(board(["....."]), 0, 0, ARROW_RIGHT);
+      withShape(config, [
+        [0, 0],
+        [1, 0],
+        [2, 0],
+      ]);
+      expect(verifyLogicGrid(config, painted(["DDDLD"]))).toBe("none");
+    });
+
+    /** A mask nobody can read satisfies nothing — the same net the C++ side
+     * leaves behind when it declines to build the geometry. */
+    test("an unreadable arrow mask is refused", () => {
+      const config = withMyopia(board(["....."]), 2, 0, 0);
+      expect(verifyLogicGrid(config, painted(["DDDLD"]))).toBe("myopia");
     });
   });
 

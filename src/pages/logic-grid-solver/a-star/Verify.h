@@ -72,6 +72,10 @@ enum class Violation : uint8_t {
   /// A galaxy symbol's region does not map to itself under a half turn about
   /// the galaxy's own square.
   GalaxyAsymmetric,
+  /// A myopia symbol's arrows do not name exactly the directions in which the
+  /// nearest cell of the other color is nearest — one of them is further off
+  /// than another way round, or a direction with no arrow is as close.
+  MyopiaArrows,
   /// Two regions of one color are the same shape where the rule forbids it.
   /// "Same" is congruence: the eight dihedral images, so an S and a Z are one
   /// shape.

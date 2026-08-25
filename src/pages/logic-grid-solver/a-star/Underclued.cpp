@@ -259,7 +259,18 @@ Outcome runForced(const Model &model, const Config &cfg) {
   const SearchResult first =
       search(model, firstBudget, firstOptions, outcome.stats);
   if (first.solutions.empty()) {
-    outcome.status = first.exhausted ? Status::Unsolvable : Status::Unsolved;
+    if (first.exhausted) {
+      outcome.status = Status::Unsolvable;
+      return outcome;
+    }
+    // The witness search ran out, which says nothing about the board — but
+    // deduceRoot's propagation already holds: every cell it settled is implied
+    // by the givens and rules whatever the search never found. Handing it back
+    // is what keeps a hard underclued board from reading as "nothing at all";
+    // the status stays Unsolved, so no forced claim rides on it.
+    outcome.status = Status::Unsolved;
+    outcome.colors = known;
+    outcome.decided = countDecided(model, known);
     return outcome;
   }
 

@@ -96,25 +96,27 @@ TEST(Profile, HandlesTheConnectivityRules) {
 TEST(Profile, DeclinesWhatItCannotExpress) {
   EXPECT_TRUE(takes({"a..", "...", "..a"}));
   EXPECT_TRUE(takes({"a..", "...", "..a"}, {Rule::ConnectDark}));
-  // An area clue would have to carry its region's size in the state.
-  EXPECT_FALSE(takes({"3..", "...", "..a"}));
+  // An area clue rides in the state now: the class absorbing its cell carries
+  // the demanded size and a running count, met exactly at close.
+  EXPECT_TRUE(takes({"3..", "...", "..a"}));
   // A rule whose whole content is a forbidden arrangement IS expressible: the
   // frontier's slots are the last `width` cells in scan order, so a few bits
   // of history beside them are enough to read one off.
   EXPECT_TRUE(takes({"a..", "...", "..a"}, {Rule::NoDark2x2}));
   EXPECT_TRUE(takes({"a..", "...", "..a"}, {Rule::NoCheckerboard}));
   EXPECT_TRUE(takes({"a..", "...", "..a"}, {Rule::NoDarkT}));
-  // The sized rule instances live OUTSIDE the mask, so the whitelist loop
-  // cannot see them and their decline is its own explicit check: a run
-  // instance would need a running length along rows the sweep crosses, an
-  // area instance each open class's size — the state an area clue would need.
-  // Declining is a correctness requirement rather than a tidiness one:
-  // `runProfileForced` sets `proven` with no oracle gate on its forced set,
-  // so a sweep blind to an instance would enumerate a superset of the
-  // solutions and then claim the cells they disagree about were proved free.
+  // A RUN instance is admitted: its whole content is two straight forbidden
+  // arrangements — `patternsFor` compiles it beside the flag rules, and the
+  // vertical orientation is what the history bits carry.
   Puzzle run = test::board({"a..", "...", "..a"});
   test::withRunRule(run, kDark, 3);
-  EXPECT_FALSE(profile::applicable(buildModel(run)));
+  EXPECT_TRUE(profile::applicable(buildModel(run)));
+  // An AREA instance stays out, and this pin is load-bearing: an area means
+  // its implied run AND the region's exact size, and a sweep blind to the
+  // size half would enumerate a superset of the solutions —
+  // `runProfileForced` sets `proven` with no oracle gate on its forced set,
+  // so the cells the extra colorings disagree about would be claimed as
+  // proved free.
   Puzzle darkArea = test::board({"a..", "...", "..a"});
   test::withAreaRule(darkArea, kDark, 2);
   EXPECT_FALSE(profile::applicable(buildModel(darkArea)));
@@ -229,16 +231,115 @@ TEST(Profile, SweepsADrawnPattern) {
  */
 TEST(Profile, DeclinesAPatternDeeperThanTheHistory) {
   // Eight wide, so the scan follows an eight-slot frontier: `histBits` is
-  // about `(height - 2) * 8`, and a five-row pattern needs 25 of the 24 the
-  // state holds.
+  // about `(height - 2) * 8`. A five-row pattern needs 25 of the 32 the state
+  // holds — declined while the word was 24 bits, admitted now — and a six-row
+  // one needs 33, which is where the refusal lives today.
   const std::vector<std::string> picture(8, "........");
   Puzzle shallow = test::board(picture);
   test::withPattern(shallow, test::pattern({"DD", "DD"}));
   ASSERT_TRUE(profile::applicable(buildModel(shallow)));
 
+  Puzzle fiveRows = test::board(picture);
+  test::withPattern(fiveRows, test::pattern({"D.", "..", "..", "..", ".D"}));
+  EXPECT_TRUE(profile::applicable(buildModel(fiveRows)));
+
   Puzzle deep = test::board(picture);
-  test::withPattern(deep, test::pattern({"D.", "..", "..", "..", ".D"}));
+  test::withPattern(deep,
+                    test::pattern({"D.", "..", "..", "..", "..", ".D"}));
   EXPECT_FALSE(profile::applicable(buildModel(deep)));
+}
+
+/**
+ * A run instance, swept. The VERTICAL orientation is the one that needs the
+ * history bits — a column of three on a three-wide scan reaches one row past
+ * the frontier — so a board tall enough to hold one is what pins that the
+ * compiled instance actually fires there rather than merely being admitted.
+ */
+TEST(Profile, SweepsARunInstance) {
+  Puzzle puzzle = test::board({"a..", "...", "...", "..a"});
+  test::withRunRule(puzzle, kDark, 3);
+  const Model model = buildModel(puzzle);
+  ASSERT_TRUE(profile::applicable(model));
+  constexpr Config cfg{.maxMs = 30000};
+  const Outcome outcome = profile::runProfile(model, cfg);
+  ASSERT_EQ(outcome.status, Status::Solved);
+  EXPECT_EQ(verify::check(model, outcome.colors), verify::Violation::None);
+}
+
+/// A run whose vertical instance reaches past even the widened history —
+/// `(5-2)*12 = 36` of the 32 bits — declines, and the board falls to the DFS.
+TEST(Profile, DeclinesARunTooDeepForTheHistory) {
+  const std::vector picture(13, std::string(12, '.'));
+  Puzzle puzzle = test::board(picture);
+  test::withRunRule(puzzle, kDark, 5);
+  EXPECT_FALSE(profile::applicable(buildModel(puzzle)));
+}
+
+/// An area clue, swept: the demand binds whichever region absorbs its cell.
+TEST(Profile, SweepsAnAreaClue) {
+  const std::vector<std::string> picture = {"3..", "...", "..2"};
+  const Outcome outcome = sweep(picture);
+  ASSERT_EQ(outcome.status, Status::Solved);
+  const Model model = buildModel(test::board(picture));
+  EXPECT_EQ(verify::check(model, outcome.colors), verify::Violation::None);
+}
+
+/// The exact-size half an implied run cannot say: a 2x2 board holds no region
+/// of five, and the sweep proves that rather than walking past the demand.
+TEST(Profile, ProvesAnImpossibleAreaClueImpossible) {
+  EXPECT_EQ(sweep({"5.", ".."}).status, Status::Unsolvable);
+}
+
+/**
+ * Two clues of one value may share a region — the packer's own case, and the
+ * merge rule that keeps EQUAL demands legal. On "3.3" the shared whole row is
+ * the only reading (two separate threes cannot fit in three cells), and on
+ * "2.3" neither sharing nor separating can, which pins the unequal-demand
+ * refutation from the same three squares.
+ */
+TEST(Profile, TwoEqualAreaCluesMayShareARegion) {
+  const Outcome outcome = sweep({"3.3"});
+  ASSERT_EQ(outcome.status, Status::Solved);
+  const Model model = buildModel(test::board({"3.3"}));
+  EXPECT_EQ(verify::check(model, outcome.colors), verify::Violation::None);
+  EXPECT_EQ(sweep({"2.3"}).status, Status::Unsolvable);
+}
+
+/**
+ * The one-symbol rules, swept. The letters board solves — each letter takes a
+ * light region of its own — and the given-without-a-symbol board refutes: a
+ * light region exists and nothing can ever put a symbol in it.
+ */
+TEST(Profile, SweepsTheOneSymbolRules) {
+  using enum Rule;
+  const std::vector<std::string> picture = {"a.b", "...", "..."};
+  const Outcome outcome = sweep(picture, {OneSymbolLight});
+  ASSERT_EQ(outcome.status, Status::Solved);
+  const Model model =
+      buildModel(test::board(picture, test::ruleSet({OneSymbolLight})));
+  EXPECT_EQ(verify::check(model, outcome.colors), verify::Violation::None);
+  EXPECT_EQ(sweep({"L."}, {OneSymbolLight}).status, Status::Unsolvable);
+}
+
+/// A clue on a PAINTED square is both a given and a demand — the captured
+/// 11x11's shape, where all fourteen clues sit on light givens.
+TEST(Profile, AnAreaClueOnAPaintedSquareIsBothGivenAndDemand) {
+  Puzzle puzzle = test::board({"L..", "...", "..."});
+  test::withClue(puzzle, 0, 0, 2);
+  const Model model = buildModel(puzzle);
+  ASSERT_TRUE(profile::applicable(model));
+  constexpr Config cfg{.maxMs = 30000};
+  const Outcome outcome = profile::runProfile(model, cfg);
+  ASSERT_EQ(outcome.status, Status::Solved);
+  EXPECT_EQ(verify::check(model, outcome.colors), verify::Violation::None);
+}
+
+/// A demand the state's byte cannot carry declines rather than truncating —
+/// a truncated demand would be a different puzzle, proved confidently.
+TEST(Profile, DeclinesAnAreaClueBeyondTheDemandByte) {
+  Puzzle puzzle = test::board({"...", "...", "..."});
+  test::withClue(puzzle, 0, 0, 300);
+  EXPECT_FALSE(profile::applicable(buildModel(puzzle)));
 }
 
 /// Same refusal for the lotus, whose mirror crosses the sweep in BOTH
@@ -274,6 +375,20 @@ TEST(Profile, DeclinesGalaxies) {
   EXPECT_FALSE(profile::applicable(buildModel(galaxied)));
 }
 
+/// And for the myopia arrows, which measure DISTANCE along a whole line in
+/// four directions at once — a running count could not say how far away the
+/// nearest of them was, and the frontier has forgotten the far end of every
+/// vertical line before the near end arrives. Declined like every non-letter
+/// kind, with no code knowing it exists.
+TEST(Profile, DeclinesMyopiaArrows) {
+  const Puzzle plain = test::board({"a..", "...", "..a"});
+  ASSERT_TRUE(profile::applicable(buildModel(plain)));
+
+  Puzzle myopic = plain;
+  test::withMyopia(myopic, 1, 1, test::kArrowUp);
+  EXPECT_FALSE(profile::applicable(buildModel(myopic)));
+}
+
 /**
  * And the whitelist itself: every rule the sweep does not name is refused,
  * whatever it is. Without this a rule appended to the catalog tomorrow would
@@ -288,6 +403,7 @@ TEST(Profile, DeclinesEveryRuleItDoesNotName) {
   using enum Rule;
   const std::vector supportedRules = {
       ConnectDark,     ConnectLight,        Underclued,
+      OneSymbolDark,   OneSymbolLight,
       NoDark2x2,       NoLight2x2,          NoCheckerboard,
       NoDarkLightDark, NoLightDarkLight,    NoDarkT,
       NoLightT,        NoThreeDarkOneLight, NoThreeLightOneDark,
@@ -328,9 +444,12 @@ TEST(Profile, DeclinesMergedCells) {
   EXPECT_FALSE(profile::applicable(buildModel(merged)));
 }
 
-/// A declined board comes back as "nothing to say", never as a negative.
+/// A declined board comes back as "nothing to say", never as a negative. The
+/// shape rules are the decliner here — the area-clue board this test used to
+/// lean on is admitted now.
 TEST(Profile, ADeclinedBoardClaimsNothing) {
-  const Outcome outcome = sweep({"3..", "...", "..a"});
+  const Outcome outcome =
+      sweep({"3..", "...", "..a"}, {Rule::DistinctShapesDark});
   EXPECT_EQ(outcome.status, Status::Unsolved);
   EXPECT_EQ(outcome.decided, 0);
   EXPECT_TRUE(outcome.witnesses.empty());
@@ -346,6 +465,35 @@ TEST(Profile, RunningOutOfRoomIsNotAProof) {
   const Outcome outcome = profile::runProfile(model, cfg);
   EXPECT_EQ(outcome.status, Status::Unsolved);
   EXPECT_TRUE(outcome.stats.stoppedOnMemory);
+}
+
+/**
+ * The cap counts the LAYERS, not just the trail. Six hundred bytes holds a
+ * hundred-plus five-byte trail entries but only a handful of frontiers, so a
+ * board whose layers outgrow that must stop on memory — under the old
+ * trail-only arithmetic the layer vectors were what actually blew the wasm
+ * heap, as an ABORT of the module rather than an answer.
+ */
+TEST(Profile, TheStateCapCountsTheLayersNotJustTheTrail) {
+  const Model model = buildModel(test::board({"...", "...", "..."}));
+  constexpr Config cfg{.maxMs = 30000, .maxHeapBytes = 600};
+  const Outcome outcome = profile::runProfile(model, cfg);
+  EXPECT_EQ(outcome.status, Status::Unsolved);
+  EXPECT_TRUE(outcome.stats.stoppedOnMemory);
+}
+
+/**
+ * The wall gate. At the widest scan the bare partition state already sits at
+ * the memory wall — measured: a 16-wide connect board fills gigabytes and
+ * stops on memory — so any pattern history on top of it is declined up front,
+ * where the bare board is still taken and stops honestly instead. Static, so
+ * native and wasm answer alike and `armIsUseful` never suppresses the DFS
+ * race seeds on a board the sweep cannot finish.
+ */
+TEST(Profile, DeclinesAWideBoardWhoseHistoryCannotFit) {
+  const std::vector wide(16, std::string(16, '.'));
+  EXPECT_TRUE(takes(wide));
+  EXPECT_FALSE(takes(wide, {Rule::NoDark2x2}));
 }
 
 /**

@@ -810,7 +810,7 @@ enum class Sign : uint8_t { Unknown, Preserve, Invert, Inconsistent };
 
 Sign signOf(const Domains &domains, const Galaxy &galaxy) {
   using enum Sign;
-  auto sign = Sign::Unknown;
+  auto sign = Unknown;
   for (int i = 0; i < galaxy.seatCount; i++) {
     const int seat = galaxy.seats[slot(i)];
     const int image = galaxy.mirror[slot(seat)];
@@ -996,6 +996,143 @@ bool propagateViewpoints(const Model &model, Domains &domains) {
                         ? viewpointColorChoice(model, domains, viewpoint)
                         : viewpointSight(model, domains, viewpoint, color);
     if (!ok)
+      return false;
+  }
+  return true;
+}
+
+// ------------------------------------------------------------ myopia arrows --
+
+/**
+ * Which minimum DISTANCES the clue could still be measuring, one bit per
+ * distance, under the assumption that its own square holds `color`.
+ *
+ * A distance `m` survives when every ARROW direction could still hold its
+ * first other-colored square exactly there — the square at `m` still able to
+ * take that color, and none before it already committed to it — while every
+ * direction WITHOUT an arrow could still hold none up to and including `m`.
+ * Empty means the assumption itself is refuted.
+ *
+ * A relaxation in the safe direction: every distance a real completion could
+ * measure passes both tests, so the set is a superset of the achievable ones
+ * and anything the whole set agrees on is true of every solution. Bit 0 is
+ * never set — the nearest other color is at least one square away, its own
+ * square being its own color.
+ */
+/// Whether one direction of a myopia clue still admits `distance` as the
+/// nearest other-colored square: an arrowed direction needs a square that far
+/// which MAY be the other color, and every direction needs nothing nearer
+/// that IS.
+bool rayAdmits(const Domains &domains, const Myopia &myopia,
+               const uint8_t other, const int direction, const int distance) {
+  const auto &ray = myopia.rays[slot(direction)];
+  const auto length = static_cast<int>(ray.size());
+  const bool arrowed = (myopia.arrows & (1 << direction)) != 0;
+  if (arrowed && (length < distance ||
+                  !domains.possible(other).test(ray[slot(distance - 1)])))
+    return false;
+  // An arrow needs a square to point AT; a direction without one needs only
+  // to stay clear for as long, which one shorter than the board already does.
+  const int clear = arrowed ? distance - 1 : std::min(distance, length);
+  for (int i = 0; i < clear; i++) {
+    if (domains.definite(other).test(ray[slot(i)]))
+      return false;
+  }
+  return true;
+}
+
+/// Whether all four directions admit `distance` — see `rayAdmits`.
+bool distanceFits(const Domains &domains, const Myopia &myopia,
+                  const uint8_t other, const int distance) {
+  for (int direction = 0; direction < kDirectionCount; direction++) {
+    if (!rayAdmits(domains, myopia, other, direction, distance))
+      return false;
+  }
+  return true;
+}
+
+uint32_t myopiaMinima(const Domains &domains, const Myopia &myopia,
+                      const uint8_t color) {
+  const uint8_t other = opposite(color);
+  int longest = 0;
+  for (const auto &ray : myopia.rays)
+    longest = std::max(longest, static_cast<int>(ray.size()));
+
+  uint32_t minima = 0;
+  for (int distance = 1; distance <= longest; distance++) {
+    if (distanceFits(domains, myopia, other, distance))
+      minima |= uint32_t{1} << distance;
+  }
+  return minima;
+}
+
+/**
+ * What every surviving minimum agrees on, written into the domains.
+ *
+ * Everything strictly nearer than the SMALLEST surviving distance holds the
+ * clue's own color, whichever way it lies — that is the deduction the clue is
+ * played for, and the one an arrow direction can only make one square short of,
+ * since its own square at that distance is the one that may be the other color.
+ * A direction with no arrow gets that square too: nothing that way is as close.
+ *
+ * And once one distance survives alone, each arrow's square at it IS the other
+ * color, which is what turns the clue from a fence into a placement.
+ */
+bool myopiaDeduce(Domains &domains, const Myopia &myopia, const uint8_t color,
+                  const uint32_t minima) {
+  const uint8_t other = opposite(color);
+  const int nearest = std::countr_zero(minima);
+  const bool settled = std::has_single_bit(minima);
+
+  for (int direction = 0; direction < kDirectionCount; direction++) {
+    const auto &ray = myopia.rays[slot(direction)];
+    const auto length = static_cast<int>(ray.size());
+    const bool arrowed = (myopia.arrows & (1 << direction)) != 0;
+    const int clear = std::min(arrowed ? nearest - 1 : nearest, length);
+    for (int i = 0; i < clear; i++) {
+      // Asked first because a gap is in these lists on purpose: it can never
+      // be the other color, so there is nothing to take away from it.
+      if (const int square = ray[slot(i)];
+          domains.possible(other).test(square) &&
+          !domains.exclude(square, other))
+        return false;
+    }
+    if (settled && arrowed && !domains.assign(ray[slot(nearest - 1)], other))
+      return false;
+  }
+  return true;
+}
+
+/**
+ * The clue's own color is still open, so it does not yet say which color it is
+ * looking for. Either assumption that nothing could satisfy is ruled out.
+ *
+ * `dartColorChoice`'s shape and its discipline: a conclusion drawn under
+ * "suppose this cell is dark" may refute that supposition and nothing else,
+ * which is why only the emptiness of the two sets is read here. Everything the
+ * two assumptions AGREE on comes back through the probe, the way an uncolored
+ * lotus's and viewpoint's do.
+ */
+bool myopiaColorChoice(Domains &domains, const Myopia &myopia) {
+  const bool darkFits = myopiaMinima(domains, myopia, kDark) != 0;
+  const bool lightFits = myopiaMinima(domains, myopia, kLight) != 0;
+  if (!darkFits && !lightFits)
+    return false;
+  if (darkFits == lightFits)
+    return true;
+  return domains.assign(myopia.index, darkFits ? kDark : kLight);
+}
+
+bool propagateMyopias(const Model &model, Domains &domains) {
+  for (const Myopia &myopia : model.walked.myopias) {
+    const uint8_t color = domains.colorOf(myopia.index);
+    if (color == kUnknown) {
+      if (!myopiaColorChoice(domains, myopia))
+        return false;
+      continue;
+    }
+    if (const uint32_t minima = myopiaMinima(domains, myopia, color);
+        minima == 0 || !myopiaDeduce(domains, myopia, color, minima))
       return false;
   }
   return true;
@@ -1364,10 +1501,27 @@ bool hasAreaRule(const Model &model) {
   return !model.puzzle.areas.empty();
 }
 
-bool propagateGlobal(const Model &model, Domains &domains) {
+/// Whether either color has to be connected.
+bool hasConnectRule(const Model &model) {
+  return model.hasRule(Rule::ConnectDark) || model.hasRule(Rule::ConnectLight);
+}
+
+/// Whether any of the four region-shape rules is on.
+bool hasShapeRule(const Model &model) {
   using enum Rule;
-  if ((model.hasRule(ConnectDark) || model.hasRule(ConnectLight)) &&
-      !propagateConnectivity(model, domains))
+  return model.hasRule(DistinctShapesDark) ||
+         model.hasRule(DistinctShapesLight) || model.hasRule(SameShapeDark) ||
+         model.hasRule(SameShapeLight);
+}
+
+/// Whether either color's regions are held to one symbol each.
+bool hasOneSymbolRule(const Model &model) {
+  return model.hasRule(Rule::OneSymbolDark) ||
+         model.hasRule(Rule::OneSymbolLight);
+}
+
+bool propagateGlobal(const Model &model, Domains &domains) {
+  if (hasConnectRule(model) && !propagateConnectivity(model, domains))
     return false;
   // Outside the `clued` guard below on purpose: a board can carry this rule and
   // no clues at all, and then nothing else here would run.
@@ -1375,9 +1529,7 @@ bool propagateGlobal(const Model &model, Domains &domains) {
     return false;
   // Outside the `clued` guard for the same reason, and beside the area rule
   // because `sameShape` borrows its engine once a region has closed.
-  if ((model.hasRule(DistinctShapesDark) || model.hasRule(DistinctShapesLight) ||
-       model.hasRule(SameShapeDark) || model.hasRule(SameShapeLight)) &&
-      !propagateRegionShapes(model, domains))
+  if (hasShapeRule(model) && !propagateRegionShapes(model, domains))
     return false;
   if (!model.areaClues.empty() && !propagateAreas(model, domains))
     return false;
@@ -1387,12 +1539,13 @@ bool propagateGlobal(const Model &model, Domains &domains) {
     return false;
   if (!model.walked.viewpoints.empty() && !propagateViewpoints(model, domains))
     return false;
+  if (!model.walked.myopias.empty() && !propagateMyopias(model, domains))
+    return false;
   if (!model.walked.galaxies.empty() && !propagateGalaxies(model, domains))
     return false;
   if (!model.letters.empty() && !propagateLetters(domains, model))
     return false;
-  if ((model.hasRule(OneSymbolDark) || model.hasRule(OneSymbolLight)) &&
-      !propagateSymbolCounts(model, domains))
+  if (hasOneSymbolRule(model) && !propagateSymbolCounts(model, domains))
     return false;
   // Exactly what `propagateMerges` can say something about: how big a region
   // may be, from a clue OR from a rule, and how many clues or letters it may
@@ -1401,8 +1554,7 @@ bool propagateGlobal(const Model &model, Domains &domains) {
   // with nothing but darts on it — but it says nothing about a region's size,
   // so a dart-only board with none of these must not pay for the pass.
   const bool merges = !model.areaClues.empty() || !model.letters.empty() ||
-                      model.hasRule(OneSymbolDark) ||
-                      model.hasRule(OneSymbolLight) || hasAreaRule(model);
+                      hasOneSymbolRule(model) || hasAreaRule(model);
   return !merges || propagateMerges(model, domains);
 }
 

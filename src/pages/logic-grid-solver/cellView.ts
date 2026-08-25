@@ -1,11 +1,15 @@
 import type { LogicGridClue } from "../../util/types";
 import { colorLabel, colorId } from "./cell";
 import type { GalaxyTiling } from "./galaxyTiles";
+import { SVG_NS } from "./outlineLayer";
+import { RAY_VIEW_BOX, raysPath } from "./rayShape";
 import {
   AXIS_ICON,
   axisAt,
+  DEFAULT_RAYS,
   DIRECTION_ICON,
   directionAt,
+  raysOf,
   symbolKindAt,
   VIEWPOINT_ICON,
   type LogicGridSymbolKind,
@@ -30,6 +34,11 @@ export function describeCell(
     const along = axis ? ` along the ${axis.label.toLowerCase()} axis` : "";
     return `${position}, ${kind.label}${along}`;
   }
+  // A kind naming a SET says every direction in it, since which arrows are
+  // there IS the clue and one of them alone would be a different one.
+  if (kind.aims === "rays") {
+    return `${position}, ${kind.label} pointing ${listRays(clue.direction)}`;
+  }
   // A valueless, axis-less kind — the galaxy — is its name alone: there is no
   // value to say and nothing points anywhere. Without this branch the line
   // below would read "Galaxy undefined".
@@ -37,6 +46,19 @@ export function describeCell(
   const aim = clue.direction === undefined ? null : directionAt(clue.direction);
   const pointing = aim ? ` pointing ${aim.label.toLowerCase()}` : "";
   return `${position}, ${kind.label} ${clue.value}${pointing}`;
+}
+
+/**
+ * An arrow set as words, in catalog order: "up", "up and right", "up, right
+ * and down". Spelled out rather than left as a number, which is what a screen
+ * reader would otherwise be given.
+ */
+function listRays(mask: number | undefined): string {
+  const names = raysOf(mask ?? DEFAULT_RAYS).map(direction =>
+    direction.label.toLowerCase(),
+  );
+  if (names.length < 2) return names[0] ?? "nowhere";
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)!}`;
 }
 
 /** Which quarter of a seated glyph a copy draws, and what lies under it. */
@@ -150,6 +172,7 @@ export function dressCell(
     delete element.dataset.labelLength;
     delete element.dataset.direction;
     delete element.dataset.axis;
+    delete element.dataset.rays;
     delete element.dataset.seat;
     delete element.dataset.viewpoint;
     delete element.dataset.icon;
@@ -211,6 +234,25 @@ function galaxyGlyphs(
   return pieces.length === 0 ? [glyph()] : pieces.map(part => glyph(part));
 }
 
+/**
+ * Every arrow a mask names, as ONE `<svg>` holding ONE path — see
+ * `rayShape.ts` for why they cannot be four glyphs asked to meet in the
+ * middle. The box is centred on the tile, so the point the tails share is the
+ * middle of the square whatever the clue holds.
+ */
+function raySvg(mask: number): SVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", "cell-ray");
+  svg.setAttribute("viewBox", RAY_VIEW_BOX);
+  // The arrows are what the cell's own label already says; a second reading of
+  // them is noise.
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS(SVG_NS, "path");
+  path.setAttribute("d", raysPath(mask));
+  svg.append(path);
+  return svg;
+}
+
 export function dressClue(
   element: HTMLElement,
   kind: LogicGridSymbolKind,
@@ -228,6 +270,7 @@ export function dressClue(
     // `data-viewpoint` is the ring's.
     delete element.dataset.direction;
     delete element.dataset.axis;
+    delete element.dataset.rays;
     delete element.dataset.viewpoint;
     if (seat > 0) element.dataset.seat = String(seat);
     else delete element.dataset.seat;
@@ -243,6 +286,7 @@ export function dressClue(
   if (kind.aims === "axis") {
     const axis = axisAt(direction ?? -1);
     delete element.dataset.direction;
+    delete element.dataset.rays;
     delete element.dataset.viewpoint;
     element.dataset.axis = axis?.id ?? "horizontal";
     if (seat > 0) element.dataset.seat = String(seat);
@@ -257,6 +301,18 @@ export function dressClue(
 
   delete element.dataset.axis;
   delete element.dataset.seat;
+
+  if (kind.aims === "rays") {
+    delete element.dataset.direction;
+    delete element.dataset.viewpoint;
+    // The mask itself, so the tile says which arrows it holds without the
+    // reader counting glyphs — and so a test can ask.
+    element.dataset.rays = String(direction ?? DEFAULT_RAYS);
+    element.replaceChildren(raySvg(direction ?? DEFAULT_RAYS));
+    return;
+  }
+  delete element.dataset.rays;
+
   if (kind.reach === "cross") {
     delete element.dataset.direction;
     // Presence, not a value: the hook the stylesheet positions the ring by.

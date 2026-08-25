@@ -58,6 +58,14 @@ const DART_SYMBOL = symbolIndex("dart");
 const LOTUS_SYMBOL = symbolIndex("lotus");
 const VIEWPOINT_SYMBOL = symbolIndex("viewpoint");
 const GALAXY_SYMBOL = symbolIndex("galaxy");
+const MYOPIA_SYMBOL = symbolIndex("myopia");
+
+/** The four arrow bits of a myopia clue's mask, so a board says which arrows
+ * it means rather than what they add up to. Mirrors `TestBoards.h`. */
+export const ARROW_UP = 1;
+export const ARROW_RIGHT = 2;
+export const ARROW_DOWN = 4;
+export const ARROW_LEFT = 8;
 
 /**
  * A puzzle from a picture, one string per row:
@@ -298,6 +306,23 @@ export function withGalaxy(
   seat = 0,
 ): LogicGridTest {
   config.symbols.push({ x, y, type: GALAXY_SYMBOL, ...(seat ? { seat } : {}) });
+  config.symbols.sort((a, b) => a.y - b.y || a.x - b.x);
+  return config;
+}
+
+/**
+ * Puts a myopia clue on a cell. A second call like the others, and the only
+ * one whose `direction` is a MASK: `arrows` is an OR of `ARROW_UP`,
+ * `ARROW_RIGHT`, `ARROW_DOWN` and `ARROW_LEFT`. No value and no seat.
+ * Mirrors `withMyopia` in the C++ `TestBoards.h`.
+ */
+export function withMyopia(
+  config: LogicGridTest,
+  x: number,
+  y: number,
+  arrows: number,
+): LogicGridTest {
+  config.symbols.push({ x, y, type: MYOPIA_SYMBOL, direction: arrows });
   config.symbols.sort((a, b) => a.y - b.y || a.x - b.x);
   return config;
 }
@@ -724,6 +749,49 @@ export const galaxyOverMergedBoard = (): LogicGridTest => {
   withGiven(config, 0, 0, DARK);
   withGiven(config, 1, 0, DARK);
   withGalaxy(config, 1, 0);
+  return config;
+};
+
+/**
+ * A myopia clue pointing UP from the bottom row, with a gap between it and the
+ * light it is pointing at — so the nearest light is TWO away, the hole having
+ * been stepped over rather than stopped at, and counted on the way. That fences
+ * every other direction off two squares deep, which settles the whole row.
+ *
+ * Kind 6 and its arrow MASK cross the wasm boundary nowhere else: every
+ * captured board predates the clue, so a sweep over the corpus would go green
+ * having never sent one.
+ */
+export const myopiaBoard = (): LogicGridTest => {
+  const config = board([".....", "..#..", "....."], ["underclued"]);
+  withGiven(config, 2, 0, LIGHT);
+  withGiven(config, 2, 2, DARK);
+  withMyopia(config, 2, 2, ARROW_UP);
+  return config;
+};
+
+/**
+ * A myopia clue on a merged cell reaching one square along its own arrow,
+ * underclued.
+ *
+ * Distance is counted in SQUARES, so the nearest light to the right is at
+ * least two away — its own cell-mate cannot be it — and the fence around the
+ * other three directions is therefore two deep. A solver counting CELLS would
+ * make the distance one and fence only the immediate neighbors, leaving the
+ * outer ring undecided, so the answer tells the two readings apart.
+ */
+export const myopiaOverMergedBoard = (): LogicGridTest => {
+  const config = board(
+    ["......", "......", "......", "......", "......"],
+    ["underclued"],
+  );
+  withShape(config, [
+    [2, 2],
+    [3, 2],
+  ]);
+  withGiven(config, 2, 2, DARK);
+  withGiven(config, 3, 2, DARK);
+  withMyopia(config, 2, 2, ARROW_RIGHT);
   return config;
 };
 

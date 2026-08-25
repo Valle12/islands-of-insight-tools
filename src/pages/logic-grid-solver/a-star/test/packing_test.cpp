@@ -108,6 +108,12 @@ TEST(Packing, DeclinesWhatItDoesNotModel) {
   test::withDart(dart, 1, 1, 1, kDirUp);
   EXPECT_FALSE(packing::applicable(buildModel(dart)));
 
+  // ...and one appended since, which the same whitelist declines untouched.
+  Puzzle myopic = test::board({"2..2", "....", "...."});
+  paintClues(myopic, kLight);
+  test::withMyopia(myopic, 1, 1, test::kArrowUp);
+  EXPECT_FALSE(packing::applicable(buildModel(myopic)));
+
   // A merged cell: the packer packs squares.
   Puzzle merged = test::board({"2..2", "....", "...."});
   paintClues(merged, kLight);

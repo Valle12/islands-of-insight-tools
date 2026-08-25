@@ -64,9 +64,19 @@ Bench/fuzz notes:
   board; pin small dims (`--width 4 --height 5`) to get under the brute-force cap
   so `--brute` compares whole solution sets, and use `--engine <arm> --rules 0`,
   the only way to hammer `profile`. Its clue flags (`--shapes`, `--darts`,
-  `--lotus`, `--viewpoints`, `--galaxies`) are appended rolls drawing nothing at
-  0, so every seed byte-reproduces; what DOES move every generated board is a rule
-  joining `kColorRules`, which stales fuzz baselines.
+  `--lotus`, `--viewpoints`, `--galaxies`, `--myopia`, and `--letter-pairs`,
+  which is NESTED in the letter roll rather than appended after the myopia
+  one — it fires only when a letter just landed, so run it at 100) are rolls
+  drawing nothing at 0, so every seed byte-reproduces; what DOES move every
+  generated board is a rule joining `kColorRules`, which stales fuzz baselines.
+  `--big-sparse` derives large pinned dims and a sparse connectivity mask per
+  seed on the TS side (pinned dims and explicit masks consume no C++ draw, so
+  no existing seed moves) and prints a per-class outcome table — the
+  hard-class campaign for the frontier sweep and the connect-witness DFS:
+  `bun run fuzz:lg -- --big-sparse --count 360 --budget-ms 120000`. Big
+  connect-mask boards generate from a CONSTRUCTED start (staircase split or a
+  legally-grown blob) past `kConnectedStartCells` — gated above every
+  default-dims board, so no maskless seed or fuzz baseline moved.
 - `fuzz:mt` cannot be solvable by construction — a clear destroys its own blocks —
   so it checks what holds regardless: every witness replays under the TS rules and
   neither engine calls a board unsolvable that the other solved. **It is the main
@@ -360,9 +370,10 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
   readers and the flood fill; `verifyPatterns.ts` has the local-window rules,
   `verifyRegions.ts` the ones only answerable region-by-region, `verifyClues.ts`
   the walked geometries (dart ray, viewpoint sight, lotus mirror, galaxy half
-  turn). `verify.ts` keeps the structural checks and the dispatch list, and
-  RE-EXPORTS `toFlat`/`toGrid`/`UNDERCLUED`/`OFF_BY_ONE`, so no caller knows
-  which file a thing is in. **The list's first two entries are load-bearing** —
+  turn, myopia distance). `verify.ts` keeps the structural checks and the
+  dispatch list, and RE-EXPORTS `toFlat`/`toGrid`/`UNDERCLUED`/`OFF_BY_ONE`,
+  so no caller knows which file a thing is in. **The list's first two entries
+  are load-bearing** —
   `shapeProblem` then `fusedProblem` — because everything after them reads the
   coloring one SQUARE at a time; the three families after that are independent,
   and their order decides only WHICH violation is reported when a board breaks
@@ -395,7 +406,21 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
   `aims === "axis"` while the lotus was the only seated kind, and the galaxy —
   seated on any grid line, yet aiming nowhere — is exactly the kind that
   coincidence mis-read; `reach` was split off `aims` earlier for the same
-  reason. C++ mirrors it with `isValuelessKind` / `carriesSeat` in `Types.h`.
+  reason. C++ mirrors it with `isValuelessKind` / `carriesSeat` /
+  `carriesDirection` in `Types.h`.
+- **One `direction` key, THREE readings, told apart by `aims` alone**: the
+  dart's compass point, the lotus's axis, and the myopia clue's arrow MASK
+  (`aims: "rays"`, bit per `DIRECTIONS` entry, 1..15 — 0 is a real direction
+  and not a real mask). A stored 3 is legal in all three readings — the
+  fourth compass point, the fourth axis, and the mask "up and right" — so
+  nothing may guess from the number.
+- **Three C++ branches read an appended kind WRONGLY rather than refusing
+  it**, and each compiles clean: `clueValueProblem`'s trailing block is the
+  DART's, `buildClueTables`' trailing `else` is the LETTER's, and
+  `FixtureIo`'s `cluesToJson` wrote `direction` for a hard-coded pair of kinds
+  until `carriesDirection` replaced it — a directed kind appended without
+  touching that line saves, reloads with no direction, and becomes a different
+  puzzle. A new kind needs a NAMED branch in the first two.
 - **`rules.ts` and `symbols.ts` are append-only catalogs** (like
   `match-three-solver/symbols.ts`): a config stores the INDEX, so appending is
   always safe and inserting or reordering silently rewrites every puzzle ever
@@ -520,6 +545,13 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
   one straight edge, since Blink snaps each to the device pixel grid separately.
   Reverting to CSS brings the stepped rim back. The squares paint NOTHING; the
   seams survive as invisible hit targets.
+- **A myopia clue's arrows are ONE SVG path too** (`rayShape.ts`), and for the
+  same reason: four glyphs turned into place by CSS are four rasterised
+  objects, so the joint where they meet at the middle of the tile is a pixel
+  out at most zoom levels. `opacity`, `will-change`, `isolation` and
+  `-webkit-font-smoothing` were all measured — the first three take the LCD
+  color fringes off and none of them makes it one object. Anything drawn as
+  several pieces that has to read as one shape belongs in a path.
 - **A SEATED galaxy's squares are drawn as one tile the same way**, because the
   game puts them together and changes color on the line where they meet.
   `galaxyTiles.ts` is the ONE source: `galaxyTiles` is pure geometry (which
@@ -583,31 +615,36 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
   look-ahead proves nothing** (`ProbeResult` is tri-state); **`Profile::
   applicable` is a WHITELIST on both axes** — anything unrecognized must decline,
   or it reports a superset as proof.
-- **The sweep reads a forbidden ARRANGEMENT off recent color, and counts a
-  painted DART.** Its frontier's slots are exactly the last `width` cells in
-  scan order, so a pattern needs only the few bits beyond them that
-  `Frontier::hist` carries — one for a 2x2, a row for a three-tall T — and the
-  whitelist therefore takes every rule whose entire content is "this
-  arrangement never occurs", which is what `patternsFor` compiles. A rule with
-  any region-level content stays out however local it looks: an area or a run
-  instance (`patternsFor` records that its trominoes are only half of an
-  area), the one-symbol rules, the shape rules, `OffByOne`. A dart needs one
-  running count of the DARK cells on its ray, the light reading taken as the
-  rest — but only where the puzzle paints the dart's OWN square, since what it
-  counts is the opposite of that color. This is what settles
-  `logicGridTest487`, 13x7 underclued with connect-dark, no-dark-T and two
-  darts: 23 of 91 cells PROVEN in 26 ms, where `forced` never found even one
-  witness in 30 M nodes. Every widening of that whitelist owes
-  `reference_test.cpp` rule sets, which is the only thing that can catch it.
-  **A DRAWN pattern is admitted on exactly that criterion** — it can say
-  nothing but "this arrangement never occurs" — so `applicable` does not
-  decline on `puzzle.patterns` the way it does on the sized lists, and
-  `planPatterns` MUST pass them to `patternsFor`. Forget that and the sweep
-  walks a superset and reports the cells the extra colorings disagree about as
-  proved. A pattern too TALL is declined by the existing `kMaxHistoryBits`
-  gate — `histBits ≈ (height − 2) × scanWidth` — and `PatternCheck::back` is
-  `uint16_t` precisely so a deep one cannot report a small distance and sail
-  through it.
+- **The sweep admits on TWO criteria, and everything else declines.** An
+  ARRANGEMENT is read off recent color: the frontier's slots are the last
+  `width` cells in scan order, `Frontier::hist` carries the few bits beyond
+  them, and the whitelist takes every rule whose entire content is "this
+  arrangement never occurs" — what `patternsFor` compiles, which since IIT-45
+  includes every RUN instance (two straight patterns, the vertical one
+  history-borne) and every DRAWN pattern beside the flag rules, so
+  `planPatterns` MUST pass both lists to `patternsFor` or the sweep walks a
+  superset and reports the cells the extra colorings disagree about as
+  proved. REGION content is admitted as per-class state with an exact merge
+  and close rule: letters (tags), AREA CLUES painted or not (a size demand on
+  whichever class absorbs the cell; equal demands may share a region,
+  different ones may never merge; met exactly at close, counts saturating one
+  past the largest demand), the ONE-SYMBOL rules (a bit per class of the
+  rule's color — every clue kind counts, two may never meet, a closing region
+  must hold one), and a DART's running count on a painted square only (it
+  counts the opposite of its own square's color). Still out: an area RULE
+  instance (a size demanded of every region with no anchoring cell — the
+  recorded follow-up), the shape rules, `OffByOne` (every demand becomes a
+  two-value set), the walked clue kinds. Every widening owes
+  `reference_test.cpp` rule sets, the only thing that can catch it. A pattern
+  too TALL is declined by `kMaxHistoryBits` (32, the whole `hist` word) —
+  `histBits ≈ (height − 2) × scanWidth`, `PatternCheck::back` is `uint16_t` so
+  a deep one cannot report a small distance and sail through — and a static
+  WALL GATE declines any history at scan width 16 and two-plus rows at 15,
+  because bare width 16 already sits at the memory wall. **The sweeps account
+  memory in BYTES against `sizeof(Frontier)` and grow their layer vectors by
+  hand**: the old trail-only cap let a layer doubling near the wall ABORT the
+  whole wasm module (killing every racing thread) instead of stopping with
+  `stoppedOnMemory`.
 - **Letter boards get a third arm, and it is a CONSTRUCTION rather than a
   search.** `Routing.cpp` routes each letter group a region of its own by
   negotiated congestion — route every net through the cheapest cells, charge
@@ -750,14 +787,18 @@ in nine places, one of them a **cwd-relative** literal in
 `e2e/shifting-mosaic-solver/config.test.ts`.
 
 **`test/resources/logic-grid-solver/` holds boards captured from the game and
-NOTHING else** (494 of them, 3×2 to 26×18, the largest `logicGridTest454` at
+NOTHING else** (516 of them, 3×2 to 26×18, the largest `logicGridTest454` at
 23×21; no two the same puzzle bar one deliberate
 pair — 481 and 482 are the same 12x12, the second with a player's own
 deductions painted in, which is what exercises the packer's reading of a
-given that carries no clue; and 489 is the first captured board carrying a
+given that carries no clue; 489 is the first captured board carrying a
 DRAWN pattern, an 11x11 of dark pentominoes whose 3x3-light ban is the shape
 the feature was built for — remove its `patterns` key and the engine happily
-returns an answer holding two of them); anything a
+returns an answer holding two of them; and 510 and 513 are the IIT-45 pair
+that forced the engine open — the 16x16 connect-dark board the DFS's
+givens-seeded, connectivity-first ordering exists for, and the underclued
+11x11 whose area clues and one-symbol rule the sweep's region-clue widening
+exists for); anything a
 test invents lives in `test/logic-grid-solver/boards.ts`, imported by the unit
 **and** e2e suites so a board cannot drift between them. **The split is the
 point**: a sweep over the corpus measures the solver against real puzzles, and a
@@ -942,7 +983,11 @@ wasm ──┬──▶ bun-test [shards]
   C++ and every suite downstream tests the stale binary — green and meaningless.
   **`EMSDK_VERSION` is pinned because the key assumes it** and must match in both
   workflows. `.github/actions/setup-wasm` is shared, so the emsdk pin and the
-  `BOOST_INCLUDE` symlink cannot drift.
+  `BOOST_INCLUDE` symlink cannot drift. **Bun is pinned too, through
+  `packageManager` in `package.json`** — `setup-bun` reads that field when a
+  step passes no `bun-version`, which is why none of the seven steps in the
+  two workflows does — so CI runs the bun installed locally rather than
+  whatever `latest` resolves to on the day. Bump the field, not the steps.
 - **`bun-test` fans out over six shards** — one per `*.slow.test.ts` plus one
   running everything else under `IOI_SKIP_SLOW=1`. Between them they run **every**
   test, so **the shard list and the slow-file set must move together**: gating a

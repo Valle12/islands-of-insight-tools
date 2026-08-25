@@ -1,0 +1,124 @@
+{
+  "version": 3,
+  "gridWidth": 5,
+  "gridHeight": 8,
+  "rules": [
+    12
+  ],
+  "runs": [
+    {
+      "color": "dark",
+      "length": 2
+    }
+  ],
+  "cells": [
+    [
+      3,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3
+    ]
+  ],
+  "symbols": [
+    {
+      "x": 4,
+      "y": 0,
+      "type": 2,
+      "value": 2,
+      "direction": 3
+    },
+    {
+      "x": 2,
+      "y": 2,
+      "type": 2,
+      "value": 2,
+      "direction": 0
+    },
+    {
+      "x": 4,
+      "y": 2,
+      "type": 2,
+      "value": 2,
+      "direction": 3
+    },
+    {
+      "x": 1,
+      "y": 3,
+      "type": 2,
+      "value": 2,
+      "direction": 2
+    },
+    {
+      "x": 3,
+      "y": 3,
+      "type": 2,
+      "value": 2,
+      "direction": 0
+    },
+    {
+      "x": 0,
+      "y": 4,
+      "type": 2,
+      "value": 2,
+      "direction": 1
+    },
+    {
+      "x": 2,
+      "y": 4,
+      "type": 2,
+      "value": 2,
+      "direction": 2
+    },
+    {
+      "x": 0,
+      "y": 6,
+      "type": 2,
+      "value": 2,
+      "direction": 1
+    }
+  ]
+}

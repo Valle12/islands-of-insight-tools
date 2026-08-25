@@ -72,6 +72,18 @@ struct Options {
    * turn about the spot — the check reads the coloring and draws nothing.
    */
   int galaxies = 0;
+  /**
+   * And a fifth time for a myopia clue, appended after the galaxy roll with
+   * the same zero-skip contract. Like a dart there is something to derive —
+   * the arrow mask is read off the coloring — and like the lotus the read can
+   * come back empty, where no direction sees the other color at all, in which
+   * case the region simply keeps its clue-free square.
+   */
+  int myopia = 0;
+  /// Percent chance a region that just won a LETTER puts the same letter on a
+  /// second free cell of itself — the roll pattern a sixth time, nested in
+  /// the letter branch (see `clueOneRegion`). 0 draws nothing, as ever.
+  int letterPairs = 0;
 };
 
 /// 0 when a puzzle was written, 1 when no attempt produced one. Nothing is

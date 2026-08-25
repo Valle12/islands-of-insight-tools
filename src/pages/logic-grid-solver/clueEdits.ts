@@ -18,10 +18,12 @@ import {
   AXIS_COUNT,
   DEFAULT_AXIS,
   DEFAULT_DIRECTION,
+  DEFAULT_RAYS,
   DIRECTION_COUNT,
   directionIndex,
   isDiagonalAxis,
   symbolKindAt,
+  turnedRays,
 } from "./symbols";
 
 export const DIGIT_PATTERN = /^\d$/;
@@ -92,9 +94,18 @@ export function turnsInstead(
  * The same clue aimed one step CLOCKWISE — a quarter turn along `DIRECTIONS`,
  * or 45 degrees along `AXES` for a symmetry symbol, skipping the diagonals
  * where its seat sits on a grid line and they have no reflection to offer.
+ *
+ * A myopia clue turns its whole arrow SET a quarter, which is one bit's
+ * rotate. The four-arrow set turns onto itself and re-clicking one therefore
+ * changes nothing — there being nowhere else for it to point — where every
+ * other set has four, or two, distinct orientations.
  */
 export function turned(clue: LogicGridClue): LogicGridClue {
-  if (symbolKindAt(clue.type)?.aims === "axis") {
+  const aims = symbolKindAt(clue.type)?.aims;
+  if (aims === "rays") {
+    return { ...clue, direction: turnedRays(clue.direction ?? DEFAULT_RAYS) };
+  }
+  if (aims === "axis") {
     const from = clue.direction ?? DEFAULT_AXIS;
     const seam = clue.seat === 1 || clue.seat === 2;
     let next = (from + 1) % AXIS_COUNT;

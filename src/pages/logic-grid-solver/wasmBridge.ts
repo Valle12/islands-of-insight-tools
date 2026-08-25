@@ -59,7 +59,11 @@ export interface ArmResult {
 }
 
 export interface WasmCallbacks {
-  readonly onProgress?: (nodes: number, decided: number) => void;
+  readonly onProgress?: (
+    nodes: number,
+    decided: number,
+    phase?: string,
+  ) => void;
   readonly onArm?: (result: ArmResult) => void;
   readonly onSettled?: () => void;
   readonly onError?: (message: string) => void;
@@ -171,12 +175,17 @@ export function searchLogicGridWasm(
   // no node count, and feeding it 0 would drop the arm's whole contribution out
   // of the running total the moment it finished.
   let lastNodes = 0;
+  // The engine names what it is doing on every progress message. Held sticky
+  // so the count-only re-report a `done` triggers keeps the last real phase;
+  // arms interleave on a multi-worker page and the last writer wins, which is
+  // fine for a status line.
+  let lastPhase: string | undefined;
   const reportProgress = (nodes: number) => {
     lastNodes = nodes;
     let decided = 0;
     for (const count of decidedByArm.values())
       decided = Math.max(decided, count);
-    callbacks.onProgress?.(nodes, decided);
+    callbacks.onProgress?.(nodes, decided, lastPhase);
   };
 
   return startWasmPool({
@@ -188,6 +197,8 @@ export function searchLogicGridWasm(
     onMessage: (data, arm) => {
       if (data.type === "progress") {
         decidedByArm.set(arm.index, Number(data.decided ?? 0));
+        if (typeof data.phase === "string" && data.phase !== "")
+          lastPhase = data.phase;
         arm.progress(Number(data.nodes));
         return;
       }

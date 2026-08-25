@@ -77,15 +77,16 @@ inline constexpr uint8_t kClueDart = 2;
 inline constexpr uint8_t kClueLotus = 3;
 inline constexpr uint8_t kClueViewpoint = 4;
 inline constexpr uint8_t kClueGalaxy = 5;
-inline constexpr int kClueKindCount = 6;
+inline constexpr uint8_t kClueMyopia = 6;
+inline constexpr int kClueKindCount = 7;
 
-/// The kinds that carry NO value at all — the lotus and the galaxy. This is
-/// the one named place `FixtureIo`'s reader and writer both consult, so "a
-/// value key on a valueless clue is an error" and "write no value key" cannot
-/// drift apart — and it is the list a "every remaining kind carries a number"
-/// branch has to mean by that.
+/// The kinds that carry NO value at all — the lotus, the galaxy and the myopia
+/// arrows. This is the one named place `FixtureIo`'s reader and writer both
+/// consult, so "a value key on a valueless clue is an error" and "write no
+/// value key" cannot drift apart — and it is the list a "every remaining kind
+/// carries a number" branch has to mean by that.
 constexpr bool isValuelessKind(const uint8_t kind) {
-  return kind == kClueLotus || kind == kClueGalaxy;
+  return kind == kClueLotus || kind == kClueGalaxy || kind == kClueMyopia;
 }
 
 /// The kinds that carry a SEAT — a point of their own that need not be the
@@ -98,6 +99,17 @@ constexpr bool isValuelessKind(const uint8_t kind) {
 /// point of the board.
 constexpr bool carriesSeat(const uint8_t kind) {
   return kind == kClueLotus || kind == kClueGalaxy;
+}
+
+/// The kinds that carry a DIRECTION, whatever their own reading of it is: the
+/// dart's compass point, the lotus's axis, the myopia clue's arrow mask.
+///
+/// Named here for `carriesSeat`'s reason, and it is `FixtureIo`'s writer that
+/// needed it: that file wrote the key for a hard-coded pair of kinds by name,
+/// so a directed kind appended without touching the line would have saved,
+/// reloaded with no direction at all, and quietly become a different puzzle.
+constexpr bool carriesDirection(const uint8_t kind) {
+  return kind == kClueDart || kind == kClueLotus || kind == kClueMyopia;
 }
 
 /// Letters arrive as 0..25 rather than as characters: the search never needs
@@ -123,6 +135,19 @@ inline constexpr auto kDirectionSteps =
 /// cannot subscript the table with a number a puzzle skipping validation held.
 constexpr bool isDirection(const int direction) {
   return direction >= 0 && direction < kDirectionCount;
+}
+
+/// Every direction at once, and therefore the largest ARROW MASK — the myopia
+/// clue's reading of the same `direction` key, one bit per entry of
+/// `kDirectionSteps`. Mirrors `RAY_MASK_ALL` in symbols.ts.
+inline constexpr int kArrowMaskAll = (1 << kDirectionCount) - 1;
+
+/// Whether `arrows` names at least one direction and no more than the four. A
+/// clue with no arrows says nothing at all, so 0 is not a mask — the one
+/// difference from `isDirection`, which starts at zero because up is a real
+/// way to point.
+constexpr bool isArrowMask(const int arrows) {
+  return arrows >= 1 && arrows <= kArrowMaskAll;
 }
 
 /// The cell index of (x, y) in the strided space.
