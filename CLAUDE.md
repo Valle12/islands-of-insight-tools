@@ -890,8 +890,10 @@ set CMAKE="C:\Program Files\JetBrains\CLion 2024.1.4\bin\cmake\win\x64\bin\cmake
 Configured that way the clang-tidy gate IS live — configure prints
 `-- clang-tidy enforced: …` four times, once per solver — so the build itself
 fails on any finding. That is the cheapest C++ review available here, since
-`analyze_code_snippet` cannot analyze C++ at all. A full run is ~6233 tests in
-about 225 s.
+`analyze_code_snippet` cannot analyze C++ at all. A full run is 314 ctest
+entries — four of them the logic-grid shards, ~9800 gtest cases in all — in
+about 150 s at `-j 16` (2026-08-25; ~6233 per-case entries in ~225 s before the
+shards).
 
 **`-j` is never implicit** — neither command parallelises by default, and CLion
 passes its own, which is why the pre-configured dirs feel parallel. Export
@@ -900,7 +902,14 @@ shell. The aggregate is **additive only** — each `src/pages/*/a-star` stays
 independently configurable because CLion's profiles point straight at them, so
 never move something a child needs up into the root. `-DIOI_ROLLING_BLOCKS=OFF`
 (and `_SHIFTING_MOSAIC`, `_MATCH_THREE`, `_LOGIC_GRID`) drops a solver;
-`gtest_discover_tests` sets `LABELS`, so one page runs as `ctest -L logic-grid`.
+`gtest_discover_tests` sets `LABELS`, so one page runs as `ctest -L logic-grid`
+— except that logic-grid is no longer discovered per case: its binary runs
+in-process as four gtest SHARDS (`LG_TEST_SHARDS`, through
+`GTEST_TOTAL_SHARDS`/`GTEST_SHARD_INDEX`), because ~9000 discovered cases each
+cost an 80 ms process start that registered all ~9000 again — 877 of the 1665
+CPU-seconds of CI's whole ctest step, measured 2026-08-25. `ctest -L
+logic-grid` runs the four shards; one case is the binary with `--gtest_filter`,
+which is also what CLion's runner does.
 
 Three things there are load-bearing, all spelled out in **`docs/toolchain.md`**:
 `${PROJECT_SOURCE_DIR}` never `${CMAKE_SOURCE_DIR}` in the `test/CMakeLists.txt`
@@ -998,9 +1007,9 @@ unnecessary — `analyze_code_snippet` covers it headlessly.
 cache):
 
 ```
-wasm ──┬──▶ bun-test [4 shards] ──▶ coverage
+wasm ──┬──▶ bun-test [4 shards] ──▶ coverage          typecheck
        ├──▶ e2e      [2 shards]
-       └──▶ dist              cpp        typecheck
+       └──▶ dist     cpp-build ──▶ cpp-test [4 suites] ──▶ C++ tests
 ```
 
 - **`wasm`** is the only expensive artifact — sixteen LTO variants, hence its
@@ -1035,14 +1044,31 @@ wasm ──┬──▶ bun-test [4 shards] ──▶ coverage
   carries no per-function records, so only LINES gate. **`dist`** proves the
   production bundle builds on every PR and publishes the artifact `deploy.yml`
   reuses.
+- **The C++ side is `cpp-build` → `cpp-test` (four suite jobs) → `C++ tests`**,
+  the last a gate under the old name. Measured 2026-08-25 the single job took
+  ~570 s, 440 s of it ctest, and the pipeline attacks that three ways.
+  `cpp-build` compiles once under ccache — the ONE cache in the file with
+  `restore-keys`, sound because ccache is content-addressed and a stale entry
+  can only miss — and hands the test binaries plus the ctest metadata down as
+  an artifact (absolute paths inside, so the test jobs unpack at the same
+  workspace path). The suites run in parallel, `shiftingMosaicTest37` on a
+  runner of its own since its ~235 s eight-arm race on four vCPUs is the floor
+  nothing shortens. And when NOTHING the tests depend on changed — an exact
+  `hashFiles` key over `src/pages/*/a-star/**`, both CMake trees,
+  `test/resources/**`, the workflow itself and the runner image version —
+  `cpp-build` finds a "green" marker in the cache and the whole side reports
+  green in under a minute; the gate saves that marker only after every suite
+  passed. Caches are visible per branch plus `main`, so a fresh branch's first
+  run pays in full and its later pushes do not.
 
 Sonar's `githubactions` rules shape the YAML: **S7637** (third-party actions
 pinned to a commit SHA with the tag in a trailing comment; `actions/*` exempt) and
 **S8543** (no `bunx <pkg>` in a workflow — both call sites go through
 package.json, which also guarantees the pinned version). Deliberately absent: an
-apt cache and ccache (measured), and `paths`/`paths-ignore` filters, because a
-skipped required check never reports and branch protection would block the PR
-forever.
+apt cache (measured at ~16 s for a third-party dependency) and
+`paths`/`paths-ignore` filters, because a skipped required check never reports
+and branch protection would block the PR forever — which is why the C++ skip
+below is a job that RUNS and reports, never a filter.
 
 `deploy.yml` first tries to download `dist` from the successful Test run on the
 **parent** of the version-bump commit, otherwise builds with the shared wasm
