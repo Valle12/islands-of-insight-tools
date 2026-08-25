@@ -960,6 +960,11 @@ done.
    - It catches what `tsc` cannot: S3776 cognitive complexity (>15), S2933
      `readonly`, S3358 nested ternary, S1854 dead assignment, S4138 index-`for`.
      Treat a finding on code you touched as something to fix, not report.
+   - **It does NOT report S1444** (a public `static` property that is never
+     reassigned must be `readonly`) — the server did, three times, on a test
+     helper the snippet pass had called clean. After pushing, read the PR's
+     issues with `search_sonar_issues_in_projects` (`pullRequest: "<n>"`)
+     before calling Sonar done.
 
 The other SonarQube MCP tools read the **last server-side analysis**, not the
 working tree — do not use them to check your own edits. **The quality gate fails
