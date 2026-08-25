@@ -40,7 +40,7 @@ bun run test:mt          # one page + the two shared root suites (also :lg :pd :
 bun run test:mem64       # the four mem64.test.ts files (the MEMORY64 builds, under bun)
 bun run test:timings     # refresh test-timings.json, what --shard and --parallel balance on
 bun run coverage:gate    # the line-coverage floor over coverage/lcov.info (test runs it)
-bun run typecheck        # tsc --noEmit
+bun run typecheck        # tsc --noEmit (TypeScript 7, the native compiler: ~0.8 s here, ~7 s on 6.x)
 bun run e2e              # playwright, spins up its own webServer
 bun run e2e:install      # chromium + system deps (what CI installs)
 
@@ -345,10 +345,10 @@ it — it replaces the module for the rest of the `bun test` PROCESS, and whethe
 that bites depends on directory walk order: green locally on Windows, **300 tests
 failed in CI** on Linux. `matchThreeSolver.test.ts` mocks `solveClient` and is
 fine only because nothing else imports that module — check that before adding
-another. `--parallel` (which every test script passes) gives each file its own
-global and module registry, so the leak is contained THERE — but a bare
-`bun test`, `bun test <a> <b>` and the CI shards (no `--parallel`) are not, so
-the rule stands.
+another. `--parallel` (which every test script and every CI shard passes)
+gives each file its own global and module registry, so the leak is contained
+THERE — but a bare `bun test` or `bun test <a> <b>` is not, so the rule
+stands.
 
 E2e trap (rolling-blocks): Material components expose an inner `#button` in their
 shadow DOM — never target buttons by `#button` index; use the app's own
@@ -1023,9 +1023,11 @@ wasm ──┬──▶ bun-test [4 shards] ──▶ coverage
   — there is no shard list to keep in step with the slow-file set any more, and
   `IOI_SKIP_SLOW` is a local-only gate. The job sets `BUN_JSC_useWasmMemory64=1`,
   which is what lets the `mem64.test.ts` files run there (they fail, not skip,
-  without it). `--parallel` is deliberately NOT passed inside a shard: the
-  runners have 4 vCPUs and the wasm suites race multi-arm portfolios on all of
-  them — measure before adding it.
+  without it). Each shard also runs `--parallel`, measured rather than assumed
+  (IIT-47): the slowest shard is one wasm suite racing all four vCPUs either
+  way — 213 s with it, 215 s without — so it buys no wall clock, and it stays
+  for PARITY with the local scripts: every file isolated everywhere, so a
+  module-registry leak cannot pass locally and fail in CI or the reverse.
 - **`coverage` applies the line floor to the MERGED lcov of all four shards**
   (`src/util/coverageGate.ts`, `COVERAGE_FLOOR_LINES`): bun's own
   `coverageThreshold` is per invocation, so it would fail every shard and every

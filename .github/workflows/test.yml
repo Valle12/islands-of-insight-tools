@@ -162,10 +162,11 @@ jobs:
   # and install overhead. No IOI_SKIP_SLOW here: that gate is for the local
   # `test:fast` lane, and nothing here can leave a suite unregistered.
   #
-  # `--parallel` inside a shard is an EXPERIMENT (IIT-47 follow-up): the
-  # runners have four vCPUs and the wasm suites already race multi-arm
-  # portfolios on all of them, so it stays only if the workflow is green twice
-  # and the slowest shard got faster than the run before it.
+  # `--parallel` inside a shard was measured rather than assumed (IIT-47): on
+  # these four-vCPU runners the slowest shard is one wasm suite racing every
+  # core either way — 213 s with it, 215 s without — so it buys no wall clock.
+  # It stays for PARITY with the local scripts, which all isolate per file: a
+  # module-registry leak cannot pass locally and fail here, or the reverse.
   bun-test:
     name: bun test (shard ${{ matrix.shard }}/4)
     needs: wasm
