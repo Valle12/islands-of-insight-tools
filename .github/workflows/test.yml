@@ -162,9 +162,10 @@ jobs:
   # and install overhead. No IOI_SKIP_SLOW here: that gate is for the local
   # `test:fast` lane, and nothing here can leave a suite unregistered.
   #
-  # `--parallel` inside a shard is deliberately absent: the runners have four
-  # vCPUs and the wasm suites already race multi-arm portfolios on all of
-  # them. Measure before adding it.
+  # `--parallel` inside a shard is an EXPERIMENT (IIT-47 follow-up): the
+  # runners have four vCPUs and the wasm suites already race multi-arm
+  # portfolios on all of them, so it stays only if the workflow is green twice
+  # and the slowest shard got faster than the run before it.
   bun-test:
     name: bun test (shard ${{ matrix.shard }}/4)
     needs: wasm
@@ -197,7 +198,7 @@ jobs:
           name: wasm
           path: src/pages
       - name: Run tests
-        run: bun test --shard=${{ matrix.shard }}/4 --timings=test-timings.json
+        run: bun test --parallel --shard=${{ matrix.shard }}/4 --timings=test-timings.json
 
       # One lcov per shard; the coverage job merges them, because bun's own
       # coverageThreshold is per invocation and a shard sees a quarter of the
