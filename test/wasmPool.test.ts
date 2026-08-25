@@ -70,7 +70,7 @@ describe("progress", () => {
 
 describe("failure paths", () => {
   test("settles when the payload cannot be posted", () => {
-    FakeWorker.postThrows = new Error("could not be cloned");
+    FakeWorker.faults.post = new Error("could not be cloned");
     const onExhausted = mock();
 
     // The throw must not escape: the caller gets its handle, and the arm it

@@ -6,11 +6,17 @@
  * what was done to it and let the test speak for it.
  */
 export class FakeWorker {
-  static instances: FakeWorker[] = [];
-  /** Makes the next `postMessage` throw, as a non-cloneable payload would. */
-  static postThrows: Error | null = null;
-  /** Makes the constructor throw, as a runtime without module workers does. */
-  static constructorThrows: Error | null = null;
+  /** Every worker constructed since `installFakeWorker`, in order. */
+  static readonly instances: FakeWorker[] = [];
+  /**
+   * The failures a test can arrange: `post` makes the next `postMessage`
+   * throw, as a non-cloneable payload would; `construct` makes the constructor
+   * throw, as a runtime without module workers does.
+   */
+  static readonly faults: { post: Error | null; construct: Error | null } = {
+    post: null,
+    construct: null,
+  };
 
   onmessage: ((event: { data: unknown }) => void) | null = null;
   onerror: ((event: { message: string }) => void) | null = null;
@@ -19,12 +25,12 @@ export class FakeWorker {
   terminated = false;
 
   constructor(readonly url: string | URL) {
-    if (FakeWorker.constructorThrows) throw FakeWorker.constructorThrows;
+    if (FakeWorker.faults.construct) throw FakeWorker.faults.construct;
     FakeWorker.instances.push(this);
   }
 
   postMessage(message: unknown) {
-    if (FakeWorker.postThrows) throw FakeWorker.postThrows;
+    if (FakeWorker.faults.post) throw FakeWorker.faults.post;
     this.posted.push(message);
   }
 
@@ -54,9 +60,9 @@ export class FakeWorker {
  */
 export function installFakeWorker(): () => void {
   const original = globalThis.Worker;
-  FakeWorker.instances = [];
-  FakeWorker.postThrows = null;
-  FakeWorker.constructorThrows = null;
+  FakeWorker.instances.length = 0;
+  FakeWorker.faults.post = null;
+  FakeWorker.faults.construct = null;
   globalThis.Worker = FakeWorker as unknown as typeof Worker;
   return () => {
     globalThis.Worker = original;

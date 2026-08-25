@@ -167,7 +167,7 @@ describe("the race", () => {
   });
 
   test("no worker support at all fails cleanly with a handle", () => {
-    FakeWorker.constructorThrows = new Error("module workers unsupported");
+    FakeWorker.faults.construct = new Error("module workers unsupported");
     const h = handlers();
 
     const handle = searchMatchThree(config, h);
