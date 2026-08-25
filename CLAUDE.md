@@ -30,13 +30,16 @@ bun run dev              # dev server on :3000 (src/util/serve.ts)
 bun run build            # -> dist/ (runs build:wasm first via an import side effect)
 bun run build:wasm       # em++ only; skips variants whose inputs have not moved
 
-bun test                 # every unit test (bunfig.toml pins root = "test")
-bun run test             # build:wasm + every unit test — no env gates
-bun run test:fast        # everything except the five *.slow.test.ts suites (~5s)
+bun test                 # every unit test (bunfig.toml pins root = "test") — prefer the
+                         # scripts: they add --parallel and BUN_JSC_useWasmMemory64=1
+bun run test             # build:wasm + every unit test, then the coverage floor
+bun run test:fast        # everything except the five *.slow.test.ts suites (~9s)
 bun run test:slow        # only those five
 bun run test:changed     # only files affected by the diff vs origin/main
 bun run test:mt          # one page + the two shared root suites (also :lg :pd :rb :sm)
-bun run test:mem64       # the four mem64.node.test.mjs files, under node
+bun run test:mem64       # the four mem64.test.ts files (the MEMORY64 builds, under bun)
+bun run test:timings     # refresh test-timings.json, what --shard and --parallel balance on
+bun run coverage:gate    # the line-coverage floor over coverage/lcov.info (test runs it)
 bun run typecheck        # tsc --noEmit
 bun run e2e              # playwright, spins up its own webServer
 bun run e2e:install      # chromium + system deps (what CI installs)
@@ -85,9 +88,15 @@ Bench/fuzz notes:
 ### Slow suites and env gates
 
 Expensive unit suites are opt-**out**, never opt-in. Five `.slow.test.ts` files
-run by default, including in CI: shifting-mosaic `wasm` (~244s), logic-grid
-`wasm` (~99s), match-three `wasm` (~75s), rolling-blocks `aStar` (~60s),
-match-three `engine.solve` (~22s). Everything else under `test/` is 300–780 ms
+run by default, including in CI: shifting-mosaic `wasm` (~163s on bun 1.4,
+~244s on 1.3), logic-grid `wasm` (~99s), match-three `wasm` (~75s),
+rolling-blocks `aStar` (~60s), match-three `engine.solve` (~22s). **Every test
+script passes `--parallel`** (one worker process per core, a fresh global and
+module registry per file): measured on 16 cores, the fast lane went 21 s → 9 s
+and the full suite ~520 s → ~180 s, the shifting-mosaic suite being the floor.
+`test` and `test:slow` also pass `--timings=test-timings.json` so the slowest
+files start first; `bun run test:timings` refreshes that committed file and is
+the only script allowed `--update-timings`. Everything else under `test/` is 300–780 ms
 except `phasic-dial-solver/turnSolver.test.ts` (~3.9 s) and
 `logic-grid-solver/patterns.test.ts` (~2.6 s, deliberately: it sweeps all 2^16
 colorings of a 4x4 for each of the ten retired rules, which is what says the
@@ -104,20 +113,35 @@ v3 fixture rewrite changed no board's meaning).
   opt-in. The latter must **reload the page per fixture**, or the previous board's
   step counter is read as this board's answer.
 
-`test:mem64` runs under node, not bun: bun cannot instantiate a Memory64 module
-(under `bun test` those files register as skips).
+**The four `mem64.test.ts` files run under bun, behind
+`BUN_JSC_useWasmMemory64=1`.** Bun 1.4 has Memory64 but off by default until
+oven-sh/bun#35740 ships ("Memory64 is not enabled" without it; the
+pthreads+MEMORY64 variant still fails validation either way). Every test script
+and CI's `bun-test` job set the switch, and the files FAIL rather than skip
+without it (`test/memory64.ts`) — so a bare `bun test` reports four failures
+naming the remedy, which is the point: a silently skipped gate is what the old
+`node --test` lane warned about. The switch has to be in the real environment;
+bun applies `.env` after JSC initialises, so a dotenv line does nothing.
+
+**`import "node:worker_threads"` stays the FIRST import of
+`src/util/preload.ts`.** Since 1.4 bun patches `MessagePort.prototype` when that
+shim loads, and happy-dom's `GlobalRegistrator.register()` replaces the global
+class: the other order patches happy-dom's class and every `node:worker_threads`
+`Worker` — the shifting-mosaic wasm suite's arms — dies with `port.on is not a
+function`. Restoring the global afterwards does not help; the import order does.
 
 Playwright aria snapshots are inline and match **partially**, so a snapshot keeps
 passing when new nodes appear; `--update-snapshots` rewrites only *failing* ones.
 `--update-snapshots=all` gives a faithful tree and writes
 `test-results/playwright/rebaselines.patch` for `git apply`.
 
-**A local full e2e run collapsing into `ERR_CONNECTION_RESET` is usually
-concurrency, not breakage.** Measured on bun 1.3.14 / Windows: the default worker
-count (cores/2) panics the dev server (`panic(main thread): integer overflow`)
-~20 s in; `--workers=2` finishes the identical suite clean. Check the route table
-once, then **re-run with `--workers=2` before believing anything is broken.** CI
-is unaffected (one worker per shard).
+**A local full e2e run at Playwright's default worker count is clean on bun
+1.4** — measured on Windows, 16 cores: 211 passed in 82 s at 8 workers. On bun
+1.3.14 the same run panicked the dev server (`panic(main thread): integer
+overflow`) ~20 s in and collapsed into `ERR_CONNECTION_RESET`, which is why
+`--workers=2` used to be the advice. If that symptom ever returns, check the
+route table once, then re-run with `--workers=2` before believing anything is
+broken. CI is unaffected either way (one worker per shard).
 
 ## Architecture
 
@@ -144,10 +168,12 @@ assign `show`/`close` by hand.
 
 ### Bundling
 
-`src/util/plugins.ts` supplies two Bun plugins used by `build.ts` and `serve.ts`:
-`sassCompiler`, and `pngDataUrl`, which inlines every PNG *except* `favicon.png`
-as base64 — `dist/` has no `images/`, so anything referenced by URL rather than
-imported 404s.
+`src/util/plugins.ts` supplies one Bun plugin, used by `build.ts` only:
+`pngDataUrl`, which inlines every PNG *except* `favicon.png` as a base64 `data:`
+URL, re-encoded as LOSSLESS WebP through `Bun.Image` on the way (same pixels,
+~60 % of the bytes; `test/plugins.test.ts` proves the pixel identity) — so
+`dist/` has no `images/`, and anything referenced by URL rather than imported
+404s. The dev server never ran the plugin; it serves the PNGs as files.
 
 - **Bun's HTML entrypoints do not bundle Web Workers.** `new Worker(new
   URL("./x.ts", import.meta.url))` survives minification with the `.ts` specifier
@@ -319,7 +345,10 @@ it — it replaces the module for the rest of the `bun test` PROCESS, and whethe
 that bites depends on directory walk order: green locally on Windows, **300 tests
 failed in CI** on Linux. `matchThreeSolver.test.ts` mocks `solveClient` and is
 fine only because nothing else imports that module — check that before adding
-another.
+another. `--parallel` (which every test script passes) gives each file its own
+global and module registry, so the leak is contained THERE — but a bare
+`bun test`, `bun test <a> <b>` and the CI shards (no `--parallel`) are not, so
+the rule stands.
 
 E2e trap (rolling-blocks): Material components expose an inner `#button` in their
 shadow DOM — never target buttons by `#button` index; use the app's own
@@ -356,9 +385,9 @@ banded, because the change that landed it never re-shot.
   `serve.ts`'s allowlist.
 - **The OG frame is 2400x1257, not 1200x630**, and **a new page can force it up**;
   the number to measure is `#editor-card`'s box plus the body's 24 px padding, not
-  `documentElement.scrollHeight`. `og:capture` drives Playwright's **CLI under
-  node** (its API hangs forever under bun) and always passes the scheme
-  explicitly.
+  `documentElement.scrollHeight`. `og:capture` drives Playwright's API under
+  bun (the `chromium.launch()` hang that once forced its CLI under node is gone
+  in bun 1.4) and always passes the scheme explicitly.
 
 ### The logic grid page and solver
 
@@ -488,9 +517,10 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
   deliberately not a `.tool-button`) appends a `.rule-size` slot. **Only
   `ruleRowMarkup` in `toolRowMarkup.ts` reads it**; everything else addresses chips by id, so a test
   that indexes chips by DOM position is the thing this breaks. Flag indices
-  are also mirrored in `catalog.test.ts`, `rules_test.cpp` and — unavoidably,
-  since it runs under node — `mem64.node.test.mjs`. The sized families need no
-  listing any more, but their walks stay INDEPENDENT: the reducers in
+  are also mirrored in `catalog.test.ts` and `rules_test.cpp`; the Memory64
+  smoke test used to be a third copy, forced by running under node, and since
+  bun 1.4 runs it, `mem64.test.ts` looks its kinds up in the catalogs instead.
+  The sized families need no listing any more, but their walks stay INDEPENDENT: the reducers in
   `Rules.cpp`, the oracle in `Verify.cpp` and `verify.ts` each read the
   instance lists without sharing code. **The drawn patterns close the ARRANGEMENT
   band and are NOT in `RULE_ROW`** — a drawn shape says the same sentence
@@ -968,9 +998,8 @@ unnecessary — `analyze_code_snippet` covers it headlessly.
 cache):
 
 ```
-wasm ──┬──▶ bun-test [shards]
+wasm ──┬──▶ bun-test [4 shards] ──▶ coverage
        ├──▶ e2e      [2 shards]
-       ├──▶ mem64
        └──▶ dist              cpp        typecheck
 ```
 
@@ -985,15 +1014,23 @@ wasm ──┬──▶ bun-test [shards]
   workflows. `.github/actions/setup-wasm` is shared, so the emsdk pin and the
   `BOOST_INCLUDE` symlink cannot drift. **Bun is pinned too, through
   `packageManager` in `package.json`** — `setup-bun` reads that field when a
-  step passes no `bun-version`, which is why none of the seven steps in the
+  step passes no `bun-version`, which is why none of the eight steps in the
   two workflows does — so CI runs the bun installed locally rather than
   whatever `latest` resolves to on the day. Bump the field, not the steps.
-- **`bun-test` fans out over six shards** — one per `*.slow.test.ts` plus one
-  running everything else under `IOI_SKIP_SLOW=1`. Between them they run **every**
-  test, so **the shard list and the slow-file set must move together**: gating a
-  suite with `skipIf` without adding its shard makes it run nowhere.
-- **`mem64` names every `mem64.node.test.mjs` explicitly** — a solver missing from
-  that line is a MEMORY64 build nothing ever instantiates. **`dist`** proves the
+- **`bun-test` is four `bun test --shard=N/4` jobs**, balanced by the committed
+  `test-timings.json` (bun falls back to round-robin when it is missing or
+  stale), so every file under `test/` runs in exactly one shard by construction
+  — there is no shard list to keep in step with the slow-file set any more, and
+  `IOI_SKIP_SLOW` is a local-only gate. The job sets `BUN_JSC_useWasmMemory64=1`,
+  which is what lets the `mem64.test.ts` files run there (they fail, not skip,
+  without it). `--parallel` is deliberately NOT passed inside a shard: the
+  runners have 4 vCPUs and the wasm suites race multi-arm portfolios on all of
+  them — measure before adding it.
+- **`coverage` applies the line floor to the MERGED lcov of all four shards**
+  (`src/util/coverageGate.ts`, `COVERAGE_FLOOR_LINES`): bun's own
+  `coverageThreshold` is per invocation, so it would fail every shard and every
+  partial local run. `bun run test` runs the same gate locally, and bun's lcov
+  carries no per-function records, so only LINES gate. **`dist`** proves the
   production bundle builds on every PR and publishes the artifact `deploy.yml`
   reuses.
 

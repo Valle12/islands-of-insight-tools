@@ -141,8 +141,9 @@ async function build({
   // (the flat/hier searches on the hardest boards exhaust 4GB and abort).
   maxMemory?: string;
   // wasm64 (`-m64`): 64-bit pointers, so the heap can exceed the 4GB wasm32 wall.
-  // Only runtimes with the Memory64 proposal can load it (node yes; bun not
-  // yet — the bridge feature-detects and falls back to the wasm32 build).
+  // Only runtimes with the Memory64 proposal can load it — node, and bun 1.4
+  // behind BUN_JSC_useWasmMemory64=1 (the default once oven-sh/bun#35740
+  // ships); the bridge feature-detects and falls back to the wasm32 build.
   memory64?: boolean;
 }) {
   mkdirSync(outDir, { recursive: true });

@@ -6,7 +6,7 @@ import {
   WORKER_DIR,
   WORKER_FILE,
 } from "./buildWorker";
-import { pngDataUrl, sassCompiler } from "./plugins";
+import { pngDataUrl } from "./plugins";
 import {
   INDEXNOW_KEY,
   OG_DIR,
@@ -41,7 +41,7 @@ await Bun.build({
     "./src/pages/shifting-mosaic-solver/index.html",
   ],
   outdir: "./dist",
-  plugins: [sassCompiler(), pngDataUrl()],
+  plugins: [pngDataUrl()],
   target: "browser",
   minify: true,
   compile: true,

@@ -1,6 +1,10 @@
 [test]
 coverage = true
 coverageSkipTestFiles = true
+# lcov as well as the table: `coverage:gate` reads coverage/lcov.info, and CI
+# merges one per shard before applying the floor (bun's own coverageThreshold
+# is per invocation, so it would fail every shard and every partial run).
+coverageReporter = ["text", "lcov"]
 root = "test"
 preload = ["./src/util/preload.ts"]
 coveragePathIgnorePatterns = ["**/astar.mjs"]

@@ -4,7 +4,9 @@
 // it can load the matching MEMORY64 build, whose heap ceiling is 8GB instead
 // of the wasm32 4GB wall — enough that deep searches stop aborting mid-budget
 // on the hardest boards. Browsers enable Memory64 behind a flag today and
-// natively soon; bun cannot load either yet.
+// natively soon; bun 1.4 loads the non-shared build behind the JSC option
+// BUN_JSC_useWasmMemory64=1 (every test script sets it) and still refuses the
+// shared one.
 //   - NON-SHARED (flags 0x04 = is64): the single-threaded *.mem64 builds.
 //   - SHARED (flags 0x07 = is64|shared|has_max, min 0 max 1): the pthreads
 //     *.threads.mem64 builds, whose arms race inside one shared 64-bit heap.

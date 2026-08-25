@@ -156,14 +156,16 @@ controls' `.rule-size-add`, and the patterns' `.pattern-toggle`,
 `.pattern-delete` and `.rule-pattern-add`. None of the latter five is a
 `.tool-button`, and that is the whole of what keeps them apart.
 
-**Indices are copied in four places, and one of them cannot be avoided.**
+**Indices are pinned in two places and derived everywhere else.**
 `catalog.test.ts` and `rules_test.cpp` pin every index on both sides — that is
 the point of them. `e2e/logic-grid-solver/config.test.ts` derives what it
-needs from `RULES` rather than restating it. The unavoidable one is
-`test/logic-grid-solver/mem64.node.test.mjs`, which runs under node and cannot
-import TypeScript, so its board carries literal indices; the regroup moved
+needs from `RULES` rather than restating it. There used to be an unavoidable
+third copy: `test/logic-grid-solver/mem64.node.test.mjs` ran under node, could
+not import TypeScript, and so carried literal indices — the regroup moved
 `connect-dark` from 2 to 11 and silently turned that board into "no runs of
-two of either color", and that test failing is what caught it. The sized
+two of either color", and that test failing is what caught it. Since bun 1.4
+runs the Memory64 build, `mem64.test.ts` builds its board from `solvableBoard`
+and looks its clue kinds up in `SYMBOL_KINDS`, so no copy is left. The sized
 families no longer need listing — they are instance data, and "walk the
 family" now means "walk `puzzle.areas`/`puzzle.runs`" — but the INDEPENDENCE
 discipline survives them: the reducers in `Rules.cpp`, the oracle walks in
