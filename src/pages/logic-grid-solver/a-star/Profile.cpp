@@ -1,6 +1,7 @@
 #include "Profile.h"
 
 #include "Budget.h"
+#include "MemoryProbe.h"
 #include "Puzzle.h"
 #include "Rules.h"
 #include "Search.h"
@@ -21,18 +22,24 @@ using rules::Rule;
 constexpr uint8_t kNoClass = 0xFF;
 constexpr uint8_t kNoTag = 0xFF;
 
-/// How many states the sweep may accumulate over the whole board before it
-/// gives up. At five bytes of trail each this is about half a gigabyte, and
-/// `logicGridTest67` — the widest thing in the corpus at 15 — needs 76 million
-/// of them. Boards that stay narrow use a few thousand.
-constexpr size_t kDefaultStateCap = 100'000'000;
+/// How many states may be appended between two budget checks while a layer is
+/// built — and the stride at which the layer vector's capacity is topped up by
+/// hand. Both matter: near the wall a doubling vector overshoots whatever
+/// margin the 96% tripwire left, and under wasm that is an ABORT of the whole
+/// module rather than a failed allocation, so growth has to stay under the
+/// sweep's own control. Measured: a width-16 connect board took the module
+/// down exactly this way before the stride existed.
+constexpr size_t kInsertCheckStride = 4096;
 
 /// How far back a forbidden arrangement may reach BEYOND the frontier before
 /// the board is declined. The frontier already carries the last `width` cells,
 /// so a two-row pattern costs a bit or two and a tall one costs a row; every
 /// bit doubles the state count in the worst case, which is what the ceiling is
-/// really about. The runtime cap catches what gets past it.
-constexpr int kMaxHistoryBits = 24;
+/// really about. The full 32 the `hist` word holds, since admitting the run
+/// instances is what a vertical 1x4 at scan width ten wants (`(N-2)*W` bits);
+/// the wall gate in `planOf` is what keeps the wide-and-deep combinations out,
+/// and the byte-accounted caps catch what gets past both.
+constexpr int kMaxHistoryBits = 32;
 
 /// How many dart clues the sweep will carry counters for, and how many states
 /// their counters may take together at any one cell. A dart's counter is only
@@ -93,18 +100,76 @@ struct Frontier {
    * the plan is built, so it can never fire.
    */
   uint32_t hist = 0;
+  /**
+   * Bit k set when class k holds a SYMBOL — any clue kind, the reading the
+   * one-symbol rules count by. Written only for a color whose one-symbol rule
+   * is on: at most one symbol is ever legal there, so a bit is the whole
+   * count, and for every other board the mask stays zero filler that costs
+   * hashing and merging nothing.
+   */
+  uint32_t symMask = 0;
   /// Dark cells counted so far on each dart's ray, in `Plan::darts` order, and
   /// back to zero once that dart has been checked.
   std::array<uint8_t, kMaxDarts> darts{};
+  /**
+   * Squares absorbed so far per CLASS, and the exact size an area clue demands
+   * of it (0 = no demand). Written only when the board carries an area clue;
+   * `size` saturates at `Plan::sizeCap`, which sits above every demand so a
+   * saturated count can never alias a satisfiable one. Merged cells never get
+   * here (`applicable` refuses shapes), so squares are cells are what an area
+   * number counts.
+   */
+  std::array<uint8_t, kProfileClasses> size{};
+  std::array<uint8_t, kProfileClasses> demand{};
 
   bool operator==(const Frontier &other) const = default;
 };
 
-/// The forced-set pass keeps every layer's frontiers plus two transition
-/// indices per state, so a state costs `sizeof(Frontier)` plus eight bytes
-/// rather than the trail's five. The cap is correspondingly tighter.
-constexpr size_t kForcedBytes = sizeof(Frontier) + 8;
-constexpr size_t kDefaultForcedCap = 12'000'000;
+/**
+ * The sweeps' memory arithmetic, in BYTES rather than states, and written in
+ * terms of `sizeof(Frontier)` so growing the state grows the accounting with
+ * it. The old caps counted the five-byte trail while the live layers cost
+ * `sizeof(Frontier)` per state — twenty times more — so a wide board blew the
+ * heap long before any cap tripped.
+ *
+ * What one state of the witness sweep costs while its layer is live: the
+ * trail entry it keeps forever, its `Frontier` twice over (vector growth
+ * copies the layer), and the index's half-full `uint32_t` slots.
+ */
+constexpr size_t kSweepStateBytes = 5 + 2 * sizeof(Frontier) + 16;
+/// What a forced-sweep state KEEPS: its frontier, two `int32_t` links and one
+/// `alive` byte — that pass holds every layer, which is why its budget runs
+/// out far sooner. The layer being BUILT pays the transient costs on top.
+constexpr size_t kForcedKeptBytes = sizeof(Frontier) + 8 + 1;
+constexpr size_t kForcedBuildBytes = 2 * sizeof(Frontier) + 8 + 1 + 16;
+
+/// The bytes a sweep may hold at once: the configured budget when one was
+/// set, otherwise HALF the heap ceiling where the runtime has one — a wasm
+/// heap near its maximum dies on the next doubling rather than failing an
+/// allocation, so the margin IS the guard — and a native default that holds
+/// the corpus with room. `logicGridTest67` needs about 1.7 GB by this
+/// accounting at the widened frontier (76 M trail entries plus a 4.7 M-state
+/// peak layer), and 1.5 GB was measured cutting exactly that board off.
+size_t sweepBudgetBytes(const Config &cfg) {
+  if (cfg.maxHeapBytes > 0)
+    return cfg.maxHeapBytes;
+  if (const uint64_t ceiling = memprobe::heapCeilingBytes(); ceiling > 0)
+    return static_cast<size_t>(ceiling / 2);
+  return size_t{3} * 1024 * 1024 * 1024;
+}
+
+/// Keeps a growing layer's capacity ahead of the next stride's worst case —
+/// two states per expansion — without ever letting the vector double past the
+/// layer's allowance. Geometric on the way up, so the amortized cost stays
+/// what `push_back` would have paid.
+void topUpCapacity(std::vector<Frontier> &layer, const size_t maxStates) {
+  constexpr size_t slack = 2 * kInsertCheckStride + 2;
+  const size_t need = layer.size() + slack;
+  if (need <= layer.capacity())
+    return;
+  layer.reserve(std::min(std::max(need, layer.capacity() * 2),
+                         maxStates + slack));
+}
 
 /// The `closed` bit belonging to a color. Only kDark and kLight ever close.
 constexpr std::byte closedBit(const uint8_t color) {
@@ -130,6 +195,11 @@ struct FrontierHash {
   /// How many dart counters carry information on this board. The rest of the
   /// array is always zero, so leaving it out of the hash is free.
   int darts = 0;
+  /// Whether the board tracks region sizes (area clues) and symbol bits
+  /// (one-symbol rules). Untracked fields are all-zero on every state — the
+  /// darts discipline — so skipping them keeps the hot loop what it was.
+  bool sizes = false;
+  bool symbols = false;
 
   [[nodiscard]] size_t hashOf(const Frontier &f) const {
     uint64_t hash = 1469598103934665603ULL;
@@ -147,6 +217,16 @@ struct FrontierHash {
       eat(static_cast<uint8_t>(f.hist >> (8 * i)));
     for (int i = 0; i < darts; i++)
       eat(f.darts[slot(i)]);
+    if (symbols) {
+      for (int i = 0; i < 4; i++)
+        eat(static_cast<uint8_t>(f.symMask >> (8 * i)));
+    }
+    if (sizes) {
+      for (uint8_t k = 0; k < f.classes; k++) {
+        eat(f.size[slot(k)]);
+        eat(f.demand[slot(k)]);
+      }
+    }
     eat(f.classes);
     eat(std::to_integer<uint8_t>(f.closed));
     return static_cast<size_t>(hash);
@@ -366,9 +446,27 @@ struct Plan {
   int histBits = 0;
   bool connectDark = false;
   bool connectLight = false;
+  /// The exact region size an area clue at each scan position demands, or 0.
+  /// The demand binds whichever class absorbs the cell — `areaProblem` asks
+  /// the region holding the clue, whatever color it comes out.
+  std::vector<uint8_t> demandAt;
+  /// Whether ANY clue sits at each scan position — every kind counts as a
+  /// symbol for the one-symbol rules, the `clueAt` reading `Verify` uses.
+  std::vector<uint8_t> symbolAt;
+  /// Indexed by `color == kDark ? 0 : 1` — see `oneSymbolOf`.
+  std::array<bool, 2> oneSymbol{};
+  /// Region sizes ride in the state only when an area clue demands one.
+  bool trackSizes = false;
+  /// One past the largest demand, where `Frontier::size` saturates.
+  uint8_t sizeCap = 0;
   /// False when something about the board outgrew what the state can carry.
   bool usable = true;
 };
+
+/// Whether this color's regions must hold exactly one symbol each.
+constexpr bool oneSymbolOf(const Plan &plan, const uint8_t color) {
+  return plan.oneSymbol[color == kDark ? 0 : 1];
+}
 
 /**
  * The pattern cell that comes LAST in scan order, which every offset is taken
@@ -436,14 +534,17 @@ int deepestOf(const PatternCheck &check) {
 void planPatterns(const Model &model, Plan &plan) {
   const int cells = plan.scan.width * plan.scan.height;
   plan.checks.assign(slot(cells), {});
-  // Empty SIZED lists: those two families are refused by `applicable`, so the
-  // flag mask plus the drawn patterns are the whole of what this board
-  // forbids. The patterns are NOT optional here — a drawn pattern the plan
-  // never lays out is a constraint the sweep does not enforce, so it would
-  // walk a superset of the solutions and then report the cells they disagree
-  // about as proved. `reference_test.cpp` is what would catch that.
+  // The RUN instances ride along: their whole content is two straight
+  // forbidden arrangements (`addRuns`, subsumption included), which is
+  // exactly the admission criterion, and a vertical one is what the history
+  // bits exist for. `areas` stays empty because `applicable` still refuses
+  // it — a region's exact size is the half of an area no pattern can say.
+  // Neither the runs nor the drawn patterns are optional here: an instance
+  // the plan never lays out is a constraint the sweep does not enforce, so it
+  // would walk a superset of the solutions and then report the cells they
+  // disagree about as proved. `reference_test.cpp` is what would catch that.
   const rules::Patterns patterns = rules::patternsFor(
-      model.puzzle.ruleMask, {}, {}, model.puzzle.patterns);
+      model.puzzle.ruleMask, {}, model.puzzle.runs, model.puzzle.patterns);
   int deepest = 0;
   for (int pos = 0; pos < cells; pos++) {
     const int x = pos % plan.scan.width;
@@ -529,6 +630,36 @@ bool planDarts(const Model &model, Plan &plan) {
   return true;
 }
 
+/// Every symbol position, and what each area clue demands of the region that
+/// absorbs it. Declines defensively when a demand cannot ride in a byte or is
+/// not a single exact value — `OffByOne` is already refused by the whitelist,
+/// but a widened candidate set reaching here anyway must fail loudly, not
+/// enforce one of its two values as if it were the only one.
+void planRegionClues(const Model &model, Plan &plan) {
+  const int cells = plan.scan.width * plan.scan.height;
+  plan.demandAt.assign(slot(cells), 0);
+  plan.symbolAt.assign(slot(cells), 0);
+  plan.oneSymbol = {model.hasRule(Rule::OneSymbolDark),
+                    model.hasRule(Rule::OneSymbolLight)};
+  int maxDemand = 0;
+  for (const Clue &clue : model.puzzle.clues) {
+    const int pos = plan.scan.posOf(clue.index);
+    plan.symbolAt[slot(pos)] = 1;
+    if (clue.kind != kClueArea)
+      continue;
+    const ClueCandidates candidates = model.candidatesFor(clue);
+    if (candidates.count != 1 || candidates.lo() < 1 ||
+        candidates.lo() > 254) {
+      plan.usable = false;
+      return;
+    }
+    plan.demandAt[slot(pos)] = static_cast<uint8_t>(candidates.lo());
+    maxDemand = std::max(maxDemand, candidates.lo());
+  }
+  plan.trackSizes = maxDemand > 0;
+  plan.sizeCap = static_cast<uint8_t>(maxDemand + 1);
+}
+
 Plan planOf(const Model &model) {
   Plan plan;
   plan.scan = scanOf(model);
@@ -537,9 +668,10 @@ Plan planOf(const Model &model) {
   plan.connectDark = model.hasRule(Rule::ConnectDark);
   plan.connectLight = model.hasRule(Rule::ConnectLight);
 
-  // Letters and darts only, and `applicable` below has already refused any
-  // board that carries anything else — without which a clue this sweep cannot
-  // express would be silently skipped here and the answer claimed as proved.
+  // Letters, darts and area clues only, and `applicable` below has already
+  // refused any board that carries anything else — without which a clue this
+  // sweep cannot express would be silently skipped here and the answer
+  // claimed as proved.
   for (const Clue &clue : model.puzzle.clues) {
     if (clue.kind != kClueLetter)
       continue;
@@ -548,8 +680,19 @@ Plan planOf(const Model &model) {
     plan.lastPos[slot(clue.value)] =
         std::max(plan.lastPos[slot(clue.value)], pos);
   }
+  planRegionClues(model, plan);
   planPatterns(model, plan);
   if (!planDarts(model, plan))
+    plan.usable = false;
+  // The wall gate, static so native and wasm answer alike: at the widest scan
+  // the bare partition state already sits at the memory wall (measured — a
+  // 16-wide connect board fills gigabytes and stops on memory), so ANY history
+  // on top of it is hopeless, and at 15 a two-row reach is. Declining up front
+  // keeps the sweep from thrashing for seconds inside a cascade whose later
+  // arms want that budget, and keeps `armIsUseful` from suppressing the DFS
+  // race seeds on a board the sweep cannot finish.
+  if ((plan.scan.width == kMaxProfileWidth && plan.histBits > 0) ||
+      (plan.scan.width >= kMaxProfileWidth - 1 && plan.histBits >= 16))
     plan.usable = false;
   return plan;
 }
@@ -579,6 +722,13 @@ Frontier canonicalize(const Frontier &raw, const int width) {
       out.tag[slot(next)] = raw.tag[slot(old)];
       if ((raw.darkMask & (1U << old)) != 0)
         out.darkMask |= 1U << next;
+      // Every per-class field moves under the SAME relabelling, or byte
+      // equality would merge states whose sizes disagree — and the forced
+      // sweep would then read colors off paths that were never equivalent.
+      out.size[slot(next)] = raw.size[slot(old)];
+      out.demand[slot(next)] = raw.demand[slot(old)];
+      if ((raw.symMask & (1U << old)) != 0)
+        out.symMask |= 1U << next;
       next++;
     }
     out.cls[slot(j)] = remap[slot(old)];
@@ -676,9 +826,18 @@ struct Join {
   bool legal = true;
 };
 
+/// `a + b`, held at `cap` — how a class's size grows once it can no longer
+/// matter exactly. The cap sits above every demand, so saturation can never
+/// alias a satisfiable count.
+uint8_t satAdd(const uint8_t a, const uint8_t b, const uint8_t cap) {
+  const int sum = a + b;
+  return sum >= cap ? cap : static_cast<uint8_t>(sum);
+}
+
 /// Joins the cell to the neighbor on its left, the one leaving from above, or
 /// both — merging their classes when they are two pieces of one region.
-Join joinAt(Frontier &work, const Site &site, const uint8_t color) {
+Join joinAt(const Plan &plan, Frontier &work, const Site &site,
+            const uint8_t color) {
   Join join;
   if (const uint8_t left = site.x > 0 ? work.cls[slot(site.x - 1)] : kNoClass;
       left != kNoClass && colorOf(work, left) == color)
@@ -700,7 +859,31 @@ Join joinAt(Frontier &work, const Site &site, const uint8_t color) {
     join.legal = false; // one region, two letters
     return join;
   }
+  // One region cannot satisfy two DIFFERENT exact sizes; two EQUAL demands
+  // merge into one, which is the packer's two-3-clues-share-a-region case and
+  // exactly what `areaProblem` accepts. Sizes add; symbol bits meet the
+  // one-symbol rule — two clued pieces welding together is the refutation the
+  // game plays that rule for.
+  const uint8_t mineDemand = work.demand[slot(join.cls)];
+  const uint8_t aboveDemand = work.demand[slot(above)];
+  if (mineDemand != 0 && aboveDemand != 0 && mineDemand != aboveDemand) {
+    join.legal = false;
+    return join;
+  }
+  const uint32_t mineBit = work.symMask & (1U << join.cls);
+  const uint32_t aboveBit = work.symMask & (1U << above);
+  if (oneSymbolOf(plan, color) && mineBit != 0 && aboveBit != 0) {
+    join.legal = false; // one region, two symbols
+    return join;
+  }
   work.tag[slot(join.cls)] = mineTag != kNoTag ? mineTag : aboveTag;
+  work.demand[slot(join.cls)] = mineDemand != 0 ? mineDemand : aboveDemand;
+  if (plan.trackSizes) {
+    work.size[slot(join.cls)] = satAdd(work.size[slot(join.cls)],
+                                       work.size[slot(above)], plan.sizeCap);
+  }
+  if (aboveBit != 0)
+    work.symMask |= 1U << join.cls;
   relabel(work, site.width, above, join.cls);
   join.merged = true;
   return join;
@@ -722,7 +905,7 @@ Painted paint(const Plan &plan, Frontier &work, const Site &site,
   if (mustConnect(plan, color) && hasClosed(work, color))
     return {};
 
-  const auto [cls, joined, legal] = joinAt(work, site, color);
+  const auto [cls, joined, legal] = joinAt(plan, work, site, color);
   if (!legal)
     return {};
 
@@ -731,10 +914,36 @@ Painted paint(const Plan &plan, Frontier &work, const Site &site,
     mine = freeClass(work, site.width);
     if (mine == kNoClass)
       return {};
+    // Every per-class field, not just the tag: a freed id keeps whatever its
+    // departed class held, and a fresh region inheriting a dead one's size or
+    // demand would be refuted — or worse, accepted — off a region that no
+    // longer exists.
     work.tag[slot(mine)] = kNoTag;
+    work.size[slot(mine)] = 0;
+    work.demand[slot(mine)] = 0;
+    work.symMask &= ~(1U << mine);
   }
   work.cls[slot(site.x)] = mine;
   setColor(work, mine, color);
+
+  if (plan.trackSizes)
+    work.size[slot(mine)] = satAdd(work.size[slot(mine)], 1, plan.sizeCap);
+  if (plan.symbolAt[slot(site.pos)] != 0 && oneSymbolOf(plan, color)) {
+    if ((work.symMask & (1U << mine)) != 0)
+      return {}; // a second symbol in a one-symbol region
+    work.symMask |= 1U << mine;
+  }
+  if (const uint8_t demand = plan.demandAt[slot(site.pos)]; demand != 0) {
+    if (work.demand[slot(mine)] != 0 && work.demand[slot(mine)] != demand)
+      return {}; // one region, two different exact sizes
+    work.demand[slot(mine)] = demand;
+  }
+  // After every update, so a merge that overgrew and the absorb that did are
+  // caught by the one check. The saturation cap sits above every demand, so
+  // "too big to count exactly" still reads as too big here.
+  if (work.demand[slot(mine)] != 0 &&
+      work.size[slot(mine)] > work.demand[slot(mine)])
+    return {};
 
   const Painted painted{.legal = true, .merged = joined};
   const uint8_t letter = plan.letterAt[slot(site.pos)];
@@ -748,7 +957,11 @@ Painted paint(const Plan &plan, Frontier &work, const Site &site,
 }
 
 /// The checks a class leaving the frontier FOR GOOD has to pass: its letter
-/// must be complete and unique, and a must-connect color may only close once.
+/// must be complete and unique, an area demand must be met exactly, a
+/// one-symbol region must actually hold its symbol, and a must-connect color
+/// may only close once. These live HERE and nowhere else — a merged class did
+/// not close, and reading a merge as a close is the trap the `Join::merged`
+/// comment records.
 bool closeClass(const Plan &plan, Frontier &work, const Site &site) {
   if (const uint8_t letter = work.tag[slot(site.leaving)]; letter != kNoTag) {
     // The region can never grow again, so every cell of its letter must
@@ -758,7 +971,13 @@ bool closeClass(const Plan &plan, Frontier &work, const Site &site) {
     if (anyOpenClassHolds(work, site.width, letter))
       return false;
   }
+  if (const uint8_t demand = work.demand[slot(site.leaving)];
+      demand != 0 && work.size[slot(site.leaving)] != demand)
+    return false; // an area clue's region closed at the wrong size
   const uint8_t color = colorOf(work, site.leaving);
+  if (oneSymbolOf(plan, color) &&
+      (work.symMask & (1U << site.leaving)) == 0)
+    return false; // a one-symbol region closed holding none
   if (!mustConnect(plan, color))
     return true;
   if (hasClosed(work, color))
@@ -882,6 +1101,15 @@ bool accepts(const Plan &plan, const Frontier &f) {
       darkOpen++;
     else
       lightOpen++;
+    // The classes still open here close all at once, so they owe the same
+    // answers `closeClass` collects: the demanded size exactly, and the
+    // symbol a one-symbol region has to hold.
+    if (const uint8_t demand = f.demand[slot(cls)];
+        demand != 0 && f.size[slot(cls)] != demand)
+      return false;
+    if (oneSymbolOf(plan, colorOf(f, cls)) &&
+        (f.symMask & (1U << cls)) == 0)
+      return false;
     const uint8_t letter = f.tag[slot(cls)];
     if (letter == kNoTag)
       continue;
@@ -981,7 +1209,7 @@ void linkOne(const Plan &plan, const Cursor &cursor, const LinkLayer &layer,
 /// Forward: every layer, de-duplicated, with the transition table beside it.
 /// False when the sweep stopped early — `outcome` then already says why.
 bool sweepForward(const Model &model, const Plan &plan, Budget &budget,
-                  const size_t cap, Forced &forced, Outcome &outcome) {
+                  const size_t budgetBytes, Forced &forced, Outcome &outcome) {
   const int width = plan.scan.width;
   const int cells = width * plan.scan.height;
   SlotIndex index;
@@ -993,22 +1221,42 @@ bool sweepForward(const Model &model, const Plan &plan, Budget &budget,
     const std::vector<Frontier> &from = forced.layers[slot(pos)];
     std::vector<Frontier> &into = forced.layers[slot(pos + 1)];
     std::vector<int32_t> &link = forced.links[slot(pos)];
+    // This layer's allowance in states — every earlier layer is KEPT here, so
+    // the kept bytes climb layer by layer where the witness sweep's stay flat.
+    const size_t spent = held * kForcedKeptBytes;
+    if (spent >= budgetBytes) {
+      outcome.stats.stoppedOnMemory = true;
+      return false;
+    }
+    const size_t maxInto = (budgetBytes - spent) / kForcedBuildBytes;
     link.assign(from.size() * 2, -1);
     index.reset(from.size() + from.size() / 2,
                 FrontierHash{.width = width,
-                             .darts = static_cast<int>(plan.darts.size())});
+                             .darts = static_cast<int>(plan.darts.size()),
+                             .sizes = plan.trackSizes,
+                             .symbols = plan.oneSymbol[0] || plan.oneSymbol[1]});
+    into.reserve(std::min(from.size() + from.size() / 2, maxInto));
 
     const LinkLayer layer{
         .from = from, .into = into, .index = index, .link = link};
     for (uint32_t i = 0; i < from.size(); i++) {
+      if (i % kInsertCheckStride == 0 && i != 0) {
+        if (into.size() > maxInto) {
+          outcome.stats.stoppedOnMemory = true;
+          return false;
+        }
+        if (budget.exhaustedNow())
+          return false;
+        topUpCapacity(into, maxInto);
+      }
       linkOne(plan, cursor, layer, i);
       outcome.stats.nodesExpanded++;
     }
-    held += into.size();
-    if (held > cap) {
+    if (into.size() > maxInto) {
       outcome.stats.stoppedOnMemory = true;
       return false;
     }
+    held += into.size();
     if (into.empty()) {
       outcome.status = Status::Unsolvable;
       return false;
@@ -1188,16 +1436,24 @@ void expandOne(const Plan &plan, const Cursor &cursor, const Layer &layer,
  * Listed the other way round, anything new declines by default and costs at
  * worst a re-measurement.
  *
- * What it can express: letter clues, dart clues on a square the puzzle paints,
- * the two connect rules, `Underclued` — which is not a coloring rule at all —
- * every rule whose WHOLE content is a forbidden local arrangement, and every
- * DRAWN pattern, which is that and nothing else by construction. All of those
- * compile to `patternsFor` and the frontier carries enough recent color to
- * read one. The families deliberately left out are the ones a pattern table
- * cannot say all of: an area or a run instance (`patternsFor` itself records
- * that its trominoes are only half of what an area means), the one-symbol
- * rules, the region-shape rules, and `OffByOne`, which changes what every
- * count means rather than what any arrangement is.
+ * What it can express is two kinds of thing. Arrangements: every rule whose
+ * WHOLE content is a forbidden local arrangement, every DRAWN pattern, which
+ * is that by construction, and every RUN instance, which compiles to two
+ * straight arrangements and says nothing more — all through `patternsFor`,
+ * with the frontier carrying enough recent color to read one. And per-CLASS
+ * region content with an exact merge and close rule: letters (a tag; two
+ * different tags may never meet), area clues painted or not (a size demand on
+ * whichever region absorbs the cell, met exactly at close), the one-symbol
+ * rules (a bit; two symbols may never meet and a closing region must hold
+ * one), the two connect rules, dart clues on a square the puzzle paints, and
+ * `Underclued`, which is not a coloring rule at all.
+ *
+ * The families deliberately left out are the ones NEITHER shape fits: an area
+ * rule INSTANCE (unlike a clue it demands a size of every region of the
+ * color, with no cell to anchor the demand on — the recorded follow-up),
+ * the region-shape rules (a shape is not a size), `OffByOne` (it widens every
+ * demand to a two-value set the byte cannot say), and the walked clue kinds,
+ * whose geometry crosses rows the frontier has already forgotten.
  *
  * Drawn patterns are admitted here but still have to fit: a tall one reaches
  * further back than `kMaxHistoryBits` carries, and `planOf` declines the board
@@ -1212,25 +1468,31 @@ bool applicable(const Model &model) {
   // design, not a bigger constant.
   if (model.hasShapes)
     return false;
-  // The sized rule instances live OUTSIDE the mask, so the whitelist loop
-  // below cannot see them — they are declined here explicitly. Each would
-  // need per-class state the frontier does not carry: an area instance every
-  // open class's size, a run instance a running length along rows the sweep
-  // crosses as well as the one it follows.
+  // The AREA instances live outside the mask, so the whitelist loop below
+  // cannot see them — declined here explicitly. An area means two things and
+  // the pattern table can only say one: its implied straight run is a
+  // forbidden arrangement, but the region's exact size would need every open
+  // class's count carried in the state.
   //
-  // `puzzle.patterns` lives outside the mask too and is deliberately NOT
-  // declined beside them: a drawn pattern says "this arrangement never
-  // occurs" and can say nothing else, which is exactly the admission
-  // criterion the whitelist below applies to a rule. `planPatterns` compiles
-  // them in, and `planOf` declines the board if one reaches too far back.
-  if (!model.puzzle.areas.empty() || !model.puzzle.runs.empty())
+  // `puzzle.runs` and `puzzle.patterns` live outside the mask too and are
+  // deliberately NOT declined beside it: a run instance compiles to two
+  // straight forbidden arrangements and says nothing else — `patternsFor` is
+  // then still the whole of what the board forbids — and a drawn pattern is
+  // that by construction. `planPatterns` compiles both in, and `planOf`
+  // declines the board when one reaches further back than the history holds
+  // or the scan is too wide to afford any history at all.
+  if (!model.puzzle.areas.empty())
     return false;
-  // An area clue would need each open class's SIZE in the state. A dart needs
-  // only a running count, but the color it counts is the opposite of its OWN
-  // square's, so a dart the board leaves unpainted would need that square's
-  // color carried too, long after it has left the frontier.
+  // Letters and area clues are per-class state — a tag, a demand and a
+  // running size — so both are taken, painted or not: the demand binds
+  // whichever region absorbs the clue's cell, which is `areaProblem`'s own
+  // reading. A dart needs only a running count, but the color it counts is
+  // the opposite of its OWN square's, so a dart the board leaves unpainted
+  // would need that square's color carried too, long after it has left the
+  // frontier. Every walked kind — lotus, viewpoint, galaxy, myopia — stays
+  // out: their geometry crosses rows the frontier has already forgotten.
   if (std::ranges::any_of(model.puzzle.clues, [&model](const Clue &clue) {
-        if (clue.kind == kClueLetter)
+        if (clue.kind == kClueLetter || clue.kind == kClueArea)
           return false;
         if (clue.kind != kClueDart || !isDirection(clue.direction))
           return true;
@@ -1239,11 +1501,17 @@ bool applicable(const Model &model) {
       }))
     return false;
   using enum Rule;
-  // Every rule here is a containment rule and nothing else: "this arrangement
-  // never occurs". `patternsFor` is then the whole of what the board forbids,
-  // which is what makes reading it off recent color sound.
+  // Every arrangement rule here is a containment rule and nothing else: "this
+  // arrangement never occurs", so `patternsFor` is the whole of what the
+  // board forbids and reading it off recent color is sound. The one-symbol
+  // pair is the exception that proves the admission criterion for REGION
+  // content: exactly-one-symbol-per-region is expressible as per-class state
+  // with an exact merge rule (two symbols meeting refute) and an exact close
+  // rule (none held refutes), which is precisely what the frontier's classes
+  // are.
   constexpr auto kSupported = std::to_array<Rule>(
-      {ConnectDark, ConnectLight, Underclued, NoDark2x2, NoLight2x2,
+      {ConnectDark, ConnectLight, Underclued, OneSymbolDark, OneSymbolLight,
+       NoDark2x2, NoLight2x2,
        NoCheckerboard, NoDarkLightDark, NoLightDarkLight, NoDarkT, NoLightT,
        NoThreeDarkOneLight, NoThreeLightOneDark, NoDarkDiagonal,
        NoLightDiagonal, NoDarkElbow, NoLightElbow, NoDarkEll, NoLightEll,
@@ -1274,12 +1542,7 @@ Outcome runProfile(const Model &model, const Config &cfg) {
   const int width = plan.scan.width;
   const int height = plan.scan.height;
   const int cells = width * height;
-  // Five bytes a state is what the trail costs; the working frontiers are two
-  // layers on top of that. Sizing the cap off the trail keeps the arithmetic
-  // honest without pretending to know the peak layer in advance.
-  const size_t cap = cfg.maxHeapBytes > 0
-                         ? std::max<size_t>(1, cfg.maxHeapBytes / 5)
-                         : kDefaultStateCap;
+  const size_t budgetBytes = sweepBudgetBytes(cfg);
 
   std::vector<Trail> trail(slot(cells + 1));
 
@@ -1302,14 +1565,27 @@ Outcome runProfile(const Model &model, const Config &cfg) {
       return outcome;
     const Cursor cursor = cursorAt(model, plan, pos);
 
+    // This layer's allowance in STATES: what the byte budget has left after
+    // the trail so far and the incoming layer, at the cost of building one
+    // more. Running out proves NOTHING — say so rather than letting an empty
+    // answer read as "no solution".
+    const size_t spent = held * 5 + prev.size() * sizeof(Frontier);
+    if (spent >= budgetBytes) {
+      outcome.stats.stoppedOnMemory = true;
+      return outcome;
+    }
+    const size_t maxNext = (budgetBytes - spent) / kSweepStateBytes;
+
     next.clear();
     // Layers grow smoothly, so the previous one is a good guess for this one.
     // Without it a layer of millions rehashes its way up from nothing, which
     // measured as a third of the sweep's time on the widest board.
     index.reset(prev.size() + prev.size() / 2,
                 FrontierHash{.width = width,
-                             .darts = static_cast<int>(plan.darts.size())});
-    next.reserve(prev.size() + prev.size() / 2);
+                             .darts = static_cast<int>(plan.darts.size()),
+                             .sizes = plan.trackSizes,
+                             .symbols = plan.oneSymbol[0] || plan.oneSymbol[1]});
+    next.reserve(std::min(prev.size() + prev.size() / 2, maxNext));
     auto &[parent, chose] = trail[slot(pos + 1)];
     parent.reserve(prev.size());
     chose.reserve(prev.size());
@@ -1319,17 +1595,26 @@ Outcome runProfile(const Model &model, const Config &cfg) {
                       .parent = parent,
                       .chose = chose};
     for (uint32_t i = 0; i < prev.size(); i++) {
+      // The stride: allowance and clock first, then the capacity top-up —
+      // that order is what caps the reserve at the allowance plus slack.
+      if (i % kInsertCheckStride == 0 && i != 0) {
+        if (next.size() > maxNext) {
+          outcome.stats.stoppedOnMemory = true;
+          return outcome;
+        }
+        if (budget.exhaustedNow())
+          return outcome;
+        topUpCapacity(next, maxNext);
+      }
       expandOne(plan, cursor, layer, i);
       outcome.stats.nodesExpanded++;
     }
-
-    held += next.size();
-    if (held > cap) {
-      // Out of room, and that proves NOTHING — say so rather than letting an
-      // empty answer read as "no solution".
+    if (next.size() > maxNext) {
       outcome.stats.stoppedOnMemory = true;
       return outcome;
     }
+
+    held += next.size();
     if (next.empty()) {
       outcome.status = Status::Unsolvable;
       return outcome;
@@ -1384,9 +1669,7 @@ Outcome runProfileForced(const Model &model, const Config &cfg) {
   Budget budget(cfg, "profile", outcome.stats);
   const Plan plan = planOf(model);
   const int cells = plan.scan.width * plan.scan.height;
-  const size_t cap = cfg.maxHeapBytes > 0
-                         ? std::max<size_t>(1, cfg.maxHeapBytes / kForcedBytes)
-                         : kDefaultForcedCap;
+  const size_t budgetBytes = sweepBudgetBytes(cfg);
 
   Forced forced;
   forced.layers.resize(slot(cells + 1));
@@ -1398,7 +1681,7 @@ Outcome runProfileForced(const Model &model, const Config &cfg) {
   start.tag.fill(kNoTag);
   forced.layers[0].push_back(start);
 
-  if (!sweepForward(model, plan, budget, cap, forced, outcome))
+  if (!sweepForward(model, plan, budget, budgetBytes, forced, outcome))
     return outcome;
 
   markAlive(plan, cells, forced);

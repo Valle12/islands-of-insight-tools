@@ -93,6 +93,10 @@ export type LogicGridClue = {
    * returns for four sides, which is what lets the arrow be dragged round.
    * For the lotus the same key is its AXIS: 0 horizontal, 1 the falling
    * diagonal, 2 vertical, 3 the rising diagonal — 45-degree clockwise steps.
+   * For the myopia clue it is a MASK of those same four directions — bit 0
+   * up, bit 1 right, bit 2 down, bit 3 left — holding 1 to 15, since a clue
+   * with no arrows would say nothing. Which of the three a stored number
+   * means is the kind's `aims`, never a guess from its size.
    *
    * OPTIONAL, and omitted entirely rather than written as `0` for a kind that
    * carries none: every captured fixture predates this key and must keep

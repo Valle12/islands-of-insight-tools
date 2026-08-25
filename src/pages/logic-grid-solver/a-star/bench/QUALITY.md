@@ -168,17 +168,88 @@ clock is not the interesting number — what a regression looks like here is a
 board falling out of `cascade:deduce` into the sweep, out of the sweep into the
 DFS, or out of the DFS entirely.
 
-The shape of the risk, for whoever measures first:
+## The IIT-45 batch: both open moves cashed in (measured 2026-08-19)
 
-- **Connectivity is the hard constraint**, and the profile sweep is the answer
-  to it wherever it applies — which is boards with no area clues and no pattern
-  rules. Outside that gate a plain DFS is still bad at proving "this color
-  cannot be connected here", and the two open moves remain: teaching the sweep
-  area clues (each open region would have to carry its size) or learning the cut
-  as a clause in the DFS. Neither is built.
+The two hard captures of the 495–516 batch are what forced them.
+
+**Teaching the sweep area clues is BUILT — and one-symbol rules, run instances
+and drawn-pattern parity with it.** The frontier's classes now carry a symbol
+bit, a size count and an exact demand (see `Profile.cpp`), run instances
+compile into the pattern plan beside the drawn shapes, and the memory
+arithmetic is in bytes with the layer vectors grown by hand — the old
+trail-only cap let a width-16 layer doubling ABORT the wasm module outright.
+
+| board | before | after |
+|---|---|---|
+| `logicGridTest513` (11×11 underclued, one-symbol-light, 6 area + 8 letter clues) | 34 of 121, unproven, at 120 s | **72 of 121 PROVEN, 9.4 s native / 15.8 s mem64** (31.3 M states ≈ 3 GB, so wasm32 falls back to the old partial honestly) |
+
+**The DFS learned to build a connected color.** On a clueless board
+`buildOrder` seeds its BFS from the givens instead of collapsing to raster
+order, and `pickCell` grows the must-connect color contiguously before falling
+back to the settled frontier — the local pattern clauses were shouting the
+walk away from exactly the joins where its refutations live.
+
+| board | before | after |
+|---|---|---|
+| `logicGridTest510` (16×16, connect-dark + no-dark-T + a dark run of four, no clues) | 65 M nodes, no witness, at 120 s | **solved, 7.6 s native / 12.5 s wasm32, 8.0 M nodes** |
+
+The whole 494-board corpus held its statuses, decided counts and proofs across
+both changes (`bench:lg --diff`: an empty table), with board 67 paying the one
+measured cost — the widened 88-byte frontier state — inside its budgets.
+
+**The first `--big-sparse` campaign** (360 seeds, 120 s budgets, 2026-08-20): **zero
+divergences** — soundness holds across every class — and the per-class table below is the
+standing baseline. Solved/proven collapse a class as cracked; `partial` is an honest
+underclued deduction shown to the player; `unsolved` is the tail. Both both-connect clued
+classes went 20/20, and the 16x16 connect+T+run class — the captured `logicGridTest510`'s —
+went 16/20. One structural fix came out of reading it: the clued
+cascade's profile leg was the only unsliced one, so a wide-but-admissible sweep (scan 13-14
+with history) could eat the whole arm before the DFS ran — it takes HALF the remaining budget
+now, at zero measured corpus cost. Spot-probing the 20x14 clued tail afterwards found its
+rates unchanged, so those rows are genuine DFS difficulty (generated boards paint no givens,
+which disarms the givens-seeded ordering), not starvation.
+
+| class (dims, mask, kind) | solved | proven | partial | unsolved |
+|---|---|---|---|---|
+| 16x16 connect+T clued | 9 | — | — | 11 |
+| 16x16 connect+T+run clued | 16 | — | — | 4 |
+| 16x16 connect underclued | — | 11 | 6 | 3 |
+| 16x16 connect+2x2 underclued | — | 5 | 6 | 9 |
+| 16x16 connect+run underclued | — | 2 | 12 | 6 |
+| 16x16 both-connect clued | 20 | — | — | 0 |
+| 20x14 connect+T underclued | — | 7 | 4 | 9 |
+| 20x14 connect+T+run underclued | — | 6 | 8 | 6 |
+| 20x14 connect clued | 11 | — | — | 9 |
+| 20x14 connect+2x2 clued | 6 | — | — | 14 |
+| 20x14 connect+run clued | 4 | — | — | 16 |
+| 20x14 both-connect underclued | — | 16 | 4 | 0 |
+| 26x18 connect+T clued | 8 | — | — | 12 |
+| 26x18 connect+T+run clued | 10 | — | — | 10 |
+| 26x18 connect underclued | — | 6 | 12 | 2 |
+| 26x18 connect+2x2 underclued | — | 0 | 4 | 16 |
+| 26x18 connect+run underclued | — | 2 | 5 | 13 |
+| 26x18 both-connect clued | 20 | — | — | 0 |
+
+The tail to know about: 26x18 connect+2x2 underclued proved nothing in 20 tries (its partials
+still paint), and the 26x18 clued pattern classes sit near half. Those are the boards the
+`--big-sparse` command exists to keep visible — rerun it after any propagator change and
+diff this table.
+
+The shape of the risk, for whoever measures next:
+
+- **Connectivity is the hard constraint.** The sweep answers it wherever it
+  applies; the wall is now MEMORY, byte-accounted and honest: scan width 16
+  declines any pattern history up front, and boards whose layers outgrow the
+  budget stop with `stoppedOnMemory` instead of thrashing or aborting. Outside
+  the sweep the DFS's connectivity-first ordering found the 16×16's witness,
+  but proving "this color cannot connect" is still beyond it — the one open
+  move left is learning the cut as a clause.
 - **Underclued cost is not about board size but about how much is forced.** Few
   clues means most cells are free, and two solutions that disagree settle each
   of them for nothing. Many clues plus rule 10 means most cells *are* forced,
   and each one owes a full search that finds nothing. That is where this design
   would need clause learning shared across the refutations rather than a fresh
   search per candidate.
+- **An area RULE instance is the recorded follow-up for the sweep**: it demands
+  a size of every region of its color with no cell to anchor on, which the
+  same per-class counters could carry behind their own gate.

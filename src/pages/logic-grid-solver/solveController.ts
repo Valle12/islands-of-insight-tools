@@ -32,6 +32,54 @@ export interface SolveControllerOptions {
   onReturnToEditor: () => void;
 }
 
+/**
+ * What the engine's progress `phase` reads as on the status line — the
+ * `Budget` phase names plus the pthread race's own. An unknown name (a phase
+ * added engine-side later) falls back to the generic deducing text rather
+ * than leaking an internal word onto the page.
+ */
+const PHASE_LABELS: Record<string, string> = {
+  deduce: "Deducing…",
+  search: "Searching…",
+  routing: "Routing letters…",
+  packing: "Packing regions…",
+  profile: "Sweeping…",
+  race: "Solving…",
+};
+
+/**
+ * The give-up text. Not the same claim as "no solution": the search stopped
+ * looking, it did not rule anything out. A memory stop gets its own words,
+ * because the timeout's "check the board" nudge diagnoses a mis-entered
+ * puzzle while an out-of-memory run needs room, not corrections.
+ */
+function budgetMessage(
+  result: Extract<LogicGridSolveResult, { status: "budget" }>,
+): string {
+  if (result.stoppedOnMemory) {
+    return (
+      "The solver ran out of memory before it could finish. " +
+      (result.decided > 0
+        ? `${result.decided} cells were settled before it stopped, but the ` +
+          "rest are still open. "
+        : "") +
+      "Closing other tabs or solving a smaller board gives it more room."
+    );
+  }
+  // The nudge about the board is worth making — every puzzle the game ships
+  // can be finished, so a board that runs the clock out is far more often
+  // mis-entered than genuinely hard.
+  return (
+    (result.decided > 0
+      ? `The time limit ran out. ${result.decided} cells were settled ` +
+        "before it did, but the rest are still open. "
+      : "The time limit ran out before anything could be settled. ") +
+    "Every puzzle in the game can be finished, so it is worth checking " +
+    "the board against the one on screen — a missing gap or clue is the " +
+    "usual reason."
+  );
+}
+
 export class SolveController {
   private readonly configOf: () => LogicGridTest;
   private readonly onReturnToEditor: () => void;
@@ -114,17 +162,18 @@ export class SolveController {
     // after which `if (this.search) return;` above kills the button for good.
     let settled = false;
     const handle = solveLogicGrid(config, {
-      onProgress: (nodes, decided) => {
+      onProgress: (nodes, decided, phase) => {
         if (generation !== this.solveGeneration) return;
         // The step count is the part that keeps moving. `decided` comes from
         // the deduction pass, which finishes in milliseconds and then never
         // changes again — on a board that needs the long search it would sit
         // frozen at its number for the whole minute, which reads as a hang.
+        const label = PHASE_LABELS[phase ?? ""] ?? "Deducing…";
         const steps = `${nodes.toLocaleString()} steps`;
         this.solutionProgressText.textContent =
           decided > 0
-            ? `Deducing… ${decided} cells settled, ${steps}`
-            : `Deducing… ${steps}`;
+            ? `${label} ${decided} cells settled, ${steps}`
+            : `${label} ${steps}`;
       },
       onDone: result => {
         if (generation !== this.solveGeneration) return;
@@ -168,19 +217,8 @@ export class SolveController {
       return;
     }
     if (result.status === "budget") {
-      // Not the same claim as "no solution": the search stopped looking, it did
-      // not rule anything out. The nudge about the board is still worth making
-      // — every puzzle the game ships can be finished, so a board that runs the
-      // clock out is far more often mis-entered than genuinely hard.
       this.solutionStatus.textContent = "Gave up";
-      this.solutionMessage.textContent =
-        (result.decided > 0
-          ? `The time limit ran out. ${result.decided} cells were settled ` +
-            "before it did, but the rest are still open. "
-          : "The time limit ran out before anything could be settled. ") +
-        "Every puzzle in the game can be finished, so it is worth checking " +
-        "the board against the one on screen — a missing gap or clue is the " +
-        "usual reason.";
+      this.solutionMessage.textContent = budgetMessage(result);
       return;
     }
     this.enterSolutionView(config, result);

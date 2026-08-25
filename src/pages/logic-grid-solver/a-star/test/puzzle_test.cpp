@@ -834,4 +834,127 @@ TEST(OffByOne, AViewpointBeyondItsOwnSightIsNamed) {
   EXPECT_EQ(contradiction(buildModel(fits)), Problem::None);
 }
 
+// --- Myopia arrows ---------------------------------------------------------
+
+/// The mask is the same `direction` key a dart's compass point rides in, so
+/// what a puzzle sends for a clue carrying none is refused by the myopia
+/// clue's OWN name rather than by the dart's.
+TEST(Myopia, AKindWithNoArrowsIsRefused) {
+  Puzzle puzzle = test::board(open());
+  puzzle.clues.push_back(
+      {.index = cellIndex(0, 0), .kind = kClueMyopia, .direction = -1});
+  EXPECT_EQ(structureProblem(puzzle), Problem::MyopiaArrows);
+}
+
+/// Zero is a real DIRECTION — up — and not a real mask, which is the one place
+/// the two readings of the key differ.
+TEST(Myopia, AnEmptyArrowMaskIsRefused) {
+  Puzzle puzzle = test::board(open());
+  test::withMyopia(puzzle, 0, 0, 0);
+  EXPECT_EQ(structureProblem(puzzle), Problem::MyopiaArrows);
+}
+
+TEST(Myopia, AMaskBeyondTheFourArrowsIsRefused) {
+  Puzzle puzzle = test::board(open());
+  test::withMyopia(puzzle, 0, 0, kArrowMaskAll + 1);
+  EXPECT_EQ(structureProblem(puzzle), Problem::MyopiaArrows);
+}
+
+TEST(Myopia, EveryMaskFromOneToFifteenIsAccepted) {
+  for (int arrows = 1; arrows <= kArrowMaskAll; arrows++) {
+    Puzzle puzzle = test::board(open());
+    test::withMyopia(puzzle, 1, 1, arrows);
+    EXPECT_EQ(structureProblem(puzzle), Problem::None) << arrows;
+  }
+}
+
+/// Valueless like the lotus and the galaxy, so a number is refused rather than
+/// dropped — what stops the wasm boundary's `value` default from looking like
+/// part of the puzzle.
+TEST(Myopia, AValueIsRefused) {
+  Puzzle puzzle = test::board(open());
+  puzzle.clues.push_back({.index = cellIndex(0, 0),
+                          .kind = kClueMyopia,
+                          .value = 1,
+                          .direction = test::kArrowUp});
+  EXPECT_EQ(structureProblem(puzzle), Problem::MyopiaValue);
+}
+
+/// It sits at its square's own center and nowhere else, so a seat is refused
+/// generically — the check `carriesSeat` drives for every unseated kind.
+TEST(Myopia, ASeatIsRefused) {
+  Puzzle puzzle = test::board(open());
+  puzzle.clues.push_back({.index = cellIndex(0, 0),
+                          .kind = kClueMyopia,
+                          .direction = test::kArrowUp,
+                          .seat = 1});
+  EXPECT_EQ(structureProblem(puzzle), Problem::SeatOnWrongKind);
+}
+
+/// The lines run to the EDGE of the board and are cut by nothing — not by a
+/// gap, and not by the clue's own cell — which is what keeps two directions
+/// comparable. Both other walked kinds trim theirs one way or the other.
+TEST(Myopia, TheLinesRunToTheEdgeAndKeepEverythingOnThem) {
+  Puzzle puzzle = test::board({"..#..", ".....", "....."});
+  test::withMyopia(puzzle, 2, 1, kArrowMaskAll);
+  test::withShape(puzzle, {{2, 1}, {3, 1}});
+  const Model model = buildModel(puzzle);
+  ASSERT_EQ(model.walked.myopias.size(), 1U);
+  const Myopia &myopia = model.walked.myopias.front();
+  // Up crosses the gap directly above it and keeps counting past it.
+  EXPECT_EQ(myopia.rays[slot(kDirUp)].size(), 1U);
+  EXPECT_EQ(myopia.rays[slot(kDirUp)].front(), cellIndex(2, 0));
+  // Right keeps the square of its own merged cell, so what lies beyond is two
+  // away rather than one.
+  EXPECT_EQ(myopia.rays[slot(kDirRight)].size(), 2U);
+  EXPECT_EQ(myopia.rays[slot(kDirRight)].front(), cellIndex(3, 1));
+  EXPECT_EQ(myopia.rays[slot(kDirDown)].size(), 1U);
+  EXPECT_EQ(myopia.rays[slot(kDirLeft)].size(), 2U);
+}
+
+/// An arrow with no squares to point along can never find what it claims is
+/// nearest, and that is geometry rather than something a coloring decides.
+TEST(Myopia, AnArrowOffTheBoardIsAContradiction) {
+  Puzzle puzzle = test::board(open());
+  test::withMyopia(puzzle, 0, 0, test::kArrowUp);
+  ASSERT_EQ(structureProblem(puzzle), Problem::None);
+  EXPECT_EQ(contradiction(buildModel(puzzle)),
+            Problem::MyopiaArrowLeavesBoard);
+}
+
+/// The same clue one square in has its line, so the board is only refused for
+/// the arrow that really leaves it.
+TEST(Myopia, AnArrowWithSomewhereToPointIsNotOne) {
+  Puzzle puzzle = test::board(open());
+  test::withMyopia(puzzle, 0, 1, test::kArrowUp);
+  ASSERT_EQ(structureProblem(puzzle), Problem::None);
+  EXPECT_EQ(contradiction(buildModel(puzzle)), Problem::None);
+}
+
+/// A myopia clue is a symbol like any other for "one symbol per area", but it
+/// carries no number at all — so it must never reach the table reading a
+/// clue's value as its region's area, nor the one reading it as a letter.
+TEST(Myopia, AMyopiaIsNeitherAnAreaClueNorALetter) {
+  Puzzle puzzle = test::board(open());
+  test::withMyopia(puzzle, 0, 0, test::kArrowRight);
+  const Model model = buildModel(puzzle);
+  EXPECT_TRUE(model.areaClues.empty());
+  EXPECT_TRUE(model.letters.empty());
+  EXPECT_TRUE(model.walked.dartClues.empty());
+  EXPECT_EQ(model.walked.myopiaClues.size(), 1U);
+  EXPECT_EQ(model.areaValueAt(cellIndex(0, 0)), 0);
+  EXPECT_GE(model.clueAt[slot(cellIndex(0, 0))], 0);
+}
+
+/// Every problem this kind can name says something. The table is asserted
+/// against `Problem::Count` at compile time, so this is about the WORDING
+/// being reachable rather than about the entry existing.
+TEST(Myopia, EveryProblemHasAMessage) {
+  for (const Problem problem :
+       {Problem::MyopiaValue, Problem::MyopiaArrows,
+        Problem::MyopiaArrowLeavesBoard}) {
+    EXPECT_STRNE(describe(problem), "Unknown problem");
+  }
+}
+
 } // namespace

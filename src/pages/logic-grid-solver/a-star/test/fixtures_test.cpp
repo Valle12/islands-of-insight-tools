@@ -224,6 +224,49 @@ TEST(LogicGridFixtureIo, RefusesAGalaxyWithAValue) {
   EXPECT_THROW((void)fixtureio::load(file.path()), fixtureio::FixtureError);
 }
 
+/**
+ * A myopia clue serializes as position, kind and its arrow MASK — no value and
+ * no seat — and reads back identically.
+ *
+ * The direction half is what this is really for: the writer named the two
+ * kinds that carry one until this clue arrived, so an appended directed kind
+ * would have saved with no `direction` key at all, reloaded as -1, and been
+ * refused by `structureProblem` on a file the page had just written. The
+ * writer asks `carriesDirection` instead, which this pins.
+ */
+TEST(LogicGridFixtureIo, RoundTripsMyopiaArrows) {
+  nlohmann::json document = oneCellDocument();
+  constexpr int arrows = (1 << kDirUp) | (1 << kDirRight);
+  document["symbols"] = nlohmann::json::array({nlohmann::json{
+      {"x", 0}, {"y", 0}, {"type", kClueMyopia}, {"direction", arrows}}});
+  const TempFixture file(document);
+  const fixtureio::Fixture fixture = fixtureio::load(file.path());
+  ASSERT_EQ(fixture.puzzle.clues.size(), 1U);
+  EXPECT_EQ(fixture.puzzle.clues.front().kind, kClueMyopia);
+  EXPECT_EQ(fixture.puzzle.clues.front().direction, arrows);
+  fixtureio::save(file.path(), fixture);
+  // Read into a named value first: `readJson` returns a temporary, and a
+  // reference bound through `.at()` outlives it.
+  const nlohmann::json written = readJson(file.path());
+  const nlohmann::json &symbol = written.at("symbols").front();
+  EXPECT_EQ(symbol.at("type").get<int>(), kClueMyopia);
+  EXPECT_EQ(symbol.at("direction").get<int>(), arrows);
+  EXPECT_FALSE(symbol.contains("value"));
+  EXPECT_FALSE(symbol.contains("seat"));
+}
+
+/// Refused rather than dropped, the galaxy's rule for the same reason.
+TEST(LogicGridFixtureIo, RefusesMyopiaArrowsWithAValue) {
+  nlohmann::json document = oneCellDocument();
+  document["symbols"] = nlohmann::json::array({nlohmann::json{{"x", 0},
+                                                             {"y", 0},
+                                                             {"type", kClueMyopia},
+                                                             {"direction", 1},
+                                                             {"value", 0}}});
+  const TempFixture file(document);
+  EXPECT_THROW((void)fixtureio::load(file.path()), fixtureio::FixtureError);
+}
+
 /// The sized families round-trip: canonical in, identical out.
 TEST(LogicGridFixtureIo, RoundTripsSizedRules) {
   nlohmann::json document = oneCellDocument();

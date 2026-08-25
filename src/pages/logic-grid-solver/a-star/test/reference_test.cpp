@@ -26,6 +26,12 @@ namespace {
 
 using namespace lg;
 using rules::Rule;
+// Named rather than spelled as numbers: the board table below reads far better
+// saying which arrows a clue carries than what they add up to.
+using test::kArrowDown;
+using test::kArrowLeft;
+using test::kArrowRight;
+using test::kArrowUp;
 
 /// Squares fused into one merged cell, as the picture cannot say it.
 using Merge = std::vector<std::pair<int, int>>;
@@ -64,6 +70,14 @@ struct GalaxySpec {
   int seat = 0;
 };
 
+/// A myopia clue: where it sits and which arrows it carries, as a MASK of
+/// `kArrowUp`/`kArrowRight`/`kArrowDown`/`kArrowLeft`. No value and no seat.
+struct MyopiaSpec {
+  int x = 0;
+  int y = 0;
+  int arrows = 0;
+};
+
 struct Case {
   std::string name;
   std::vector<std::string> picture;
@@ -84,6 +98,7 @@ struct Case {
   std::vector<LotusSpec> lotuses;
   std::vector<ViewpointSpec> viewpoints;
   std::vector<GalaxySpec> galaxies;
+  std::vector<MyopiaSpec> myopias;
 };
 
 /// gtest appends `# GetParam() = …` to every discovered name, and without this
@@ -105,6 +120,7 @@ struct Board {
   std::vector<LotusSpec> lotuses;
   std::vector<ViewpointSpec> viewpoints;
   std::vector<GalaxySpec> galaxies;
+  std::vector<MyopiaSpec> myopias;
 };
 
 struct RuleSet {
@@ -353,6 +369,68 @@ std::vector<Case> allCases() {
        .picture = {"...", "...", "..."},
        .merges = {{{1, 1}, {2, 1}}},
        .galaxies = {{.x = 0, .y = 1, .seat = 1}}},
+      // Myopia arrows. Their propagator fences off every direction WITHOUT an
+      // arrow as far as the smallest surviving distance, and pins the arrowed
+      // squares once one distance survives alone — both of which remove real
+      // solutions if the surviving set is computed even slightly too small,
+      // and neither of which anything at runtime could notice. `Verify` only
+      // ever sees an answer that is not a solution, never a solution thrown
+      // away, so brute force is the whole net.
+      {.name = "myopia",
+       .picture = {"...", "...", "..."},
+       .myopias = {{.x = 1, .y = 1, .arrows = kArrowRight}}},
+      // The two arrow counts a quarter turn treats differently: an opposite
+      // pair swaps with the other pair, and the full mask turns onto itself.
+      {.name = "myopiaOpposite",
+       .picture = {"...", "...", "..."},
+       .myopias = {{.x = 1, .y = 1, .arrows = kArrowLeft | kArrowRight}}},
+      {.name = "myopiaAll",
+       .picture = {"...", "...", "..."},
+       .myopias = {{.x = 1, .y = 1, .arrows = kArrowMaskAll}}},
+      // Two arrows at RIGHT ANGLES, the set an opposite-pairs-only reading
+      // could not spell — and the one whose fence is asymmetric.
+      {.name = "myopiaCorner",
+       .picture = {"...", "...", "..."},
+       .myopias = {{.x = 1, .y = 1, .arrows = kArrowUp | kArrowRight}}},
+      // Three of the four, so exactly one direction is fenced.
+      {.name = "myopiaThree",
+       .picture = {"...", "...", "..."},
+       .myopias = {{.x = 1, .y = 1,
+                    .arrows = kArrowMaskAll ^ kArrowDown}}},
+      // An arrow pointing off the EDGE of its own board, which is a
+      // contradiction rather than a constraint — and must be counted as zero
+      // solutions rather than found impossible for the wrong reason.
+      {.name = "myopiaOffBoard",
+       .picture = {"...", "...", "..."},
+       .myopias = {{.x = 1, .y = 0, .arrows = kArrowUp}}},
+      // A line crossing a gap, which it steps over while still counting it —
+      // the reading that decides which of two directions is nearer.
+      {.name = "myopiaGap",
+       .picture = {".#.", "...", "..."},
+       .myopias = {{.x = 0, .y = 0, .arrows = kArrowDown}}},
+      // A clue ON a merged cell, whose own squares lie along its own lines.
+      {.name = "myopiaOnCell",
+       .picture = {"...", "...", "..."},
+       .merges = {{{0, 0}, {0, 1}}},
+       .myopias = {{.x = 0, .y = 0, .arrows = kArrowRight}}},
+      // ...and a merged cell ACROSS one, which the distance counts once per
+      // square rather than once per cell.
+      {.name = "myopiaOverCell",
+       .picture = {"...", "...", "..."},
+       .merges = {{{1, 0}, {2, 0}}},
+       .myopias = {{.x = 0, .y = 0, .arrows = kArrowRight}}},
+      // Two of them, whose fences overlap: each one's arrow constrains the
+      // other's lines, which no single-clue argument covers.
+      {.name = "twoMyopias",
+       .picture = {"...", "...", "..."},
+       .myopias = {{.x = 0, .y = 0, .arrows = kArrowRight},
+                   {.x = 2, .y = 2, .arrows = kArrowUp}}},
+      // A myopia clue beside a DART, so the counting propagator and the
+      // distance one paint into each other's lines.
+      {.name = "myopiaAndDart",
+       .picture = {"...", "...", "..."},
+       .darts = {{.x = 0, .y = 0, .value = 1, .direction = kDirRight}},
+       .myopias = {{.x = 2, .y = 2, .arrows = kArrowUp | kArrowLeft}}},
       // A merged cell may carry SEVERAL clues, one per square — the game's
       // harder boards put two darts on one domino. The next five are that
       // capability across the kinds, brute force refereeing what each
@@ -399,6 +477,11 @@ std::vector<Case> allCases() {
       {.name = "bothRuns5", .rules = {NoDark1x5, NoLight1x5}},
       {.name = "oneSymbolDark", .rules = {OneSymbolDark}},
       {.name = "oneSymbolBoth", .rules = {OneSymbolDark, OneSymbolLight}},
+      // The captured 11x11's exact rule shape — no-dark-2x2 + connect-dark +
+      // one-symbol-light over area and letter clues — and the set that turns
+      // the profile block on for the frontier's new per-class demands.
+      {.name = "squareConnectOneSymbol",
+       .rules = {NoDark2x2, ConnectDark, OneSymbolLight}},
       {.name = "oneSymbolAndSquares",
        .rules = {OneSymbolDark, OneSymbolLight, NoDark2x2}},
       // The area rules are the first whose propagator paints from a "must be at
@@ -590,6 +673,13 @@ std::vector<Case> allCases() {
       // value. Only the wide7 board can even instantiate it; everywhere else
       // it must be a proven no-op, which is exactly a referee's question.
       {.name = "runSixDark", .runs = {{.color = kDark, .value = 6}}},
+      // A run of FOUR beside connect-dark — the first captured 16x16's exact
+      // instance shape, and the one the profile sweep now compiles in. Every
+      // board × this set referees the sweep's vertical (history-borne)
+      // orientation against brute force wherever `applicable` says yes.
+      {.name = "runFourAndConnect",
+       .rules = {ConnectDark},
+       .runs = {{.color = kDark, .value = 4}}},
       // An area-one/area-two mix on ONE color: satisfied only where dark is
       // absent, like every same-color pair, but reached through the area-one
       // gate rather than around it.
@@ -679,7 +769,7 @@ std::vector<Case> allCases() {
 
   std::vector<Case> cases;
   for (const auto &[boardName, picture, merges, darts, lotuses, viewpoints,
-                    galaxies] : boards) {
+                    galaxies, myopias] : boards) {
     for (const auto &[ruleSetName, ruleList, areaList, runList, patternList] :
          ruleSets)
       cases.push_back({.name = std::string(boardName) + "_" + ruleSetName,
@@ -692,7 +782,8 @@ std::vector<Case> allCases() {
                        .darts = darts,
                        .lotuses = lotuses,
                        .viewpoints = viewpoints,
-                       .galaxies = galaxies});
+                       .galaxies = galaxies,
+                       .myopias = myopias});
   }
   return cases;
 }
@@ -730,6 +821,8 @@ Puzzle puzzleFor(const Case &one) {
     test::withViewpoint(puzzle, x, y, value);
   for (const auto &[x, y, seat] : one.galaxies)
     test::withGalaxy(puzzle, x, y, seat);
+  for (const auto &[x, y, arrows] : one.myopias)
+    test::withMyopia(puzzle, x, y, arrows);
   return puzzle;
 }
 

@@ -61,6 +61,11 @@ void announce(const Config &cfg, const char *name) {
  */
 Outcome runCascade(const Model &model, const Config &cfg) {
   if (model.hasRule(rules::Rule::Underclued)) {
+    // Both arms share ONE deadline, like the clued cascade below: a sweep
+    // that fills its byte budget before declining can eat half a minute, and
+    // handing `forced` a fresh full window after it took this arm to double
+    // the page's per-arm budget on exactly the boards that already run long.
+    const uint64_t deadline = deadlineFrom(cfg.maxMs);
     // The sweep first, where it applies. It enumerates the whole space, so it
     // reads the forced set straight off one backward pass instead of proving
     // each candidate cell with its own search — and a letter-only board with no
@@ -69,7 +74,8 @@ Outcome runCascade(const Model &model, const Config &cfg) {
     // now answer in milliseconds.
     if (cfg.seed == 0 && profile::applicable(model)) {
       announce(cfg, "profile");
-      const Config sweepCfg = withBudget(cfg, cfg.maxMs);
+      const Config sweepCfg =
+          withBudget(cfg, legBudget(cfg.maxMs, 100, deadline));
       if (Outcome swept = profile::runProfileForced(model, sweepCfg);
           swept.status == Status::Deduced ||
           swept.status == Status::Unsolvable) {
@@ -78,7 +84,9 @@ Outcome runCascade(const Model &model, const Config &cfg) {
       }
     }
     announce(cfg, "forced");
-    Outcome outcome = runForced(model, cfg);
+    const Config forcedCfg =
+        withBudget(cfg, legBudget(cfg.maxMs, 100, deadline));
+    Outcome outcome = runForced(model, forcedCfg);
     outcome.arm = "cascade:forced";
     return outcome;
   }
@@ -149,8 +157,17 @@ Outcome runCascade(const Model &model, const Config &cfg) {
   // started at all in the in-module race, for the same reason.
   if (cfg.seed == 0 && profile::applicable(model)) {
     announce(cfg, "profile");
+    // HALF the remaining budget — the one leg of this cascade that ran
+    // unsliced. A wide-but-admissible board (scan width 13-14 with history)
+    // grows its layers slower than the memory wall, so a time-bounded sweep
+    // could eat the whole arm and leave the DFS nothing. Bounding it costs
+    // nothing measured: the corpus diff is empty (`logicGridTest67` needs
+    // ~45 s in the browser of the ~60 the half still gives it), and
+    // spot-probing the big-sparse campaign's 20x14 clued classes found their
+    // unsolved tail unchanged either way — those boards are hard for the DFS
+    // itself, not merely starved.
     const Config profileCfg =
-        withBudget(cfg, legBudget(cfg.maxMs, 100, deadline));
+        withBudget(cfg, legBudget(cfg.maxMs, 50, deadline));
     Outcome swept = profile::runProfile(model, profileCfg);
     if (swept.status == Status::Solved ||
         swept.status == Status::Unsolvable) {

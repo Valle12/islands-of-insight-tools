@@ -581,6 +581,43 @@ h2 {
   rotate: 45deg;
 }
 
+/* ---------------------------------------------------------------- rays --
+ *
+ * A myopia clue's arrows are ONE `<svg>` holding ONE path, drawn by
+ * `rayShape.ts` — see that file for why they cannot be four glyphs turned into
+ * place, which is `shapeOutline.ts`' story over again. Everything the four of
+ * them needed from this stylesheet went with them: the turns, the push that
+ * put each tail on the middle, the overlap that stopped the joint rounding
+ * apart, and the transparency group that took the color fringes off. The path
+ * has no seam to hide and no glyph to grid-fit, so all that is left is how big
+ * it is.
+ *
+ * `--ray-span` is the whole box, and the arrows reach half of it — so it has
+ * to stay under a cell, not under half of one. The box is centred on the tile
+ * rather than sized to the ink, which is what keeps a single arrow drawn from
+ * the middle outward: that is the clue's own sentence, from here, that way.
+ */
+[data-rays] {
+  position: relative;
+}
+
+.cell-ray {
+  --ray-span: 32px;
+
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: var(--ray-span);
+  height: var(--ray-span);
+  /* Painted in the cell's own ink, like every other glyph on a tile. */
+  fill: currentColor;
+  /* The tips run to the edge of the box and a stroke would round outside it;
+     nothing here is stroked, and saying so keeps it that way. */
+  stroke: none;
+  pointer-events: none;
+}
+
+
 /**
  * A SEAT slides the glyph onto the cell's grid lines: half a square plus half
  * a seam right for bit 0, down for bit 1. `translate` and `rotate` are
@@ -1340,6 +1377,11 @@ h2 {
   grid-template-rows: repeat(var(--pattern-height, 2), 32px);
   gap: 2px;
   justify-content: start;
+  /* Both for the same reason `#grid` has them: a shape is DRAWN here, so a
+     press and drag has to paint rather than select the squares it crosses or
+     scroll the dialog under the finger. */
+  user-select: none;
+  touch-action: none;
 }
 
 /* The board's own idiom, because these squares mean the same three things it
@@ -1451,9 +1493,43 @@ h2 {
   --chevron-size: 9px;
 }
 
+/* A rays chip is a miniature too, and its arrows need a box to meet in — the
+   inline sample span is not one, so it becomes a small tile of its own,
+   exactly as the viewpoint's ring does. The meeting point stays at the middle
+   of that tile, like a placed clue's: centering the pair on its own bounding
+   box instead was tried, and reads worse than the chip sitting where every
+   other glyph in the row sits. */
+.symbol-sample[data-rays] {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+}
+
+/* Bigger than a tile's share of its cell, and therefore thicker: the stroke is
+   a fixed part of the path, so weight comes from the span alone. The chip is
+   read at a glance beside six others and has a whole 40px button to itself,
+   where a tile's arrows have to leave room inside a 42px square. */
+.symbol-sample .cell-ray {
+  --ray-span: 30px;
+}
+
+
 /* The picker's own arrows are the same glyph, turned by the same rules. */
 .direction-toggle .cell-arrow {
   --arrow-size: 22px;
+}
+
+/* A ray toggle holds ONE arrow, boxed tight to its own outline by
+   `rayIconViewBox` — so it sits in the middle of its button with no centring
+   to do, and stands inline rather than filling a tile. */
+.direction-toggle .cell-ray {
+  --ray-span: 20px;
+
+  position: relative;
+  inset: auto;
+  margin: 0;
 }
 
 /* One control per clue kind, in the shape of a Material split button: the chip
@@ -1762,6 +1838,10 @@ h2 {
   cursor: default;
 }
 
+#solution-grid .cell-ray {
+  cursor: default;
+}
+
 /* A cell the solver worked out, as opposed to one that was already on the
    board when Solve was pressed. On an underclued board that difference is the
    whole answer, so it is worth showing. */
@@ -1835,6 +1915,11 @@ h2 {
 
   .grid-cell .cell-galaxy {
     --galaxy-size: 25px;
+  }
+
+  /* And the myopia arrows, which share the same square with nothing else. */
+  .grid-cell .cell-ray {
+    --ray-span: 26px;
   }
 
   .grid-cell[data-direction][data-label-length="2"] {

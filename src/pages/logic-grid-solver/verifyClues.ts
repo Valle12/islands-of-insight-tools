@@ -9,7 +9,13 @@
 
 import type { LogicGridTest } from "../../util/types";
 import { DARK, LIGHT, UNPLAYABLE } from "./cell";
-import { AXIS_COUNT, directionAt, SEAT_COUNT } from "./symbols";
+import {
+  AXIS_COUNT,
+  DIRECTIONS,
+  directionAt,
+  isRayMask,
+  SEAT_COUNT,
+} from "./symbols";
 import {
   at,
   DART_SYMBOL,
@@ -19,6 +25,7 @@ import {
   HORIZONTAL_AXIS,
   LOTUS_SYMBOL,
   matchesCount,
+  MYOPIA_SYMBOL,
   region,
   VERTICAL_AXIS,
   VIEWPOINT_SYMBOL,
@@ -335,10 +342,86 @@ function lotusProblem(
   return "none";
 }
 
+/**
+ * How far along its line the nearest square of `other` lies — 1 for the very
+ * next one — or 0 where the line holds none at all.
+ *
+ * The line runs to the edge of the board and steps OVER a gap rather than
+ * stopping at it, exactly as a dart's does: an unplayable square is never the
+ * other color, so it is skipped without being skipped over, and it still
+ * counts toward the distance. Squares of the clue's own cell go the same way,
+ * being the clue's own color by definition — so a merged cell along the line
+ * pushes the answer out by every square of itself the line crosses, which is
+ * the honest reading of "how far away".
+ */
+function nearestOther(
+  config: LogicGridTest,
+  cells: number[],
+  from: { x: number; y: number },
+  step: { dx: number; dy: number },
+  other: number,
+): number {
+  let distance = 0;
+  for (
+    let x = from.x + step.dx, y = from.y + step.dy;
+    x >= 0 && x < config.gridWidth && y >= 0 && y < config.gridHeight;
+    x += step.dx, y += step.dy
+  ) {
+    distance++;
+    if (at(config, cells, x, y) === other) return distance;
+  }
+  return 0;
+}
+
+/**
+ * Every myopia clue's arrows name EXACTLY the directions in which the nearest
+ * square of the other color is nearest.
+ *
+ * So an arrow direction holds one at the minimum distance, and a direction
+ * without an arrow holds its own no closer than one square further — or holds
+ * none at all, which is why "no arrow" is weaker than "nothing that way". The
+ * clue itself is colorless, like the dart: what counts as the other color is
+ * read off its own square, so the same arrows mean different things on a dark
+ * cell and a light one.
+ *
+ * A clue whose line holds no other-colored square in ANY direction has no
+ * minimum to point at, and its arrows are therefore unsatisfiable — the one
+ * case with no coloring at all rather than a wrong one.
+ *
+ * Walked from the clue like everything in this file: this is the one place
+ * that says out loud how far a myopia clue can see.
+ */
+function myopiaProblem(
+  config: LogicGridTest,
+  cells: number[],
+): LogicGridViolation {
+  for (const symbol of config.symbols) {
+    if (symbol.type !== MYOPIA_SYMBOL) continue;
+    const arrows = symbol.direction;
+    if (!isRayMask(arrows)) return "myopia";
+
+    const own = at(config, cells, symbol.x, symbol.y);
+    const other = own === DARK ? LIGHT : DARK;
+    const distances = DIRECTIONS.map(step =>
+      nearestOther(config, cells, symbol, step, other),
+    );
+    const seen = distances.filter(distance => distance > 0);
+    if (seen.length === 0) return "myopia";
+
+    const nearest = Math.min(...seen);
+    for (const [index, distance] of distances.entries()) {
+      const arrowed = ((arrows as number) & (1 << index)) !== 0;
+      if (arrowed !== (distance === nearest)) return "myopia";
+    }
+  }
+  return "none";
+}
+
 /** The clue geometries, in the order `verifyLogicGrid` asks them. */
 export const CLUE_CHECKS: readonly RuleCheck[] = [
   dartProblem,
   lotusProblem,
   galaxyProblem,
   viewpointProblem,
+  myopiaProblem,
 ];

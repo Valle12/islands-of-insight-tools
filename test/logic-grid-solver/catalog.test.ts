@@ -21,7 +21,13 @@ import {
   MIN_AREA_VALUE,
   parseSymbolValue,
   SEAT_COUNT,
+  DEFAULT_RAYS,
+  isRayMask,
+  RAY_MASK_ALL,
+  raysOf,
   symbolDirectionError,
+  toggledRay,
+  turnedRays,
   SYMBOL_KIND_COUNT,
   SYMBOL_KINDS,
   symbolKindAt,
@@ -229,6 +235,7 @@ const SYMBOL_ORDER: [number, string][] = [
   [3, "lotus"],
   [4, "viewpoint"],
   [5, "galaxy"],
+  [6, "myopia"],
 ];
 
 /** The four axes reuse the `direction` key, so their order is frozen too. */
@@ -624,6 +631,7 @@ describe("symbolValueError", () => {
       ["lotus", "cell"],
       ["viewpoint", "none"],
       ["galaxy", "board"],
+      ["myopia", "none"],
     ]);
   });
 });
@@ -666,6 +674,71 @@ describe("symbolDirectionError", () => {
     expect(symbolDirectionError(lotus, undefined)).toBe(
       `Symmetry directions must be integers between 0 and ${AXIS_COUNT - 1}.`,
     );
+  });
+
+  /**
+   * The myopia clue reuses the same key a THIRD way, as a mask of the four —
+   * so its bounds start at one rather than zero, an arrowless clue saying
+   * nothing at all, and run to fifteen.
+   */
+  test("a rays-aimed kind takes a mask of the four in the same key", () => {
+    const myopia = symbolKindAt(6)!;
+    for (let mask = 1; mask <= RAY_MASK_ALL; mask++) {
+      expect(symbolDirectionError(myopia, mask)).toBeNull();
+    }
+    for (const value of [undefined, 0, -1, RAY_MASK_ALL + 1, 1.5, "up"]) {
+      expect(symbolDirectionError(myopia, value)).toBe(
+        `Myopia arrows must be integers between 1 and ${RAY_MASK_ALL}.`,
+      );
+    }
+  });
+});
+
+/**
+ * The mask arithmetic the four toggles and the re-click are built from. All of
+ * it is derived from `DIRECTIONS`, so the bits mean what that catalog says.
+ */
+describe("ray masks", () => {
+  test("every direction at once is the largest mask", () => {
+    expect(RAY_MASK_ALL).toBe((1 << DIRECTION_COUNT) - 1);
+    expect(DEFAULT_RAYS).toBe(1);
+  });
+
+  test("a mask names its own directions, in catalog order", () => {
+    expect(raysOf(1).map(one => one.id)).toEqual(["up"]);
+    expect(raysOf(RAY_MASK_ALL).map(one => one.id)).toEqual(
+      DIRECTIONS.map(one => one.id),
+    );
+    expect(raysOf(1 | 4).map(one => one.id)).toEqual(["up", "down"]);
+  });
+
+  test("only a non-empty mask is one", () => {
+    expect(isRayMask(0)).toBeFalse();
+    expect(isRayMask(1)).toBeTrue();
+    expect(isRayMask(RAY_MASK_ALL)).toBeTrue();
+    expect(isRayMask(RAY_MASK_ALL + 1)).toBeFalse();
+  });
+
+  /** The last arrow will not switch off: a clue with none is not a clue, and
+   * a picker that could reach that state would have to refuse the stroke
+   * somewhere further along instead. */
+  test("toggling flips one arrow and never empties the set", () => {
+    expect(toggledRay(1, 1)).toBe(1 | 2);
+    expect(toggledRay(1 | 2, 1)).toBe(1);
+    expect(toggledRay(1, 0)).toBe(1);
+  });
+
+  /** A quarter turn clockwise is one bit's rotate, which `DIRECTIONS`' own
+   * order is what makes true. The full mask turns onto itself. */
+  test("turning rotates the whole set a quarter clockwise", () => {
+    expect(turnedRays(1)).toBe(2);
+    expect(turnedRays(8)).toBe(1);
+    expect(turnedRays(1 | 4)).toBe(2 | 8);
+    expect(turnedRays(RAY_MASK_ALL)).toBe(RAY_MASK_ALL);
+    // Four turns are the identity for every mask there is.
+    for (let mask = 1; mask <= RAY_MASK_ALL; mask++) {
+      expect(turnedRays(turnedRays(turnedRays(turnedRays(mask))))).toBe(mask);
+    }
   });
 });
 

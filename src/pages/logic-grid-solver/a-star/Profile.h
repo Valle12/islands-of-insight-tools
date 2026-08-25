@@ -38,17 +38,20 @@ namespace lg::profile {
 /**
  * Whether this board is one the sweep can take.
  *
- * Two things are out of scope, and both are refusals rather than silent wrong
- * answers:
+ * It admits on two criteria. ARRANGEMENTS: every rule, run instance and drawn
+ * pattern whose whole content is "this shape never occurs", read off the
+ * frontier plus a few history bits. REGION content expressible as per-CLASS
+ * state with an exact merge and close rule: letters (a tag), area CLUES (a
+ * size demand on whichever class absorbs the cell, counted and met exactly at
+ * close), the one-symbol rules (a bit; two symbols may never meet, a closing
+ * region must hold one), the connect rules, and darts on painted squares.
  *
- *   - **Area clues.** An exact region size would have to be carried per open
- *     region, and the state count is multiplied by the size range for every one
- *     of them. Deciding that is a different design, not a bigger constant.
- *   - **The pattern rules** (2x2, the runs, checkerboard). They are perfectly
- *     expressible — each needs the cell diagonally behind the frontier, or a
- *     per-column run counter — but boards carrying them are exactly the boards
- *     propagation already finishes in milliseconds, so the sweep would buy
- *     nothing and cost state. The connectivity rules ARE handled.
+ * Still out of scope, refusals rather than silent wrong answers: an area RULE
+ * instance (a size demanded of every region of the color, with no cell to
+ * anchor the demand on — the recorded follow-up, riding the same counters),
+ * the region-shape rules, `OffByOne` (every demand becomes a two-value set),
+ * and the walked clue kinds, whose geometry crosses rows the frontier has
+ * already forgotten.
  *
  * A gate that is wrong in the PERMISSIVE direction is a correctness bug, not a
  * slow path, so it is written as a whitelist. `Verify` gates the witness

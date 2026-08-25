@@ -8,9 +8,15 @@ export type LogicGridValueKind = "number" | "letter" | "none";
  * What a kind's `direction` key means, and therefore which picker it gets.
  * `"none"` carries no key at all; `"compass"` is the dart's four ways to
  * point; `"axis"` is the lotus's four ways a symmetry line can lie —
- * 45-degree clockwise turns from horizontal, reusing the same key.
+ * 45-degree clockwise turns from horizontal, reusing the same key; `"rays"`
+ * is the myopia clue's SET of directions, the four `DIRECTIONS` bits packed
+ * into that same key as a mask of 1..15.
+ *
+ * Three meanings for one key, which is why every reader dispatches on this
+ * field and never on an id: a mask of 5 is a compass direction no dart has
+ * and an axis no lotus has, so a branch that guessed would be wrong quietly.
  */
-export type LogicGridAims = "none" | "compass" | "axis";
+export type LogicGridAims = "none" | "compass" | "axis" | "rays";
 
 /**
  * Where a clue's own POINT may sit, and therefore whether it carries a `seat`
@@ -196,6 +202,26 @@ export const SYMBOL_KINDS: readonly LogicGridSymbolKind[] = [
     reach: "board",
     icon: GALAXY_ICON,
   },
+  {
+    id: "myopia",
+    label: "Myopia",
+    // Unused like every drawn kind's: a rays-aimed chip is a `dressClue`
+    // miniature of the tile, non-empty only because every kind must bring a
+    // sample.
+    sample: "M",
+    // Valueless: the arrows say WHICH way the nearest opposite color lies and
+    // never how far, so there is no number to show and none to type.
+    valueKind: "none",
+    minValue: 0,
+    // The first kind to carry a SET of directions rather than one. Its mask
+    // is 1..15, so every non-empty subset is spellable — including the
+    // adjacent pairs, which a real board reaches whenever the nearest
+    // opposite color is equally close two ways round a corner.
+    aims: "rays",
+    seating: "none",
+    // Inert: a valueless kind has no number for any reach to bound.
+    reach: "board",
+  },
 ];
 
 /** How many clue kinds a puzzle can draw from — every known one. */
@@ -265,6 +291,67 @@ export function directionAt(index: number): LogicGridDirection | undefined {
 /** The position of a direction by its stable id, or -1. */
 export function directionIndex(id: string | undefined): number {
   return DIRECTIONS.findIndex(direction => direction.id === id);
+}
+
+/**
+ * Every direction at once — the largest arrow mask, and the bound the
+ * validator names. Derived from `DIRECTION_COUNT` rather than written as 15,
+ * so the two cannot drift.
+ */
+export const RAY_MASK_ALL = (1 << DIRECTION_COUNT) - 1;
+
+/** One arrow, pointing up: the mask an armed myopia clue offers before any
+ * toggle is touched, matching `DEFAULT_DIRECTION`'s reasoning. */
+export const DEFAULT_RAYS = 1;
+
+/**
+ * The arrow set the kind's own CHIP is drawn in — all four.
+ *
+ * Deliberately not `DEFAULT_RAYS`, which is what an armed clue starts out
+ * holding. The chip is an identity picture rather than a state display — the
+ * dart's is always drawn pointing up whichever way the armed dart points — and
+ * one arrow there reads as "an arrow", which is a picture of a DART. The whole
+ * set is what the kind IS: a clue that names directions rather than one, and
+ * the four together are the only drawing of it that cannot be read as some
+ * other clue holding some particular aim.
+ */
+export const SAMPLE_RAYS = RAY_MASK_ALL;
+
+/** Whether `mask` names at least one direction and no more than the four. An
+ * arrowless myopia says nothing at all, which is why 0 is not a mask. */
+export function isRayMask(mask: unknown): boolean {
+  return (
+    Number.isInteger(mask) &&
+    (mask as number) >= 1 &&
+    (mask as number) <= RAY_MASK_ALL
+  );
+}
+
+/** The directions `mask` names, in catalog order. */
+export function raysOf(mask: number): LogicGridDirection[] {
+  return DIRECTIONS.filter((_, index) => (mask & (1 << index)) !== 0);
+}
+
+/**
+ * `mask` with one direction flipped — the four toggles' whole behavior.
+ *
+ * Turning the LAST arrow off is refused rather than allowed and then rejected:
+ * a myopia clue with no arrows is not a clue, and a picker that could reach
+ * that state would have to stop the stroke somewhere further along instead.
+ */
+export function toggledRay(mask: number, index: number): number {
+  const next = mask ^ (1 << index);
+  return next === 0 ? mask : next;
+}
+
+/**
+ * The same arrow set turned a quarter CLOCKWISE, which is what `DIRECTIONS`'
+ * own order makes a one-bit rotate. Every mask has an orientation except the
+ * full one, which turns onto itself — so re-clicking a four-arrow clue does
+ * nothing, there being nowhere else for it to point.
+ */
+export function turnedRays(mask: number): number {
+  return ((mask << 1) | (mask >> (DIRECTION_COUNT - 1))) & RAY_MASK_ALL;
 }
 
 export interface LogicGridAxis {
@@ -432,6 +519,13 @@ export function symbolDirectionError(
     return direction === undefined
       ? null
       : `Only a directed symbol carries a direction, and ${kind.label} is not one.`;
+  }
+  // A SET of directions rather than one of them, so the bound is the mask's
+  // and the word is "arrows" — the same key, read the way the kind says.
+  if (kind.aims === "rays") {
+    return isRayMask(direction)
+      ? null
+      : `${kind.label} arrows must be integers between 1 and ${RAY_MASK_ALL}.`;
   }
   const ok =
     Number.isInteger(direction) &&

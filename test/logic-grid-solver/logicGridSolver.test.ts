@@ -19,7 +19,10 @@ import {
 } from "../../src/pages/logic-grid-solver/config";
 import { LogicGridSolverEditor } from "../../src/pages/logic-grid-solver/logicGridSolver";
 import { RULE_ROW, RULES } from "../../src/pages/logic-grid-solver/rules";
-import { SYMBOL_KINDS } from "../../src/pages/logic-grid-solver/symbols";
+import {
+  SAMPLE_RAYS,
+  SYMBOL_KINDS,
+} from "../../src/pages/logic-grid-solver/symbols";
 import type { LogicGridTest } from "../../src/util/types";
 
 /**
@@ -168,6 +171,15 @@ describe("LogicGridSolverEditor", () => {
   /** The split control as a whole — chip, divider and field. */
   const symbolTool = (index: number) =>
     valueField(index).closest(".symbol-tool")!;
+
+  /** One of the myopia clue's four arrow toggles, by the direction it flips.
+   * By id rather than through `symbolTool`, which finds a control by its VALUE
+   * field — and a valueless kind has none. */
+  const rayToggleOf = (direction: string) =>
+    document.querySelector<HTMLButtonElement>(
+      `#symbol-row .symbol-tool[data-symbol="myopia"] ` +
+        `.direction-toggle[data-ray="${direction}"]`,
+    )!;
 
   function press(x: number, y: number, button = 0) {
     cellAt(x, y).dispatchEvent(
@@ -365,6 +377,39 @@ describe("LogicGridSolverEditor", () => {
       expect(sample.dataset.icon).toBe("");
       expect(sample.querySelector("md-icon")?.textContent).toBe("cyclone");
     });
+
+    /** The myopia clue is valueless too, but AIMED — so its control is the
+     * chip and four toggles with no field between. */
+    test("gives the myopia clue arrows and no field", () => {
+      const tool = document.querySelector<HTMLElement>(
+        '#symbol-row .symbol-tool[data-symbol="myopia"]',
+      )!;
+      expect(tool.querySelector(".symbol-value")).toBeNull();
+      expect(tool.querySelectorAll(".direction-toggle")).toHaveLength(4);
+      expect(tool.querySelectorAll(".symbol-sample svg.cell-ray")).toHaveLength(
+        1,
+      );
+    });
+
+    /**
+     * The chip is drawn holding ALL FOUR arrows rather than the one an armed
+     * clue starts with: it is an identity picture, and a single arrow there is
+     * a picture of a dart rather than of this kind. It also stays put while
+     * the armed set changes, exactly as the dart's chip does.
+     */
+    test("draws the myopia chip as a four-arrow icon, whatever is armed", () => {
+      const sample = document.querySelector<HTMLElement>(
+        '#symbol-row .symbol-tool[data-symbol="myopia"] .symbol-sample',
+      )!;
+      expect(sample.dataset.rays).toBe(String(SAMPLE_RAYS));
+      // One subpath per arrow, of the chip's one path.
+      const drawn = sample.querySelector("svg.cell-ray path")!;
+      expect(drawn.getAttribute("d")?.match(/M/g)).toHaveLength(4);
+
+      symbolChips()[6]!.click();
+      rayToggleOf("down").click();
+      expect(sample.dataset.rays).toBe(String(SAMPLE_RAYS));
+    });
   });
 
   describe("Tool selection", () => {
@@ -535,6 +580,116 @@ describe("LogicGridSolverEditor", () => {
       expect(valueField(DART).getAttribute("max")).toBe("5");
       setSize("3", "2");
       expect(valueField(DART).getAttribute("max")).toBe("2");
+    });
+  });
+
+  /**
+   * The myopia clue's picker is the first whose segments are NOT exclusive:
+   * the clue names a SET, so each toggle flips its own arrow and the lit ones
+   * are read off the mask rather than compared to it.
+   */
+  describe("Myopia arrows", () => {
+    const MYOPIA = 6;
+    // By id rather than through `symbolTool`, which finds a control by its
+    // VALUE field — and a valueless kind has none.
+    const myopiaTool = () =>
+      document.querySelector<HTMLElement>(
+        '#symbol-row .symbol-tool[data-symbol="myopia"]',
+      )!;
+    const rays = () => [
+      ...myopiaTool().querySelectorAll<HTMLButtonElement>(".direction-toggle"),
+    ];
+    const lit = () =>
+      rays()
+        .map((one, index) => (one.classList.contains("selected") ? index : -1))
+        .filter(index => index >= 0);
+
+    /** They are pickers like the dart's arrows and the lotus's axes, so they
+     * share the class — and, like both, they are not clue chips. */
+    test("has four toggles that are not clue chips", () => {
+      expect(rays()).toHaveLength(4);
+      expect(symbolChips()).toHaveLength(SYMBOL_KINDS.length);
+      expect(rays().map(one => one.dataset.ray)).toEqual([
+        "up",
+        "right",
+        "down",
+        "left",
+      ]);
+    });
+
+    /**
+     * Each toggle draws its OWN arrow, turned in the path rather than by the
+     * stylesheet — so the four are four different pictures, and the picker
+     * cannot come to show four copies of one. Drawn from the same
+     * `rayShape.ts` the tile uses, which is what stops the two drifting.
+     */
+    test("each toggle draws its own direction", () => {
+      const drawn = rays().map(one =>
+        one.querySelector("svg.cell-ray path")?.getAttribute("d"),
+      );
+      expect(drawn.every(one => Boolean(one))).toBeTrue();
+      expect(new Set(drawn).size).toBe(4);
+    });
+
+    /** Nothing shows until the kind is armed, and then the FIRST arrow —
+     * `DEFAULT_RAYS`, the single up arrow. */
+    test("shows no arrows until armed, then the first one", () => {
+      expect(lit()).toEqual([]);
+      symbolChips()[MYOPIA]!.click();
+      expect(lit()).toEqual([0]);
+      expect(rays()[0]!.getAttribute("aria-pressed")).toBe("true");
+    });
+
+    /** Each click flips ONE arrow and leaves the rest, which is what makes
+     * all fifteen sets reachable a click at a time. */
+    test("each toggle flips its own arrow", () => {
+      symbolChips()[MYOPIA]!.click();
+      rays()[1]!.click();
+      expect(lit()).toEqual([0, 1]);
+      rays()[3]!.click();
+      expect(lit()).toEqual([0, 1, 3]);
+      rays()[1]!.click();
+      expect(lit()).toEqual([0, 3]);
+    });
+
+    /** A clue with no arrows says nothing, so the last one will not go out. */
+    test("the last arrow cannot be switched off", () => {
+      symbolChips()[MYOPIA]!.click();
+      rays()[0]!.click();
+      expect(lit()).toEqual([0]);
+    });
+
+    /** Aiming is a declaration of intent to place, exactly as typing is —
+     * and an ARMING click starts the pick at the clicked arrow alone, never
+     * a toggle against whatever the mask held while it was dark. */
+    test("clicking an arrow selects the kind and stamps that arrow", () => {
+      rays()[2]!.click();
+      expect(myopiaTool().classList.contains("selected")).toBeTrue();
+      expect(lit()).toEqual([2]);
+      press(1, 1);
+      expect(cellAt(1, 1).dataset.rays).toBe("4");
+    });
+
+    /** The set goes dark with the chip and does NOT come back: re-arming
+     * through the chip starts over at the default first arrow, so what any
+     * later click does never depends on a mask nobody can see. */
+    test("leaving the kind resets the set", () => {
+      symbolChips()[MYOPIA]!.click();
+      rays()[3]!.click();
+      symbolChips()[0]!.click();
+      expect(lit()).toEqual([]);
+      symbolChips()[MYOPIA]!.click();
+      expect(lit()).toEqual([0]);
+    });
+
+    /** The trap the reset exists for: re-arming through an arrow that WAS in
+     * the old set must select it, never toggle it off. */
+    test("re-arming through a previously picked arrow selects only it", () => {
+      symbolChips()[MYOPIA]!.click();
+      rays()[3]!.click();
+      symbolChips()[0]!.click();
+      rays()[3]!.click();
+      expect(lit()).toEqual([3]);
     });
   });
 
@@ -836,6 +991,12 @@ describe("LogicGridSolverEditor", () => {
    */
   describe("Solve", () => {
     let reply: Record<string, unknown> | null;
+    /** Posted before `reply`, when a test wants a mid-solve progress line. */
+    let progressBefore: Record<string, unknown> | null;
+    /** How many stub workers answer at all — the rest stay silent, as a slow
+     * arm does, which is what the early-settle test leans on. */
+    let answeringWorkers: number;
+    let constructed: number;
     let originalWorker: unknown;
 
     const solved = (cells: number[]) => ({
@@ -851,14 +1012,24 @@ describe("LogicGridSolverEditor", () => {
 
     beforeEach(() => {
       reply = solved([DARK, DARK, DARK, DARK]);
+      progressBefore = null;
+      answeringWorkers = Number.POSITIVE_INFINITY;
+      constructed = 0;
       originalWorker = (globalThis as Record<string, unknown>).Worker;
       (globalThis as Record<string, unknown>).Worker = class {
         onmessage: ((event: MessageEvent) => void) | null = null;
         onerror: ((event: ErrorEvent) => void) | null = null;
+        private readonly ordinal = ++constructed;
         postMessage() {
           queueMicrotask(() => {
-            if (reply) this.onmessage?.({ data: reply } as MessageEvent);
-            else this.onerror?.({ message: "no engine" } as ErrorEvent);
+            if (this.ordinal > answeringWorkers) return;
+            if (!reply) {
+              this.onerror?.({ message: "no engine" } as ErrorEvent);
+              return;
+            }
+            if (progressBefore)
+              this.onmessage?.({ data: progressBefore } as MessageEvent);
+            this.onmessage?.({ data: reply } as MessageEvent);
           });
         }
         terminate() {}
@@ -883,6 +1054,57 @@ describe("LogicGridSolverEditor", () => {
       expect(solved).toHaveLength(4);
       expect((solved[0] as HTMLElement).dataset.color).toBe("dark");
       expect((byId("solve-puzzle") as HTMLButtonElement).disabled).toBeFalse();
+    });
+
+    test("settles the moment one arm holds a final answer", async () => {
+      // Only the first worker ever answers; the rest stay silent the way a
+      // slow arm does. A verified solution is the rank nothing can beat, so
+      // the page must report it without waiting for them — before the early
+      // settle this sat on the spinner until every arm's budget expired,
+      // which this stub never grants, so the old code never shows the view.
+      answeringWorkers = 1;
+      byId("solve-puzzle").click();
+      await flush();
+
+      expect(byId("solution-view").classList.contains("hidden")).toBeFalse();
+      expect((byId("solve-puzzle") as HTMLButtonElement).disabled).toBeFalse();
+    });
+
+    test("names the engine's phase while it works", async () => {
+      progressBefore = {
+        type: "progress",
+        nodes: 5,
+        decided: 0,
+        phase: "profile",
+      };
+      byId("solve-puzzle").click();
+      await flush();
+
+      expect(byId("solution-progress-text").textContent).toContain("Sweeping");
+    });
+
+    test("says when the solver ran out of memory rather than time", async () => {
+      reply = {
+        type: "done",
+        status: "unsolved",
+        cells: [],
+        proven: false,
+        decided: 0,
+        playable: 4,
+        witnesses: [],
+        stats: {
+          nodes: 1,
+          refutations: 0,
+          oracleRejections: 0,
+          stoppedOnMemory: true,
+          wallMs: 1,
+        },
+      };
+      byId("solve-puzzle").click();
+      await flush();
+
+      expect(byId("solution-status").textContent).toBe("Gave up");
+      expect(byId("solution-message").textContent).toContain("out of memory");
     });
 
     test("Back to editor restores the board", async () => {
@@ -1005,6 +1227,21 @@ describe("LogicGridSolverEditor", () => {
     const paint = (at: number) => {
       press(at);
     };
+    /**
+     * A move is hit-tested by coordinate, not by `event.target` — a touch
+     * pointer is implicitly captured by the square the stroke began on.
+     * happy-dom has no layout, so `elementFromPoint` is stubbed to name the
+     * square being dragged over, exactly as `board.test.ts` does it.
+     */
+    const drag = (at: number) => {
+      spyOn(document, "elementFromPoint").mockReturnValue(patternCells()[at]!);
+      byId("pattern-grid").dispatchEvent(
+        new MouseEvent("pointermove", { bubbles: true }),
+      );
+    };
+    const release = (type = "pointerup") => {
+      document.dispatchEvent(new MouseEvent(type, { bubbles: true }));
+    };
     /** Draws a 2x2 dark block and saves it. */
     const drawSquare = () => {
       openDialog();
@@ -1040,6 +1277,84 @@ describe("LogicGridSolverEditor", () => {
       expect(patternChips()[0]!.getAttribute("aria-label")).toContain(
         "Forbidden pattern 1",
       );
+    });
+
+    /**
+     * A shape is DRAWN here, and drawing it a square at a time is not how the
+     * board is drawn — so a press and drag paints, which is the gesture that
+     * gets used without having to be learned twice.
+     */
+    test("a drag paints every square it crosses", () => {
+      openDialog();
+      press(0);
+      drag(1);
+      drag(2);
+      release();
+      expect(patternCells().map(one => one.dataset.square)).toEqual([
+        "dark",
+        "dark",
+        "dark",
+        "unknown",
+      ]);
+    });
+
+    /**
+     * The stroke commits at the PRESS. Deciding per square would make a drag
+     * that starts on a painted one clear it and paint the rest, and would
+     * clear a square the moment the drag wandered back over it — the bug the
+     * board's own stroke exists to avoid.
+     */
+    test("a drag started on a painted square clears the whole run", () => {
+      openDialog();
+      for (const at of [0, 1, 2]) paint(at);
+
+      press(0);
+      drag(1);
+      drag(2);
+      release();
+      expect(patternCells().map(one => one.dataset.square)).toEqual([
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+      ]);
+    });
+
+    /** ...and dragging back over a square it just painted leaves it alone. */
+    test("a drag back over its own work paints once", () => {
+      openDialog();
+      press(0);
+      drag(1);
+      drag(0);
+      release();
+      expect(patternCells()[0]!.dataset.square).toBe("dark");
+      expect(patternCells()[1]!.dataset.square).toBe("dark");
+    });
+
+    /** The right button drags the other color, as it does on the board. */
+    test("a right drag paints the other color", () => {
+      openDialog();
+      press(0, 2);
+      drag(1);
+      release();
+      expect(patternCells()[0]!.dataset.square).toBe("light");
+      expect(patternCells()[1]!.dataset.square).toBe("light");
+    });
+
+    test("a move with the pointer up paints nothing", () => {
+      openDialog();
+      drag(0);
+      expect(patternCells()[0]!.dataset.square).toBe("unknown");
+    });
+
+    /** A touch that becomes a system gesture ends as pointercancel rather than
+     * pointerup, and a dialog that kept the stroke would carry on painting. */
+    test("a canceled stroke stops painting", () => {
+      openDialog();
+      press(0);
+      release("pointercancel");
+      drag(1);
+      expect(patternCells()[1]!.dataset.square).toBe("unknown");
     });
 
     /**

@@ -39,6 +39,16 @@ function directionToggle(page: Page, id: string, direction: string) {
   );
 }
 
+/** One of a rays-aimed kind's four arrows, by the direction it stands for.
+ * `data-ray` rather than `data-direction`: the two readings of that key are
+ * kept apart by the attribute, in the markup as much as in the code. */
+function rayToggle(page: Page, id: string, direction: string) {
+  return page.locator(
+    `#symbol-row .symbol-tool[data-symbol="${id}"] ` +
+      `.direction-toggle[data-ray="${direction}"]`,
+  );
+}
+
 /** Drags the given button across one row of cells, in one stroke. */
 async function dragRow(page: Page, y: number, from: number, to: number,
   button: "left" | "right" = "left") {
@@ -76,13 +86,13 @@ test.describe("Logic Grid Solver tools", () => {
     // Four: the three colors plus merge, which also changes what the board is
     // rather than doing something to it once.
     await expect(page.locator("#color-row .tool-button")).toHaveCount(4);
-    // `.symbol-chip` means "the clue KINDS". The dart's arrows and the
-    // symmetry symbol's axes sit inside their controls as `.direction-toggle`
-    // and deliberately do not answer to that class — four toggles each. The
-    // viewpoint and the galaxy point nowhere, so the toggle count stays at
-    // eight while the chips reach six.
-    await expect(page.locator("#symbol-row .symbol-chip")).toHaveCount(6);
-    await expect(page.locator("#symbol-row .direction-toggle")).toHaveCount(8);
+    // `.symbol-chip` means "the clue KINDS". The dart's arrows, the symmetry
+    // symbol's axes and the myopia clue's arrow set sit inside their controls
+    // as `.direction-toggle` and deliberately do not answer to that class —
+    // four toggles each. The viewpoint and the galaxy point nowhere, so the
+    // toggle count reaches twelve while the chips reach seven.
+    await expect(page.locator("#symbol-row .symbol-chip")).toHaveCount(7);
+    await expect(page.locator("#symbol-row .direction-toggle")).toHaveCount(12);
   });
 
   test("left paints dark and right paints light", async ({ page }) => {
@@ -333,6 +343,44 @@ test.describe("Logic Grid Solver tools", () => {
     expect(config.patterns).toEqual([
       { width: 3, height: 3, cells: Array.from({ length: 9 }, () => 2) },
     ]);
+  });
+
+  /**
+   * A real press-and-DRAG across the dialog's squares. The unit tests stub
+   * `elementFromPoint`, because happy-dom has no layout — so whether a drag
+   * really paints is a question only a browser can answer, and it is the
+   * gesture the board is drawn with, which is the whole reason it is here.
+   */
+  test("dragging across the pattern dialog paints a run", async ({ page }) => {
+    await page.locator("#rule-row .rule-pattern-add").click();
+    await page.locator("#pattern-width").getByRole("spinbutton").fill("3");
+    await page.locator("#pattern-height").getByRole("spinbutton").fill("1");
+    await expect(page.locator("#pattern-grid .pattern-cell")).toHaveCount(3);
+
+    const square = (at: number) =>
+      page.locator(`#pattern-grid .pattern-cell[data-at="${at}"]`);
+    const middleOf = async (at: number) => {
+      const box = (await square(at).boundingBox())!;
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    };
+
+    // `dragRow`'s shape exactly: one move per square, and the `boundingBox`
+    // round trip between them is what makes them separate events. Synthetic
+    // input does not sweep — a `dragTo` across this run was measured
+    // delivering ONE pointermove, straight from the first square to the last
+    // with nothing in between, which is a harness limit and not the page's.
+    const from = await middleOf(0);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    for (const at of [1, 2]) {
+      const over = await middleOf(at);
+      await page.mouse.move(over.x, over.y);
+    }
+    await page.mouse.up();
+
+    for (let at = 0; at < 3; at++) {
+      await expect(square(at)).toHaveAttribute("data-square", "dark");
+    }
   });
 
   /**
@@ -1395,6 +1443,166 @@ test.describe("Logic Grid Solver tools", () => {
       await cell.click({ position: { x: box.width - 2, y: box.height / 2 } });
       await expect(cell).toHaveAttribute("data-symbol", "galaxy");
       await expect(cell).not.toHaveAttribute("data-seat", /.*/);
+    });
+  });
+
+  /**
+   * The myopia clue: valueless like the galaxy but AIMED, and the first whose
+   * picker is not exclusive — each toggle flips one arrow of a set.
+   */
+  test.describe("myopia arrows", () => {
+    /** Arms the clue with a set of arrows, then stamps it on a cell. */
+    async function placeMyopia(
+      page: Page,
+      x: number,
+      y: number,
+      directions: string[],
+    ) {
+      await clueChip(page, "myopia").click();
+      for (const direction of directions) {
+        await rayToggle(page, "myopia", direction).click();
+      }
+      await cellAt(page, x, y).click();
+    }
+
+    test("has arrows but no value field", async ({ page }) => {
+      const control = page.locator(
+        '#symbol-row .symbol-tool[data-symbol="myopia"]',
+      );
+      await expect(control.locator(".symbol-value")).toHaveCount(0);
+      await expect(control.locator(".direction-toggle")).toHaveCount(4);
+    });
+
+    /** Several arrows at once, which is what the whole kind is for — and the
+     * one thing the dart's exclusive picker could not say. */
+    test("stamps every arrow that is switched on", async ({ page }) => {
+      // Up is on by default, so this leaves up + right.
+      await placeMyopia(page, 1, 1, ["right"]);
+      const cell = cellAt(page, 1, 1);
+      await expect(cell).toHaveAttribute("data-symbol", "myopia");
+      await expect(cell).toHaveAttribute("data-rays", "3");
+      // Two arrows, as two subpaths of the tile's one path.
+      await expect(
+        cell.locator("svg.cell-ray path"),
+      ).toHaveAttribute("d", /^M.*M/s);
+      await expect(cell).toHaveAccessibleName(
+        "Column 2, Row 2, Unknown, Myopia pointing up and right",
+      );
+    });
+
+    /** Unlike the dart's, several read as chosen at once. */
+    test("several arrows read as chosen together", async ({ page }) => {
+      await clueChip(page, "myopia").click();
+      await rayToggle(page, "myopia", "down").click();
+      await expect(rayToggle(page, "myopia", "up")).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      await expect(rayToggle(page, "myopia", "down")).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      await expect(rayToggle(page, "myopia", "left")).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+    });
+
+    /** A clue with no arrows says nothing, so the last one stays lit. */
+    test("the last arrow will not switch off", async ({ page }) => {
+      await clueChip(page, "myopia").click();
+      await rayToggle(page, "myopia", "up").click();
+      await expect(rayToggle(page, "myopia", "up")).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    });
+
+    /** The whole SET turns, which is one bit's rotate — and lifting stays the
+     * right button's job, as for every aimed kind. */
+    test("clicking a placed clue turns the whole set clockwise", async ({
+      page,
+    }) => {
+      await placeMyopia(page, 2, 2, ["right"]);
+      const cell = cellAt(page, 2, 2);
+
+      await cell.click();
+      await expect(cell).toHaveAttribute("data-rays", "6");
+      await cell.click();
+      await expect(cell).toHaveAttribute("data-rays", "12");
+
+      await cell.click({ button: "right" });
+      await expect(cell).not.toHaveAttribute("data-rays", /.*/);
+      await expect(cell).toHaveAccessibleName("Column 3, Row 3, Unknown");
+    });
+
+    /** The keyboard mirror of the four toggles. */
+    test("an arrow key toggles that one arrow", async ({ page }) => {
+      await placeMyopia(page, 1, 0, []);
+      await cellAt(page, 1, 0).press("ArrowDown");
+      await expect(cellAt(page, 1, 0)).toHaveAttribute("data-rays", "5");
+      await cellAt(page, 1, 0).press("ArrowDown");
+      await expect(cellAt(page, 1, 0)).toHaveAttribute("data-rays", "1");
+    });
+
+    /**
+     * The picker's four arrows really are four different pictures. They used
+     * to be one glyph turned by the stylesheet, and the version that carried
+     * the direction on the button rather than the glyph drew four identical
+     * arrows — so what is checked is the drawing itself, which is now the same
+     * `rayShape.ts` path the tile is drawn from.
+     */
+    test("draws each of the picker's arrows facing its own way", async ({
+      page,
+    }) => {
+      // Scoped to the toggles: the chip's own miniature is a `.cell-ray` too.
+      const drawn = await page
+        .locator(
+          '#symbol-row .symbol-tool[data-symbol="myopia"] ' +
+            ".direction-toggle .cell-ray path",
+        )
+        .evaluateAll(paths => paths.map(path => path.getAttribute("d")));
+      expect(drawn).toHaveLength(4);
+      expect(new Set(drawn).size).toBe(4);
+      expect(drawn.some(one => !one)).toBe(false);
+    });
+
+    /**
+     * The tile is ONE painted object, which is the whole point of drawing the
+     * set as a path: four glyphs are four rasterised objects and Blink
+     * grid-fits each on its own, so the joint at the middle stepped sideways
+     * by a fraction of a pixel — `shapeOutline.ts` records the same failure
+     * for merged cells, and the same list of things that do not fix it.
+     *
+     * Only a real browser can say there is one, so it is pinned here: one svg,
+     * one path, a subpath per arrow, and a box centred on the cell so the
+     * point the tails share is the middle of the square.
+     */
+    test("draws the whole set as one path centered on the tile", async ({
+      page,
+    }) => {
+      await placeMyopia(page, 3, 3, ["right", "down", "left"]);
+      const drawn = await cellAt(page, 3, 3).evaluate(cell => {
+        const svg = cell.querySelectorAll("svg.cell-ray");
+        const paths = cell.querySelectorAll("svg.cell-ray path");
+        const box = cell.getBoundingClientRect();
+        const at = svg[0]!.getBoundingClientRect();
+        return {
+          svgs: svg.length,
+          paths: paths.length,
+          subpaths: (paths[0]!.getAttribute("d") ?? "").split("M").length - 1,
+          offX: Math.round(at.x + at.width / 2 - (box.x + box.width / 2)),
+          offY: Math.round(at.y + at.height / 2 - (box.y + box.height / 2)),
+          // The arrows must stay inside the square they belong to.
+          spare: Math.round(box.width / 2 - at.width / 2),
+        };
+      });
+
+      expect(drawn.svgs).toBe(1);
+      expect(drawn.paths).toBe(1);
+      expect(drawn.subpaths).toBe(4);
+      expect([drawn.offX, drawn.offY]).toEqual([0, 0]);
+      expect(drawn.spare).toBeGreaterThan(0);
     });
   });
 });

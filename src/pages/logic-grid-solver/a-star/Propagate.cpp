@@ -810,7 +810,7 @@ enum class Sign : uint8_t { Unknown, Preserve, Invert, Inconsistent };
 
 Sign signOf(const Domains &domains, const Galaxy &galaxy) {
   using enum Sign;
-  auto sign = Sign::Unknown;
+  auto sign = Unknown;
   for (int i = 0; i < galaxy.seatCount; i++) {
     const int seat = galaxy.seats[slot(i)];
     const int image = galaxy.mirror[slot(seat)];
@@ -996,6 +996,126 @@ bool propagateViewpoints(const Model &model, Domains &domains) {
                         ? viewpointColorChoice(model, domains, viewpoint)
                         : viewpointSight(model, domains, viewpoint, color);
     if (!ok)
+      return false;
+  }
+  return true;
+}
+
+// ------------------------------------------------------------ myopia arrows --
+
+/**
+ * Which minimum DISTANCES the clue could still be measuring, one bit per
+ * distance, under the assumption that its own square holds `color`.
+ *
+ * A distance `m` survives when every ARROW direction could still hold its
+ * first other-colored square exactly there — the square at `m` still able to
+ * take that color, and none before it already committed to it — while every
+ * direction WITHOUT an arrow could still hold none up to and including `m`.
+ * Empty means the assumption itself is refuted.
+ *
+ * A relaxation in the safe direction: every distance a real completion could
+ * measure passes both tests, so the set is a superset of the achievable ones
+ * and anything the whole set agrees on is true of every solution. Bit 0 is
+ * never set — the nearest other color is at least one square away, its own
+ * square being its own color.
+ */
+uint32_t myopiaMinima(const Domains &domains, const Myopia &myopia,
+                      const uint8_t color) {
+  const uint8_t other = opposite(color);
+  int longest = 0;
+  for (const std::vector<int16_t> &ray : myopia.rays)
+    longest = std::max(longest, static_cast<int>(ray.size()));
+
+  uint32_t minima = 0;
+  for (int distance = 1; distance <= longest; distance++) {
+    bool fits = true;
+    for (int direction = 0; fits && direction < kDirectionCount; direction++) {
+      const std::vector<int16_t> &ray = myopia.rays[slot(direction)];
+      const int length = static_cast<int>(ray.size());
+      const bool arrowed = (myopia.arrows & (1 << direction)) != 0;
+      // An arrow needs a square to point AT; a direction without one needs
+      // only to stay clear for as long, which one shorter than the board
+      // already does.
+      const int clear = arrowed ? distance - 1 : std::min(distance, length);
+      fits = !arrowed ||
+             (length >= distance &&
+              domains.possible(other).test(ray[slot(distance - 1)]));
+      for (int i = 0; fits && i < clear; i++)
+        fits = !domains.definite(other).test(ray[slot(i)]);
+    }
+    if (fits)
+      minima |= uint32_t{1} << distance;
+  }
+  return minima;
+}
+
+/**
+ * What every surviving minimum agrees on, written into the domains.
+ *
+ * Everything strictly nearer than the SMALLEST surviving distance holds the
+ * clue's own color, whichever way it lies — that is the deduction the clue is
+ * played for, and the one an arrow direction can only make one square short of,
+ * since its own square at that distance is the one that may be the other color.
+ * A direction with no arrow gets that square too: nothing that way is as close.
+ *
+ * And once one distance survives alone, each arrow's square at it IS the other
+ * color, which is what turns the clue from a fence into a placement.
+ */
+bool myopiaDeduce(Domains &domains, const Myopia &myopia, const uint8_t color,
+                  const uint32_t minima) {
+  const uint8_t other = opposite(color);
+  const int nearest = std::countr_zero(minima);
+  const bool settled = std::has_single_bit(minima);
+
+  for (int direction = 0; direction < kDirectionCount; direction++) {
+    const std::vector<int16_t> &ray = myopia.rays[slot(direction)];
+    const int length = static_cast<int>(ray.size());
+    const bool arrowed = (myopia.arrows & (1 << direction)) != 0;
+    const int clear = std::min(arrowed ? nearest - 1 : nearest, length);
+    for (int i = 0; i < clear; i++) {
+      // Asked first because a gap is in these lists on purpose: it can never
+      // be the other color, so there is nothing to take away from it.
+      if (const int square = ray[slot(i)];
+          domains.possible(other).test(square) &&
+          !domains.exclude(square, other))
+        return false;
+    }
+    if (settled && arrowed && !domains.assign(ray[slot(nearest - 1)], other))
+      return false;
+  }
+  return true;
+}
+
+/**
+ * The clue's own color is still open, so it does not yet say which color it is
+ * looking for. Either assumption that nothing could satisfy is ruled out.
+ *
+ * `dartColorChoice`'s shape and its discipline: a conclusion drawn under
+ * "suppose this cell is dark" may refute that supposition and nothing else,
+ * which is why only the emptiness of the two sets is read here. Everything the
+ * two assumptions AGREE on comes back through the probe, the way an uncolored
+ * lotus's and viewpoint's do.
+ */
+bool myopiaColorChoice(Domains &domains, const Myopia &myopia) {
+  const bool darkFits = myopiaMinima(domains, myopia, kDark) != 0;
+  const bool lightFits = myopiaMinima(domains, myopia, kLight) != 0;
+  if (!darkFits && !lightFits)
+    return false;
+  if (darkFits == lightFits)
+    return true;
+  return domains.assign(myopia.index, darkFits ? kDark : kLight);
+}
+
+bool propagateMyopias(const Model &model, Domains &domains) {
+  for (const Myopia &myopia : model.walked.myopias) {
+    const uint8_t color = domains.colorOf(myopia.index);
+    if (color == kUnknown) {
+      if (!myopiaColorChoice(domains, myopia))
+        return false;
+      continue;
+    }
+    if (const uint32_t minima = myopiaMinima(domains, myopia, color);
+        minima == 0 || !myopiaDeduce(domains, myopia, color, minima))
       return false;
   }
   return true;
@@ -1386,6 +1506,8 @@ bool propagateGlobal(const Model &model, Domains &domains) {
   if (!model.walked.lotuses.empty() && !propagateLotuses(model, domains))
     return false;
   if (!model.walked.viewpoints.empty() && !propagateViewpoints(model, domains))
+    return false;
+  if (!model.walked.myopias.empty() && !propagateMyopias(model, domains))
     return false;
   if (!model.walked.galaxies.empty() && !propagateGalaxies(model, domains))
     return false;

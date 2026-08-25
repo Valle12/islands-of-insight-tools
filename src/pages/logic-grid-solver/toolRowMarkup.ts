@@ -20,6 +20,7 @@
 
 import type { LogicGridPattern, LogicGridTool } from "../../util/types";
 import { colorId } from "./cell";
+import { rayIconViewBox, raysPath } from "./rayShape";
 import {
   RULE_ROW,
   RULES,
@@ -155,9 +156,49 @@ function axisToggles(kind: LogicGridSymbolKind, index: number): string {
     `;
 }
 
+/**
+ * The four arrows a rays-aimed kind is given, each an independent on/off — the
+ * myopia clue's counterpart to `directionToggles`, and the only picker here
+ * whose segments are not exclusive: the clue names a SET, so any of the
+ * fifteen non-empty ones has to be reachable, and one click per arrow is the
+ * shortest way to say so.
+ *
+ * They carry `data-ray` rather than `data-direction` deliberately. The
+ * stylesheet turns a dart's arrow off the bare `[data-direction]` attribute
+ * and `refreshAimToggles` reads that attribute as "the one aim this is", so
+ * naming these the same way would have both of them half-right.
+ *
+ * The arrow is the same DRAWING the tile uses (`rayShape.ts`), turned in the
+ * path rather than by the stylesheet, so the picker and the board cannot come
+ * to show two different arrows. It is boxed tight to its own outline here,
+ * where one arrow stands alone in a button — on the tile the box is centred
+ * instead, because there the tails have to meet at the middle of the square.
+ */
+function rayToggles(kind: LogicGridSymbolKind, index: number): string {
+  const buttons = DIRECTIONS.map(
+    (direction, aim) => `
+        <button class="direction-toggle" type="button"
+          data-symbol-index="${index}" data-ray="${direction.id}"
+          title="${direction.label}"
+          aria-label="${kind.label} pointing ${direction.label.toLowerCase()}"
+          aria-pressed="false"
+        ><svg class="cell-ray" viewBox="${rayIconViewBox(aim)}"
+          aria-hidden="true"
+        ><path d="${raysPath(1 << aim)}" /></svg></button>
+      `,
+  ).join("");
+  return `
+      <span class="symbol-divider" aria-hidden="true"></span>
+      <div class="symbol-directions" role="group"
+        aria-label="${kind.label} arrows"
+      >${buttons}</div>
+    `;
+}
+
 /** The picker a kind's aims call for, or nothing for an unaimed kind. */
 function aimToggles(kind: LogicGridSymbolKind, index: number): string {
   if (kind.aims === "compass") return directionToggles(kind, index);
+  if (kind.aims === "rays") return rayToggles(kind, index);
   return kind.aims === "axis" ? axisToggles(kind, index) : "";
 }
 

@@ -52,6 +52,12 @@ struct CliOptions {
   /// And for a galaxy, placed only where its region really turns onto itself.
   /// 0 draws nothing, so every old seed reproduces.
   int galaxies = 0;
+  /// And for a myopia clue, whose arrows are read off the coloring. 0 draws
+  /// nothing, so every old seed reproduces.
+  int myopia = 0;
+  /// And the percent chance a letter that just landed gets its PAIR — the
+  /// same letter on a second free cell of the same region. 0 draws nothing.
+  int letterPairs = 0;
   /// 64-bit because a plain `int` cannot name bit 31, the 32nd rule's. Speaks
   /// v1: a sized bit (a no-1xN or regions-have-area-N index) is translated
   /// into its `areas`/`runs` instance once the mask is complete.
@@ -103,7 +109,8 @@ void printUsage() {
                "                  [--shapes PERCENT] [--darts PERCENT] "
                "[--lotus PERCENT]\n"
                "                  [--viewpoints PERCENT] [--galaxies "
-               "PERCENT]\n";
+               "PERCENT]\n"
+               "                  [--myopia PERCENT] [--letter-pairs PERCENT]\n";
 }
 
 /**
@@ -170,6 +177,10 @@ bool assignValue(CliOptions &opts, const std::string_view flag,
     return readFlag(flag, value, opts.viewpoints);
   else if (flag == "--galaxies")
     return readFlag(flag, value, opts.galaxies);
+  else if (flag == "--myopia")
+    return readFlag(flag, value, opts.myopia);
+  else if (flag == "--letter-pairs")
+    return readFlag(flag, value, opts.letterPairs);
   else {
     std::cerr << "Unknown argument: " << flag << "\n";
     return false;
@@ -345,7 +356,9 @@ int main(const int argc, char **argv) {
                                     .darts = opts.darts,
                                     .lotus = opts.lotus,
                                     .viewpoints = opts.viewpoints,
-                                    .galaxies = opts.galaxies};
+                                    .galaxies = opts.galaxies,
+                                    .myopia = opts.myopia,
+                                    .letterPairs = opts.letterPairs};
     return generate::run(genOpts);
   }
 

@@ -183,6 +183,33 @@ struct Galaxy {
 };
 
 /**
+ * One myopia clue's geometry, worked out once like a dart's ray: where it
+ * sits, which arrows it carries, and the squares of each of its four lines in
+ * WALKING order.
+ *
+ * The THIRD answer in this file to a question that looks like one, so it is
+ * worth saying which: a dart's ray is an unordered `Bits` with its own cell
+ * taken OUT, a viewpoint's rays are ordered and TRUNCATED at the first gap,
+ * and these are ordered and truncated by nothing at all. A myopia clue
+ * measures how FAR away the nearest opposite color is, so every square between
+ * counts — a gap because the eye sees past a hole exactly as a dart does, and
+ * a square of the clue's own cell because it is still a square of the board.
+ * Take either out and two directions become incomparable, which is the whole
+ * of what this clue compares.
+ *
+ * Unplayable squares are therefore KEPT in the lists, and simply never hold a
+ * color: nothing has to skip them, and the index a square sits at IS its
+ * distance, less one.
+ */
+struct Myopia {
+  int clueId = 0;
+  int index = 0;
+  /// One bit per direction — see `isArrowMask`.
+  int arrows = 0;
+  std::array<std::vector<int16_t>, kDirectionCount> rays;
+};
+
+/**
  * The TRUE counts a numeric clue's displayed value allows, as an exact SET of
  * at most two values.
  *
@@ -296,6 +323,8 @@ struct Model {
     /// ...and of every galaxy. Its geometry is one point reflection about its
     /// own square, precomputed in `galaxies` below.
     std::vector<int> galaxyClues;
+    /// ...and of every myopia clue, whose four lines `myopias` below carries.
+    std::vector<int> myopiaClues;
 
     /**
      * Every dart's line, precomputed: the playable squares from its own square to
@@ -339,6 +368,17 @@ struct Model {
      * `structureProblem` accepts gets its geometry.
      */
     std::vector<Galaxy> galaxies;
+
+    /**
+     * Every myopia clue's four lines, precomputed the same way — see `Myopia`
+     * for why they are neither trimmed to the playable squares nor cut at the
+     * clue's own cell, both of which the two lists above do.
+     *
+     * A clue whose arrow mask cannot be read stays in `myopiaClues` but not
+     * here, `buildDarts`' net again: the oracle then refuses every coloring
+     * rather than the board quietly solving without the clue.
+     */
+    std::vector<Myopia> myopias;
   };
   Walked walked;
   std::vector<LetterGroup> letters;
@@ -451,6 +491,9 @@ enum class Problem : uint8_t {
   GalaxySeatOffBoard,
   GalaxiesShareACell,
   GalaxyMirrorLeavesBoard,
+  MyopiaValue,
+  MyopiaArrows,
+  MyopiaArrowLeavesBoard,
   /// Not a problem — the count, which `describe`'s table asserts itself
   /// against so an enumerator appended above without a message stops
   /// compiling. Keep it last, and never return it.

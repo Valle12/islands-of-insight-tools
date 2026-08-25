@@ -7,6 +7,7 @@ import {
   mergedCellBoard,
   solvableBoard,
   undercluedBoard,
+  myopiaBoard,
   viewpointBoard,
 } from "../../test/logic-grid-solver/boards";
 
@@ -338,5 +339,35 @@ test.describe("Logic Grid Solver solving", () => {
     await expect(
       solutionCell(page, 0, 1).locator(".cell-chevron"),
     ).toHaveCount(4);
+  });
+
+  /**
+   * The myopia clue end to end: one arrow pointing up, past a gap, at a light
+   * two squares away — so the fence it puts round the other three directions
+   * is two deep and settles the whole bottom row. A mask lost or misread at
+   * either boundary would settle a different board, and the answer has to come
+   * back wearing its arrow.
+   */
+  test("solves a board its myopia arrows settle, and keeps them", async ({
+    page,
+  }) => {
+    await upload(page, myopiaBoard());
+    await page.getByRole("button", { name: "Solve Grid" }).click();
+
+    await expect(page.locator("#solution-view")).toBeVisible();
+
+    // Nothing else on the bottom row may hold a light as close as the arrow's.
+    for (const x of [0, 1, 3, 4]) {
+      await expect(solutionCell(page, x, 2)).toHaveAttribute(
+        "data-color",
+        "dark",
+      );
+    }
+
+    // The answer is drawn with the same clue the editor showed.
+    await expect(solutionCell(page, 2, 2)).toHaveAttribute("data-rays", "1");
+    await expect(
+      solutionCell(page, 2, 2).locator("svg.cell-ray path"),
+    ).toHaveCount(1);
   });
 });

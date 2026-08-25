@@ -6,7 +6,7 @@ import {
   type ArmResult,
   type WasmHandle,
 } from "./wasmBridge";
-import { verifyLogicGrid } from "./verify";
+import { UNDERCLUED, verifyLogicGrid } from "./verify";
 
 /**
  * The page's side of the search: it starts the C++ arms, keeps the best answer
@@ -19,6 +19,12 @@ import { verifyLogicGrid } from "./verify";
  * be: every example solution the solver sent back must itself be legal, and
  * must agree with every cell the answer claims is forced. A wrong "forced"
  * that any of those witnesses contradicts is caught here rather than shown.
+ *
+ * The race also ends the moment a checked answer reaches the rank nothing
+ * could beat — a verified complete solution, or the proven forced set on an
+ * underclued board. Waiting for the slower arms could change nothing then,
+ * and on a page running the portfolio across separate workers it costs
+ * minutes: an arm that cannot answer only retires when its budget runs out.
  */
 
 export type LogicGridSolveResult =
@@ -38,7 +44,14 @@ export type LogicGridSolveResult =
       proven: boolean;
     }
   | { status: "unsolvable"; reason?: string }
-  | { status: "budget"; cells: number[]; decided: number; playable: number }
+  | {
+      status: "budget";
+      cells: number[];
+      decided: number;
+      playable: number;
+      /** Some arm stopped because the heap ran out, not the clock. */
+      stoppedOnMemory: boolean;
+    }
   | { status: "failed"; error: string };
 
 export interface SolveHandle {
@@ -46,7 +59,7 @@ export interface SolveHandle {
 }
 
 export interface SolveCallbacks {
-  onProgress?: (nodes: number, decided: number) => void;
+  onProgress?: (nodes: number, decided: number, phase?: string) => void;
   onDone: (result: LogicGridSolveResult) => void;
 }
 
@@ -57,6 +70,10 @@ export interface SolveCallbacks {
  * A complete solution outranks an "unsolvable" claim deliberately: a negative
  * cannot be verified from outside the solver, and if two arms ever disagree,
  * the one holding a board that satisfies every rule is the one to believe.
+ * The early settle reads the same ordering: 5 is terminal everywhere and 4 on
+ * an underclued board (whose arms can only ever answer `deduced`), while 3
+ * deliberately is not — an `unsolvable` claim keeps the race open, so a later
+ * verified solution still overrides it.
  */
 function rank(result: ArmResult): number {
   if (result.status === "solved") return 5;
@@ -94,7 +111,10 @@ function check(config: LogicGridTest, result: ArmResult): boolean {
   return true;
 }
 
-function toResult(result: ArmResult): LogicGridSolveResult {
+function toResult(
+  result: ArmResult,
+  stoppedOnMemory: boolean,
+): LogicGridSolveResult {
   if (result.status === "solved") {
     return {
       status: "solved",
@@ -119,6 +139,7 @@ function toResult(result: ArmResult): LogicGridSolveResult {
     cells: result.cells,
     decided: result.decided,
     playable: result.playable,
+    stoppedOnMemory,
   };
 }
 
@@ -129,6 +150,12 @@ export function solveLogicGrid(
 ): SolveHandle {
   let best: ArmResult | null = null;
   let bestRank = -1;
+  // Sticky across arms: an out-of-memory stop colors the whole race's give-up
+  // message, even when the arm's own answer was refused below.
+  let sawMemoryStop = false;
+  // The rank nothing later could beat — settling there is what spares the
+  // multi-worker page waiting on arms that can only tie. See `rank`.
+  const terminalRank = config.rules.includes(UNDERCLUED) ? 4 : 5;
   let finished = false;
   let handle: WasmHandle | null = null;
   /**
@@ -157,9 +184,13 @@ export function solveLogicGrid(
   handle = searchLogicGridWasm(
     config,
     {
-      onProgress: (nodes, decided) => callbacks.onProgress?.(nodes, decided),
+      onProgress: (nodes, decided, phase) =>
+        callbacks.onProgress?.(nodes, decided, phase),
       onArm: result => {
         if (finished) return;
+        // Before the checks: an arm that ran out of memory said so however
+        // its answer fares below.
+        if (result.stats?.stoppedOnMemory) sawMemoryStop = true;
         // An answer the page cannot confirm is not an answer. Dropping it here
         // rather than ranking it low is the difference between showing nothing
         // and showing a board that breaks the rules it was solved under.
@@ -168,6 +199,7 @@ export function solveLogicGrid(
         if (score <= bestRank) return;
         bestRank = score;
         best = result;
+        if (bestRank >= terminalRank) finish(toResult(result, sawMemoryStop));
       },
       onSettled: () => {
         if (best === null) {
@@ -176,10 +208,11 @@ export function solveLogicGrid(
             cells: [],
             decided: 0,
             playable: 0,
+            stoppedOnMemory: sawMemoryStop,
           });
           return;
         }
-        finish(toResult(best));
+        finish(toResult(best, sawMemoryStop));
       },
       onError: message => finish({ status: "failed", error: message }),
     },

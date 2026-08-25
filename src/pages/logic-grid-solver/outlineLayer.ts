@@ -10,7 +10,9 @@
 import { colorId, UNKNOWN } from "./cell";
 import { outlinePath, type OutlineGeometry } from "./shapeOutline";
 
-const SVG_NS = "http://www.w3.org/2000/svg";
+/** Exported because `cellView.ts` draws a myopia clue's arrows as SVG too, and
+ * one spelling of the namespace is one place to be wrong. */
+export const SVG_NS = "http://www.w3.org/2000/svg";
 
 /** Fallbacks for a DOM with no stylesheet, which is what the unit tests mount. */
 const DEFAULT_CELL = 42;

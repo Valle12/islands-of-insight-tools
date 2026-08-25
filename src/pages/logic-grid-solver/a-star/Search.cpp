@@ -6,6 +6,7 @@
 #include "Probe.h"
 #include "Propagate.h"
 #include "Puzzle.h"
+#include "Rules.h"
 #include "SeededRng.h"
 #include "Types.h"
 #include "Verify.h"
@@ -61,6 +62,12 @@ public:
       SearchStats &stats)
       : model_(model), options_(options), stats_(stats),
         budget_(cfg, "search", stats), domains_(model), rng_(options.seed) {
+    // Which color pickCell grows contiguously, when one has to come out
+    // connected. Dark when both do — the arbitrary half of a symmetric choice.
+    if (model.hasRule(rules::Rule::ConnectDark))
+      preferColor_ = kDark;
+    else if (model.hasRule(rules::Rule::ConnectLight))
+      preferColor_ = kLight;
     buildOrder();
     seedPhase();
   }
@@ -88,6 +95,8 @@ private:
   SearchResult result_;
   std::vector<int> order_;
   std::array<uint8_t, kMaxCells> phase_{};
+  /// The color whose connect rule is on, or kUnknown — see the ctor.
+  uint8_t preferColor_ = kUnknown;
   bool aborted_ = false;
 
   /// Cells in the order the search prefers to settle them: outwards from the
@@ -117,6 +126,19 @@ private:
 
     for (const Clue &clue : model_.puzzle.clues)
       discover(clue.index);
+    // A board with no clues has nothing to grow outwards from, and the
+    // sweep-up below then IS the whole order — plain raster. The givens are
+    // where the constraints live on such a board, so the walk radiates from
+    // them instead. Only when there are no clues, so no clued board's order
+    // moves. Measured on a 16x16 connect-dark board with 54 givens, where
+    // raster order left the DFS wandering 65 million nodes with no witness.
+    if (model_.puzzle.clues.empty()) {
+      for (int i = model_.playable.nextSet(0); i >= 0;
+           i = model_.playable.nextSet(i + 1)) {
+        if (model_.puzzle.givens[slot(i)] != kUnknown)
+          discover(i);
+      }
+    }
     while (!queue.empty()) {
       const int cell = queue.front();
       queue.pop();
@@ -167,6 +189,33 @@ private:
     const Bits undecided = domains_.undecided();
     const Bits settled = domains_.definite(kDark) | domains_.definite(kLight);
     const Bits frontier = settled.grown() & undecided;
+    if (preferColor_ == kUnknown)
+      return pickFrom(undecided, frontier);
+    // On a connect board, growing the must-connect color contiguously comes
+    // first: the joins are where the refutations live, and the local pattern
+    // clauses otherwise shout the walk away from them. Measured on the 16x16
+    // connect-dark board the plain frontier order never finished.
+    const Bits joinable = domains_.definite(preferColor_).grown() & undecided;
+    int frontierPick = -1;
+    int fallback = -1;
+    for (const int cell : order_) {
+      if (!undecided.test(cell))
+        continue;
+      if (joinable.test(cell))
+        return cell;
+      if (frontierPick < 0 && frontier.test(cell))
+        frontierPick = cell;
+      if (fallback < 0)
+        fallback = cell;
+    }
+    return frontierPick >= 0 ? frontierPick : fallback;
+  }
+
+  /// The plain two-tier order: first cell on the settled frontier, else first
+  /// undecided at all. Early-exits on the frontier hit, which matters — this
+  /// runs once per node.
+  [[nodiscard]] int pickFrom(const Bits &undecided,
+                             const Bits &frontier) const {
     int fallback = -1;
     for (const int cell : order_) {
       if (!undecided.test(cell))

@@ -1176,6 +1176,167 @@ describe("Board (logic grid)", () => {
     });
   });
 
+  /**
+   * The myopia arrows: the first clue whose `direction` is a SET rather than
+   * one of the four, so the picker is four independent toggles and every
+   * gesture that aims a dart has to mean something different here.
+   */
+  describe("Myopia arrows", () => {
+    const MYOPIA = 6;
+    const UP_ARROW = 1;
+    const RIGHT_ARROW = 2;
+    const DOWN_ARROW = 4;
+    const LEFT_ARROW = 8;
+
+    /** A board with one myopia clue already on `(1, 1)`. */
+    function withMyopia(arrows = UP_ARROW) {
+      const board = makeBoard(4, 3, "symbol", MYOPIA, null);
+      board.setSymbolDirection(arrows);
+      press(1, 1, LEFT);
+      release();
+      return board;
+    }
+
+    /** Position, kind and the mask — no value key at all, the lotus's and the
+     * galaxy's rule. */
+    test("stamps the arrow mask and no value", () => {
+      const board = withMyopia(UP_ARROW | RIGHT_ARROW);
+      expect(board.getSymbols()).toEqual([
+        { x: 1, y: 1, type: MYOPIA, direction: UP_ARROW | RIGHT_ARROW },
+      ]);
+      expect(cellAt(1, 1).dataset.symbol).toBe("myopia");
+      expect(cellAt(1, 1).dataset.rays).toBe(String(UP_ARROW | RIGHT_ARROW));
+    });
+
+    /**
+     * ONE svg holding ONE path, with a subpath per arrow — four separate
+     * glyphs are four rasterised objects and cannot meet cleanly at the
+     * middle, which is `rayShape.ts`' whole reason for existing. Counted by
+     * the `M` commands, since that is what "one subpath each" means.
+     */
+    test("draws every arrow as subpaths of one path", () => {
+      withMyopia(UP_ARROW | DOWN_ARROW);
+      const svgs = cellAt(1, 1).querySelectorAll("svg.cell-ray");
+      expect(svgs).toHaveLength(1);
+      const paths = svgs[0]!.querySelectorAll("path");
+      expect(paths).toHaveLength(1);
+      expect(paths[0]!.getAttribute("d")?.match(/M/g)).toHaveLength(2);
+    });
+
+    /** Every direction in the set is said, since which arrows are there IS
+     * the clue and one of them alone would be a different one. */
+    test("names every arrow in its accessible name", () => {
+      withMyopia(UP_ARROW | RIGHT_ARROW | LEFT_ARROW);
+      expect(cellAt(1, 1).getAttribute("aria-label")).toBe(
+        "Column 2, Row 2, Unknown, Myopia pointing up, right and left",
+      );
+    });
+
+    test("a single arrow reads without a list", () => {
+      withMyopia(DOWN_ARROW);
+      expect(cellAt(1, 1).getAttribute("aria-label")).toBe(
+        "Column 2, Row 2, Unknown, Myopia pointing down",
+      );
+    });
+
+    /** The whole SET turns a quarter clockwise, which is one bit's rotate. */
+    test("clicking a placed clue turns the whole set clockwise", () => {
+      const board = withMyopia(UP_ARROW | RIGHT_ARROW);
+      const arrows = () => board.getSymbols()[0]!.direction;
+
+      press(1, 1, LEFT);
+      release();
+      expect(arrows()).toBe(RIGHT_ARROW | DOWN_ARROW);
+
+      press(1, 1, LEFT);
+      release();
+      expect(arrows()).toBe(DOWN_ARROW | LEFT_ARROW);
+
+      press(1, 1, LEFT);
+      release();
+      expect(arrows()).toBe(LEFT_ARROW | UP_ARROW);
+
+      press(1, 1, LEFT);
+      release();
+      // All the way round rather than stopping or lifting the clue.
+      expect(arrows()).toBe(UP_ARROW | RIGHT_ARROW);
+    });
+
+    /** The full mask turns onto itself, so there is nowhere for a re-click to
+     * take it — which is a no-op rather than a lift. */
+    test("a four-arrow clue has nowhere to turn", () => {
+      const board = withMyopia(15);
+      press(1, 1, LEFT);
+      release();
+      expect(board.getSymbols()).toEqual([
+        { x: 1, y: 1, type: MYOPIA, direction: 15 },
+      ]);
+    });
+
+    /** Lifting is the right button's job alone, since the left one turns —
+     * and the tile has to shed the mask with the clue, `dressCell` naming
+     * every hook it drops. A stale one leaves arrows on an empty cell. */
+    test("only the right button lifts a myopia clue", () => {
+      const board = withMyopia(UP_ARROW);
+      press(1, 1, RIGHT);
+      release();
+      expect(board.getSymbols()).toEqual([]);
+      expect(cellAt(1, 1).dataset.rays).toBeUndefined();
+      expect(cellAt(1, 1).querySelectorAll("md-icon.cell-ray")).toHaveLength(0);
+    });
+
+    /** The keyboard mirror of the four toggles: the key says which arrow, and
+     * the clue says whether it is there. */
+    test("an arrow key toggles that one arrow", () => {
+      const board = withMyopia(UP_ARROW);
+      const arrows = () => board.getSymbols()[0]!.direction;
+
+      type(1, 1, "ArrowRight");
+      expect(arrows()).toBe(UP_ARROW | RIGHT_ARROW);
+      type(1, 1, "ArrowRight");
+      expect(arrows()).toBe(UP_ARROW);
+      type(1, 1, "ArrowDown");
+      expect(arrows()).toBe(UP_ARROW | DOWN_ARROW);
+    });
+
+    /** A clue with no arrows says nothing, so the last one will not go. */
+    test("an arrow key cannot clear the last arrow", () => {
+      const board = withMyopia(UP_ARROW);
+      type(1, 1, "ArrowUp");
+      expect(board.getSymbols()[0]!.direction).toBe(UP_ARROW);
+    });
+
+    /** Valueless, so typing cannot cost it its clue — the lotus's rule. */
+    test("typing a digit does nothing to it", () => {
+      const board = withMyopia(UP_ARROW);
+      type(1, 1, "3");
+      expect(board.getSymbols()).toEqual([
+        { x: 1, y: 1, type: MYOPIA, direction: UP_ARROW },
+      ]);
+    });
+
+    test("round-trips the mask through a config", () => {
+      const board = makeBoard(3, 3);
+      board.loadConfig({
+        version: 1,
+        gridWidth: 3,
+        gridHeight: 3,
+        rules: [],
+        cells: [
+          [UNKNOWN, UNKNOWN, UNKNOWN],
+          [UNKNOWN, UNKNOWN, UNKNOWN],
+          [UNKNOWN, UNKNOWN, UNKNOWN],
+        ],
+        symbols: [{ x: 2, y: 0, type: MYOPIA, direction: LEFT_ARROW }],
+      });
+      board.renderGrid();
+      expect(board.getSymbols()).toEqual([
+        { x: 2, y: 0, type: MYOPIA, direction: LEFT_ARROW },
+      ]);
+      expect(cellAt(2, 0).dataset.rays).toBe(String(LEFT_ARROW));
+    });
+  });
+
   describe("Off-by-one typing", () => {
     /** The editor pushes the flag in, and the keystroke floor follows it: a
      * typed zero stamps nothing as the rules stand — zero is not an area —

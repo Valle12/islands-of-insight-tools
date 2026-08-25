@@ -55,7 +55,7 @@ export const MAX_GRID_SIDE = 32;
  * How long the solver may run before it gives up.
  *
  * A properly clued board is usually finished by deduction alone, in
- * milliseconds — nearly all of the 494 captured boards land well under a
+ * milliseconds — nearly all of the 516 captured boards land well under a
  * second. The budget exists for the two cases that are not like that: the
  * underclued mode, where every cell the deduction could not settle costs a search
  * of its own to prove, and the profile sweep on a wide connectivity board.

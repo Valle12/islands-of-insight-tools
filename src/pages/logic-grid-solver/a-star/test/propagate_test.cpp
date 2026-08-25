@@ -268,6 +268,82 @@ TEST(Propagate, AMergedDartDoesNotCountItself) {
   EXPECT_EQ(deduce(puzzle), Rows({"DDLLL"}));
 }
 
+// --- Myopia arrows ---------------------------------------------------------
+
+/**
+ * An arrow says its own direction is the NEAREST, which by itself puts the
+ * clue's own color in every other direction's first square: whatever the true
+ * distance turns out to be, it is at least one, and no unarrowed direction may
+ * match it.
+ *
+ * Exactly one square deep, and that is the point of the second half — the
+ * arrow's own line is left entirely free, because which square along it holds
+ * the other color is precisely what the clue does not say.
+ */
+TEST(Propagate, AMyopiaArrowFencesOffTheOtherDirections) {
+  Puzzle puzzle = test::board({".....", ".....", ".....", ".....", "....."});
+  test::withGiven(puzzle, 2, 2, kDark);
+  test::withMyopia(puzzle, 2, 2, test::kArrowRight);
+  EXPECT_EQ(deduce(puzzle),
+            Rows({".....", "..D..", ".DD..", "..D..", "....."}));
+}
+
+/// Once the arrow's own square is settled the distance is settled with it, and
+/// every other direction is fenced off that far — three whole rays painted
+/// from one arrow and one given.
+TEST(Propagate, ASettledDistanceFencesEveryOtherDirectionThatFar) {
+  Puzzle puzzle = test::board({".....", ".....", ".....", ".....", "....."});
+  test::withGiven(puzzle, 2, 2, kDark);
+  test::withGiven(puzzle, 2, 1, kDark);
+  test::withGiven(puzzle, 2, 0, kLight);
+  test::withMyopia(puzzle, 2, 2, test::kArrowUp);
+  EXPECT_EQ(deduce(puzzle),
+            Rows({"..L..", "..D..", "DDDDD", "..D..", "..D.."}));
+}
+
+/**
+ * An arrow is a claim about the other arrows too: with two of them the
+ * distances TIE, so pinning one pins the other. The right-hand light is a
+ * given and the left-hand one is deduced from it.
+ */
+TEST(Propagate, TiedArrowsPinOneAnother) {
+  Puzzle puzzle = test::board({"...", "...", "..."});
+  test::withGiven(puzzle, 1, 1, kDark);
+  test::withGiven(puzzle, 2, 1, kLight);
+  test::withMyopia(puzzle, 1, 1, test::kArrowLeft | test::kArrowRight);
+  EXPECT_EQ(deduce(puzzle), Rows({".D.", "LDL", ".D."}));
+}
+
+/// Its own color is still open, so it does not yet say which color it is
+/// looking for. Only one assumption fits a line already painted light.
+TEST(Propagate, AMyopiaThatOnlyOneColorFitsSettlesItsOwnCell) {
+  Puzzle puzzle = test::board({"..."});
+  test::withGiven(puzzle, 1, 0, kLight);
+  test::withGiven(puzzle, 2, 0, kLight);
+  test::withMyopia(puzzle, 0, 0, test::kArrowRight);
+  EXPECT_EQ(deduce(puzzle), Rows({"DLL"}));
+}
+
+/// A line of nothing but GAPS holds no color at all, so neither assumption
+/// survives — the unsatisfiable arrow `myopiaArrowsFitBoard` deliberately
+/// leaves to the propagator, its own check being about the board's edge.
+TEST(Propagate, AMyopiaArrowSeeingOnlyGapsIsRefused) {
+  Puzzle puzzle = test::board({".##"});
+  test::withMyopia(puzzle, 0, 0, test::kArrowRight);
+  EXPECT_EQ(deduce(puzzle), Rows({"CONFLICT"}));
+}
+
+/// The fence is written through `Domains::exclude`, so it takes a merged cell
+/// WHOLE: the cell below the clue reaches two squares left, and both of them
+/// come out the clue's own color from one square being fenced.
+TEST(Propagate, AMyopiaFenceTakesAMergedCellWhole) {
+  Puzzle puzzle = test::board({"...", "...", "..."});
+  test::withGiven(puzzle, 1, 1, kDark);
+  test::withMyopia(puzzle, 1, 1, test::kArrowUp);
+  test::withShape(puzzle, {{1, 2}, {0, 2}});
+  EXPECT_EQ(deduce(puzzle), Rows({".L.", "DDD", "DD."}));
+}
+
 // --- Lotuses --------------------------------------------------------------
 
 /// The core deduction: a square connected to the lotus through decided cells

@@ -15,9 +15,11 @@ import type { Stroke, ToolSelection } from "./strokes";
 import { strokeFor, toggled } from "./strokes";
 import {
   DEFAULT_DIRECTION,
+  DEFAULT_RAYS,
   symbolKindAt,
   symbolValueMax,
   symbolValueMin,
+  toggledRay,
   type LogicGridSymbolKind,
 } from "./symbols";
 
@@ -218,6 +220,11 @@ export function handleKey(
  * instead — left anticlockwise, right clockwise, skipping the diagonals a
  * grid-line seat cannot carry — while the vertical pair, like every arrow
  * over a cell with nothing aimed on it, goes on scrolling the page.
+ *
+ * On a clue naming a SET the four keys TOGGLE, which is the keyboard's version
+ * of the four toggles beside its chip: the key says which arrow, and the clue
+ * says whether it is there. The last arrow will not switch off, since a myopia
+ * clue with none says nothing.
  */
 function handleArrowKey(
   host: KeyEdits,
@@ -231,7 +238,8 @@ function handleArrowKey(
   if (held?.direction === undefined) return false;
   const color = host.layers.colorAt(position);
 
-  if (symbolKindAt(held.type)?.aims === "axis") {
+  const aims = symbolKindAt(held.type)?.aims;
+  if (aims === "axis") {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return false;
     event.preventDefault();
     host.typing.reset();
@@ -242,9 +250,13 @@ function handleArrowKey(
 
   event.preventDefault();
   host.typing.reset();
+  const aimed = directionForKey(event.key)!;
   host.writeCell(position, color, {
     ...held,
-    direction: directionForKey(event.key)!,
+    direction:
+      aims === "rays"
+        ? toggledRay(held.direction ?? DEFAULT_RAYS, aimed)
+        : aimed,
   });
   return true;
 }

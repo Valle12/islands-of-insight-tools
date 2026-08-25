@@ -118,6 +118,16 @@ Problem clueValueProblem(const Clue &clue, const Puzzle &puzzle,
   }
   if (clue.kind == kClueGalaxy)
     return galaxyValueProblem(clue, puzzle);
+  if (clue.kind == kClueMyopia) {
+    // Valueless, so a number is refused rather than ignored — the lotus's and
+    // the galaxy's discipline, and what stops a value crossing the wasm
+    // boundary (where it defaults to 0) from looking like part of the puzzle.
+    if (clue.value != 0)
+      return MyopiaValue;
+    // The same key as a dart's, read as a SET: bit per direction, and never
+    // empty, since a clue with no arrows says nothing about any coloring.
+    return isArrowMask(clue.direction) ? None : MyopiaArrows;
+  }
 
   if (clue.direction < 0 || clue.direction >= kDirectionCount)
     return DartDirection;
@@ -409,6 +419,8 @@ void buildClueTables(Model &model) {
       model.walked.viewpointClues.push_back(id);
     } else if (clue.kind == kClueGalaxy) {
       model.walked.galaxyClues.push_back(id);
+    } else if (clue.kind == kClueMyopia) {
+      model.walked.myopiaClues.push_back(id);
     } else {
       int &group = groupOf[slot(clue.value)];
       if (group < 0) {
@@ -538,6 +550,47 @@ void buildViewpoints(Model &model) {
     for (int direction = 0; direction < kDirectionCount; direction++)
       viewpoint.rays[slot(direction)] = sightRay(model, clue.index, direction);
     model.walked.viewpoints.push_back(std::move(viewpoint));
+  }
+}
+
+/// One line of a myopia clue's sight, from the square beyond its own outward
+/// to the edge of the board. Nothing truncates it — not a gap, which the eye
+/// sees past exactly as a dart's line does, and not the clue's own cell, whose
+/// squares are still squares to be counted past; see `Myopia` for why either
+/// omission would make two directions incomparable.
+std::vector<int16_t> reachRay(const Model &model, const int index,
+                              const int direction) {
+  const auto [stepX, stepY] = kDirectionSteps[slot(direction)];
+  std::vector<int16_t> ray;
+  for (int x = columnOf(index) + stepX, y = rowOf(index) + stepY;
+       x >= 0 && x < model.width() && y >= 0 && y < model.height();
+       x += stepX, y += stepY)
+    ray.push_back(static_cast<int16_t>(cellIndex(x, y)));
+  return ray;
+}
+
+/**
+ * Each myopia clue's four lines, worked out once: they depend on the board,
+ * never on the coloring.
+ *
+ * `buildDarts`' net, for `buildDarts`' reason: a clue whose arrow mask cannot
+ * be read constrains nothing, so it is left out here — but it stays in
+ * `myopiaClues`, and `verify::myopiaProblem` walks THAT list and refuses every
+ * coloring, so the board comes back unsolvable rather than quietly solved
+ * without the clue.
+ */
+void buildMyopias(Model &model) {
+  for (const int id : model.walked.myopiaClues) {
+    const Clue &clue = model.puzzle.clues[slot(id)];
+    if (!isArrowMask(clue.direction))
+      continue;
+    Myopia myopia;
+    myopia.clueId = id;
+    myopia.index = clue.index;
+    myopia.arrows = clue.direction;
+    for (int direction = 0; direction < kDirectionCount; direction++)
+      myopia.rays[slot(direction)] = reachRay(model, clue.index, direction);
+    model.walked.myopias.push_back(std::move(myopia));
   }
 }
 
@@ -682,6 +735,30 @@ Problem viewpointsFitSight(const Model &model) {
         return model.candidatesFor(clue).lo() > sight;
       });
   return bad ? Problem::ViewpointExceedsSight : Problem::None;
+}
+
+/**
+ * An arrow has to have somewhere to point: the nearest square of the other
+ * color lies THAT way, so a line with no squares on it at all — an arrow off
+ * the edge of the board — is a demand no coloring meets.
+ *
+ * Purely geometric, so it holds before a single cell is colored, which is what
+ * makes it a contradiction rather than something the search discovers. A line
+ * holding nothing but GAPS is deliberately not named here: it is unsatisfiable
+ * too, but the gaps are the puzzle's own and the propagator refutes it in one
+ * pass, where this check exists for the board that could never have been drawn.
+ */
+Problem myopiaArrowsFitBoard(const Model &model) {
+  const bool bad = std::ranges::any_of(
+      model.walked.myopias, [](const Myopia &myopia) {
+        for (int direction = 0; direction < kDirectionCount; direction++) {
+          if (const bool arrowed = (myopia.arrows & (1 << direction)) != 0;
+              arrowed && myopia.rays[slot(direction)].empty())
+            return true;
+        }
+        return false;
+      });
+  return bad ? Problem::MyopiaArrowLeavesBoard : Problem::None;
 }
 
 /// An area clue can never name more cells than its own playable region holds —
@@ -846,6 +923,14 @@ const char *describe(const Problem problem) {
       ProblemMessage{.problem = GalaxyMirrorLeavesBoard,
                      .text = "A cell around a galaxy symbol's center turns "
                              "off the board or onto an unplayable cell"},
+      ProblemMessage{.problem = MyopiaValue,
+                     .text = "A myopia symbol carries a value"},
+      ProblemMessage{.problem = MyopiaArrows,
+                     .text = "A myopia symbol does not name between one and "
+                             "four arrows"},
+      ProblemMessage{.problem = MyopiaArrowLeavesBoard,
+                     .text = "A myopia symbol points off the board, where "
+                             "nothing it could see lies"},
   };
   // Every enumerator has a message. This must count against `Count` and not
   // against the last real enumerator: measured, an appended one leaves that
@@ -1033,6 +1118,7 @@ Model buildModel(const Puzzle &puzzle) {
   buildLotuses(model);
   buildViewpoints(model);
   buildGalaxies(model);
+  buildMyopias(model);
   buildBorderCycle(model);
   return model;
 }
@@ -1050,6 +1136,8 @@ Problem contradiction(const Model &model) {
   if (const Problem problem = galaxyMirrorsFit(model); problem != None)
     return problem;
   if (const Problem problem = viewpointsFitSight(model); problem != None)
+    return problem;
+  if (const Problem problem = myopiaArrowsFitBoard(model); problem != None)
     return problem;
   if (const Problem problem = lettersReachable(model); problem != None)
     return problem;

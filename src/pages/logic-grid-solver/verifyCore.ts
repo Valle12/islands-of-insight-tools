@@ -48,6 +48,7 @@ export type LogicGridViolation =
   | "knight"
   | "mixed-elbow"
   | "galaxy"
+  | "myopia"
   | "region-shape-repeat"
   | "region-shape-mismatch"
   // One name for every drawn pattern, not one per pattern: what a board broke
@@ -180,6 +181,7 @@ export const LOTUS_SYMBOL = symbolIndex("lotus");
 export const VIEWPOINT_SYMBOL = symbolIndex("viewpoint");
 
 export const GALAXY_SYMBOL = symbolIndex("galaxy");
+export const MYOPIA_SYMBOL = symbolIndex("myopia");
 
 /** The two axes with no reflection on a grid-line seat. Resolved by id like
  * every other index here, so a reorder fails loudly at import. */

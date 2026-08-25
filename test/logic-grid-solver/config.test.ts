@@ -733,6 +733,41 @@ describe("validateConfig (logic grid)", () => {
       { ...validConfig, symbols: [{ x: 0, y: 0, type: 4, value: 2, seat: 1 }] },
       "Only a symmetry symbol carries a seat, and Viewpoint is not one.",
     ],
+    [
+      // An arrowless myopia clue says nothing about any coloring, which is
+      // the one place the mask reading and the compass reading differ: zero
+      // is a real DIRECTION and not a real mask.
+      "myopia arrows with no arrows at all",
+      { ...validConfig, symbols: [{ x: 0, y: 0, type: 6, direction: 0 }] },
+      "Myopia arrows must be integers between 1 and 15.",
+    ],
+    [
+      "myopia arrows beyond the four",
+      { ...validConfig, symbols: [{ x: 0, y: 0, type: 6, direction: 16 }] },
+      "Myopia arrows must be integers between 1 and 15.",
+    ],
+    [
+      "myopia arrows with no direction key at all",
+      { ...validConfig, symbols: [{ x: 0, y: 0, type: 6 }] },
+      "Myopia arrows must be integers between 1 and 15.",
+    ],
+    [
+      // Valueless: the arrows say WHICH way, never how far.
+      "a value on myopia arrows",
+      {
+        ...validConfig,
+        symbols: [{ x: 0, y: 0, type: 6, direction: 1, value: 2 }],
+      },
+      "Myopia symbols carry no value.",
+    ],
+    [
+      "a seat on myopia arrows",
+      {
+        ...validConfig,
+        symbols: [{ x: 0, y: 0, type: 6, direction: 1, seat: 1 }],
+      },
+      "Only a symmetry symbol carries a seat, and Myopia is not one.",
+    ],
   ];
 
   test.each(rejections)("rejects %s", (_name, input, error) => {
@@ -809,6 +844,24 @@ describe("validateConfig (logic grid)", () => {
     expect(result.ok).toBeTrue();
     if (!result.ok) return;
     expect(result.config.symbols).toEqual([{ x: 0, y: 0, type: 4, value: 3 }]);
+  });
+
+  /**
+   * Position, kind and its arrow MASK, and nothing else — no value and no
+   * seat. The mask is 5, up and down, which is neither a compass direction
+   * nor an axis index, so a validator reading the key by anything but the
+   * kind's own `aims` would have refused it.
+   */
+  test("accepts myopia arrows and keeps the mask alone", () => {
+    const result = validateConfig({
+      ...clone(),
+      symbols: [{ x: 0, y: 0, type: 6, direction: 5 }],
+    });
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.config.symbols).toEqual([
+      { x: 0, y: 0, type: 6, direction: 5 },
+    ]);
   });
 
   /** No `value` key at all, and both new keys kept exactly as written: the

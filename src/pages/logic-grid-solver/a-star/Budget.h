@@ -31,9 +31,17 @@ public:
         deadline_(deadlineFrom(cfg.maxMs)) {}
 
   /// Counts one unit of work and answers whether the arm must stop. Sampled:
-  /// the ladder itself runs once every kCheckInterval calls.
+  /// the ladder itself runs once every kCheckInterval calls — except the node
+  /// budget, which is a counter compare that costs no clock read and so is
+  /// checked EXACTLY. A `maxNodes` of one must stop after one node, not at
+  /// the next sampling stride, or "abort this search immediately" quietly
+  /// runs a small board to completion instead.
   bool exhausted() {
     stats_.nodesExpanded++;
+    if (cfg_.maxNodes > 0 && stats_.nodesExpanded >= cfg_.maxNodes) {
+      expired_ = true;
+      return true;
+    }
     if (++sinceCheck_ < kCheckInterval)
       return expired_;
     sinceCheck_ = 0;

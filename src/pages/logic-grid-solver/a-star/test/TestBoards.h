@@ -102,6 +102,13 @@ inline void withClue(Puzzle &puzzle, const int x, const int y,
       {.index = cellIndex(x, y), .kind = kClueArea, .value = value});
 }
 
+/// The four arrow bits of a myopia clue's mask, named so a test says which
+/// arrows it means rather than which number they add up to.
+inline constexpr int kArrowUp = 1 << kDirUp;
+inline constexpr int kArrowRight = 1 << kDirRight;
+inline constexpr int kArrowDown = 1 << kDirDown;
+inline constexpr int kArrowLeft = 1 << kDirLeft;
+
 /**
  * Puts a dart on a cell. A second call rather than a glyph, for the same reason
  * `withShape` is one: the picture's alphabet is spoken for, and a dart carries
@@ -142,6 +149,17 @@ inline void withViewpoint(Puzzle &puzzle, const int x, const int y,
                           const int value) {
   puzzle.clues.push_back(
       {.index = cellIndex(x, y), .kind = kClueViewpoint, .value = value});
+}
+
+/**
+ * Puts a myopia clue on a cell: arrows and nothing else, `arrows` being a MASK
+ * of `kArrowUp`/`kArrowRight`/`kArrowDown`/`kArrowLeft` — several at once is
+ * the point of it, so the helper takes the mask rather than a direction.
+ */
+inline void withMyopia(Puzzle &puzzle, const int x, const int y,
+                       const int arrows) {
+  puzzle.clues.push_back(
+      {.index = cellIndex(x, y), .kind = kClueMyopia, .direction = arrows});
 }
 
 /**

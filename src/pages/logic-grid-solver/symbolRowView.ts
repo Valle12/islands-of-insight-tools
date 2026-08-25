@@ -5,8 +5,10 @@ import {
   axisIndex,
   DEFAULT_AXIS,
   DEFAULT_DIRECTION,
+  DEFAULT_RAYS,
   directionIndex,
   parseSymbolValue,
+  SAMPLE_RAYS,
   SYMBOL_KINDS,
   symbolKindAt,
   symbolValueMax,
@@ -53,12 +55,12 @@ export function defaultValues(): string[] {
 }
 
 /** Which way each directed kind starts out aimed — its picker's FIRST entry
- * (up, or the horizontal axis), the one the row will light when the kind is
- * first armed with nothing picked yet. */
+ * (up, the horizontal axis, or the single up ARROW for a kind naming a set),
+ * the one the row will light when the kind is first armed with nothing picked
+ * yet. */
 export function defaultDirections(): number[] {
-  return SYMBOL_KINDS.map(kind =>
-    kind.aims === "axis" ? DEFAULT_AXIS : DEFAULT_DIRECTION,
-  );
+  // An unaimed kind keeps a slot it never reads, so its 0 stands for nothing.
+  return SYMBOL_KINDS.map(kind => defaultAimOf(kind) ?? DEFAULT_DIRECTION);
 }
 
 /** What clue kind `index` would stamp, or null while its field is unusable. */
@@ -72,16 +74,15 @@ export function symbolValueOf(
   return parseSymbolValue(kind, values[index] ?? "", size);
 }
 
-/** Which way clue kind `index` is aimed, or null when it points nowhere. */
+/** Which way clue kind `index` is aimed — an index for a compass or an axis,
+ * an arrow MASK for a kind naming a set — or null when it points nowhere. */
 export function symbolAimOf(
   aims: readonly number[],
   index: number,
 ): number | null {
   const kind = symbolKindAt(index);
   if (!kind || kind.aims === "none") return null;
-  return (
-    aims[index] ?? (kind.aims === "axis" ? DEFAULT_AXIS : DEFAULT_DIRECTION)
-  );
+  return aims[index] ?? defaultAimOf(kind) ?? null;
 }
 
 /**
@@ -97,15 +98,15 @@ export function buildSymbolRow(row: HTMLElement, size: LogicGridSize) {
   // `dressClue` is what draws one. A chip that spelled its own arrow out
   // would be a second drawing of the same thing, free to drift from it.
   //
-  // Always shown in its DEFAULT aim — up, or the horizontal axis —
-  // whatever is currently armed: the chip says which KIND of clue this is,
-  // and the toggles beside it are what say where the next one will point.
+  // Always shown in one FIXED aim whatever is currently armed: the chip says
+  // which KIND of clue this is, and the toggles beside it are what say where
+  // the next one will point.
   SYMBOL_KINDS.forEach(kind => {
     const sample = row.querySelector<HTMLElement>(
       `.symbol-tool[data-symbol="${kind.id}"] .symbol-sample`,
     );
     if (!sample) return;
-    dressClue(sample, kind, kind.sample, defaultAimOf(kind));
+    dressClue(sample, kind, kind.sample, sampleAimOf(kind));
   });
 }
 
@@ -132,17 +133,33 @@ export function refreshSymbolRow(row: HTMLElement, state: SymbolToolState) {
 
     // An aim shows only while ITS kind is the armed tool — a lit arrow
     // beside an idle chip reads as "this tool is active" when it is not.
-    // The choice itself survives in the aims array, so re-arming the kind
-    // lights whatever was picked last (or the first entry, untouched).
-    refreshAimToggles(tool, selected ? symbolAimOf(state.aims, index) : null);
+    // A compass or axis choice survives in the aims array to be relit on
+    // re-arming; a set-naming kind's mask does NOT — the editor resets it
+    // when the kind is re-armed, because relighting a set that went dark
+    // restores state the player could no longer see.
+    refreshAimToggles(
+      tool,
+      kind,
+      selected ? symbolAimOf(state.aims, index) : null,
+    );
   });
 }
 
-/** The aim a kind's chip miniature is drawn with — always its DEFAULT: the
- * chip says which kind this is, and the toggles say where the next one will
- * point. Undefined for a kind that aims nowhere. */
+/**
+ * The aim a kind's chip miniature is drawn with. Its default for every kind
+ * but one: a kind naming a SET is drawn holding two arrows, because one of
+ * them is a picture of a dart rather than of this. See `SAMPLE_RAYS`.
+ */
+function sampleAimOf(kind: LogicGridSymbolKind): number | undefined {
+  return kind.aims === "rays" ? SAMPLE_RAYS : defaultAimOf(kind);
+}
+
+/** The aim a kind is ARMED with before anything is picked — its picker's first
+ * entry, and what the row lights when the kind is first selected. Undefined
+ * for a kind that aims nowhere. */
 function defaultAimOf(kind: LogicGridSymbolKind): number | undefined {
   if (kind.aims === "compass") return DEFAULT_DIRECTION;
+  if (kind.aims === "rays") return DEFAULT_RAYS;
   return kind.aims === "axis" ? DEFAULT_AXIS : undefined;
 }
 
@@ -178,16 +195,46 @@ function refreshSymbolField(
   }
 }
 
-/** One control's aim toggles: exactly the `aimed` entry lit, or none at
- * all for `null` — the idle state every unarmed kind shows. */
-function refreshAimToggles(tool: HTMLElement, aimed: number | null) {
+/**
+ * One control's aim toggles: the entries `aimed` names lit, or none at all for
+ * `null` — the idle state every unarmed kind shows.
+ *
+ * How many that is depends on the KIND, not on the number: a compass or an
+ * axis names one entry and a rays mask names between one and four, so the two
+ * readings are told apart by the capability field rather than by whether the
+ * number happens to look like a mask.
+ */
+function refreshAimToggles(
+  tool: HTMLElement,
+  kind: LogicGridSymbolKind,
+  aimed: number | null,
+) {
   tool.querySelectorAll<HTMLElement>(".direction-toggle").forEach(arrow => {
-    const target =
-      arrow.dataset.axis === undefined
-        ? directionIndex(arrow.dataset.direction)
-        : axisIndex(arrow.dataset.axis);
-    const on = target === aimed;
+    const target = aimTargetOf(arrow);
+    const on = aimed !== null && target >= 0 && lit(kind, aimed, target);
     arrow.classList.toggle("selected", on);
     arrow.setAttribute("aria-pressed", String(on));
   });
+}
+
+/**
+ * Which entry of its own picker a toggle stands for, or -1. Each flavor
+ * carries its own attribute, so nothing has to guess which list to read.
+ *
+ * Exported because the editor's click handler resolves a pressed toggle the
+ * same way this lights one, and the two readings must not drift: a `data-ray`
+ * read as a `data-direction` is -1, which looks exactly like "not a toggle".
+ */
+export function aimTargetOf(arrow: HTMLElement): number {
+  if (arrow.dataset.ray !== undefined) return directionIndex(arrow.dataset.ray);
+  if (arrow.dataset.axis !== undefined) return axisIndex(arrow.dataset.axis);
+  return directionIndex(arrow.dataset.direction);
+}
+
+/** Whether the toggle standing for `target` is on, given what the kind's aim
+ * number means. */
+function lit(kind: LogicGridSymbolKind, aimed: number, target: number) {
+  return kind.aims === "rays"
+    ? (aimed & (1 << target)) !== 0
+    : aimed === target;
 }
