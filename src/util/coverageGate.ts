@@ -17,7 +17,10 @@
  * and never gates.
  *
  * Coverage only sees files some test imported: this is a regression guard on
- * what is tested, not proof that every file is.
+ * what is tested, not proof that every file is. And bun's line attribution
+ * differs by platform — on Windows it counts one file's comment and
+ * interface lines as uncovered (`dialView.ts`, ~1 point of the total), so a
+ * local run reads about a point below CI's merged number.
  *
  * Usage: `bun src/util/coverageGate.ts <lcov.info>...` — exits 1 below the
  * floor. No dependencies beyond node:fs/node:path, so CI runs it without
@@ -27,11 +30,12 @@ import { readFileSync } from "node:fs";
 import { relative } from "node:path";
 
 /**
- * Percent of lines hit across the whole suite. Set one point under the first
- * green full run on bun 1.4, so a real drop fails and noise does not; raise
- * it when the suite earns it.
+ * Percent of lines hit across the whole suite. Raised to 90 on 2026-08-25
+ * with CI's merged picture at ~93 % and a Windows run at ~92 %, so a real
+ * drop fails and platform noise does not; raise it again when the suite
+ * earns it.
  */
-export const COVERAGE_FLOOR_LINES = 88;
+export const COVERAGE_FLOOR_LINES = 90;
 
 export interface FileCoverage {
   /** line number -> hits, summed over every report that names the file */
@@ -154,43 +158,47 @@ export function passesFloor(totals: Totals, floor: number): boolean {
 
 const format = (value: number) => `${value.toFixed(2)} %`;
 
+/**
+ * Reads and merges the reports, and renders the verdict: the merged totals,
+ * the ten files furthest below the floor (cwd-relative), and OK or FAIL.
+ */
+export function report(
+  paths: readonly string[],
+  cwd = process.cwd(),
+  floor = COVERAGE_FLOOR_LINES,
+): { ok: boolean; lines: string[] } {
+  const coverage = mergeLcov(paths.map(path => readFileSync(path, "utf8")));
+  const totals = totalsOf(coverage);
+  const lines = [
+    `coverage gate: ${paths.length} report(s), ${totals.files} files`,
+    `  lines      ${format(totals.linePercent)} ` +
+      `(${totals.linesHit}/${totals.linesFound}), floor ${floor} %`,
+    `  functions >= ${format(totals.functionPercent)} ` +
+      `(${totals.functionsHit}/${totals.functionsFound}, a lower bound: ` +
+      "bun's lcov has no per-function records)",
+    "  lowest line coverage:",
+    ...worstFiles(coverage).map(
+      ([path, linePercent]) =>
+        `    ${format(linePercent).padStart(9)}  ${relative(cwd, path)}`,
+    ),
+  ];
+  const ok = passesFloor(totals, floor);
+  lines.push(
+    ok
+      ? "coverage gate: OK"
+      : `coverage gate: FAIL — line coverage ${format(totals.linePercent)} ` +
+          `is below the ${floor} % floor`,
+  );
+  return { ok, lines };
+}
+
 if (import.meta.main) {
   const paths = process.argv.slice(2);
   if (paths.length === 0) {
     console.error("usage: bun src/util/coverageGate.ts <lcov.info>...");
     process.exit(2);
   }
-  const coverage = mergeLcov(paths.map(path => readFileSync(path, "utf8")));
-  const totals = totalsOf(coverage);
-  const cwd = process.cwd();
-
-  console.log(
-    `coverage gate: ${paths.length} report(s), ${totals.files} files`,
-  );
-  console.log(
-    `  lines      ${format(totals.linePercent)} ` +
-      `(${totals.linesHit}/${totals.linesFound}), ` +
-      `floor ${COVERAGE_FLOOR_LINES} %`,
-  );
-  console.log(
-    `  functions >= ${format(totals.functionPercent)} ` +
-      `(${totals.functionsHit}/${totals.functionsFound}, a lower bound: ` +
-      "bun's lcov has no per-function records)",
-  );
-  console.log("  lowest line coverage:");
-  for (const [path, linePercent] of worstFiles(coverage)) {
-    console.log(
-      `    ${format(linePercent).padStart(9)}  ${relative(cwd, path)}`,
-    );
-  }
-
-  if (passesFloor(totals, COVERAGE_FLOOR_LINES)) {
-    console.log("coverage gate: OK");
-  } else {
-    console.error(
-      `coverage gate: FAIL — line coverage ${format(totals.linePercent)} ` +
-        `is below the ${COVERAGE_FLOOR_LINES} % floor`,
-    );
-    process.exitCode = 1;
-  }
+  const { ok, lines } = report(paths);
+  console.log(lines.join("\n"));
+  if (!ok) process.exitCode = 1;
 }

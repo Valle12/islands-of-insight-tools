@@ -343,12 +343,11 @@ with the migration that produced them.
 **Do not reach for `mock.module`.** It is not scoped to the suite that installs
 it — it replaces the module for the rest of the `bun test` PROCESS, and whether
 that bites depends on directory walk order: green locally on Windows, **300 tests
-failed in CI** on Linux. `matchThreeSolver.test.ts` mocks `solveClient` and is
-fine only because nothing else imports that module — check that before adding
-another. `--parallel` (which every test script and every CI shard passes)
-gives each file its own global and module registry, so the leak is contained
-THERE — but a bare `bun test` or `bun test <a> <b>` is not, so the rule
-stands.
+failed in CI** on Linux. `matchThreeSolver.test.ts` mocks `solveClient`, and
+`solveClient.test.ts` imports the real one: that only works because every test
+script and every CI shard passes `--parallel`, which gives each file its own
+global and module registry — a bare `bun test` or `bun test <a> <b>` would
+hand the second file the mock, so the rule stands.
 
 E2e trap (rolling-blocks): Material components expose an inner `#button` in their
 shadow DOM — never target buttons by `#button` index; use the app's own
@@ -1041,7 +1040,11 @@ wasm ──┬──▶ bun-test [4 shards] ──▶ coverage          typechec
   (`src/util/coverageGate.ts`, `COVERAGE_FLOOR_LINES`): bun's own
   `coverageThreshold` is per invocation, so it would fail every shard and every
   partial local run. `bun run test` runs the same gate locally, and bun's lcov
-  carries no per-function records, so only LINES gate. **`dist`** proves the
+  carries no per-function records, so only LINES gate. The floor is 90 %;
+  bun's line attribution differs by platform — on Windows it counts
+  `dialView.ts`'s comment and interface lines as uncovered, about a point of
+  the total — so a local run reads a point under CI's merged number, which is
+  the honest one. **`dist`** proves the
   production bundle builds on every PR and publishes the artifact `deploy.yml`
   reuses.
 - **The C++ side is `cpp-build` → `cpp-test` (four suite jobs) → `C++ tests`**,

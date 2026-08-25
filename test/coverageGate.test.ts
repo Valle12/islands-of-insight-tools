@@ -1,9 +1,13 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   COVERAGE_FLOOR_LINES,
   fileLinePercent,
   mergeLcov,
   passesFloor,
+  report,
   totalsOf,
   worstFiles,
 } from "../src/util/coverageGate";
@@ -117,9 +121,9 @@ describe("the floor", () => {
     );
 
   test("passes at exactly the floor and fails just below it", () => {
-    expect(passesFloor(at(88, 100), 88)).toBeTrue();
-    expect(passesFloor(at(87, 100), 88)).toBeFalse();
-    expect(passesFloor(at(8799, 10_000), 88)).toBeFalse();
+    expect(passesFloor(at(90, 100), 90)).toBeTrue();
+    expect(passesFloor(at(89, 100), 90)).toBeFalse();
+    expect(passesFloor(at(8999, 10_000), 90)).toBeFalse();
   });
 
   test("the committed floor is a percentage", () => {
@@ -141,5 +145,62 @@ describe("the floor", () => {
       [B, 100],
     ]);
     expect(worstFiles(merged, 1)).toEqual([[A, 50]]);
+  });
+});
+
+describe("report", () => {
+  let dir = "";
+  let shard1 = "";
+  let shard2 = "";
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "coverage-gate-"));
+    const source = join(dir, "src", "thing.ts");
+    shard1 = join(dir, "shard1.info");
+    shard2 = join(dir, "shard2.info");
+    // Between them the two shards cover three of the four lines.
+    writeFileSync(
+      shard1,
+      record(source, [
+        [1, 1],
+        [2, 0],
+        [3, 0],
+        [4, 0],
+      ]),
+    );
+    writeFileSync(
+      shard2,
+      record(source, [
+        [1, 0],
+        [2, 1],
+        [3, 1],
+        [4, 0],
+      ]),
+    );
+  });
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("merges the reports it is given and passes above the floor", () => {
+    const { ok, lines } = report([shard1, shard2], dir, 70);
+    expect(ok).toBeTrue();
+    expect(lines[0]).toBe("coverage gate: 2 report(s), 1 files");
+    expect(lines[1]).toContain("75.00 % (3/4), floor 70 %");
+    // Paths come out relative to the cwd handed in.
+    expect(lines.some(line => line.endsWith(join("src", "thing.ts")))).toBeTrue();
+    expect(lines.at(-1)).toBe("coverage gate: OK");
+  });
+
+  test("fails below the floor and says by how much", () => {
+    const { ok, lines } = report([shard1], dir, 50);
+    expect(ok).toBeFalse();
+    expect(lines.at(-1)).toContain("FAIL — line coverage 25.00 % is below the 50 % floor");
+  });
+
+  test("defaults to the committed floor", () => {
+    const { ok } = report([shard1, shard2], dir);
+    expect(ok).toBe(75 >= COVERAGE_FLOOR_LINES);
   });
 });

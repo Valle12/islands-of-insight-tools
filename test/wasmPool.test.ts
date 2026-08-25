@@ -1,52 +1,19 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { startWasmPool, type PoolArm } from "../src/util/wasmPool";
+import { FakeWorker, installFakeWorker } from "./fakeWorker";
 
-/**
- * A stand-in for the real thing: nothing here loads wasm, and every message is
- * delivered by hand. What the suite is about is the pool's bookkeeping — which
- * failures settle the race and which are dropped — so the worker only has to
- * record what was done to it.
- */
-class FakeWorker {
-  static instances: FakeWorker[] = [];
-  /** Makes the next `postMessage` throw, as a non-cloneable payload would. */
-  static postThrows: Error | null = null;
-
-  onmessage: ((event: { data: unknown }) => void) | null = null;
-  onerror: ((event: { message: string }) => void) | null = null;
-  onmessageerror: (() => void) | null = null;
-  readonly posted: unknown[] = [];
-  terminated = false;
-
-  constructor() {
-    FakeWorker.instances.push(this);
-  }
-
-  postMessage(message: unknown) {
-    if (FakeWorker.postThrows) throw FakeWorker.postThrows;
-    this.posted.push(message);
-  }
-
-  terminate() {
-    this.terminated = true;
-  }
-
-  /** Delivers one message from the worker, as the pool would receive it. */
-  deliver(data: Record<string, unknown>) {
-    this.onmessage?.({ data });
-  }
-}
-
-const originalWorker = globalThis.Worker;
+// The fake worker is shared with the bridge suites (test/fakeWorker.ts):
+// nothing here loads wasm, every message is delivered by hand, and what the
+// suite is about is the pool's bookkeeping — which failures settle the race
+// and which are dropped.
+let restoreWorker: () => void = () => undefined;
 
 beforeEach(() => {
-  FakeWorker.instances = [];
-  FakeWorker.postThrows = null;
-  globalThis.Worker = FakeWorker as unknown as typeof Worker;
+  restoreWorker = installFakeWorker();
 });
 
 afterEach(() => {
-  globalThis.Worker = originalWorker;
+  restoreWorker();
 });
 
 function pool(options: {
