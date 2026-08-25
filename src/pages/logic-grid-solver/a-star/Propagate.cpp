@@ -1026,7 +1026,7 @@ bool propagateViewpoints(const Model &model, Domains &domains) {
 bool rayAdmits(const Domains &domains, const Myopia &myopia,
                const uint8_t other, const int direction, const int distance) {
   const auto &ray = myopia.rays[slot(direction)];
-  const int length = static_cast<int>(ray.size());
+  const auto length = static_cast<int>(ray.size());
   const bool arrowed = (myopia.arrows & (1 << direction)) != 0;
   if (arrowed && (length < distance ||
                   !domains.possible(other).test(ray[slot(distance - 1)])))
@@ -1086,7 +1086,7 @@ bool myopiaDeduce(Domains &domains, const Myopia &myopia, const uint8_t color,
 
   for (int direction = 0; direction < kDirectionCount; direction++) {
     const auto &ray = myopia.rays[slot(direction)];
-    const int length = static_cast<int>(ray.size());
+    const auto length = static_cast<int>(ray.size());
     const bool arrowed = (myopia.arrows & (1 << direction)) != 0;
     const int clear = std::min(arrowed ? nearest - 1 : nearest, length);
     for (int i = 0; i < clear; i++) {
