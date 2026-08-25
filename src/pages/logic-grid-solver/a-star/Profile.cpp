@@ -30,6 +30,9 @@ constexpr uint8_t kNoTag = 0xFF;
 /// sweep's own control. Measured: a width-16 connect board took the module
 /// down exactly this way before the stride existed.
 constexpr size_t kInsertCheckStride = 4096;
+/// The most a stride can add to a layer — two states per expansion — and so
+/// how far past its allowance a layer may reach before the next check.
+constexpr size_t kLayerSlack = 2 * kInsertCheckStride + 2;
 
 /// How far back a forbidden arrangement may reach BEYOND the frontier before
 /// the board is declined. The frontier already carries the last `width` cells,
@@ -163,12 +166,37 @@ size_t sweepBudgetBytes(const Config &cfg) {
 /// layer's allowance. Geometric on the way up, so the amortized cost stays
 /// what `push_back` would have paid.
 void topUpCapacity(std::vector<Frontier> &layer, const size_t maxStates) {
-  constexpr size_t slack = 2 * kInsertCheckStride + 2;
-  const size_t need = layer.size() + slack;
+  const size_t need = layer.size() + kLayerSlack;
   if (need <= layer.capacity())
     return;
   layer.reserve(std::min(std::max(need, layer.capacity() * 2),
-                         maxStates + slack));
+                         maxStates + kLayerSlack));
+}
+
+/// The check a layer runs every `kInsertCheckStride` insertions: the
+/// allowance and the clock first, then the capacity top-up — that order is
+/// what caps the reserve at the allowance plus slack. False when the sweep has
+/// to stop, `stats` already saying so when the reason was memory: running out
+/// proves NOTHING, so the caller hands back what it has rather than letting
+/// an empty answer read as "no solution".
+bool strideAllows(std::vector<Frontier> &layer, const size_t maxStates,
+                  Budget &budget, SearchStats &stats) {
+  if (layer.size() > maxStates) {
+    stats.stoppedOnMemory = true;
+    return false;
+  }
+  if (budget.exhaustedNow())
+    return false;
+  topUpCapacity(layer, maxStates);
+  return true;
+}
+
+/// How many states the index for a layer should expect: the previous layer
+/// grown by half, which is what the layers measure, capped at what this one
+/// may HOLD — the allowance plus one stride's slack — so that near the wall
+/// the index is not sized for states the allowance will never let in.
+size_t expectedStates(const size_t previous, const size_t maxStates) {
+  return std::min(previous + previous / 2, maxStates + kLayerSlack);
 }
 
 /// The `closed` bit belonging to a color. Only kDark and kLight ever close.
@@ -1230,7 +1258,7 @@ bool sweepForward(const Model &model, const Plan &plan, Budget &budget,
     }
     const size_t maxInto = (budgetBytes - spent) / kForcedBuildBytes;
     link.assign(from.size() * 2, -1);
-    index.reset(from.size() + from.size() / 2,
+    index.reset(expectedStates(from.size(), maxInto),
                 FrontierHash{.width = width,
                              .darts = static_cast<int>(plan.darts.size()),
                              .sizes = plan.trackSizes,
@@ -1240,15 +1268,9 @@ bool sweepForward(const Model &model, const Plan &plan, Budget &budget,
     const LinkLayer layer{
         .from = from, .into = into, .index = index, .link = link};
     for (uint32_t i = 0; i < from.size(); i++) {
-      if (i % kInsertCheckStride == 0 && i != 0) {
-        if (into.size() > maxInto) {
-          outcome.stats.stoppedOnMemory = true;
-          return false;
-        }
-        if (budget.exhaustedNow())
-          return false;
-        topUpCapacity(into, maxInto);
-      }
+      if (i % kInsertCheckStride == 0 && i != 0 &&
+          !strideAllows(into, maxInto, budget, outcome.stats))
+        return false;
       linkOne(plan, cursor, layer, i);
       outcome.stats.nodesExpanded++;
     }
@@ -1574,13 +1596,16 @@ Outcome runProfile(const Model &model, const Config &cfg) {
       outcome.stats.stoppedOnMemory = true;
       return outcome;
     }
+    // A zero allowance is deliberately NOT an early stop: a layer that then
+    // comes out empty is still a correct Unsolvable, and the stride bounds
+    // what gets built before the first check to `kLayerSlack` states.
     const size_t maxNext = (budgetBytes - spent) / kSweepStateBytes;
 
     next.clear();
     // Layers grow smoothly, so the previous one is a good guess for this one.
     // Without it a layer of millions rehashes its way up from nothing, which
     // measured as a third of the sweep's time on the widest board.
-    index.reset(prev.size() + prev.size() / 2,
+    index.reset(expectedStates(prev.size(), maxNext),
                 FrontierHash{.width = width,
                              .darts = static_cast<int>(plan.darts.size()),
                              .sizes = plan.trackSizes,
@@ -1595,17 +1620,9 @@ Outcome runProfile(const Model &model, const Config &cfg) {
                       .parent = parent,
                       .chose = chose};
     for (uint32_t i = 0; i < prev.size(); i++) {
-      // The stride: allowance and clock first, then the capacity top-up —
-      // that order is what caps the reserve at the allowance plus slack.
-      if (i % kInsertCheckStride == 0 && i != 0) {
-        if (next.size() > maxNext) {
-          outcome.stats.stoppedOnMemory = true;
-          return outcome;
-        }
-        if (budget.exhaustedNow())
-          return outcome;
-        topUpCapacity(next, maxNext);
-      }
+      if (i % kInsertCheckStride == 0 && i != 0 &&
+          !strideAllows(next, maxNext, budget, outcome.stats))
+        return outcome;
       expandOne(plan, cursor, layer, i);
       outcome.stats.nodesExpanded++;
     }

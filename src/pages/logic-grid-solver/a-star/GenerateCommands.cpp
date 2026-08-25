@@ -704,6 +704,36 @@ int displayedValue(SeededRng &rng, const rules::RuleMask mask,
 }
 
 /**
+ * The pair roll, run right after `letter` landed on `spot` — NESTED in the
+ * branch that just won a letter rather than appended after the myopia roll:
+ * two cells of one letter must share a region of the witness (`Verify`'s
+ * LetterSplit), and `cells` is the region known to hold it. Behind the same
+ * `> 0` short circuit as every later roll, so `--letter-pairs 0` draws
+ * nothing and every seed byte-reproduces. The two extra gates draw nothing,
+ * like `run.letter < kLetterCount` in the caller: the region needs a second
+ * free cell, and a one-symbol rule of the region's own color makes any
+ * two-symbol region unsatisfiable — this is the first mechanism that can ever
+ * put two clues in one region, so the first that has to ask.
+ */
+void pairLetter(ClueRun &run, const ClueChances &chances,
+                const std::vector<int> &cells, const int spot,
+                const int letter, const Colors &colors) {
+  if (const Rule oneSymbol = colors[slot(spot)] == kDark ? Rule::OneSymbolDark
+                                                         : Rule::OneSymbolLight;
+      chances.letterPair <= 0 || cells.size() < 2 ||
+      rules::has(run.puzzle.ruleMask, oneSymbol) ||
+      run.rng.uniform(0, 99) >= chances.letterPair)
+    return;
+  std::vector<int> others = cells;
+  std::erase(others, spot);
+  const int second =
+      others[slot(run.rng.uniform(0, static_cast<int>(others.size()) - 1))];
+  run.used.set(second);
+  run.puzzle.clues.push_back(
+      {.index = second, .kind = kClueLetter, .value = letter});
+}
+
+/**
  * Puts at most one clue on one region, reading its value off the coloring.
  *
  * The `rng` draws here are in a fixed order — the spot, the area roll, the
@@ -741,32 +771,7 @@ void clueOneRegion(ClueRun &run, const ClueChances &chances,
     run.used.set(spot);
     run.puzzle.clues.push_back(
         {.index = spot, .kind = kClueLetter, .value = letter});
-    // The pair roll, NESTED in the branch that just won a letter rather than
-    // appended after the myopia roll: two cells of one letter must share a
-    // region of the witness (`Verify`'s LetterSplit), and this region is the
-    // one known to hold it. Behind the same `> 0` short circuit as every
-    // later roll, so `--letter-pairs 0` draws nothing and every seed
-    // byte-reproduces. The two extra gates draw nothing, like
-    // `run.letter < kLetterCount` above: the region needs a second free cell,
-    // and a one-symbol rule of the region's own color makes any two-symbol
-    // region unsatisfiable — this is the first mechanism that can ever put
-    // two clues in one region, so the first that has to ask.
-    const Rule oneSymbol = colors[slot(spot)] == kDark ? Rule::OneSymbolDark
-                                                       : Rule::OneSymbolLight;
-    if (chances.letterPair > 0 && cells.size() >= 2 &&
-        !rules::has(mask, oneSymbol) &&
-        run.rng.uniform(0, 99) < chances.letterPair) {
-      std::vector<int> others;
-      for (const int cell : cells) {
-        if (cell != spot)
-          others.push_back(cell);
-      }
-      const int second = others[slot(
-          run.rng.uniform(0, static_cast<int>(others.size()) - 1))];
-      run.used.set(second);
-      run.puzzle.clues.push_back(
-          {.index = second, .kind = kClueLetter, .value = letter});
-    }
+    pairLetter(run, chances, cells, spot, letter, colors);
     run.letter++;
     return;
   }

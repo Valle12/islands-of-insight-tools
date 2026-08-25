@@ -1389,8 +1389,9 @@ The engine's load-bearing pieces:
     any coloring. So no key was added and no format version bumped, exactly
     as the galaxy's appending did not; and every reader dispatches on the
     kind's `aims`, now `"none" | "compass" | "axis" | "rays"`, because a
-    stored 5 is a legal mask, an illegal compass point and a legal axis, and
-    a branch that guessed from the number would be quietly wrong.
+    stored 3 is a legal mask, a legal compass point AND a legal axis — the
+    three readings overlap on every number from 1 to 3 — and a branch that
+    guessed from the number would be quietly wrong.
   - **The lines are cut by NOTHING**, which is the third different answer in
     `Puzzle.h` to a question that looks like one. A dart's ray is an unordered
     `Bits` with its own cell taken OUT; a viewpoint's rays are ordered and

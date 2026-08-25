@@ -411,8 +411,9 @@ Full detail in **`docs/logic-grid.md`**. What bites from outside:
 - **One `direction` key, THREE readings, told apart by `aims` alone**: the
   dart's compass point, the lotus's axis, and the myopia clue's arrow MASK
   (`aims: "rays"`, bit per `DIRECTIONS` entry, 1..15 — 0 is a real direction
-  and not a real mask). A stored 5 is legal as a mask and as an axis and
-  illegal as a compass point, so nothing may guess from the number.
+  and not a real mask). A stored 3 is legal in all three readings — the
+  fourth compass point, the fourth axis, and the mask "up and right" — so
+  nothing may guess from the number.
 - **Three C++ branches read an appended kind WRONGLY rather than refusing
   it**, and each compiles clean: `clueValueProblem`'s trailing block is the
   DART's, `buildClueTables`' trailing `else` is the LETTER's, and
@@ -982,7 +983,11 @@ wasm ──┬──▶ bun-test [shards]
   C++ and every suite downstream tests the stale binary — green and meaningless.
   **`EMSDK_VERSION` is pinned because the key assumes it** and must match in both
   workflows. `.github/actions/setup-wasm` is shared, so the emsdk pin and the
-  `BOOST_INCLUDE` symlink cannot drift.
+  `BOOST_INCLUDE` symlink cannot drift. **Bun is pinned too, through
+  `packageManager` in `package.json`** — `setup-bun` reads that field when a
+  step passes no `bun-version`, which is why none of the seven steps in the
+  two workflows does — so CI runs the bun installed locally rather than
+  whatever `latest` resolves to on the day. Bump the field, not the steps.
 - **`bun-test` fans out over six shards** — one per `*.slow.test.ts` plus one
   running everything else under `IOI_SKIP_SLOW=1`. Between them they run **every**
   test, so **the shard list and the slow-file set must move together**: gating a

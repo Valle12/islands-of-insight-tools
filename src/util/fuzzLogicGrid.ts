@@ -390,15 +390,20 @@ for (let i = 0; i < opts.count; i++) {
   // fixture or a report that will not parse is a DIVERGENCE to record, not a
   // reason to stop with the remaining seeds untried.
   let problems: string[];
-  let report: Report | null = null;
+  let outcome: string;
   try {
     const fixture = (await Bun.file(path).json()) as Record<string, unknown>;
-    report = await solve(opts, path);
+    const report = await solve(opts, path);
     problems = divergences(fixture, report);
+    outcome = outcomeOf(report);
   } catch (error) {
     problems = [`threw: ${error instanceof Error ? error.message : error}`];
+    // Its own column in the class table: a seed that THREW is neither a
+    // report the solver gave up on nor one it never wrote, and a table that
+    // filed it under either would hide the harness breaking.
+    outcome = "error";
   }
-  recordOutcome(classTally, classOf(opts, seed), outcomeOf(report));
+  recordOutcome(classTally, classOf(opts, seed), outcome);
   if (problems.length === 0) {
     if (!opts.keepAll) rmSync(path, { force: true });
     continue;

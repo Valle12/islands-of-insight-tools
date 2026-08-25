@@ -950,9 +950,9 @@ TEST(Myopia, AMyopiaIsNeitherAnAreaClueNorALetter) {
 /// against `Problem::Count` at compile time, so this is about the WORDING
 /// being reachable rather than about the entry existing.
 TEST(Myopia, EveryProblemHasAMessage) {
+  using enum Problem;
   for (const Problem problem :
-       {Problem::MyopiaValue, Problem::MyopiaArrows,
-        Problem::MyopiaArrowLeavesBoard}) {
+       {MyopiaValue, MyopiaArrows, MyopiaArrowLeavesBoard}) {
     EXPECT_STRNE(describe(problem), "Unknown problem");
   }
 }

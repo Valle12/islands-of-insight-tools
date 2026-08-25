@@ -91,7 +91,8 @@ function turned(index: number): (readonly [number, number])[] {
 function subpath(points: readonly (readonly [number, number])[]): string {
   const [first, ...rest] = points;
   const moveTo = `M${first![0]} ${first![1]}`;
-  return `${moveTo}${rest.map(([x, y]) => `L${x} ${y}`).join("")}Z`;
+  const lines = rest.map(([x, y]) => `L${x} ${y}`).join("");
+  return `${moveTo}${lines}Z`;
 }
 
 /**

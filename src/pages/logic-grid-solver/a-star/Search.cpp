@@ -99,33 +99,34 @@ private:
   uint8_t preferColor_ = kUnknown;
   bool aborted_ = false;
 
+  /// Marks a cell for `buildOrder`'s walk and queues it. A merged cell enters
+  /// the frontier whole — every square of it marked and queued together, so a
+  /// 1x5 bar is ONE hop from a clue rather than five, which is what "outwards
+  /// from the clues" means in the puzzle's own topology. Only its
+  /// representative reaches the order: the order is a list of choices, and a
+  /// merged cell is one choice.
+  void discover(const int index, Bits &seen, std::queue<int> &queue) const {
+    if (seen.test(index))
+      return;
+    if (model_.shapeAt[slot(index)] < 0) {
+      seen.set(index);
+      queue.push(index);
+      return;
+    }
+    const Bits mask = model_.cellMask(index);
+    for (int i = mask.nextSet(0); i >= 0; i = mask.nextSet(i + 1)) {
+      seen.set(i);
+      queue.push(i);
+    }
+  }
+
   /// Cells in the order the search prefers to settle them: outwards from the
   /// clues, which is where every constraint that can bite actually lives.
   void buildOrder() {
     Bits seen;
     std::queue<int> queue;
-    // A merged cell enters the frontier whole — every square of it marked and
-    // queued together, so a 1x5 bar is ONE hop from a clue rather than five,
-    // which is what "outwards from the clues" means in the puzzle's own
-    // topology. Only its representative reaches the order: the order is a list
-    // of choices, and a merged cell is one choice.
-    const auto discover = [&](const int index) {
-      if (seen.test(index))
-        return;
-      if (model_.shapeAt[slot(index)] < 0) {
-        seen.set(index);
-        queue.push(index);
-        return;
-      }
-      const Bits mask = model_.cellMask(index);
-      for (int i = mask.nextSet(0); i >= 0; i = mask.nextSet(i + 1)) {
-        seen.set(i);
-        queue.push(i);
-      }
-    };
-
     for (const Clue &clue : model_.puzzle.clues)
-      discover(clue.index);
+      discover(clue.index, seen, queue);
     // A board with no clues has nothing to grow outwards from, and the
     // sweep-up below then IS the whole order — plain raster. The givens are
     // where the constraints live on such a board, so the walk radiates from
@@ -136,7 +137,7 @@ private:
       for (int i = model_.playable.nextSet(0); i >= 0;
            i = model_.playable.nextSet(i + 1)) {
         if (model_.puzzle.givens[slot(i)] != kUnknown)
-          discover(i);
+          discover(i, seen, queue);
       }
     }
     while (!queue.empty()) {
@@ -152,7 +153,7 @@ private:
         if (nx < 0 || nx >= kStride || ny < 0 || ny >= kMaxSide)
           continue;
         if (const int next = cellIndex(nx, ny); model_.playable.test(next))
-          discover(next);
+          discover(next, seen, queue);
       }
     }
     for (int i = model_.representatives.nextSet(0); i >= 0;

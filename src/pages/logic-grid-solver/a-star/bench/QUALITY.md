@@ -168,6 +168,13 @@ clock is not the interesting number — what a regression looks like here is a
 board falling out of `cascade:deduce` into the sweep, out of the sweep into the
 DFS, or out of the DFS entirely.
 
+One row can flip without any of that: `logicGridTest67`'s witness sweep takes
+~31 s, and at the bench's 60 s budget the cascade's profile slice is about
+that, so a slow run reports it `unsolved` where the last one said `solved`.
+Before reading that as a regression, run both binaries with `--engine profile
+--budget-ms 120000` — the sweep is deterministic, so identical `nodes`
+(72 640 308) and a clock within noise means the search did not change.
+
 ## The IIT-45 batch: both open moves cashed in (measured 2026-08-19)
 
 The two hard captures of the 495–516 batch are what forced them.
@@ -193,9 +200,12 @@ walk away from exactly the joins where its refutations live.
 |---|---|---|
 | `logicGridTest510` (16×16, connect-dark + no-dark-T + a dark run of four, no clues) | 65 M nodes, no witness, at 120 s | **solved, 7.6 s native / 12.5 s wasm32, 8.0 M nodes** |
 
-The whole 494-board corpus held its statuses, decided counts and proofs across
-both changes (`bench:lg --diff`: an empty table), with board 67 paying the one
-measured cost — the widened 88-byte frontier state — inside its budgets.
+The 494 boards of the pre-IIT-45 corpus — the baseline was shot before the
+batch landed, and `--diff` joins on fixture name, so the 22 new boards have no
+"before" row and are skipped — held their statuses, decided counts and proofs
+across both changes (`bench:lg --diff`: an empty table), with board 67 paying
+the one measured cost — the widened 88-byte frontier state — inside its
+budgets.
 
 **The first `--big-sparse` campaign** (360 seeds, 120 s budgets, 2026-08-20): **zero
 divergences** — soundness holds across every class — and the per-class table below is the

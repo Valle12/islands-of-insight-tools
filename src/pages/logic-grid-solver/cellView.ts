@@ -58,7 +58,7 @@ function listRays(mask: number | undefined): string {
     direction.label.toLowerCase(),
   );
   if (names.length < 2) return names[0] ?? "nowhere";
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)!}`;
 }
 
 /** Which quarter of a seated glyph a copy draws, and what lies under it. */

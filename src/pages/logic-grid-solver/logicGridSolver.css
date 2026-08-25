@@ -610,7 +610,7 @@ h2 {
   width: var(--ray-span);
   height: var(--ray-span);
   /* Painted in the cell's own ink, like every other glyph on a tile. */
-  fill: currentColor;
+  fill: currentcolor;
   /* The tips run to the edge of the box and a stroke would round outside it;
      nothing here is stroked, and saying so keeps it that way. */
   stroke: none;

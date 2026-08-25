@@ -1019,31 +1019,48 @@ bool propagateViewpoints(const Model &model, Domains &domains) {
  * never set — the nearest other color is at least one square away, its own
  * square being its own color.
  */
+/// Whether one direction of a myopia clue still admits `distance` as the
+/// nearest other-colored square: an arrowed direction needs a square that far
+/// which MAY be the other color, and every direction needs nothing nearer
+/// that IS.
+bool rayAdmits(const Domains &domains, const Myopia &myopia,
+               const uint8_t other, const int direction, const int distance) {
+  const auto &ray = myopia.rays[slot(direction)];
+  const int length = static_cast<int>(ray.size());
+  const bool arrowed = (myopia.arrows & (1 << direction)) != 0;
+  if (arrowed && (length < distance ||
+                  !domains.possible(other).test(ray[slot(distance - 1)])))
+    return false;
+  // An arrow needs a square to point AT; a direction without one needs only
+  // to stay clear for as long, which one shorter than the board already does.
+  const int clear = arrowed ? distance - 1 : std::min(distance, length);
+  for (int i = 0; i < clear; i++) {
+    if (domains.definite(other).test(ray[slot(i)]))
+      return false;
+  }
+  return true;
+}
+
+/// Whether all four directions admit `distance` — see `rayAdmits`.
+bool distanceFits(const Domains &domains, const Myopia &myopia,
+                  const uint8_t other, const int distance) {
+  for (int direction = 0; direction < kDirectionCount; direction++) {
+    if (!rayAdmits(domains, myopia, other, direction, distance))
+      return false;
+  }
+  return true;
+}
+
 uint32_t myopiaMinima(const Domains &domains, const Myopia &myopia,
                       const uint8_t color) {
   const uint8_t other = opposite(color);
   int longest = 0;
-  for (const std::vector<int16_t> &ray : myopia.rays)
+  for (const auto &ray : myopia.rays)
     longest = std::max(longest, static_cast<int>(ray.size()));
 
   uint32_t minima = 0;
   for (int distance = 1; distance <= longest; distance++) {
-    bool fits = true;
-    for (int direction = 0; fits && direction < kDirectionCount; direction++) {
-      const std::vector<int16_t> &ray = myopia.rays[slot(direction)];
-      const int length = static_cast<int>(ray.size());
-      const bool arrowed = (myopia.arrows & (1 << direction)) != 0;
-      // An arrow needs a square to point AT; a direction without one needs
-      // only to stay clear for as long, which one shorter than the board
-      // already does.
-      const int clear = arrowed ? distance - 1 : std::min(distance, length);
-      fits = !arrowed ||
-             (length >= distance &&
-              domains.possible(other).test(ray[slot(distance - 1)]));
-      for (int i = 0; fits && i < clear; i++)
-        fits = !domains.definite(other).test(ray[slot(i)]);
-    }
-    if (fits)
+    if (distanceFits(domains, myopia, other, distance))
       minima |= uint32_t{1} << distance;
   }
   return minima;
@@ -1068,7 +1085,7 @@ bool myopiaDeduce(Domains &domains, const Myopia &myopia, const uint8_t color,
   const bool settled = std::has_single_bit(minima);
 
   for (int direction = 0; direction < kDirectionCount; direction++) {
-    const std::vector<int16_t> &ray = myopia.rays[slot(direction)];
+    const auto &ray = myopia.rays[slot(direction)];
     const int length = static_cast<int>(ray.size());
     const bool arrowed = (myopia.arrows & (1 << direction)) != 0;
     const int clear = std::min(arrowed ? nearest - 1 : nearest, length);
@@ -1484,10 +1501,27 @@ bool hasAreaRule(const Model &model) {
   return !model.puzzle.areas.empty();
 }
 
-bool propagateGlobal(const Model &model, Domains &domains) {
+/// Whether either color has to be connected.
+bool hasConnectRule(const Model &model) {
+  return model.hasRule(Rule::ConnectDark) || model.hasRule(Rule::ConnectLight);
+}
+
+/// Whether any of the four region-shape rules is on.
+bool hasShapeRule(const Model &model) {
   using enum Rule;
-  if ((model.hasRule(ConnectDark) || model.hasRule(ConnectLight)) &&
-      !propagateConnectivity(model, domains))
+  return model.hasRule(DistinctShapesDark) ||
+         model.hasRule(DistinctShapesLight) || model.hasRule(SameShapeDark) ||
+         model.hasRule(SameShapeLight);
+}
+
+/// Whether either color's regions are held to one symbol each.
+bool hasOneSymbolRule(const Model &model) {
+  return model.hasRule(Rule::OneSymbolDark) ||
+         model.hasRule(Rule::OneSymbolLight);
+}
+
+bool propagateGlobal(const Model &model, Domains &domains) {
+  if (hasConnectRule(model) && !propagateConnectivity(model, domains))
     return false;
   // Outside the `clued` guard below on purpose: a board can carry this rule and
   // no clues at all, and then nothing else here would run.
@@ -1495,9 +1529,7 @@ bool propagateGlobal(const Model &model, Domains &domains) {
     return false;
   // Outside the `clued` guard for the same reason, and beside the area rule
   // because `sameShape` borrows its engine once a region has closed.
-  if ((model.hasRule(DistinctShapesDark) || model.hasRule(DistinctShapesLight) ||
-       model.hasRule(SameShapeDark) || model.hasRule(SameShapeLight)) &&
-      !propagateRegionShapes(model, domains))
+  if (hasShapeRule(model) && !propagateRegionShapes(model, domains))
     return false;
   if (!model.areaClues.empty() && !propagateAreas(model, domains))
     return false;
@@ -1513,8 +1545,7 @@ bool propagateGlobal(const Model &model, Domains &domains) {
     return false;
   if (!model.letters.empty() && !propagateLetters(domains, model))
     return false;
-  if ((model.hasRule(OneSymbolDark) || model.hasRule(OneSymbolLight)) &&
-      !propagateSymbolCounts(model, domains))
+  if (hasOneSymbolRule(model) && !propagateSymbolCounts(model, domains))
     return false;
   // Exactly what `propagateMerges` can say something about: how big a region
   // may be, from a clue OR from a rule, and how many clues or letters it may
@@ -1523,8 +1554,7 @@ bool propagateGlobal(const Model &model, Domains &domains) {
   // with nothing but darts on it — but it says nothing about a region's size,
   // so a dart-only board with none of these must not pay for the pass.
   const bool merges = !model.areaClues.empty() || !model.letters.empty() ||
-                      model.hasRule(OneSymbolDark) ||
-                      model.hasRule(OneSymbolLight) || hasAreaRule(model);
+                      hasOneSymbolRule(model) || hasAreaRule(model);
   return !merges || propagateMerges(model, domains);
 }
 
